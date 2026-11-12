@@ -10,6 +10,9 @@
 //! - **Following.** Prepaint runs whenever the element's bounds or clip change (a cached view re-renders when either
 //!   does), so a resize, a scroll or a panel moving re-places it. The container keeps its distance from the top of
 //!   GPUI's (unflipped) view when the window resizes, so it does not jump for the frame before.
+//! - **Cutouts.** GPUI controls can still float over the page ([`WebHost::set_cutouts`]): the container's layer is
+//!   masked with a hole of the control's shape, so GPUI's drawing under it shows, and its hit test sends the mouse
+//!   there to GPUI's view. A cutout can also pass the mouse only, the page still drawn (a resize edge over the page).
 //! - **Hiding.** The owner says whether the page is shown ([`WebHost::set_shown`]): a tab that is not drawn runs no
 //!   prepaint, so it could not hide by itself. A GPUI overlay open over the window ([`set_overlay_open`]) hides every
 //!   page too, since GPUI would draw it under the page.
@@ -132,6 +135,24 @@ pub fn placement(document: Bounds<Pixels>, clip: Bounds<Pixels>) -> Option<Place
     Some(Placement { visible, inner })
 }
 
+/// A part of the page GPUI keeps (window coordinates): a rounded hole the page does not draw in, so a GPUI control
+/// drawn there shows, or with `see_through` off only a place the page lets the mouse go through to GPUI.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cutout {
+    pub bounds: Bounds<Pixels>,
+    pub radius: Pixels,
+    pub see_through: bool,
+}
+
+/// `cutout`'s bounds relative to the top-left of the container at `visible`, or `None` when they do not meet.
+pub fn local_cutout(cutout: &Cutout, visible: Bounds<Pixels>) -> Option<Bounds<Pixels>> {
+    let met = cutout.bounds.intersect(&visible);
+    if f32::from(met.size.width) <= 0.0 || f32::from(met.size.height) <= 0.0 {
+        return None;
+    }
+    Some(Bounds { origin: point(met.origin.x - visible.origin.x, met.origin.y - visible.origin.y), size: met.size })
+}
+
 /// A frame in AppKit's coordinates: from the bottom-left of the containing view unless that view is flipped.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NativeRect {
@@ -192,6 +213,7 @@ pub struct WebHost {
     overlay: bool,
     document: Option<Bounds<Pixels>>,
     placement: Option<Placement>,
+    cutouts: Vec<Cutout>,
     _task: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -247,6 +269,7 @@ impl WebHost {
             overlay: overlays,
             document: None,
             placement: None,
+            cutouts: Vec::new(),
             _task: task,
             _subscriptions: subscriptions,
         }
@@ -304,6 +327,20 @@ impl WebHost {
         self.document
     }
 
+    /// The GPUI controls over the page, in window coordinates, each frame they are drawn. Set after the page's own
+    /// prepaint (the controls are drawn after it); the native mask and hit test follow at once.
+    pub fn set_cutouts(&mut self, cutouts: Vec<Cutout>) {
+        if self.cutouts == cutouts {
+            return;
+        }
+        self.cutouts = cutouts;
+        self.apply();
+    }
+
+    pub fn cutouts(&self) -> &[Cutout] {
+        &self.cutouts
+    }
+
     /// The prepaint of the element: the page goes where its bounds and the clip say.
     fn place(&mut self, document: Bounds<Pixels>, clip: Bounds<Pixels>) -> Option<Placement> {
         self.document = Some(document);
@@ -325,7 +362,7 @@ impl WebHost {
             if self.placement.is_none() {
                 native.release_focus();
             }
-            native.apply(self.placement);
+            native.apply(self.placement, &self.cutouts);
         }
     }
 
@@ -373,6 +410,11 @@ impl WebHost {
     /// reaches the page. `None` without a native view or while hidden.
     pub fn native_report(&self) -> Option<native::Report> {
         self.native.as_ref().and_then(native::Native::report)
+    }
+
+    /// For checks: whether AppKit's hit test at `at` (window coordinates, top-left) lands in the page.
+    pub fn native_hits_page(&self, at: gpui::Point<Pixels>) -> Option<bool> {
+        self.native.as_ref().and_then(|native| native.hits_page(at))
     }
 }
 
@@ -474,21 +516,69 @@ fn serve(handler: &ProtocolHandler, request: &wry::http::Request<Vec<u8>>) -> wr
 pub mod native {
     //! The AppKit side: the wry webview inside a clipping container in GPUI's view.
 
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     use objc2::rc::Retained;
-    use objc2::{MainThreadMarker, MainThreadOnly as _};
+    use objc2::{DefinedClass as _, MainThreadMarker, MainThreadOnly, define_class, msg_send};
     use objc2_app_kit::{
         NSAppearance, NSAppearanceCustomization as _, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions, NSView,
     };
+    use objc2_core_graphics::CGMutablePath;
     use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use objc2_quartz_core::{CALayer, CAShapeLayer, CATransaction, kCAFillRuleEvenOdd};
     use wry::WebViewExtMacOS as _;
 
-    use super::{NativeRect, Placement, Signal, WebHostOptions, serve, to_appkit};
+    use gpui::Pixels;
+
+    use super::{Cutout, NativeRect, Placement, Signal, WebHostOptions, local_cutout, serve, to_appkit};
+
+    /// The container's cutouts in its own coordinates (AppKit's, from the bottom-left).
+    #[derive(Default)]
+    pub struct ClipIvars {
+        /// Where the mouse goes through to GPUI's view.
+        pass: RefCell<Vec<NSRect>>,
+    }
+
+    define_class!(
+        // SAFETY: NSView has no subclassing requirements; `ClipView` does not implement `Drop`.
+        #[unsafe(super(NSView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "MilagreWebClipView"]
+        #[ivars = ClipIvars]
+        pub struct ClipView;
+
+        impl ClipView {
+            /// A point in a cutout is GPUI's: no view of the page takes it, so AppKit hands it to GPUI's view.
+            // SAFETY: the signature is NSView's `hitTest:`.
+            #[unsafe(method(hitTest:))]
+            fn hit_test(&self, point: NSPoint) -> *mut NSView {
+                // `point` is in the superview's coordinates; the cutouts are in ours.
+                // SAFETY: AppKit view tree read on the main thread.
+                let local = self.convertPoint_fromView(point, unsafe { self.superview() }.as_deref());
+                let inside = |r: &NSRect| {
+                    local.x >= r.origin.x && local.x < r.origin.x + r.size.width && local.y >= r.origin.y && local.y < r.origin.y + r.size.height
+                };
+                if self.ivars().pass.borrow().iter().any(inside) {
+                    return std::ptr::null_mut();
+                }
+                // SAFETY: NSView's own `hitTest:` with the same argument; its (unretained) view is handed on as is.
+                unsafe { msg_send![super(self), hitTest: point] }
+            }
+        }
+    );
+
+    impl ClipView {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ClipIvars::default());
+            // SAFETY: NSView's designated initialiser.
+            unsafe { msg_send![super(this), initWithFrame: NSRect::ZERO] }
+        }
+    }
 
     pub struct Native {
         pub(super) webview: Rc<wry::WebView>,
-        clip: Retained<NSView>,
+        clip: Retained<ClipView>,
         parent: Retained<NSView>,
     }
 
@@ -549,8 +639,10 @@ pub mod native {
             // SAFETY: on the main thread, right after wry added the webview to GPUI's view.
             let parent = unsafe { page.superview() }.ok_or("the webview has no parent view")?;
             let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
-            let clip = NSView::initWithFrame(NSView::alloc(mtm), NSRect::ZERO);
+            let clip = ClipView::new(mtm);
             clip.setClipsToBounds(true);
+            // Layer-backed, for the cutouts' mask.
+            clip.setWantsLayer(true);
             // GPUI's view is not flipped: keep the distance from its top while the window resizes.
             clip.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinYMargin);
             clip.setHidden(true);
@@ -562,7 +654,7 @@ pub mod native {
             Ok(native)
         }
 
-        pub(super) fn apply(&self, placement: Option<Placement>) {
+        pub(super) fn apply(&self, placement: Option<Placement>, cutouts: &[Cutout]) {
             let Some(placement) = placement else {
                 self.clip.setHidden(true);
                 return;
@@ -571,7 +663,56 @@ pub mod native {
             self.clip.setFrame(ns_rect(outer));
             let inner = to_appkit(placement.inner, outer.height, self.clip.isFlipped());
             self.webview.webview().setFrame(ns_rect(inner));
+            self.cut(placement, cutouts, outer.height);
             self.clip.setHidden(false);
+        }
+
+        /// The mask with a hole per see-through cutout, and the hit test's pass list.
+        fn cut(&self, placement: Placement, cutouts: &[Cutout], height: f64) {
+            let flipped = self.clip.isFlipped();
+            let mut pass = Vec::new();
+            let mut holes = Vec::new();
+            for cutout in cutouts {
+                let Some(local) = local_cutout(cutout, placement.visible) else { continue };
+                let rect = ns_rect(to_appkit(local, height, flipped));
+                pass.push(rect);
+                if cutout.see_through {
+                    let radius = f64::from(f32::from(cutout.radius)).min(rect.size.width / 2.0).min(rect.size.height / 2.0);
+                    holes.push((rect, radius));
+                }
+            }
+            *self.clip.ivars().pass.borrow_mut() = pass;
+            let Some(layer) = self.layer() else { return };
+            // No implicit animation: the mask moves with the frame it is set in.
+            CATransaction::begin();
+            CATransaction::setDisableActions(true);
+            if holes.is_empty() {
+                // SAFETY: the mask is a fresh layer of no other tree; main thread.
+                unsafe { layer.setMask(None) };
+            } else {
+                let bounds = self.clip.bounds();
+                let path = CGMutablePath::new();
+                // SAFETY: a fresh path and a null transform.
+                unsafe {
+                    CGMutablePath::add_rect(Some(&path), std::ptr::null(), bounds);
+                    for (rect, radius) in &holes {
+                        CGMutablePath::add_rounded_rect(Some(&path), std::ptr::null(), *rect, *radius, *radius);
+                    }
+                }
+                let mask = CAShapeLayer::new();
+                mask.setFrame(bounds);
+                mask.setPath(Some(&path));
+                // SAFETY: Core Animation's constant, read on the main thread.
+                mask.setFillRule(unsafe { kCAFillRuleEvenOdd });
+                // SAFETY: as above.
+                unsafe { layer.setMask(Some(&mask)) };
+            }
+            CATransaction::commit();
+        }
+
+        fn layer(&self) -> Option<Retained<CALayer>> {
+            // SAFETY: `layer` on a layer-backed view, on the main thread.
+            unsafe { msg_send![&*self.clip, layer] }
         }
 
         fn has_focus(&self) -> bool {
@@ -591,6 +732,17 @@ pub mod native {
             let name = unsafe { if dark { NSAppearanceNameDarkAqua } else { NSAppearanceNameAqua } };
             let appearance = NSAppearance::appearanceNamed(name);
             self.webview.webview().setAppearance(appearance.as_deref());
+        }
+
+        pub(super) fn hits_page(&self, at: gpui::Point<Pixels>) -> Option<bool> {
+            let window = self.clip.window()?;
+            let content = window.contentView()?;
+            let height = content.frame().size.height;
+            let point = NSPoint::new(f64::from(f32::from(at.x)), height - f64::from(f32::from(at.y)));
+            // SAFETY: AppKit view tree read on the main thread.
+            let at = unsafe { content.superview() }.map_or(point, |frame_view| frame_view.convertPoint_fromView(point, None));
+            let page = self.webview.webview();
+            Some(content.hitTest(at).is_some_and(|view| view.isDescendantOf(&page)))
         }
 
         pub(super) fn report(&self) -> Option<Report> {
@@ -657,6 +809,18 @@ mod tests {
     fn a_page_entirely_outside_its_clip_is_not_placed() {
         assert_eq!(placement(rect(0.0, 900.0, 100.0, 100.0), rect(0.0, 0.0, 1440.0, 900.0)), None);
         assert_eq!(placement(rect(0.0, 0.0, 0.0, 100.0), rect(0.0, 0.0, 1440.0, 900.0)), None);
+    }
+
+    #[test]
+    fn a_cutout_is_cut_to_the_page_and_counted_from_its_corner() {
+        let visible = rect(600.0, 85.0, 560.0, 700.0);
+        let pill = Cutout { bounds: rect(616.0, 740.0, 150.0, 36.0), radius: px(18.0), see_through: true };
+        assert_eq!(local_cutout(&pill, visible), Some(rect(16.0, 655.0, 150.0, 36.0)));
+        // Half past the page's left edge: only the half over the page counts.
+        let edge = Cutout { bounds: rect(596.0, 85.0, 9.0, 700.0), radius: px(0.0), see_through: false };
+        assert_eq!(local_cutout(&edge, visible), Some(rect(0.0, 0.0, 5.0, 700.0)));
+        let away = Cutout { bounds: rect(0.0, 0.0, 10.0, 10.0), radius: px(0.0), see_through: true };
+        assert_eq!(local_cutout(&away, visible), None);
     }
 
     #[test]

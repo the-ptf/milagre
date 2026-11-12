@@ -300,7 +300,7 @@ fn open_tab(panel: &Entity<Panel>, cx: &mut VisualTestContext) {
 }
 
 #[gpui::test]
-fn the_page_fills_the_body_under_the_page_bar(cx: &mut TestAppContext) {
+fn the_page_fills_the_body_with_the_pills_floating_over_it(cx: &mut TestAppContext) {
     let (panel, view, cx) = mount(cx);
     assert!(!view.read_with(cx, |view, _| view.is_shown()), "the panel opens on Changes");
     open_tab(&panel, cx);
@@ -311,8 +311,15 @@ fn the_page_fills_the_body_under_the_page_bar(cx: &mut TestAppContext) {
     assert_eq!(placed.visible, body, "the page covers exactly the page body");
     assert_eq!(placed.inner.origin, gpui::point(px(0.0), px(0.0)));
     assert_eq!(panel.read_with(cx, |panel, _| panel.width()), 320.0, "the shared default width");
-    let bar = testing::bounds(cx, "artifact-zoom");
-    assert!(bar.bottom() <= body.top(), "the zoom sits above the page, never over it");
+    // The pills float over the page's corners, and the page leaves a hole for each (the glass's 1px ring included).
+    let zoom = testing::bounds(cx, "artifact-zoom-bar");
+    let tabs = testing::bounds(cx, "artifact-tabs");
+    assert!(body.contains(&zoom.origin) && body.contains(&tabs.origin), "{zoom:?} and {tabs:?} over {body:?}");
+    assert!(zoom.bottom() < body.bottom() && zoom.left() > body.left(), "the zoom at the bottom-left");
+    assert!(tabs.top() > body.top() && tabs.bottom() < zoom.top(), "the page tabs at the top-left");
+    let cutouts = host.read_with(cx, |host, _| host.cutouts().to_vec());
+    let holes: Vec<_> = cutouts.iter().filter(|c| c.see_through).map(|c| c.bounds).collect();
+    assert_eq!(holes, vec![tabs.dilate(px(1.0)), zoom.dilate(px(1.0))]);
 }
 
 #[gpui::test]
@@ -409,8 +416,11 @@ fn an_html_reply_opens_its_page_in_the_tab(cx: &mut TestAppContext) {
     assert_eq!(panel.read_with(cx, |panel, _| panel.active()), PanelTab::Artifact);
     assert!(view.read_with(cx, |view, _| view.is_shown()));
     assert_eq!(view.read_with(cx, |view, _| view.page().id.clone()).as_ref(), REPLY_PAGE);
-    assert!(testing::bounds(cx, "artifact-title").size.width > px(0.0), "a one-tab page shows its title, no tab row");
+    assert!(cx.debug_bounds("artifact-tabs").is_none(), "a one-tab page has no tabs pill");
     assert!(cx.debug_bounds("artifact-tab-overview").is_none());
+    let host = view.read_with(cx, |view, _| view.host().cloned()).unwrap();
+    let holes = host.read_with(cx, |host, _| host.cutouts().iter().filter(|c| c.see_through).count());
+    assert_eq!(holes, 1, "only the zoom's");
 }
 
 #[gpui::test]

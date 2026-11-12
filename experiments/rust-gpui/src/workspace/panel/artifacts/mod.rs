@@ -3,9 +3,11 @@
 //!
 //! Ported from `ArtifactPage.tsx` and the Artifacts half of `ArtifactDock` (`ArtifactCard.tsx`). What differs:
 //!
-//! - The page fills the panel body under a 40px page bar, instead of a floating dock. GPUI cannot draw over the page
-//!   (D1), so the zoom bar sits in the page bar instead of floating over the page, and a page split into tabs shows
-//!   them as a row of tabs instead of the title's menu (a menu would open under the page).
+//! - The page fills the whole panel body, instead of a floating dock. The zoom bar floats over the page's bottom-left
+//!   corner as on the desktop, and a page split into tabs shows them in a pill at its top-left instead of the title's
+//!   menu (a menu would open under the page). Both are GPUI glass pills: a native page draws above GPUI (D1), so the
+//!   host cuts a hole of each pill's shape in the page ([`Cutout`]) and GPUI's pill shows through it, over the page's
+//!   paper, and takes the mouse there.
 //! - Zoom is WebKit's page zoom, which lays the page out at the width it then fits, as the desktop's scaled iframe
 //!   does. Ctrl-wheel or a pinch over the page zooms about the pointer, a double-click away from text fits, and the
 //!   fit is the page's own width when it is wider than the panel, else 100%.
@@ -29,20 +31,23 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{
-    App, ClickEvent, Context, Entity, FontWeight, Global, Pixels, Rgba, ScrollHandle, SharedString, Subscription, WeakEntity, Window,
-    canvas, div, point, prelude::*, px, rgb,
+    App, Bounds, ClickEvent, Context, Entity, FontWeight, Global, Pixels, Rgba, ScrollHandle, SharedString, Subscription, WeakEntity,
+    Window, canvas, div, point, prelude::*, px, rgb,
 };
 
 use self::fixture::HtmlArtifact;
 use self::messages::PageMessage;
 use self::protocol::Previews;
 use super::{Panel, PanelTab};
-use crate::platform::webview::{HostRequest, WebEvent, WebHost, WebHostOptions};
-use crate::theme::{ActiveTheme, Appearance, TEXT_12, TEXT_13, TextStepExt, Theme};
-use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconName, IconSize, Tab};
+use crate::platform::webview::{Cutout, HostRequest, WebEvent, WebHost, WebHostOptions};
+use crate::theme::{ActiveTheme, Appearance, TEXT_12, TextStepExt, Theme};
+use crate::ui::glass::{GLASS_BLUR, GLASS_PILL_FILL};
+use crate::ui::{Button, ButtonSize, ButtonVariant, Glass, IconButton, IconButtonSize, IconName, Tab};
 
-/// The page bar under the panel's tab strip: the title or the page's tabs, and the zoom.
-const PAGE_BAR_HEIGHT: Pixels = px(40.0);
+/// How far the floating pills sit from the page's edges (the desktop's `bottom-4 left-4`).
+const PILL_INSET: Pixels = px(16.0);
+/// The pills' padding around their buttons.
+const PILL_PAD: Pixels = px(4.0);
 /// DESIGN.md `paper`: a page that stays white in every theme (not in `theme/` yet). Shows while the page loads.
 const PAPER: u32 = 0xffffff;
 /// The zoom's range and step (`ArtifactPage.tsx`, the zoom bar's buttons).
@@ -105,6 +110,8 @@ pub struct ArtifactsView {
     error: Option<String>,
     probe: Option<probe::Mode>,
     probe_scroll: ScrollHandle,
+    /// The pills drawn this frame (the page tabs, the zoom), which the host cuts out of the page.
+    pills: [Option<Bounds<Pixels>>; 2],
     renders: usize,
     _subscriptions: Vec<Subscription>,
 }
@@ -138,6 +145,7 @@ impl ArtifactsView {
             error: None,
             probe: if cfg!(test) { None } else { probe::Mode::from_env() },
             probe_scroll: ScrollHandle::new(),
+            pills: [None; 2],
             renders: 0,
             _subscriptions: vec![observe],
         };
@@ -364,34 +372,75 @@ impl ArtifactsView {
         self.host = Some(host);
     }
 
-    fn page_bar(&self, theme: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// Pill `slot` was drawn at `bounds` (window coordinates): the page lets it show and takes no mouse there.
+    fn set_pill(&mut self, slot: usize, bounds: Option<Bounds<Pixels>>, cx: &mut Context<Self>) {
+        self.pills[slot] = bounds;
+        let cutouts = self
+            .pills
+            .iter()
+            .flatten()
+            // The glass's edge is a ring 1px outside the pill.
+            .map(|bounds| Cutout { bounds: bounds.dilate(px(1.0)), radius: px(f32::MAX), see_through: true })
+            .collect();
+        if let Some(host) = &self.host {
+            host.update(cx, |host, _| host.set_cutouts(cutouts));
+        }
+    }
+
+    /// A floating glass pill (the composer's jump pill): `content` in a capsule, reporting where it is drawn.
+    fn pill(&self, id: &'static str, slot: usize, theme: &Theme, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let view = cx.entity().downgrade();
+        let report = canvas(
+            move |bounds, _, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |view, cx| view.set_pill(slot, Some(bounds), cx));
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
+        let glass =
+            Glass::new(GLASS_BLUR, gpui::Hsla::from(theme.surface).opacity(GLASS_PILL_FILL)).edge(theme.line).outset().radius(px(f32::MAX));
+        div()
+            .id(id)
+            .debug_selector(move || id.to_string())
+            .absolute()
+            .left(PILL_INSET)
+            .flex()
+            .items_center()
+            .gap(px(2.0))
+            .p(PILL_PAD)
+            .rounded_full()
+            .child(glass)
+            .child(report)
+            // A press on a pill is the pill's, not the page's.
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+    }
+
+    /// The page's tabs, in a pill at the page's top-left (only for a page split into tabs).
+    fn tabs_pill(&self, theme: &Theme, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.page.has_tabs() {
+            return None;
+        }
+        let pill = self.pill("artifact-tabs", 0, theme, cx);
         let active = self.tab_id();
-        let title: gpui::AnyElement = if self.page.has_tabs() {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(2.0))
-                .min_w_0()
-                .overflow_hidden()
-                .children(self.page.tabs.iter().map(|tab| {
-                    let id = tab.id.clone();
-                    Tab::new(SharedString::from(format!("artifact-tab-{}", tab.id)), tab.title.clone())
-                        .selector(format!("artifact-tab-{}", tab.id))
-                        .active(tab.id == active)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tab(id.clone(), cx)))
-                }))
-                .into_any_element()
-        } else {
-            div()
-                .min_w_0()
-                .truncate()
-                .text_step(TEXT_13)
-                .text_color(theme.ink)
-                .debug_selector(|| "artifact-title".to_string())
-                .child(self.page.title.clone())
-                .into_any_element()
-        };
-        // The page's zoom bar (`ZoomBar.tsx`): Hugeicons MinusSign, PlusSign and FitToScreen in 28px pill buttons.
+        let tabs = self.page.tabs.iter().map(|tab| {
+            let id = tab.id.clone();
+            Tab::new(SharedString::from(format!("artifact-tab-{}", tab.id)), tab.title.clone())
+                .selector(format!("artifact-tab-{}", tab.id))
+                .active(tab.id == active)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tab(id.clone(), cx)))
+        });
+        Some(pill.top(PILL_INSET).children(tabs).into_any_element())
+    }
+
+    /// The page's zoom bar (`ZoomBar.tsx`), floating at its bottom-left: Hugeicons MinusSign, PlusSign and FitToScreen
+    /// in 28px pill buttons, the reading between them.
+    fn zoom_pill(&self, theme: &Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let pill = self.pill("artifact-zoom-bar", 1, theme, cx);
         let button = |id: &'static str, icon: IconName, on_click: fn(&mut Self, &mut Context<Self>)| {
             IconButton::new(id, icon)
                 .size(IconButtonSize::S28)
@@ -399,33 +448,19 @@ impl ArtifactsView {
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on_click(this, cx)))
         };
         let zoom = format!("{}%", (self.scale * 100.0).round());
-        div()
-            .flex_none()
-            .h(PAGE_BAR_HEIGHT)
-            .px_3()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(Icon::new(IconName::File01).size(IconSize::S14).color(theme.ink2))
-            .child(div().flex_1().min_w_0().child(title))
+        pill.bottom(PILL_INSET)
+            .child(button("artifact-zoom-out", IconName::MinusSign, |this, cx| this.zoom_by(1.0 / ZOOM_STEP, cx)))
             .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(px(2.0))
-                    .child(button("artifact-zoom-out", IconName::MinusSign, |this, cx| this.zoom_by(1.0 / ZOOM_STEP, cx)))
-                    .child(
-                        Button::new("artifact-zoom", zoom)
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::S24)
-                            .selector("artifact-zoom")
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_to(1.0, None, cx))),
-                    )
-                    .child(button("artifact-zoom-in", IconName::PlusSign, |this, cx| this.zoom_by(ZOOM_STEP, cx)))
-                    .child(div().mx(px(2.0)).h(px(16.0)).w(px(1.0)).bg(theme.line))
-                    .child(button("artifact-fit", IconName::FitToScreen, Self::fit)),
+                Button::new("artifact-zoom", zoom)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::S24)
+                    .selector("artifact-zoom")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.zoom_to(1.0, None, cx))),
             )
+            .child(button("artifact-zoom-in", IconName::PlusSign, |this, cx| this.zoom_by(ZOOM_STEP, cx)))
+            .child(div().mx(px(2.0)).h(px(16.0)).w(px(1.0)).bg(theme.line))
+            .child(button("artifact-fit", IconName::FitToScreen, Self::fit))
+            .into_any_element()
     }
 }
 
@@ -463,12 +498,21 @@ impl Render for ArtifactsView {
             (Some(host), None) if self.probe == Some(probe::Mode::Scroll) => probe::scrolled(host.clone(), &self.probe_scroll),
             (Some(host), None) => div().size_full().child(host.clone()).into_any_element(),
             (None, None) => div()
-                .p_4()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
                 .text_step(TEXT_12)
                 .text_color(theme.ink3)
                 .font_weight(FontWeight::NORMAL)
                 .child("Loading artifact\u{2026}")
                 .into_any_element(),
+        };
+        // Pills drawn this frame report themselves in prepaint; one not drawn leaves no hole.
+        self.pills = [None; 2];
+        let (tabs, zoom) = match self.error {
+            None => (self.tabs_pill(&theme, cx), Some(self.zoom_pill(&theme, cx))),
+            Some(_) => (None, None),
         };
         div()
             .id("artifact-panel")
@@ -477,8 +521,6 @@ impl Render for ArtifactsView {
             .flex()
             .flex_col()
             .text_color(theme.ink)
-            .child(self.page_bar(&theme, cx))
-            .child(div().flex_none().h(px(1.0)).bg(theme.line))
             .child(
                 div()
                     .id("artifact-page")
@@ -489,7 +531,9 @@ impl Render for ArtifactsView {
                     .overflow_hidden()
                     .bg(rgb(PAPER))
                     .child(room)
-                    .child(page),
+                    .child(page)
+                    .children(tabs)
+                    .children(zoom),
             )
     }
 }
@@ -575,7 +619,16 @@ mod probe {
             if aligned { "ALIGNED" } else { "MISALIGNED" },
             native.hit_page
         );
-        aligned && native.hit_page
+        // Each see-through cutout (the pills) gives the mouse to GPUI; the page next to it keeps it.
+        let mut cut = true;
+        for cutout in host.cutouts().iter().filter(|c| c.see_through) {
+            let centre = cutout.bounds.center();
+            let beside = gpui::point(centre.x, cutout.bounds.top() - px(12.0));
+            let (inside, outside) = (host.native_hits_page(centre), host.native_hits_page(beside));
+            eprintln!("probe {label}: pill at {centre:?}: page hit inside {inside:?}, just above {outside:?}");
+            cut &= inside == Some(false) && outside == Some(true);
+        }
+        aligned && native.hit_page && cut
     }
 
     pub fn start(mode: Mode, cx: &mut Context<ArtifactsView>) {
