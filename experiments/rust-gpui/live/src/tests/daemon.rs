@@ -420,6 +420,8 @@ fn a_read_only_window_writes_nothing(cx: &mut TestAppContext) {
         "agent:ports",
         "pull-requests:snapshot",
         "accounts:list",
+        "usage:cached",
+        "usage:accounts:cached",
     ];
     assert!(methods.iter().all(|m| allowed.contains(&m.as_str())), "read-only reached the daemon with: {methods:?}");
     println!("GPUI_DAEMON_READ_ONLY methods={methods:?} refused={:?}", m.controller.read_with(m.vcx, |c, _| c.refused().to_vec()));

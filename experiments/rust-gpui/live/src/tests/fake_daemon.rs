@@ -40,6 +40,8 @@ const METHODS: &[&str] = &[
     "agent:ports",
     "pull-requests:snapshot",
     "accounts:list",
+    "usage:cached",
+    "usage:accounts:cached",
     "agent:interrupt",
     "agent:respond-permission",
     "agent:answer-question",
@@ -102,6 +104,8 @@ pub struct World {
     pub unlisted: Vec<String>,
     /// `agent:ports`' answer (every Chat's ports by Chat key).
     pub ports: Value,
+    /// `usage:cached`'s answer (null: no providers).
+    pub usage: Value,
     /// `pull-requests:snapshot`'s answer, by Project path.
     pub prs: BTreeMap<String, Value>,
     /// Pending turns by Chat key: what finishes them.
@@ -383,6 +387,22 @@ impl World {
             "pull-requests:snapshot" => {
                 let path = arg.as_str().ok_or("path")?;
                 self.prs.get(path).cloned().unwrap_or_else(|| json!({"worktrees":{},"chats":{},"pending":false}))
+            }
+            "usage:cached" => {
+                // `validateAccountScope`: a scope the daemon does not know is refused.
+                if let Some(scope) = arg.as_str()
+                    && !self.projects.contains_key(scope)
+                {
+                    return Err("Project or Link is no longer available. Refresh and choose another.".into());
+                }
+                if self.usage.is_null() { json!({"providers":[]}) } else { self.usage.clone() }
+            }
+            "usage:accounts:cached" => {
+                if self.usage.is_null() {
+                    json!({"providers":[]})
+                } else {
+                    self.usage.clone()
+                }
             }
             "accounts:list" => json!({"providers":[
                 {"provider":"claude","selectedId":"default","installed":true,"accounts":[

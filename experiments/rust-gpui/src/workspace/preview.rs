@@ -62,6 +62,26 @@ pub struct PreviewAccounts(pub Vec<PreviewAccount>);
 
 impl Global for PreviewAccounts {}
 
+/// Set by a data layer that feeds the sidebar's plan usage (`Sidebar::set_usage`, read-only): the usage rows and card
+/// then show in preview mode. The card's account picker and its refresh button stay off (they would write or force
+/// a provider read the runtime does not take here), and the usage-limit card shows times in this computer's zone.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LiveUsage;
+
+impl Global for LiveUsage {}
+
+/// Every account's plan usage a data layer read (`usage:accounts:cached`), for Settings › Usage (read-only). Without it
+/// that section says it is not available.
+#[derive(Clone, Debug, Default)]
+pub struct PreviewPlanUsage(pub crate::data::UsageSnapshot);
+
+impl Global for PreviewPlanUsage {}
+
+/// Whether plan usage is live (see [`LiveUsage`]).
+pub fn usage_is_live(cx: &App) -> bool {
+    cx.has_global::<LiveUsage>()
+}
+
 pub fn is_on(cx: &App) -> bool {
     cx.has_global::<PreviewMode>()
 }

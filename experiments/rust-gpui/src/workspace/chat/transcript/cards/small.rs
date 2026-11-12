@@ -17,7 +17,7 @@ use crate::data::AnsweredQuestion;
 use crate::logic::activity::subchat_states::SubchatKind;
 use crate::logic::prs::blockers::{Blocker, BlockerTone, PrState, pull_request_state_pill};
 use crate::logic::usage::limit::{LimitChoice, UsageLimit, limit_headline, limit_resume_label, switched_text};
-use crate::logic::usage::time::FixedZone;
+use crate::logic::usage::time::{FixedZone, SystemZone, Zone};
 use crate::theme::{RADIUS_CARD, RADIUS_CONTROL, RADIUS_INLINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconName, IconSize};
 
@@ -214,9 +214,10 @@ pub struct LimitCard {
 
 impl Transcript {
     pub(super) fn limit_card(&mut self, ix: usize, card: &LimitCard, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let zone = FixedZone(0);
-        let headline = limit_headline(&card.limit, card.now, &zone);
-        let resume = limit_resume_label(card.pending_at.as_deref(), &card.limit, card.now, &zone);
+        // The fixture shows UTC (its numbers are fixed); real data (preview mode with live usage) shows this computer's zone.
+        let zone: &dyn Zone = if crate::workspace::preview::usage_is_live(cx) { &SystemZone } else { &FixedZone(0) };
+        let headline = limit_headline(&card.limit, card.now, zone);
+        let resume = limit_resume_label(card.pending_at.as_deref(), &card.limit, card.now, zone);
         let mut shell = card_frame(theme).debug_selector(move || format!("usage-limit-{ix}")).gap_2().px_3().py_2().child(
             div()
                 .flex()

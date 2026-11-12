@@ -374,8 +374,12 @@ impl LiveController {
         let DaemonSession { daemon, store, notifications, error, .. } = session;
         let backend = Backend::Daemon(daemon.clone());
         let writes = (daemon.clone(), store.clone());
+        let usage_daemon = daemon.clone();
         let controller = Self::wire(workspace, backend, store, Stream::Daemon { daemon, first: notifications }, None, wiring, window, cx);
         crate::sidebar_writes::attach(workspace, writes.0, writes.1, &controller, cx);
+        // Plan usage (`usage:cached`, read-only) in the sidebar's rows and card, and the limit card under a stopped reply.
+        let sidebar = workspace.read(cx).sidebar.clone();
+        crate::usage::attach(&sidebar, usage_daemon, cx);
         if let Some(error) = error {
             controller.update(cx, |this, cx| this.set_unavailable(Some(error), cx));
         }

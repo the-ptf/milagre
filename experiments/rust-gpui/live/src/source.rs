@@ -152,7 +152,12 @@ impl DataSource for LiveSource {
         not_available("pull-requests:snapshot")
     }
 
-    fn cached_usage(&self, _computer: ComputerId) -> DataFuture<UsageSnapshot> {
-        not_available("usage:cached")
+    fn cached_usage(&self, computer: ComputerId) -> DataFuture<UsageSnapshot> {
+        match &self.reads {
+            // The last `usage:cached` read ([`crate::usage`]), so a sidebar reload never asks the daemon.
+            Reads::Daemon(daemon) if computer.as_ref() == LOCAL => ready(Ok(daemon.usage())),
+            Reads::Daemon(_) => not_available("computers:invoke"),
+            Reads::Owned(_) => not_available("usage:cached"),
+        }
     }
 }

@@ -497,6 +497,9 @@ fn render_section_body(
             SelectedSection::Section(SettingsSectionId::Accounts) if cx.has_global::<crate::workspace::preview::PreviewAccounts>() => {
                 render_preview_accounts(cx)
             }
+            SelectedSection::Section(SettingsSectionId::Usage) if cx.has_global::<crate::workspace::preview::PreviewPlanUsage>() => {
+                accounts::preview_plan::render(cx)
+            }
             SelectedSection::Section(section) => render_unavailable(section.as_str(), section.title(), section.icon(), cx),
             SelectedSection::Computer { id, name, .. } => {
                 render_unavailable(&format!("computer-{}", group::slug(id)), name, IconName::Computer, cx)

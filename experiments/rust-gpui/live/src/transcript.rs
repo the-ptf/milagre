@@ -24,6 +24,10 @@ pub fn saved_items(page: &MessagePage) -> Vec<Item> {
                 if !message.body.trim().is_empty() {
                     items.push(Item::Prose(Prose::new(message.body.clone())));
                 }
+                // A reply the plan's usage limit stopped: the read-only limit card under it.
+                if let Some(card) = message.context.as_ref().and_then(|context| crate::usage::limit_card(context, now)) {
+                    items.push(Item::Card(Card::Limit(card)));
+                }
             }
         }
     }
@@ -54,6 +58,9 @@ pub fn describe(item: &Item) -> String {
         Item::Step(step) => format!("step: {}", step.step.title),
         Item::Approval(approval) => format!("approval {:?}: {}", approval.state, approval.step.title),
         Item::Card(Card::Question(card)) => format!("question {}: {:?}", card.request_id, card.status),
+        Item::Card(Card::Limit(card)) => {
+            format!("limit {} resets {}", card.limit.provider.id(), card.limit.resets_at.as_deref().unwrap_or("later"))
+        }
         other => format!("other: {other:?}"),
     }
 }

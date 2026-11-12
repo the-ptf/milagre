@@ -272,7 +272,10 @@ pub fn card(
 ) -> Option<AnyElement> {
     let theme = *cx.theme();
     let provider_usage = usage.providers.iter().find(|p| p.provider == provider)?;
-    let model = CardModel::build(provider_usage, cx.try_global::<AccountsStore>(), now_ms());
+    // Preview with live usage: the fixture's account store is not this computer's, so no picker; the refresh button is
+    // off too (a read of the provider's CLI is Electron's to run).
+    let live = crate::workspace::preview::usage_is_live(cx);
+    let model = CardModel::build(provider_usage, if live { None } else { cx.try_global::<AccountsStore>() }, now_ms());
     let viewport = window.viewport_size();
     let left = (sidebar_right + CARD_GAP).min(f32::from(viewport.width) - CARD_WIDTH - VIEWPORT_MARGIN);
     let bottom = bounds.bottom().min(viewport.height - px(VIEWPORT_MARGIN));
@@ -301,7 +304,9 @@ pub fn card(
                 )
                 .child(div().text_step(TEXT_12).text_color(theme.ink3).child(model.updated.clone())),
         )
-        .child(IconButton::new("usage-card-refresh", IconName::Refresh).size(IconButtonSize::S28).glyph(IconSize::S16));
+        .when(!live, |el| {
+            el.child(IconButton::new("usage-card-refresh", IconName::Refresh).size(IconButtonSize::S28).glyph(IconSize::S16))
+        });
     let windows = (!model.windows.is_empty()).then(|| {
         div().flex().flex_col().gap(px(12.0)).px(px(16.0)).pt(px(12.0)).pb(px(16.0)).border_t_1().border_color(theme.line).children(
             model.windows.iter().map(|w| {

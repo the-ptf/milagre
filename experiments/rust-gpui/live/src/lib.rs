@@ -37,6 +37,7 @@ pub mod smoke;
 pub mod source;
 pub mod terminals;
 pub mod transcript;
+pub mod usage;
 
 pub use adapter::{DaemonAdapter, NotAvailable};
 pub use events::{Applied, LiveStore, Reducer, Released, ReleasedEvent, SyncError, Synced, connect_and_sync};

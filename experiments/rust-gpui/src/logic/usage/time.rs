@@ -24,6 +24,30 @@ impl Zone for FixedZone {
     }
 }
 
+/// This computer's zone, asked of the OS at each moment (daylight saving included). Off Unix it is UTC.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SystemZone;
+
+impl Zone for SystemZone {
+    fn offset_minutes(&self, utc_ms: i64) -> i32 {
+        #[cfg(unix)]
+        {
+            let seconds = utc_ms.div_euclid(1000) as libc::time_t;
+            // SAFETY: `localtime_r` writes only into the `tm` it is given and reads the `time_t` by reference.
+            let mut local: libc::tm = unsafe { std::mem::zeroed() };
+            if unsafe { libc::localtime_r(&seconds, &mut local) }.is_null() {
+                return 0;
+            }
+            (local.tm_gmtoff / 60) as i32
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = utc_ms;
+            0
+        }
+    }
+}
+
 /// Days since 1970-01-01 of a proleptic Gregorian date (`month` 1 to 12).
 pub fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
@@ -202,6 +226,19 @@ pub fn is_date(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_system_zone_is_a_real_offset_that_matches_the_os() {
+        // Any real zone is within UTC-12 to UTC+14, in whole minutes; it agrees with itself across a call.
+        let now = epoch_ms(2026, 11, 12, 12, 0, 0);
+        let offset = SystemZone.offset_minutes(now);
+        assert!((-12 * 60..=14 * 60).contains(&offset), "{offset}");
+        assert_eq!(offset, SystemZone.offset_minutes(now));
+        // Local time through it is UTC shifted by that offset.
+        let local = local_time(now, &SystemZone);
+        let shifted = local_time(now, &FixedZone(offset));
+        assert_eq!((local.hour, local.minute, local.day), (shifted.hour, shifted.minute, shifted.day));
+    }
 
     #[test]
     fn civil_dates_round_trip() {

@@ -284,7 +284,10 @@ impl Sidebar {
         let Some(preview) = crate::workspace::preview::get(cx).cloned() else {
             return usage::rows(&self.data.usage, &self.usage_hooks(cx), theme);
         };
-        vec![
+        // A data layer that reads plan usage (read-only) has the real rows above the note.
+        let live_usage = crate::workspace::preview::usage_is_live(cx);
+        let mut blocks = if live_usage { usage::rows(&self.data.usage, &self.usage_hooks(cx), theme) } else { Vec::new() };
+        blocks.push(
             div()
                 .debug_selector(|| "preview-note".into())
                 .px_3()
@@ -297,12 +300,18 @@ impl Sidebar {
                 .child(div().text_color(theme.ink2).child(format!("Preview \u{b7} {} \u{b7} {}", preview.account, preview.model)))
                 .child(format!(
                     "{}: {}",
-                    if crate::workspace::preview::allows(cx, menu::MenuAction::Pin)
-                        && crate::workspace::preview::allows(cx, menu::MenuAction::Delete)
                     {
-                        "Panels other than Details and Changes, Settings other than Appearance and Accounts, Routines and usage"
-                    } else {
-                        "Panels other than Details and Changes, Settings other than Appearance and Accounts, Routines, usage, Pin and Delete"
+                        let settings = if live_usage { "Appearance, Accounts and Usage" } else { "Appearance and Accounts" };
+                        let usage = if live_usage { "" } else { ", usage" };
+                        if crate::workspace::preview::allows(cx, menu::MenuAction::Pin)
+                            && crate::workspace::preview::allows(cx, menu::MenuAction::Delete)
+                        {
+                            format!("Panels other than Details and Changes, Settings other than {settings}, Routines{usage}")
+                        } else {
+                            format!(
+                                "Panels other than Details and Changes, Settings other than {settings}, Routines{usage}, Pin and Delete"
+                            )
+                        }
                     },
                     crate::workspace::preview::UNAVAILABLE.to_lowercase()
                 ))
@@ -312,7 +321,17 @@ impl Sidebar {
                         .map(|notice| div().debug_selector(|| "sidebar-notice".into()).text_color(theme.orange_ink).child(notice)),
                 )
                 .into_any_element(),
-        ]
+        );
+        blocks
+    }
+
+    /// Replaces the plan usage the rows and the card show (a data layer's read of `usage:cached`), without reading
+    /// the Chats again.
+    pub fn set_usage(&mut self, usage: crate::data::UsageSnapshot, cx: &mut Context<Self>) {
+        if self.data.usage != usage {
+            self.data.usage = usage;
+            cx.notify();
+        }
     }
 
     /// Shows (or clears) a plain message from the data layer, such as a write it could not make.

@@ -18,6 +18,7 @@ pub mod model;
 pub mod page;
 pub mod plan;
 pub mod plan_cards;
+pub mod preview_plan;
 pub mod style;
 pub mod token_usage;
 pub mod usage;
