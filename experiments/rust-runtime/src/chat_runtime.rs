@@ -32,13 +32,18 @@ const MANIFEST_LIMIT: usize = 32 * 1024;
 pub(crate) const METHODS: &[&str] = &[
     "project:read",
     "chat:runs",
+    "chat:patch",
     "project:known",
     "project:recent",
     "project:registry",
+    "canvas:snapshot",
+    "canvas:links",
+    "link:list",
     "agent:models",
     "agent:cli-status",
     "accounts:list",
     "accounts:scope",
+    "accounts:scopes",
 ];
 
 fn refused(message: impl Into<String>) -> RpcError {
@@ -439,10 +444,19 @@ impl Bootstrap {
         }
         Ok(())
     }
-    pub(crate) fn call(&self, method: &str, args: &[Value]) -> RpcResult {
+    pub(crate) fn call(&self, method: &str, args: &[Value], state: Value) -> RpcResult {
         self.check()?;
         let config = &self.root.config;
         let project = self.root.project();
+        if matches!(
+            method,
+            "canvas:snapshot" | "canvas:links" | "link:list" | "accounts:scopes"
+        ) && !args.is_empty()
+        {
+            return Err(refused(
+                "Dedicated bootstrap reads do not accept caller scopes or state",
+            ));
+        }
         if matches!(
             method,
             "agent:models" | "agent:cli-status" | "accounts:scope"
@@ -462,13 +476,32 @@ impl Bootstrap {
             json!({"id":project,"path":project,"name":"Rust Chat","git":false,"position":null});
         match method {
             "project:known" | "project:recent" | "project:registry" => Ok(json!([row])),
+            // This dedicated root has exactly one Project and no Link/group/position writer.
+            // The actor supplies its current owned state; no stale disk read or seeded transcript.
+            "canvas:snapshot" => {
+                if !state.is_object()
+                    || state["worktrees"]["1"]["path"].as_str() != project.to_str()
+                {
+                    return Err(refused(
+                        "Canvas snapshot needs the current owned Project state",
+                    ));
+                }
+                Ok(
+                    json!({"projects":[row],"links":[],"projectGroups":[],"worktreePositions":{},"states":[{"path":project,"state":state}]}),
+                )
+            }
+            "canvas:links" | "link:list" => Ok(json!([])),
             "agent:models" => Ok(
                 json!({"claude":[{"id":config.model,"name":config.model,"description":if config.fixture {"Configured fixed child; no model inference"} else {"Explicitly configured Claude model; catalog discovery is not run"},"efforts":[],"ultracode":true,"fastMode":true}]}),
             ),
-            "agent:cli-status" => Ok(
-                json!({"claude":{"state":"unknown","message":if config.fixture {"Fixed child transport selected; no real CLI or credentials inspected"} else {"Explicit Claude executable/config selected; authentication has not been inspected"}}}),
-            ),
+            "agent:cli-status" => Err(RpcError::new(
+                "CLI_STATUS_UNAVAILABLE",
+                "This runtime has not inspected the selected Claude CLI or account authentication.",
+            )),
             "accounts:list" => Ok(claude_accounts(self.accounts.snapshot())),
+            "accounts:scopes" => Ok(
+                json!([{"key":project,"name":row["name"],"kind":"project","projects":[{"id":project,"path":project,"name":row["name"]}]}]),
+            ),
             "accounts:scope" => {
                 self.require_project(args.first())?;
                 self.accounts
@@ -718,6 +751,112 @@ mod tests {
             LaunchConfig::parse(valid, false).unwrap().user_name,
             "explicit-user"
         );
+    }
+
+    #[test]
+    fn configured_bootstrap_reads_match_node_shapes_and_current_owner_state() {
+        let parent = IsolatedProfile::create().unwrap();
+        let root = DataRoot::create(&parent.path().join("durable"), config()).unwrap();
+        let project = root.project();
+        let bootstrap = Bootstrap {
+            accounts: root.config.accounts().unwrap(),
+            root: root.clone(),
+        };
+        let mut host = ChatHost::new(ProjectStates::new(
+            root.isolation.clone(),
+            Timing::default(),
+            0,
+        ));
+        host.register(Box::new(MockProvider::new("claude")));
+        host.open_project(&project).unwrap();
+        let before = host.states.whole_state(&project).unwrap();
+        host.send(&json!({"projectPath":project,"sessionId":1,"provider":"claude","model":"sonnet","body":"current owned canvas state","clientMessageId":"canvas-read"})).unwrap();
+        let state = host.states.whole_state(&project).unwrap();
+        assert_ne!(state, before);
+        // Existing recorder runs actual Node runtime/project-registry/account implementations.
+        // Only the known Project identity/name, absent historical timestamp and current owner
+        // state differ here; retain all four recorded result shapes.
+        let oracle: Value =
+            serde_json::from_str(include_str!("../fixtures/app-bootstrap.json")).unwrap();
+        fn replace(value: &mut Value, project: &str) {
+            match value {
+                Value::String(text) if text == "$PROJECT" => *text = project.into(),
+                Value::String(text) if text == "fixture" => *text = "Rust Chat".into(),
+                Value::Array(values) => values.iter_mut().for_each(|value| replace(value, project)),
+                Value::Object(values) => {
+                    values.remove("openedAt");
+                    values
+                        .values_mut()
+                        .for_each(|value| replace(value, project));
+                }
+                _ => {}
+            }
+        }
+        for method in [
+            "canvas:snapshot",
+            "canvas:links",
+            "link:list",
+            "accounts:scopes",
+        ] {
+            let mut expected = oracle["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|case| case["method"] == method)
+                .unwrap()["result"]
+                .clone();
+            replace(&mut expected, project.to_str().unwrap());
+            if method == "canvas:snapshot" {
+                expected["states"][0]["state"] = state.clone();
+            }
+            assert_eq!(
+                bootstrap.call(method, &[], state.clone()).unwrap(),
+                expected,
+                "{method}"
+            );
+            assert_eq!(
+                bootstrap
+                    .call(method, &[json!("/foreign")], state.clone())
+                    .unwrap_err()
+                    .code,
+                "CHAT_RUNTIME_CONFIG"
+            );
+        }
+        assert!(bootstrap.call("canvas:snapshot", &[], Value::Null).is_err());
+        assert_eq!(
+            bootstrap
+                .call("agent:cli-status", &[json!(project)], Value::Null)
+                .unwrap_err()
+                .code,
+            "CLI_STATUS_UNAVAILABLE"
+        );
+        assert_eq!(
+            bootstrap
+                .call("agent:cli-status", &[json!("/foreign")], Value::Null)
+                .unwrap_err()
+                .code,
+            "CHAT_RUNTIME_CONFIG"
+        );
+        assert!(bootstrap
+            .call(
+                "accounts:scope",
+                &[json!(project), json!(true)],
+                Value::Null
+            )
+            .is_err());
+        fs::write(root.isolation.root().join(MANIFEST), b"{}").unwrap();
+        for method in [
+            "canvas:snapshot",
+            "canvas:links",
+            "link:list",
+            "accounts:scopes",
+        ] {
+            assert!(
+                bootstrap.call(method, &[], state.clone()).is_err(),
+                "changed authority: {method}"
+            );
+        }
+        host.shutdown(true).unwrap();
     }
 
     #[test]

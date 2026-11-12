@@ -8,7 +8,7 @@ Build the executable explicitly:
 cargo build --manifest-path experiments/rust-runtime/Cargo.toml --locked --offline --features chat-runtime --bin chat-runtime
 ```
 
-Create a private launch JSON file with exactly these fields. Paths are explicit absolute paths; no executable, account, credential, bundle or production profile is discovered. `accountId` is the selected account UUID, or the explicitly selected `default` identity. The label is saved metadata, and authentication status remains `unknown`.
+Create a private launch JSON file with exactly these fields. Paths are explicit absolute paths; no executable, account, credential, bundle or production profile is discovered. `accountId` is the selected account UUID, or the explicitly selected `default` identity. The label is saved metadata. `agent:cli-status` refuses with `CLI_STATUS_UNAVAILABLE` because this runtime does not inspect CLI/authentication readiness; it never reports an invented ready state.
 
 ```json
 {
@@ -38,6 +38,10 @@ The provider receives only the captured executable, explicit `HOME`, `CLAUDE_CON
 
 The owner and provider preserve their existing refusal and save semantics. A failed save or ownership check can refuse shutdown. Captured provider workers retain the data-root lease through cleanup, including dropped/error teardown. Immediate/queued image sends keep the prior existing-Chat restrictions and the adapter's 1 MiB request/native-frame budgets. Queued state may exceed the 32 KiB launch-manifest cap and uses the owner's JavaScript-compatible JSON decoder.
 
+Desktop bootstrap reads expose the configured Project: `canvas:snapshot` includes current state supplied by the owning actor, `canvas:links` and `link:list` return empty arrays because this runtime has no Link/group writers, and `accounts:scopes` lists only that Project. These four reads take no caller scope or state. They remain behind the same live Project/root checks; unsupported mutations and account refresh remain refused. Their shapes follow the existing actual Node bootstrap oracle, with the dedicated Project's own identity/name and no invented opening timestamp. No transcript is seeded for display. The restart client compares canvas state before and after a real owner turn and on reopen; fixed-child evidence remains separate from real Claude validation.
+
+Opening a Chat can mark it read through `chat:patch(projectPath, sessionId, {unread: boolean})`. This configured-runtime subset requires the connection to have opened the explicit Project, a ready owner, an existing positive safe-integer Chat ID, and exactly that one boolean field. Other patches, including mixed fields, are refused. It follows Node `patchSession`: true sets `unread`, false removes it, and unchanged marks do not publish a new version. The owning state store flushes before publication and the null RPC result. A failed save returns an error and retains the owner's dirty state/persistence warning; retrying the same mark still flushes that pending save. Focused fault tests and the fixed-child restart client cover this boundary, with the client comparing results directly to the actual shared Node reducer and checking both mark values across daemon restarts.
+
 Fixed-child acceptance uses a separate feature and the same configured provider/actor:
 
 ```sh
@@ -55,4 +59,10 @@ Evidence: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-rust
 
 Final root validation passes 96 runtime tests with `chat-runtime-fixture`, strict all-target Clippy and formatting. A deterministic duplicated-file-description regression reproduced the immediate-reopen lock failure before the final-Arc unlock fix. Workers now release captured leases before notifying drain completion; a successful `finish` includes that cleanup. Independent source review found no P1/P2. Logs: `/tmp/milagre-chat-runtime-root-{tests,clippy,fmt}-final.log`, `/tmp/milagre-chat-runtime-root-restart-final.log` and `/tmp/milagre-configured-provider-drain-barrier.log`.
 
-This real smoke proves ordinary text streaming, persistence and native resume for that CLI/account. It requests no tools and denies unexpected permission requests. Tool approvals remain fixed-child evidence. Real images, permission modes, background work, account switching, other providers and Milagre MCP/Designs/Artifacts tools are not established by this run. The installed Tauri shell and GPUI adapter are not routed to this runtime. Production ownership, existing-data adoption, phone compatibility and upgrade/rollback remain open.
+This real smoke proves ordinary text streaming, persistence and native resume for that CLI/account. It requests no tools and denies unexpected permission requests. The separate Ask Write checkpoint below adds real approval evidence. Real images, other permission modes, background work, account switching, other providers and Milagre MCP/Designs/Artifacts tools are not established by these runs. The installed Tauri shell and GPUI adapter are not routed to this runtime. Production ownership, existing-data adoption, phone compatibility and upgrade/rollback remain open.
+
+## Accepted real Ask Write checkpoint (2026-11-11)
+
+A separate Claude Code 2.1.322 probe completed two real turns and saved four messages with the explicitly selected account. Each turn produced one actual Write permission card. Both task-owned target files were absent before the corresponding answer. The allow RPC returned true, emitted `permission-resolved` with `allow`, and the target then contained exactly the expected one-line bytes. The deny RPC returned true, emitted `permission-resolved` with `deny`, and its target remained absent. Independent source/evidence review checked the exact written bytes and denied-file absence.
+
+Shutdown exited 0 with empty stderr; the private wire profile, socket and Project `runtime.lock` were removed. Evidence: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-rust-live-permissions-185s_279/report.json` and adjacent `probe.cjs`; root log `/tmp/milagre-chat-runtime-root-live-permissions.log`. This probe did not restart the runtime or use the desktop UI. It establishes the observed Ask Write allow/deny flow for that CLI/account, without a general workspace-confinement claim.

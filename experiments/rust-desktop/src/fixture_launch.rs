@@ -1,4 +1,5 @@
-//! Fixed direct-child fixture authority. No supplied path, environment or endpoint constructor.
+//! Direct-child authority for the fixed fixture and explicitly selected dedicated Chat root.
+//! Endpoints always come from the retained fixed sibling child, never renderer or profile discovery.
 use serde_json::{json, Map, Value};
 use std::{
     fs::{self, File},
@@ -75,23 +76,52 @@ struct Endpoint {
     project: PathBuf,
     pins: Vec<(PathBuf, Identity)>,
     pid: u32,
+    #[allow(dead_code)]
+    model: Option<String>,
 }
 impl Endpoint {
     fn receipt(value: &Value, pid: u32) -> Result<Self> {
-        if value["bootstrapVersion"] != 1
-            || value["protocolVersion"] != 1
-            || value["pid"].as_u64() != Some(pid.into())
-            || value["uid"].as_u64() != Some(unsafe { libc::getuid() }.into())
-            || ["fixture", "appFixture", "scriptedOwner", "ownedCopies"]
-                .iter()
-                .any(|k| value[*k] != true)
-            || value["actor"]["appFixture"] != true
-            || value["actor"]["scriptedProvider"] != true
-            || value["actor"]["provider"] != "kiro"
-            || value["actor"]["handoff"] != "gated"
-            || value["actor"]["steering"] != "gated"
+        Self::receipt_for(value, pid, &LaunchKind::Fixture)
+    }
+    fn receipt_for(value: &Value, pid: u32, kind: &LaunchKind) -> Result<Self> {
+        if value["protocolVersion"] != 1 || value["pid"].as_u64() != Some(pid.into()) {
+            return Err(invalid());
+        }
+        if matches!(kind, LaunchKind::Fixture)
+            && (value["bootstrapVersion"] != 1
+                || value["protocolVersion"] != 1
+                || value["pid"].as_u64() != Some(pid.into())
+                || value["uid"].as_u64() != Some(unsafe { libc::getuid() }.into())
+                || ["fixture", "appFixture", "scriptedOwner", "ownedCopies"]
+                    .iter()
+                    .any(|k| value[*k] != true)
+                || value["actor"]["appFixture"] != true
+                || value["actor"]["scriptedProvider"] != true
+                || value["actor"]["provider"] != "kiro"
+                || value["actor"]["handoff"] != "gated"
+                || value["actor"]["steering"] != "gated")
         {
             return Err(invalid());
+        }
+        if let LaunchKind::Chat {
+            data_root,
+            root_identity,
+            ..
+        } = kind
+        {
+            if value["restartable"] != true
+                || value["fixture"] != false
+                || value["fakeClaude"] != false
+                || value["actor"]["configuredProvider"] != true
+                || value["actor"]["provider"] != "claude"
+                || value["dataRoot"].as_str() != data_root.to_str()
+                || fs::canonicalize(data_root).map_err(io)? != *data_root
+                || root_identity
+                    .as_ref()
+                    .is_some_and(|pin| Identity::read(data_root, false).as_ref() != Ok(pin))
+            {
+                return Err(invalid());
+            }
         }
         let path = |v: &Value| {
             v.as_str()
@@ -109,7 +139,11 @@ impl Endpoint {
                 .file_name()
                 .is_some_and(|n| n.to_string_lossy().starts_with("milagre-rust-wire-"))
             || fs::canonicalize(&profile).map_err(io)? != profile
-            || project != profile.join("fixture")
+            || project
+                != match kind {
+                    LaunchKind::Fixture => profile.join("fixture"),
+                    LaunchKind::Chat { data_root, .. } => data_root.join("project"),
+                }
             || fs::canonicalize(&project).map_err(io)? != project
         {
             return Err(invalid());
@@ -131,18 +165,30 @@ impl Endpoint {
             ("socket", socket.clone(), true),
         ] {
             let identity = Identity::read(&path, is_socket)?;
-            if !identity.matches(&value["identities"][name])
+            if (matches!(kind, LaunchKind::Fixture)
+                && !identity.matches(&value["identities"][name]))
                 || (name != "project" && identity.mode != if is_socket { 0o600 } else { 0o700 })
             {
                 return Err(invalid());
             }
             pins.push((path, identity));
         }
+        if let LaunchKind::Chat { data_root, .. } = kind {
+            if data_root.starts_with(&pins[0].0) || pins[0].0.starts_with(data_root) {
+                return Err(invalid());
+            }
+            let identity = Identity::read(data_root, false)?;
+            if identity.mode != 0o700 {
+                return Err(invalid());
+            }
+            pins.push((data_root.clone(), identity));
+        }
         Ok(Self {
             socket,
             project,
             pins,
             pid,
+            model: value["actor"]["model"].as_str().map(str::to_owned),
         })
     }
     fn check(&self) -> Result<()> {
@@ -259,6 +305,90 @@ impl ChildState {
         Ok(())
     }
 }
+enum LaunchKind {
+    Fixture,
+    #[allow(dead_code)]
+    Chat {
+        args: Vec<String>,
+        data_root: PathBuf,
+        root_identity: Option<Identity>,
+    },
+}
+impl LaunchKind {
+    #[cfg(feature = "chat-desktop")]
+    fn chat(args: &[String]) -> Result<Self> {
+        let mut protected = Vec::new();
+        if let Some(home) = std::env::var_os("HOME") {
+            protected.extend([
+                PathBuf::from(&home).join(".milagre"),
+                PathBuf::from(&home).join("Library/Application Support/Milagre"),
+                PathBuf::from(&home).join(".config/Milagre"),
+            ]);
+        }
+        if let Some(custom) = std::env::var_os("MILAGRE_DATA_DIR") {
+            protected.push(PathBuf::from(custom));
+        }
+        Self::chat_with_protected(args, &protected)
+    }
+    #[cfg(feature = "chat-desktop")]
+    fn chat_with_protected(args: &[String], protected: &[PathBuf]) -> Result<Self> {
+        let (mode, root) = match args {
+            [mode, root] if mode == "open" => (mode, root),
+            [mode, root, manifest] if mode == "create" && Path::new(manifest).is_absolute() => {
+                (mode, root)
+            }
+            _ => return Err(fail(
+                "CHAT_LAUNCH_ARGUMENTS",
+                "Use create <new-data-root> <absolute-launch.json> or open <dedicated-data-root>",
+            )),
+        };
+        let root = Path::new(root);
+        if !root.is_absolute()
+            || root.components().any(|part| {
+                matches!(
+                    part,
+                    std::path::Component::ParentDir | std::path::Component::CurDir
+                )
+            })
+        {
+            return Err(fail(
+                "CHAT_LAUNCH_ARGUMENTS",
+                "The dedicated root must be an absolute normalized path",
+            ));
+        }
+        let parent = fs::canonicalize(root.parent().ok_or_else(invalid)?).map_err(io)?;
+        let data_root = parent.join(root.file_name().ok_or_else(invalid)?);
+        // Preserve the original shell profile exclusions before the child's env_clear.
+        for protected in protected {
+            let protected = fs::canonicalize(protected).unwrap_or_else(|_| protected.clone());
+            if data_root.starts_with(&protected) || protected.starts_with(&data_root) {
+                return Err(invalid());
+            }
+        }
+        let root_identity = if mode == "open" {
+            if fs::canonicalize(&data_root).map_err(io)? != data_root {
+                return Err(invalid());
+            }
+            Some(Identity::read(&data_root, false)?)
+        } else {
+            if fs::symlink_metadata(&data_root).is_ok() {
+                return Err(fail(
+                    "CHAT_ROOT_EXISTS",
+                    "Create requires a new dedicated root",
+                ));
+            }
+            None
+        };
+        let mut args = args.to_vec();
+        args[1] = data_root.to_str().ok_or_else(invalid)?.into();
+        Ok(Self::Chat {
+            args,
+            data_root,
+            root_identity,
+        })
+    }
+}
+
 pub struct LaunchContext {
     child: Mutex<Option<ChildState>>,
     endpoint: Endpoint,
@@ -270,6 +400,8 @@ pub struct LaunchContext {
     shell_io: Mutex<()>,
     storage_identity: Identity,
     storage_removed: AtomicBool,
+    #[allow(dead_code)]
+    data_root: Option<PathBuf>,
 }
 impl LaunchContext {
     pub fn spawn_fixed() -> Result<Arc<Self>> {
@@ -280,7 +412,19 @@ impl LaunchContext {
             .join("app-fixture");
         Self::spawn(&executable)
     }
+    #[cfg(feature = "chat-desktop")]
+    pub fn spawn_chat(args: &[String]) -> Result<Arc<Self>> {
+        let executable = std::env::current_exe()
+            .map_err(io)?
+            .parent()
+            .ok_or_else(invalid)?
+            .join("chat-runtime");
+        Self::spawn_with(&executable, LaunchKind::chat(args)?)
+    }
     fn spawn(executable: &Path) -> Result<Arc<Self>> {
+        Self::spawn_with(executable, LaunchKind::Fixture)
+    }
+    fn spawn_with(executable: &Path, kind: LaunchKind) -> Result<Arc<Self>> {
         let executable_meta = fs::symlink_metadata(executable).map_err(io)?;
         if !executable_meta.is_file()
             || executable_meta.uid() != unsafe { libc::getuid() }
@@ -311,6 +455,10 @@ impl LaunchContext {
         }
         let storage_identity = Identity::read(storage.path(), false)?;
         let mut child = Command::new(executable)
+            .args(match &kind {
+                LaunchKind::Fixture => &[][..],
+                LaunchKind::Chat { args, .. } => args.as_slice(),
+            })
             .env_clear()
             .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
             .env("HOME", storage.path().join("home"))
@@ -328,7 +476,10 @@ impl LaunchContext {
             let mut stdout = child.stdout.take().ok_or_else(invalid)?;
             let fd = stdout.as_raw_fd();
             let receipt = read_line(&mut stdout, fd, Duration::from_secs(5))?;
-            let endpoint = Endpoint::receipt(&receipt, child.id())?;
+            let endpoint = match &kind {
+                LaunchKind::Fixture => Endpoint::receipt(&receipt, child.id())?,
+                LaunchKind::Chat { .. } => Endpoint::receipt_for(&receipt, child.id(), &kind)?,
+            };
             endpoint.connect()?;
             Ok(endpoint)
         })();
@@ -361,6 +512,10 @@ impl LaunchContext {
             failure_exit: AtomicBool::new(false),
             shell_io: Mutex::new(()),
             storage_removed: AtomicBool::new(false),
+            data_root: match kind {
+                LaunchKind::Fixture => None,
+                LaunchKind::Chat { data_root, .. } => Some(data_root),
+            },
         }))
     }
     pub fn connect(&self) -> Result<UnixStream> {
@@ -375,9 +530,14 @@ impl LaunchContext {
     pub fn project(&self) -> &Path {
         &self.endpoint.project
     }
-    #[cfg(feature = "fixture-native-smoke")]
+    #[cfg(any(feature = "fixture-native-smoke", feature = "chat-desktop"))]
     pub fn smoke_identity(&self) -> Value {
-        json!({"shellPid":std::process::id(),"daemonPid":self.endpoint.pid,"shellRoot":self.storage.path(),"profile":self.endpoint.pins[0].0,"project":self.endpoint.project})
+        let mut value = json!({"shellPid":std::process::id(),"daemonPid":self.endpoint.pid,"shellRoot":self.storage.path(),"profile":self.endpoint.pins[0].0,"project":self.endpoint.project});
+        if let Some(root) = &self.data_root {
+            value["dataRoot"] = json!(root);
+            value["model"] = json!(self.endpoint.model);
+        }
+        value
     }
     pub fn clean(&self) -> bool {
         self.clean.load(Ordering::Acquire)
@@ -481,6 +641,7 @@ impl LaunchContext {
     }
     /// Refusal or pending keeps the child/stdin/storage alive. Never force-cancels work.
     pub fn request_quit(&self) -> Result<()> {
+        let budget = Duration::from_secs(if self.data_root.is_some() { 10 } else { 3 });
         let mut guard = self.child.lock().map_err(|_| invalid())?;
         let state = guard.as_mut().ok_or_else(invalid)?;
         if state.clean {
@@ -489,19 +650,15 @@ impl LaunchContext {
         if !state.stop_ack {
             state.live()?;
             let mut stream = self.endpoint.connect()?;
-            stream
-                .set_read_timeout(Some(Duration::from_secs(3)))
-                .map_err(io)?;
-            stream
-                .set_write_timeout(Some(Duration::from_secs(3)))
-                .map_err(io)?;
+            stream.set_read_timeout(Some(budget)).map_err(io)?;
+            stream.set_write_timeout(Some(budget)).map_err(io)?;
             writeln!(
                 stream,
                 "{}",
                 json!({"v":1,"id":"fixture-stop","method":"daemon:stop","args":[]})
             )
             .map_err(io)?;
-            let deadline = Instant::now() + Duration::from_secs(3);
+            let deadline = Instant::now() + budget;
             loop {
                 let fd = stream.as_raw_fd();
                 let value = read_line(
@@ -522,7 +679,7 @@ impl LaunchContext {
                 break;
             }
         }
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + budget;
         loop {
             if let Some(status) = state.child.try_wait().map_err(io)? {
                 state.stdin.take();
@@ -614,6 +771,117 @@ impl Drop for LaunchContext {
                 reap_after_crash(state.child, self.storage.clone());
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "chat-desktop"))]
+mod chat_tests {
+    use super::*;
+    fn executable() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("rust-runtime/target/debug/chat-runtime")
+    }
+    fn launch(parent: &Path) -> PathBuf {
+        let file = parent.join("launch.json");
+        let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/core/src/bundled-skills")
+            .canonicalize()
+            .unwrap();
+        fs::write(&file,json!({"program":"/explicit/unused-claude","home":"/explicit/unused-home","configDirectory":"/explicit/unused-account","skillsDirectory":bundle,"model":"sonnet","path":"/usr/bin:/bin","accountId":"11111111-1111-4111-8111-111111111111","accountLabel":"No native execution in launcher test","userName":"explicit-user"}).to_string()).unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        file
+    }
+    fn spawn(args: &[String]) -> Arc<LaunchContext> {
+        LaunchContext::spawn_with(&executable(), LaunchKind::chat(args).unwrap()).unwrap()
+    }
+    #[test]
+    fn custom_profile_exclusion_is_checked_before_child_environment_is_cleared() {
+        let parent = tempfile::tempdir_in(fs::canonicalize("/tmp").unwrap()).unwrap();
+        let profile = parent.path().join("custom-profile");
+        fs::create_dir(&profile).unwrap();
+        fs::write(profile.join("sentinel"), b"keep").unwrap();
+        let args = vec![
+            "create".into(),
+            profile.join("new-root").to_string_lossy().into(),
+            "/explicit/launch.json".into(),
+        ];
+        assert!(LaunchKind::chat_with_protected(&args, std::slice::from_ref(&profile)).is_err());
+        assert_eq!(fs::read_dir(&profile).unwrap().count(), 1);
+        assert_eq!(fs::read(profile.join("sentinel")).unwrap(), b"keep");
+        let allowed = vec![
+            "create".into(),
+            parent.path().join("dedicated").to_string_lossy().into(),
+            "/explicit/launch.json".into(),
+        ];
+        assert!(LaunchKind::chat_with_protected(&allowed, &[profile]).is_ok());
+    }
+    #[test]
+    fn dedicated_child_reopens_persistent_root_and_only_removes_shell_storage() {
+        let parent = tempfile::tempdir_in(fs::canonicalize("/tmp").unwrap()).unwrap();
+        let root = parent.path().join("data");
+        let plan = launch(parent.path());
+        let first = spawn(&[
+            "create".into(),
+            root.to_string_lossy().into(),
+            plan.to_string_lossy().into(),
+        ]);
+        let first_profile = first.endpoint.pins[0].0.clone();
+        let first_storage = first.storage.path().to_owned();
+        assert_eq!(first.project(), root.join("project"));
+        assert!(first.connect().is_ok());
+        let bytes = fs::read(root.join("rust-chat-runtime.json")).unwrap();
+        let args = vec!["open".into(), root.to_string_lossy().into()];
+        assert!(
+            LaunchContext::spawn_with(&executable(), LaunchKind::chat(&args).unwrap()).is_err(),
+            "second writer refused"
+        );
+        first.request_quit().unwrap();
+        first.remove_shell_storage().unwrap();
+        assert!(!first_storage.exists());
+        assert!(!first_profile.exists());
+        assert!(root.join("project/.milagre/coordination.json").exists());
+        assert_eq!(
+            fs::read(root.join("rust-chat-runtime.json")).unwrap(),
+            bytes
+        );
+        let second = spawn(&args);
+        assert_ne!(second.endpoint.pins[0].0, first_profile);
+        assert!(second.connect().is_ok());
+        second.request_quit().unwrap();
+        second.remove_shell_storage().unwrap();
+        assert_eq!(
+            fs::read(root.join("rust-chat-runtime.json")).unwrap(),
+            bytes
+        );
+    }
+    #[test]
+    fn dedicated_receipt_refuses_other_pid_root_and_fixture_authority() {
+        let parent = tempfile::tempdir_in(fs::canonicalize("/tmp").unwrap()).unwrap();
+        let root = parent.path().join("data");
+        let plan = launch(parent.path());
+        let context = spawn(&[
+            "create".into(),
+            root.to_string_lossy().into(),
+            plan.to_string_lossy().into(),
+        ]);
+        let kind = LaunchKind::chat(&["open".into(), root.to_string_lossy().into()]).unwrap();
+        let valid = json!({"protocolVersion":1,"pid":context.endpoint.pid,"restartable":true,"fixture":false,"fakeClaude":false,"dataRoot":root,"profile":context.endpoint.pins[0].0,"socket":context.endpoint.socket,"actor":{"project":context.project(),"provider":"claude","configuredProvider":true,"model":"sonnet"}});
+        assert!(Endpoint::receipt_for(&valid, context.endpoint.pid, &kind).is_ok());
+        for (key, value) in [
+            ("pid", json!(std::process::id())),
+            ("dataRoot", json!(parent.path())),
+            ("fixture", json!(true)),
+            ("profile", json!(root)),
+        ] {
+            let mut changed = valid.clone();
+            changed[key] = value;
+            assert!(Endpoint::receipt_for(&changed, context.endpoint.pid, &kind).is_err());
+        }
+        assert!(verify_peer(&context.connect().unwrap(), std::process::id()).is_err());
+        context.request_quit().unwrap();
+        context.remove_shell_storage().unwrap();
     }
 }
 

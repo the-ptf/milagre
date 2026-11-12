@@ -249,7 +249,7 @@ impl Handler for Actor {
             method,
             "project:open" | "project:switch" | "project:current"
         ) && !app_methods(self.app_fixture).contains(&method)
-            && !configured_methods(self.configured).contains(&method)
+            && !(method != "chat:patch" && configured_methods(self.configured).contains(&method))
             && context.view().project_path.as_deref() != Some(&self.project)
         {
             return Err(RpcError::new(
@@ -410,6 +410,8 @@ struct State {
     run_seq: u64,
     next_readiness_check: Instant,
     pending: VecDeque<(String, Value)>,
+    // Actor-owned edits publish only after their explicit durability boundary.
+    project_changed: bool,
     answers: HashMap<AnswerId, SyncSender<RpcResult>>,
     modes: HashMap<ModeChangeId, SyncSender<RpcResult>>,
     settled_replies: Vec<(SyncSender<RpcResult>, RpcResult)>,
@@ -430,6 +432,7 @@ impl Drop for State {
 impl State {
     fn sync_readiness(&mut self) {
         if !self.host.is_project_ready(&self.project) {
+            self.project_changed = false;
             if self.opened {
                 self.opened = false;
                 if let Some(content) = &self.content {
@@ -553,7 +556,19 @@ impl State {
                 if method == "chat:runs" {
                     return Ok(json!({"runs":self.host.runs(),"seq":self.run_seq}));
                 }
-                return configured.call(method, args);
+                if method == "chat:patch" {
+                    configured.require_project(args.first())?;
+                    return self.patch_unread(args);
+                }
+                let state = if method == "canvas:snapshot" {
+                    self.host
+                        .states
+                        .whole_state(&self.project)
+                        .map_err(convert)?
+                } else {
+                    Value::Null
+                };
+                return configured.call(method, args, state);
             }
             if method == "chat:send" {
                 configured.validate_send(args.first().unwrap_or(&Value::Null))?;
@@ -717,6 +732,74 @@ impl State {
             }
         }
     }
+    /// Narrow configured-runtime subset of runtime.cjs patchChat / project-edits.patchSession.
+    /// False removes the field. All other patch fields remain unsupported, including mixed patches.
+    #[cfg(feature = "chat-runtime")]
+    fn patch_unread(&mut self, args: &[Value]) -> RpcResult {
+        if args.first().and_then(Value::as_str) != self.project.to_str() {
+            return Err(RpcError::new(
+                "ISOLATED_SCOPE_ONLY",
+                "Choose this configured Project",
+            ));
+        }
+        self.host
+            .require_project_ready(&self.project)
+            .map_err(convert)?;
+        let invalid = || {
+            RpcError::new(
+                "INVALID_CHAT_PATCH",
+                "Expected an existing positive Chat ID and only {unread: boolean}",
+            )
+        };
+        if args.len() != 3 {
+            return Err(invalid());
+        }
+        let session = args[1]
+            .as_f64()
+            .filter(|id| id.fract() == 0.0 && *id >= 1.0 && *id <= 9_007_199_254_740_991.0)
+            .ok_or_else(invalid)? as i64;
+        let patch = args[2]
+            .as_object()
+            .filter(|patch| patch.len() == 1)
+            .ok_or_else(invalid)?;
+        let unread = patch
+            .get("unread")
+            .and_then(Value::as_bool)
+            .ok_or_else(invalid)?;
+        let mut exists = false;
+        let (_, changed) = self
+            .host
+            .states
+            .update(&self.project, Some(&[]), true, |current| {
+                let mut next = current
+                    .sessions()?
+                    .get(&session.to_string())?
+                    .as_object()?
+                    .clone();
+                exists = true;
+                if unread {
+                    if next.get("unread") == Some(&Value::Bool(true)) {
+                        return None;
+                    }
+                    next.insert("unread".into(), Value::Bool(true));
+                } else if next.shift_remove("unread").is_none() {
+                    return None;
+                }
+                Some(agent_runs::with_session(current, session, next))
+            })
+            .map_err(convert)?;
+        if !exists {
+            return Err(RpcError::new("CHAT_NOT_FOUND", "Choose an existing Chat"));
+        }
+        // A failed save retains the owner's dirty state and persistence error. It cannot
+        // produce a success reply; ordinary persistence publication reports the failure.
+        self.host
+            .states
+            .flush(Some(&self.project))
+            .map_err(convert)?;
+        self.project_changed |= changed;
+        Ok(Value::Null)
+    }
     fn tick(&mut self, now: i64) -> Result<(), RpcError> {
         // Live ownership/root/store checks are bounded independently of renderer traffic.
         // Revoke grants before driving the host. Deferring events and gating launches
@@ -796,6 +879,14 @@ impl State {
         // read via the actor from Handler::snapshot, including during shutdown.
         self.cache(shared)?;
         let mut state_queued = false;
+        if self.project_changed {
+            self.queue_event(
+                "project:state",
+                json!({"path":self.project,"state":self.last}),
+            )?;
+            self.project_changed = false;
+            state_queued = true;
+        }
         for notice in notices {
             match notice {
                 Notice::Event {
@@ -1420,6 +1511,7 @@ fn start_provider(
         run_seq: initial_run_seq,
         next_readiness_check: Instant::now(),
         pending: VecDeque::new(),
+        project_changed: false,
         answers: HashMap::new(),
         modes: HashMap::new(),
         settled_replies: Vec::new(),
@@ -1774,6 +1866,14 @@ mod tests {
             .iter()
             .any(|method| method == CLAUDE_METHODS[0]));
     }
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn unread_patch_is_advertised_only_by_configured_runtime() {
+        let (mut actor, _receive) = dormant();
+        assert!(!actor.methods().iter().any(|method| method == "chat:patch"));
+        actor.configured = true;
+        assert!(actor.methods().iter().any(|method| method == "chat:patch"));
+    }
     #[test]
     fn admission_never_waits_for_full_or_oversized_queue() {
         let (actor, _receive) = dormant();
@@ -1994,6 +2094,7 @@ mod publication_tests {
             run_seq: 0,
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
+            project_changed: false,
             answers: HashMap::new(),
             modes: HashMap::new(),
             settled_replies: Vec::new(),
@@ -2036,6 +2137,163 @@ mod publication_tests {
         state.host.states.take_events();
         state.opened = true;
         (profile, state, shared, provider, sent.turn.unwrap())
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn unread_patch_saves_before_publication_and_refuses_invalid_edits() {
+        let (profile, mut state, shared, _, _) = shutdown_fixture();
+        state.publication_epoch = Some("unread-test".into());
+        state.cache(&shared).unwrap();
+        let before = state.last.clone();
+        let version = state.version;
+        let coordination = state.project.join(".milagre/coordination.json");
+        let saved = fs::read(&coordination).unwrap();
+        for args in [
+            vec![],
+            vec![json!(state.project), json!(1)],
+            vec![
+                json!(state.project),
+                json!(1),
+                json!({"unread":false}),
+                Value::Null,
+            ],
+            vec![
+                json!(state.project.with_file_name("foreign")),
+                json!(1),
+                json!({"unread":false}),
+            ],
+            vec![json!(state.project), json!(0), json!({"unread":false})],
+            vec![json!(state.project), json!(-1), json!({"unread":false})],
+            vec![json!(state.project), json!(1.5), json!({"unread":false})],
+            vec![
+                json!(state.project),
+                json!(9_007_199_254_740_992_u64),
+                json!({"unread":false}),
+            ],
+            vec![json!(state.project), json!("1"), json!({"unread":false})],
+            vec![json!(state.project), json!(999), json!({"unread":false})],
+            vec![json!(state.project), json!(1), json!({})],
+            vec![json!(state.project), json!(1), json!({"unread":0})],
+            vec![json!(state.project), json!(1), json!({"unread":null})],
+            vec![
+                json!(state.project),
+                json!(1),
+                json!({"title":"unsupported"}),
+            ],
+            vec![
+                json!(state.project),
+                json!(1),
+                json!({"unread":false,"archived":true}),
+            ],
+        ] {
+            assert!(state.patch_unread(&args).is_err(), "{args:?}");
+            assert_eq!(
+                state.host.states.whole_state(&state.project).unwrap(),
+                before
+            );
+            assert_eq!(fs::read(&coordination).unwrap(), saved);
+            assert!(!state.project_changed);
+        }
+        let args = [json!(state.project), json!(1), json!({"unread":false})];
+        assert_eq!(state.patch_unread(&args).unwrap(), Value::Null);
+        let mut expected = before;
+        expected["sessions"]["1"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("unread");
+        assert_eq!(
+            state.host.states.whole_state(&state.project).unwrap(),
+            expected
+        );
+        let disk: Value = serde_json::from_slice(&fs::read(&coordination).unwrap()).unwrap();
+        assert!(disk["sessions"]["1"].get("unread").is_none());
+        assert_eq!(state.version, version, "publication has not run yet");
+        let server = Server::bind(profile, Arc::new(Empty), Config::default()).unwrap();
+        server
+            .events()
+            .transaction(|publication| state.publish(&shared, publication))
+            .unwrap();
+        assert_eq!(state.version, version + 1);
+        assert_eq!(
+            shared.snapshot.lock().unwrap()["projects"][0]["state"],
+            expected
+        );
+        assert!(!state.project_changed);
+        assert_eq!(state.patch_unread(&args).unwrap(), Value::Null);
+        assert!(
+            !state.project_changed,
+            "an unchanged read mark needs no new publication"
+        );
+        state.host.forget(&state.project, false).unwrap();
+        assert_eq!(
+            state.patch_unread(&args).unwrap_err().code,
+            "PROJECT_NOT_READY"
+        );
+        assert!(!state.host.states.has(&state.project));
+        state.host.shutdown(true).unwrap();
+        server.shutdown().unwrap();
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    #[test]
+    fn unread_patch_reports_update_and_flush_failures_without_success() {
+        let (_profile, mut state, _, _, _) = shutdown_fixture();
+        state
+            .patch_unread(&[json!(state.project), json!(1), json!({"unread":false})])
+            .unwrap();
+        state.project_changed = false;
+        let before = state.host.states.whole_state(&state.project).unwrap();
+        let coordination = state.project.join(".milagre/coordination.json");
+        let saved = fs::read(&coordination).unwrap();
+        let args = [json!(state.project), json!(1), json!({"unread":true})];
+        state
+            .host
+            .states
+            .fail_next_commit("injected unread commit failure");
+        assert!(state
+            .patch_unread(&args)
+            .unwrap_err()
+            .message
+            .contains("injected unread"));
+        assert_eq!(
+            state.host.states.whole_state(&state.project).unwrap(),
+            before
+        );
+        assert_eq!(fs::read(&coordination).unwrap(), saved);
+        assert!(!state.project_changed);
+        let backup = coordination.with_extension("saved");
+        fs::rename(&coordination, &backup).unwrap();
+        fs::create_dir(&coordination).unwrap();
+        assert!(state
+            .patch_unread(&args)
+            .unwrap_err()
+            .message
+            .contains("coordination.json"));
+        let failed = state.host.states.whole_state(&state.project).unwrap();
+        assert_eq!(failed["sessions"]["1"]["unread"], true);
+        assert!(failed["persistence"]["error"].is_string());
+        assert!(!state.project_changed);
+        assert!(state
+            .host
+            .states
+            .take_events()
+            .iter()
+            .any(|event| matches!(event, Event::SaveFailed { .. })));
+        fs::remove_dir(&coordination).unwrap();
+        fs::rename(backup, &coordination).unwrap();
+        // Retrying the same mark must still flush the retained dirty owner state.
+        assert_eq!(state.patch_unread(&args).unwrap(), Value::Null);
+        let disk: Value = serde_json::from_slice(&fs::read(&coordination).unwrap()).unwrap();
+        assert_eq!(disk["sessions"]["1"]["unread"], true);
+        assert!(state
+            .host
+            .states
+            .whole_state(&state.project)
+            .unwrap()
+            .get("persistence")
+            .is_none());
+        state.host.shutdown(true).unwrap();
     }
 
     #[test]
@@ -2524,6 +2782,7 @@ mod job_tests {
             run_seq: 0,
             next_readiness_check: Instant::now(),
             pending: VecDeque::new(),
+            project_changed: false,
             answers: HashMap::new(),
             modes: HashMap::new(),
             settled_replies: vec![],

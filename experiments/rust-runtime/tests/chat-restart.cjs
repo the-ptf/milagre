@@ -92,13 +92,28 @@ async function launch(mode) {
     ).finally(() => waiters.delete(waiter));
   }
   const project = metadata.actor.project;
+  await assert.rejects(client.call("chat:patch", [project, 1, { unread: false }]), { code: "ISOLATED_SCOPE_ONLY" });
   const opened = await client.call("project:open", [project]);
   const state = await client.call("state:read", [project]);
   assert.equal(opened.epoch, state.epoch);
   assert.equal((await client.call("project:read", [project])).epoch, state.epoch);
   assert.equal((await client.call("daemon:snapshot")).projects[0].epoch, state.epoch);
   assert.equal((await client.call("accounts:scope", [project, false])).providers.find((p) => p.provider === "claude").effectiveId, metadata.actor.accountId);
-  assert.equal((await client.call("agent:cli-status", [project])).claude.state, "unknown");
+  await assert.rejects(client.call("agent:cli-status", [project]), { code: "CLI_STATUS_UNAVAILABLE" });
+  for (const method of ["canvas:snapshot", "canvas:links", "link:list", "accounts:scopes"]) {
+    await assert.rejects(client.call(method, [project + "/foreign"]), { code: "CHAT_RUNTIME_CONFIG" });
+  }
+  assert.deepEqual(await client.call("canvas:links"), []);
+  assert.deepEqual(await client.call("link:list"), []);
+  assert.deepEqual(await client.call("accounts:scopes"), [
+    { key: project, name: "Rust Chat", kind: "project", projects: [{ id: project, path: project, name: "Rust Chat" }] },
+  ]);
+  const canvas = await client.call("canvas:snapshot");
+  assert.deepEqual(canvas.projects, await client.call("project:registry"));
+  assert.deepEqual(canvas.links, []);
+  assert.deepEqual(canvas.projectGroups, []);
+  assert.deepEqual(canvas.worktreePositions, {});
+  assert.deepEqual(canvas.states, [{ path: project, state: (await client.call("project:read", [project])).state }]);
   return { record, metadata, client, project, events, event, epoch: state.epoch };
 }
 
@@ -129,6 +144,11 @@ async function turn(runtime, id, body) {
     .join("");
   assert.equal(text, "Restartable Claude reply");
   const snapshot = await runtime.client.call("project:read", [runtime.project]);
+  assert.deepEqual(
+    (await runtime.client.call("canvas:snapshot")).states,
+    [{ path: runtime.project, state: snapshot.state }],
+    "canvas includes current completed owner state",
+  );
   assert.equal(snapshot.state.sessions["1"].native_session_id, "restartable-native-session");
   const messages = (await runtime.client.call("chat:messages", [runtime.project, 1])).messages;
   assert.equal(messages.filter((m) => m.clientMessageId === id).length, 1);
@@ -139,6 +159,29 @@ async function turn(runtime, id, body) {
 }
 
 async function main() {
+  // Actual shared Node reducer is the unread-patch oracle, including deletion on false and no-op identity.
+  const { patchSession } = await import("../../../packages/shared/src/project-edits.mjs");
+  async function unreadPatch(runtime, unread) {
+    const before = await runtime.client.call("state:read", [runtime.project]);
+    const expected = patchSession(before.state, 1, { unread });
+    const eventsBefore = runtime.events.length;
+    assert.equal(await runtime.client.call("chat:patch", [runtime.project, 1, { unread }]), null);
+    const after = await runtime.client.call("state:read", [runtime.project]);
+    assert.deepEqual(after.state, expected, "actual Node patchSession parity");
+    const changed = expected !== before.state;
+    assert.equal(after.version, before.version + Number(changed));
+    const published = runtime.events.slice(eventsBefore).filter((event) => event.channel === "project:state");
+    assert.equal(published.length, Number(changed), "saved read mark publishes before its RPC reply; no-op stays quiet");
+    if (changed) {
+      assert.equal(published[0].payload.version, after.version);
+      assert.equal(published[0].payload.epoch, runtime.epoch);
+    }
+    assert.deepEqual((await runtime.client.call("daemon:snapshot")).projects[0].state, expected);
+    const disk = JSON.parse(fs.readFileSync(path.join(runtime.project, ".milagre/coordination.json"), "utf8"));
+    // Runtime-only session fields (for example suggestionTurnId) are intentionally absent from saved state.
+    assert.equal(Object.hasOwn(disk.sessions["1"], "unread"), unread, "unread patch is durable before graceful stop");
+    assert.equal(disk.sessions["1"].unread, expected.sessions["1"].unread);
+  }
   const first = await launch("fixture-create");
   assert.match(await refused(["fixture-open", dataRoot]), /already running/);
   const manifest = fs.readFileSync(path.join(dataRoot, "rust-chat-runtime.json"));
@@ -149,6 +192,22 @@ async function main() {
     { code: "CHAT_RUNTIME_CONFIG" },
   );
   const saved = await turn(first, "first-durable-message", body);
+  const beforeRefusals = await first.client.call("state:read", [first.project]);
+  for (const args of [
+    [first.project + "/foreign", 1, { unread: false }],
+    [first.project, 0, { unread: false }],
+    [first.project, 1.5, { unread: false }],
+    [first.project, "1", { unread: false }],
+    [first.project, 999, { unread: false }],
+    [first.project, 1, { unread: null }],
+    [first.project, 1, { title: "unsupported" }],
+    [first.project, 1, { unread: false, archived: true }],
+  ])
+    await assert.rejects(first.client.call("chat:patch", args));
+  assert.deepEqual(await first.client.call("state:read", [first.project]), beforeRefusals);
+  await unreadPatch(first, false);
+  await unreadPatch(first, true);
+  await unreadPatch(first, true);
   await stop(first);
   assert.deepEqual(fs.readFileSync(path.join(dataRoot, "rust-chat-runtime.json")), manifest);
   assert.equal(fs.existsSync(path.join(first.project, ".milagre/chats.db")), true);
@@ -160,6 +219,7 @@ async function main() {
   assert.notEqual(second.metadata.profile, first.metadata.profile);
   assert.notEqual(second.metadata.socket, first.metadata.socket);
   assert.deepEqual((await second.client.call("chat:messages", [second.project, 1])).messages, saved);
+  assert.equal((await second.client.call("state:read", [second.project])).state.sessions["1"].unread, true);
   assert.equal((await second.client.call("state:read", [second.project])).state.sessions["1"].native_session_id, "restartable-native-session");
   await second.client.call("chat:send", [
     { projectPath: second.project, sessionId: 1, provider: "claude", model: "sonnet", body, clientMessageId: "first-durable-message" },
@@ -167,11 +227,17 @@ async function main() {
   assert.deepEqual((await second.client.call("chat:messages", [second.project, 1])).messages, saved);
   const updated = await turn(second, "second-durable-message", "Resume the saved Chat");
   assert.equal(updated.filter((m) => m.role === "user").length, 2);
+  await unreadPatch(second, false);
+  await unreadPatch(second, false);
   await stop(second);
 
   const third = await launch("fixture-open");
   assert.notEqual(third.epoch, second.epoch);
   assert.deepEqual((await third.client.call("chat:messages", [third.project, 1])).messages, updated);
+  assert.equal(Object.hasOwn((await third.client.call("state:read", [third.project])).state.sessions["1"], "unread"), false);
+  await third.client.call("project:forget", [third.project]);
+  await assert.rejects(third.client.call("chat:patch", [third.project, 1, { unread: true }]), { code: "PROJECT_NOT_READY" });
+  await third.client.call("project:open", [third.project]);
   await stop(third);
 
   const unmarked = path.join(parent, "unmarked");
@@ -182,7 +248,7 @@ async function main() {
   assert.deepEqual(fs.readdirSync(unmarked), ["sentinel"]);
   assert.equal(fs.readFileSync(path.join(unmarked, "sentinel"), "utf8"), "keep");
   console.log(
-    "Restartable Chat: three launches, fresh epochs, saved/native ID continuity, streamed permission turn, duplicate and root refusals passed (fixed child only).",
+    "Restartable Chat: three launches, fresh epochs, saved/native ID continuity, streamed permission turn, durable unread patch/Node reducer parity, scope/patch/duplicate/root refusals passed (fixed child only).",
   );
 }
 

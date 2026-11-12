@@ -7,11 +7,11 @@ mod content;
 mod evidence;
 #[path = "../fixture_launch.rs"]
 mod fixture_launch;
-#[path = "../navigation.rs"]
-mod navigation;
 #[cfg(feature = "fixture-native-smoke")]
 #[path = "../fixture_smoke.rs"]
 mod fixture_smoke;
+#[path = "../navigation.rs"]
+mod navigation;
 #[path = "../shortcuts.rs"]
 mod shortcuts;
 #[cfg(feature = "fixture-native-smoke")]
@@ -34,7 +34,9 @@ async fn daemon(
     method: String,
     args: Value,
 ) -> Result<Value, Value> {
-    if method == "project:forget" { content::clear_previews(&app); }
+    if method == "project:forget" {
+        content::clear_previews(&app);
+    }
     transport.call(method, args).await
 }
 #[tauri::command]
@@ -70,7 +72,9 @@ async fn native_call(app: tauri::AppHandle, method: String, args: Value) -> Resu
     }
     match method.as_str() {
         #[cfg(feature = "fixture-content-smoke")]
-        "fixture:preview-check" => content::inspect_fixture_preview(app, args[0].as_str().unwrap_or("")).await,
+        "fixture:preview-check" => {
+            content::inspect_fixture_preview(app, args[0].as_str().unwrap_or("")).await
+        }
         #[cfg(feature = "fixture-native-smoke")]
         "fixture:smoke-context" => app
             .state::<fixture_smoke::Smoke>()

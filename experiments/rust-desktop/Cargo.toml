@@ -6,6 +6,8 @@ default-run = "milagre-rust"
 [features]
 default = []
 app-fixture = ["dep:tempfile"]
+chat-desktop = ["app-fixture"]
+chat-native-smoke = ["chat-desktop"]
 fixture-native-smoke = ["app-fixture"]
 fixture-send-smoke = ["fixture-native-smoke"]
 fixture-content-smoke = ["fixture-send-smoke"]
@@ -36,3 +38,8 @@ objc2-foundation = "0.3"
 name = "milagre-rust-fixture"
 path = "src/bin/fixture.rs"
 required-features = ["app-fixture"]
+
+[[bin]]
+name = "milagre-rust-chat"
+path = "src/bin/chat.rs"
+required-features = ["chat-desktop"]

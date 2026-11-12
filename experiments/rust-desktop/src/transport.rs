@@ -1077,6 +1077,8 @@ enum EndpointSource {
     Installed,
     #[cfg(feature = "app-fixture")]
     Fixture(Arc<crate::fixture_launch::LaunchContext>),
+    #[cfg(feature = "chat-desktop")]
+    Chat(Arc<crate::fixture_launch::LaunchContext>),
 }
 impl EndpointSource {
     fn fixture(&self) -> bool {
@@ -1084,6 +1086,8 @@ impl EndpointSource {
             Self::Installed => false,
             #[cfg(feature = "app-fixture")]
             Self::Fixture(_) => true,
+            #[cfg(feature = "chat-desktop")]
+            Self::Chat(_) => true,
         }
     }
     fn connect(&self) -> Result<UnixStream, Value> {
@@ -1098,6 +1102,8 @@ impl EndpointSource {
             }),
             #[cfg(feature = "app-fixture")]
             Self::Fixture(context) => context.connect(),
+            #[cfg(feature = "chat-desktop")]
+            Self::Chat(context) => context.connect(),
         }
     }
 }
@@ -1109,6 +1115,14 @@ pub fn start_fixture(
 ) -> Transport {
     start_with_source(app, EndpointSource::Fixture(context))
 }
+#[cfg(feature = "chat-desktop")]
+#[allow(dead_code)]
+pub fn start_chat(
+    app: tauri::AppHandle,
+    context: Arc<crate::fixture_launch::LaunchContext>,
+) -> Transport {
+    start_with_source(app, EndpointSource::Chat(context))
+}
 fn start_with_source(app: tauri::AppHandle, source: EndpointSource) -> Transport {
     let shared = Arc::new(Shared {
         connected_once: AtomicBool::new(false),
@@ -1116,10 +1130,12 @@ fn start_with_source(app: tauri::AppHandle, source: EndpointSource) -> Transport
         changed: Condvar::new(),
         last_error: Mutex::new(error(
             "DAEMON_UNAVAILABLE",
-            if source.fixture() {
-                "Connecting to the owned scripted fixture"
-            } else {
-                "Connecting to the installed Milagre daemon"
+            match &source {
+                EndpointSource::Installed => "Connecting to the installed Milagre daemon",
+                #[cfg(feature = "app-fixture")]
+                EndpointSource::Fixture(_) => "Connecting to the owned scripted fixture",
+                #[cfg(feature = "chat-desktop")]
+                EndpointSource::Chat(_) => "Connecting to the owned Rust Chat runtime",
             },
         )),
         view: Mutex::new(View::default()),
