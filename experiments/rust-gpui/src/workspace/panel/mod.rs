@@ -76,7 +76,7 @@ impl PanelTab {
             PanelTab::Designs => "Designs",
             PanelTab::Artifact => "Artifact",
             PanelTab::Pr => "PR",
-            PanelTab::Details => "Rail",
+            PanelTab::Details => "Details",
             PanelTab::Simulator => "Simulator",
         }
     }

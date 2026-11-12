@@ -36,10 +36,10 @@ fn middle_truncation_keeps_both_ends() {
 }
 
 #[gpui::test]
-fn the_tab_is_registered_as_rail_with_a_list_icon(cx: &mut TestAppContext) {
+fn the_tab_is_registered_as_details_with_a_list_icon(cx: &mut TestAppContext) {
     let (panel, _cx) = mount(cx);
     assert!(panel.read_with(&*_cx, |p, _| p.visible_tabs().contains(&PanelTab::Details)));
-    assert_eq!(PanelTab::Details.label(), "Rail");
+    assert_eq!(PanelTab::Details.label(), "Details");
     assert_eq!(PanelTab::Details.icon(), crate::ui::IconName::LeftToRightListBullet);
     assert_eq!(panel.read_with(&*_cx, |p, _| p.active()), PanelTab::Details);
 }
@@ -229,4 +229,53 @@ fn a_folded_section_is_just_its_heading_row(cx: &mut TestAppContext) {
         assert_eq!(section_bounds.size.height, heading.size.height, "{section}: a folded section is only its heading row");
     }
     assert!(checked >= 2, "Background tasks and Links are drawn");
+}
+
+#[gpui::test]
+fn every_row_and_heading_shares_the_context_rows_height(cx: &mut TestAppContext) {
+    let (panel, cx) = mount(cx);
+    let view = details(&panel, cx);
+    let row = testing::bounds(cx, "details-context").size.height;
+    for selector in ["details-environment-heading", "details-children-toggle", "details-background-toggle", "details-links-toggle"] {
+        let Some(bounds) = cx.debug_bounds(selector) else { continue };
+        assert_eq!(bounds.size.height, row, "{selector} is as tall as the Context row");
+    }
+    // Folded, a heading is still that height.
+    view.update(cx, |v, cx| v.toggle_background(cx));
+    cx.run_until_parked();
+    assert_eq!(testing::bounds(cx, "details-background-toggle").size.height, row);
+    assert_eq!(testing::bounds(cx, "details-section-background").size.height, row);
+}
+
+#[gpui::test]
+fn chevrons_sit_at_the_right_edge_and_point_by_state(cx: &mut TestAppContext) {
+    let (panel, cx) = mount(cx);
+    let view = details(&panel, cx);
+    let context = testing::bounds(cx, "details-context");
+    for (row, chevron) in [
+        ("details-context", "details-context-chevron"),
+        ("details-background-toggle", "details-background-toggle-chevron"),
+        ("details-links-toggle", "details-links-toggle-chevron"),
+    ] {
+        let (row, chevron) = (testing::bounds(cx, row), testing::bounds(cx, chevron));
+        assert_eq!(chevron.right(), row.right() - gpui::px(super::PAD_X), "{row:?}: the chevron ends at the padding");
+        assert_eq!(row.right(), context.right());
+    }
+    let open = testing::bounds(cx, "details-background-toggle-chevron").origin;
+    view.update(cx, |v, cx| v.toggle_background(cx));
+    cx.run_until_parked();
+    // Same place folded; the glyph is the one that changes (right when folded, down when open).
+    assert_eq!(testing::bounds(cx, "details-background-toggle-chevron").origin, open);
+    assert_eq!(super::rows::chevron_icon(false), crate::ui::IconName::ArrowRight01);
+    assert_eq!(super::rows::chevron_icon(true), crate::ui::IconName::ArrowDown01);
+}
+
+#[gpui::test]
+fn clickable_rows_span_the_panels_full_width(cx: &mut TestAppContext) {
+    let (_panel, cx) = mount(cx);
+    let section = testing::bounds(cx, "details-section-environment");
+    for selector in ["details-context", "details-background-toggle", "details-links-toggle", "details-pr", "details-path-row"] {
+        let bounds = testing::bounds(cx, selector);
+        assert_eq!((bounds.left(), bounds.right()), (section.left(), section.right()), "{selector} runs edge to edge");
+    }
 }

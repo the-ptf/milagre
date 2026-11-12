@@ -15,11 +15,32 @@ use crate::workspace::chat::pills::data::AgentStatus;
 const CONTEXT_BAR: f32 = 248.0;
 const INDENT: f32 = 16.0;
 
-fn heading(theme: &Theme, text: &'static str) -> AnyElement {
-    div().flex_none().px(px(PAD_X)).pb(px(4.0)).child(SectionLabel::new(text)).text_color(theme.ink3).into_any_element()
+/// The row every line and heading shares: `ROW_HEIGHT` tall, the full panel width, the text padding inside it, so a
+/// hover fill on it runs edge to edge.
+fn shell(theme: &Theme, id: impl Into<SharedString>) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let selector = id.clone();
+    let seeded = seeded_hover(&id);
+    div()
+        .id(id)
+        .debug_selector(move || selector.to_string())
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(8.0))
+        .w_full()
+        .h(px(ROW_HEIGHT))
+        .px(px(PAD_X))
+        .when(seeded, |el| el.bg(theme.hover2))
 }
 
-/// A collapsible section's heading: the muted label and a chevron, the whole row toggles.
+/// A plain section heading: the muted label in a row of the common height.
+fn heading(theme: &Theme, id: &'static str, text: &'static str) -> AnyElement {
+    shell(theme, id).text_color(theme.ink3).child(SectionLabel::new(text)).into_any_element()
+}
+
+/// A collapsible section's heading: the muted label, the chevron at the right edge, the whole row toggles and
+/// hovers full width.
 fn toggle_heading(
     theme: &Theme,
     id: &'static str,
@@ -27,22 +48,11 @@ fn toggle_heading(
     open: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
-    div()
-        .id(id)
-        .debug_selector(move || id.to_string())
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(4.0))
-        .w_full()
-        .px(px(PAD_X))
-        .pb(px(4.0))
+    let row = shell(theme, id)
         .text_color(theme.ink3)
-        .cursor_pointer()
-        .on_click(on_click)
-        .child(SectionLabel::new(text))
-        .child(chevron(theme, open))
-        .into_any_element()
+        .child(div().flex_1().min_w_0().child(SectionLabel::new(text)))
+        .child(chevron(theme, open, id));
+    clickable(row, theme, on_click).into_any_element()
 }
 
 fn glyph(theme: &Theme, name: IconName) -> AnyElement {
@@ -61,18 +71,7 @@ fn line(
     label: impl Into<SharedString>,
     trailing: Vec<AnyElement>,
 ) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let selector = id.clone();
-    div()
-        .id(id)
-        .debug_selector(move || selector.to_string())
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(8.0))
-        .w_full()
-        .h(px(ROW_HEIGHT))
-        .px(px(PAD_X))
+    shell(theme, id)
         .text_step(TEXT_13)
         .text_color(theme.ink2)
         .child(lead)
@@ -80,6 +79,12 @@ fn line(
         .children(trailing)
 }
 
+/// Snapshot aid (never in tests): `MILAGRE_GPUI_DETAILS_HOVER=<row id>` draws that row as hovered.
+fn seeded_hover(id: &str) -> bool {
+    !cfg!(test) && std::env::var("MILAGRE_GPUI_DETAILS_HOVER").is_ok_and(|seed| seed == id)
+}
+
+/// Makes a row clickable: a pointer and a square hover fill over the whole row (the row spans the panel's width).
 fn clickable(
     row: Stateful<Div>,
     theme: &Theme,
@@ -89,8 +94,17 @@ fn clickable(
     row.cursor_pointer().hover(move |style| style.bg(hover)).on_click(on_click)
 }
 
-fn chevron(theme: &Theme, open: bool) -> AnyElement {
-    Icon::new(if open { IconName::ArrowDown01 } else { IconName::ArrowRight01 }).size(IconSize::S14).color(theme.ink3).into_any_element()
+pub(super) fn chevron_icon(open: bool) -> IconName {
+    if open { IconName::ArrowDown01 } else { IconName::ArrowRight01 }
+}
+
+fn chevron(theme: &Theme, open: bool, row: &'static str) -> AnyElement {
+    let selector = format!("{row}-chevron");
+    div()
+        .flex_none()
+        .debug_selector(move || selector.clone())
+        .child(Icon::new(chevron_icon(open)).size(IconSize::S14).color(theme.ink3))
+        .into_any_element()
 }
 
 fn state_mark(theme: &Theme, key: &str, kind: SubchatKind) -> AnyElement {
@@ -130,7 +144,7 @@ impl DetailsView {
     }
 
     pub(super) fn environment(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows: Vec<AnyElement> = vec![heading(theme, "Environment")];
+        let mut rows: Vec<AnyElement> = vec![heading(theme, "details-environment-heading", "Environment")];
         if let Some(computer) = &self.data.computer {
             let tone = computer.offline.then_some(theme.orange_ink);
             rows.push(
@@ -169,7 +183,6 @@ impl DetailsView {
                 .h_full()
                 .px(px(PAD_X))
                 .cursor_pointer()
-                .hover(move |style| style.bg(hover))
                 .tooltip(Tooltip::text(path.clone()))
                 .on_click(on(cx, |this, cx| this.copy_path(cx)))
                 .child(glyph(theme, IconName::Folder01))
@@ -207,11 +220,15 @@ impl DetailsView {
             };
             rows.push(
                 div()
+                    .id("details-path-row")
+                    .debug_selector(|| "details-path-row".to_string())
                     .flex()
                     .flex_none()
                     .items_center()
                     .w_full()
                     .h(px(ROW_HEIGHT))
+                    .hover(move |style| style.bg(hover))
+                    .when(seeded_hover("details-path"), |el| el.bg(hover))
                     .text_step(TEXT_13)
                     .text_color(theme.ink2)
                     .child(left)
@@ -233,7 +250,7 @@ impl DetailsView {
                 "details-context",
                 glyph(theme, IconName::RamMemory),
                 "Context",
-                vec![value(theme, format!("{}%", context.percent), tone), chevron(theme, open)],
+                vec![value(theme, format!("{}%", context.percent), tone), chevron(theme, open, "details-context")],
             ),
             theme,
             on(cx, |this, cx| this.toggle_context(cx)),
@@ -405,7 +422,7 @@ impl DetailsView {
                         "details-finished",
                         glyph(theme, IconName::CheckmarkCircle02),
                         format!("{finished} finished"),
-                        vec![chevron(theme, open)],
+                        vec![chevron(theme, open, "details-finished")],
                     ),
                     theme,
                     on(cx, |this, cx| this.toggle_finished(cx)),

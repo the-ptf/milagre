@@ -45,7 +45,7 @@ fn clicking_a_chat_row_selects_it(cx: &mut TestAppContext) {
 #[gpui::test]
 fn columns_have_their_fixed_widths(cx: &mut TestAppContext) {
     let (_workspace, cx) = testing::mount_workspace(cx);
-    let first_tab = cx.debug_bounds("panel-tab-Rail").expect("the Rail tab is drawn");
+    let first_tab = cx.debug_bounds("panel-tab-Details").expect("the Details tab is drawn");
     let row = cx.debug_bounds("chat-row-0").expect("row 0 is drawn");
     // The sidebar row starts 8px in from the window edge; the panel's first tab starts 8px in from
     // the panel's left edge, which is the window width minus 518.
@@ -116,7 +116,7 @@ fn headers_move_and_zoom_the_window_but_their_controls_do_not(cx: &mut TestAppCo
 
     double_click(cx, point(px(700.0), px(22.0)));
     assert_eq!(chrome_calls(), ["double-click"], "a double-click on the Chat header zooms");
-    let tab = cx.debug_bounds("panel-tab-Rail").expect("the Rail tab is drawn").center();
+    let tab = cx.debug_bounds("panel-tab-Details").expect("the Details tab is drawn").center();
     double_click(cx, tab);
     assert!(chrome_calls().is_empty(), "a double-click on a tab does not");
 }
