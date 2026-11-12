@@ -5,7 +5,8 @@
 // 7e5a9e3690d5b96a7d93ebf884397835e57b9b7e: `vendor/gpui-pre/src/scene.rs` (the marker) and
 // `vendor/gpui-pre-apple/src/metal_renderer.rs` (`blur_backdrop`, `gaussian_kernel`,
 // `build_backdrop_pipeline_state`), rewritten from metal-rs onto gpui-pre-apple 0.3.12's objc2-metal API, with a
-// per-size scratch cache. Modified for milagre-gpui-spike; see vendor/PATCHES.md.
+// per-size scratch cache, a half-float blur target, the tint and grain applied in the composite and a dither on its
+// 8-bit output. Modified for milagre-gpui-spike; see vendor/PATCHES.md.
 //
 // MIT License
 //
@@ -32,7 +33,7 @@
 // The surrounding renderer is GPUI's (Copyright 2022 - 2025 Zed Industries, Inc., Apache-2.0, LICENSE-APACHE).
 
 use anyhow::{Context as _, Result};
-use gpui::{DevicePixels, Hsla, Quad, Size};
+use gpui::{DevicePixels, Hsla, Quad, Rgba, Size};
 use objc2::{
     msg_send,
     rc::{Allocated, Retained},
@@ -52,10 +53,16 @@ use std::{mem, ptr};
 unsafe extern "C" {}
 
 // A quad whose border colour is this hue and saturation, fully transparent, asks for the blur; its lightness carries
-// the sigma. No real border colour is transparent with exactly these two values.
+// the sigma; the saturation's offset from its base carries the grain. No real border colour is transparent with
+// exactly this hue and a saturation that close.
 const MARKER_HUE: f32 = 0.707_106_77;
 const MARKER_SATURATION: f32 = 0.577_215_7;
+/// The saturation moves off [`MARKER_SATURATION`] by the grain strength times this (see [`backdrop_blur_marker_grained`]).
+const GRAIN_SCALE: f32 = 0.25;
 const MAX_SIGMA: f32 = 4096.;
+/// The blur's output: half floats, so a dark, low-contrast falloff keeps its sub-8-bit steps until the composite
+/// dithers them into the 8-bit drawable (an 8-bit blur target quantises them into visible bands).
+const BLURRED_FORMAT: MTLPixelFormat = MTLPixelFormat::RGBA16Float;
 /// `MPSImageEdgeModeClamp`: the default zero edge bleeds transparent black into blurs near the window border.
 const EDGE_MODE_CLAMP: usize = 1;
 /// Blur kernels kept, by sigma.
@@ -69,9 +76,16 @@ const SCRATCH_IDLE_FRAMES: u64 = 120;
 /// drawn behind it by `sigma` device pixels, like CSS `backdrop-filter: blur()`. The quad's background then tints
 /// the glass. Give the quad no border width and a background that is not fully transparent.
 pub fn backdrop_blur_marker(sigma: f32) -> Hsla {
+    backdrop_blur_marker_grained(sigma, 0.)
+}
+
+/// [`backdrop_blur_marker`] with film grain over the tint: per-device-pixel noise whose specks reach `grain` alpha
+/// (0 to 1), white for a positive `grain` and black for a negative one, fixed to the window like a tiled grain
+/// texture. Carried in the marker's saturation.
+pub fn backdrop_blur_marker_grained(sigma: f32, grain: f32) -> Hsla {
     Hsla {
         h: MARKER_HUE,
-        s: MARKER_SATURATION,
+        s: MARKER_SATURATION + grain.clamp(-1., 1.) * GRAIN_SCALE,
         l: (sigma / MAX_SIGMA).clamp(0., 1.),
         a: 0.,
     }
@@ -80,15 +94,25 @@ pub fn backdrop_blur_marker(sigma: f32) -> Hsla {
 /// The blur `quad` asks for in device pixels, if it carries [`backdrop_blur_marker`].
 pub fn backdrop_blur_sigma(quad: &Quad) -> Option<f32> {
     let color = quad.border_color;
-    (color.h == MARKER_HUE && color.s == MARKER_SATURATION && color.a == 0. && color.l > 0.)
+    (color.h == MARKER_HUE
+        && (color.s - MARKER_SATURATION).abs() <= GRAIN_SCALE + 1e-6
+        && color.a == 0.
+        && color.l > 0.)
         .then_some(color.l * MAX_SIGMA)
+}
+
+/// The grain a marked `quad` asks for (see [`backdrop_blur_marker_grained`]); 0 for none.
+pub fn backdrop_blur_grain(quad: &Quad) -> f32 {
+    ((quad.border_color.s - MARKER_SATURATION) / GRAIN_SCALE).clamp(-1., 1.)
 }
 
 struct Scratch {
     width: usize,
     height: usize,
     format: MTLPixelFormat,
+    /// The backdrop as drawn, in the drawable's format (a blit cannot convert; the copy is exact either way).
     original: Retained<ProtocolObject<dyn MTLTexture>>,
+    /// Its blur, in [`BLURRED_FORMAT`].
     blurred: Retained<ProtocolObject<dyn MTLTexture>>,
     used: u64,
 }
@@ -110,6 +134,12 @@ struct CompositeParams {
     viewport_size: [f32; 2],
     corner_radius: f32,
     padding: f32,
+    /// The quad's solid background, which the composite lays over the blur itself (transparent: the quad draws it).
+    tint: [f32; 4],
+    /// Signed grain strength, see [`backdrop_blur_marker_grained`].
+    grain: f32,
+    /// Pads the struct to Metal's 16-byte size for `float4`.
+    pad: [f32; 3],
 }
 
 impl Backdrop {
@@ -135,8 +165,10 @@ impl Backdrop {
     }
 
     /// Replaces the pixels inside `quad`'s rounded bounds with a Gaussian blur (`sigma` device pixels) of what is
-    /// already drawn there and around it. The quad itself is drawn afterwards, as the tint. Encodes a blit, the MPS
-    /// blur and one render pass on `command_buffer`; the caller ends its own render pass first.
+    /// already drawn there and around it, then the quad's tint (when its background is a solid colour) and grain
+    /// over it, dithered into the 8-bit target. Returns whether the tint was applied, in which case the caller must
+    /// not draw the quad (a marked quad has no border); otherwise it draws the quad afterwards as the tint. Encodes a
+    /// blit, the MPS blur and one render pass on `command_buffer`; the caller ends its own render pass first.
     pub(crate) fn blur(
         &mut self,
         device: &ProtocolObject<dyn MTLDevice>,
@@ -145,7 +177,7 @@ impl Backdrop {
         target: &ProtocolObject<dyn MTLTexture>,
         viewport_size: Size<DevicePixels>,
         command_buffer: &ProtocolObject<dyn MTLCommandBuffer>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let viewport = [
             i32::from(viewport_size.width) as f32,
             i32::from(viewport_size.height) as f32,
@@ -153,7 +185,7 @@ impl Backdrop {
         // The blur stops where the quad is clipped, like the quad itself.
         let bounds = quad.bounds.intersect(&quad.content_mask.bounds);
         if bounds.size.width.0 <= 0. || bounds.size.height.0 <= 0. || sigma <= 0. {
-            return Ok(());
+            return Ok(false);
         }
         // The gaussian reaches about 3 sigma, so copy that much around the glass: its edges then average the
         // backdrop beyond them instead of fading.
@@ -167,11 +199,21 @@ impl Backdrop {
             .ceil()
             .min(viewport[1]);
         if right - left < 1. || bottom - top < 1. {
-            return Ok(());
+            return Ok(false);
         }
         let (width, height) = ((right - left) as usize, (bottom - top) as usize);
         let scratch = self.scratch(device, width, height, target.pixelFormat())?;
         let (original, blurred) = (scratch.original.clone(), scratch.blurred.clone());
+        let solid = quad.background.as_solid();
+        let tint = solid.map_or(
+            Rgba {
+                r: 0.,
+                g: 0.,
+                b: 0.,
+                a: 0.,
+            },
+            Rgba::from,
+        );
         let kernel = self.kernel(device, sigma)?;
 
         let blit = command_buffer
@@ -192,8 +234,8 @@ impl Backdrop {
             );
         }
         blit.endEncoding();
-        // SAFETY: The kernel is a live MPSImageGaussianBlur on this device; both textures are live, the same size
-        // and format, readable and writable as MPS needs. The selector is MPSUnaryImageKernel's encoding method.
+        // SAFETY: The kernel is a live MPSImageGaussianBlur on this device; both textures are live and the same size,
+        // readable and writable as MPS needs (it converts between their formats). The selector is MPSUnaryImageKernel's encoding method.
         unsafe {
             let _: () = msg_send![
                 &*kernel,
@@ -211,9 +253,16 @@ impl Backdrop {
             viewport_size: viewport,
             corner_radius: quad.corner_radii.top_left.0,
             padding: 0.,
+            tint: [tint.r, tint.g, tint.b, tint.a],
+            grain: backdrop_blur_grain(quad),
+            pad: [0.; 3],
         };
-        let encoder =
-            crate::metal_renderer::new_command_encoder_for_texture(command_buffer, target, viewport_size, None)?;
+        let encoder = crate::metal_renderer::new_command_encoder_for_texture(
+            command_buffer,
+            target,
+            viewport_size,
+            None,
+        )?;
         encoder.setRenderPipelineState(&self.pipeline);
         // SAFETY: The params bytes are copied by Metal and match `BackdropCompositeParams` in shaders.metal; the
         // pipeline draws six vertices from no buffers and reads textures 0 and 1.
@@ -226,7 +275,7 @@ impl Backdrop {
             encoder.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 6);
         }
         encoder.endEncoding();
-        Ok(())
+        Ok(solid.is_some())
     }
 
     /// The scratch pair for a `width` x `height` region, made on first use and kept while it is used.
@@ -237,6 +286,7 @@ impl Backdrop {
         height: usize,
         format: MTLPixelFormat,
     ) -> Result<&Scratch> {
+        // `format` is the drawable's, for the copy; the blur target is always `BLURRED_FORMAT`.
         let frame = self.frame;
         if let Some(ix) = self
             .scratch
@@ -266,12 +316,15 @@ impl Backdrop {
                 .newTextureWithDescriptor(&descriptor)
                 .context("allocating backdrop scratch texture")
         };
+        let original = make()?;
+        descriptor.setPixelFormat(BLURRED_FORMAT);
+        let blurred = make()?;
         self.scratch.push(Scratch {
             width,
             height,
             format,
-            original: make()?,
-            blurred: make()?,
+            original,
+            blurred,
             used: frame,
         });
         Ok(self.scratch.last().expect("just pushed"))
@@ -337,4 +390,3 @@ fn build_composite_pipeline_state(
         .newRenderPipelineStateWithDescriptor_error(&descriptor)
         .context("creating backdrop_composite render pipeline")
 }
-

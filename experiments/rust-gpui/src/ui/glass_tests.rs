@@ -16,6 +16,13 @@ fn the_marker_carries_its_sigma_through_element_opacity() {
     // `Window::paint_quad` scales the border alpha by the element's opacity; zero stays zero, so the mark survives.
     quad.border_color = gpui_apple::backdrop_blur_marker(48.0).opacity(0.4);
     assert!(gpui_apple::backdrop_blur_sigma(&quad).is_some());
+    // Grain rides along in the marker, signed (white specks positive, black negative), and leaves the sigma alone.
+    for grain in [0.0_f32, 0.06, -0.06, 1.0, -1.0] {
+        quad.border_color = gpui_apple::backdrop_blur_marker_grained(48.0, grain).opacity(0.4);
+        let sigma = gpui_apple::backdrop_blur_sigma(&quad).expect("marked");
+        assert!((sigma - 48.0).abs() < 0.01);
+        assert!((gpui_apple::backdrop_blur_grain(&quad) - grain).abs() < 1e-5, "grain {grain}");
+    }
     // A real transparent border (a background quad's) is not taken for one.
     quad.border_color = Hsla::transparent_black();
     assert_eq!(gpui_apple::backdrop_blur_sigma(&quad), None);
@@ -118,4 +125,47 @@ fn glass_frame_time() {
         stats(&format!("{mode}: scroll, render+readback"), &mut scroll_gpu);
         cx.update(|cx| cx.quit());
     }
+}
+
+/// The composer's glass over transcript text, for checking the blur for banding: scrolls the transcript up so text
+/// passes behind the composer, then writes the frame to `MILAGRE_GPUI_BAND_PNG` (theme from `MILAGRE_GPUI_THEME`).
+/// `MILAGRE_GPUI_BAND_PNG=/tmp/band.png cargo test --release glass_band_snapshot -- --ignored`.
+#[test]
+#[ignore = "needs a Metal device; writes a PNG for inspection"]
+fn glass_band_snapshot() {
+    use std::sync::Arc;
+
+    use gpui::{Modifiers, PlatformInput, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase, point};
+
+    use crate::snapshot::headless::{context, pump, save_png};
+
+    let path = std::env::var("MILAGRE_GPUI_BAND_PNG").unwrap_or_else(|_| "/tmp/gpui-band.png".into());
+    let scroll: f32 = std::env::var("MILAGRE_GPUI_BAND_SCROLL").ok().and_then(|v| v.parse().ok()).unwrap_or(150.0);
+    let mut cx = context(Arc::new(crate::assets::Assets));
+    cx.update(crate::app::init);
+    for _ in 0..100 {
+        if cx.update(crate::ui::preload_logos) {
+            break;
+        }
+        cx.advance_clock(std::time::Duration::from_millis(20));
+        cx.run_until_parked();
+    }
+    let window = cx.update(crate::app::open_main_window);
+    pump(&mut cx, 30);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.dispatch_event(
+            PlatformInput::Scroll(ScrollEvent {
+                position: point(px(700.0), px(400.0)),
+                delta: ScrollDelta::Pixels(point(px(0.0), px(scroll))),
+                modifiers: Modifiers::none(),
+                touch_phase: TouchPhase::Moved,
+                source: ScrollSource::Pointer,
+            }),
+            cx,
+        );
+    })
+    .expect("window");
+    pump(&mut cx, 30);
+    save_png(&mut cx, window.into(), std::path::Path::new(&path)).expect("png");
+    cx.update(|cx| cx.quit());
 }

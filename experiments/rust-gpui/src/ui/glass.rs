@@ -17,6 +17,7 @@
 use gpui::{App, BorderStyle, Bounds, Corners, Edges, Hsla, IntoElement, Pixels, RenderOnce, Window, canvas, prelude::*, px};
 
 use crate::theme::{Appearance, Theme};
+use crate::ui::grain::CARD_STRENGTH;
 
 /// The blur radius of every glass surface (CSS `blur(24px)`; the gaussian's sigma, in points).
 pub const GLASS_BLUR: Pixels = px(24.0);
@@ -24,6 +25,11 @@ pub const GLASS_BLUR: Pixels = px(24.0);
 pub const GLASS_COMPOSER_FILL: f32 = 0.62;
 /// The pills' tint: `.status-pill`'s own mix, the surface at 68%.
 pub const GLASS_PILL_FILL: f32 = 0.68;
+/// Film grain over the glass tint, as strong as the Chat card's: the baked texture's specks reach 18/255 alpha
+/// (`tools/gen-grain.mjs`) and the card shows them at [`CARD_STRENGTH`], so the glass reads as the same grained
+/// surface as the card around it, and the grain hides what the dither leaves of the blur's steps. The renderer draws
+/// it per device pixel, fixed to the window like the tiled texture.
+pub const GLASS_GRAIN: f32 = 18.0 / 255.0 * CARD_STRENGTH;
 /// The light edge in dark: ink at 10%, and 18% along the top.
 const DARK_EDGE: f32 = 0.10;
 const DARK_TOP: f32 = 0.18;
@@ -47,22 +53,35 @@ pub struct Glass {
     edge: Option<Hsla>,
     top_edge: Option<Hsla>,
     outset: bool,
+    /// Grain specks' peak alpha over the tint: positive for white specks, negative for black (0: none).
+    grain: f32,
 }
 
 impl Glass {
     /// `blur` points of backdrop blur under a `tint`. Square corners, no edge.
     pub fn new(blur: Pixels, tint: impl Into<Hsla>) -> Self {
-        Self { blur, tint: tint.into(), radius: px(0.0), edge: None, top_edge: None, outset: false }
+        Self { blur, tint: tint.into(), radius: px(0.0), edge: None, top_edge: None, outset: false, grain: 0.0 }
     }
 
-    /// The app's glass: [`GLASS_BLUR`] under the theme's `surface` at `fill`, with the appearance's light edge.
+    /// The app's glass: [`GLASS_BLUR`] under the theme's `surface` at `fill`, with the appearance's light edge and
+    /// the card's grain.
     pub fn surface(theme: &Theme, fill: f32) -> Self {
         let ink = Hsla::from(theme.ink);
         let (edge, top) = match theme.appearance {
             Appearance::Dark => (ink.opacity(DARK_EDGE), ink.opacity(DARK_TOP)),
             Appearance::Light => (ink.opacity(LIGHT_EDGE), Hsla::from(theme.surface)),
         };
-        Self::new(GLASS_BLUR, Hsla::from(theme.surface).opacity(fill)).edge(edge).top_edge(top)
+        Self::new(GLASS_BLUR, Hsla::from(theme.surface).opacity(fill)).edge(edge).top_edge(top).grain(theme.appearance, GLASS_GRAIN)
+    }
+
+    /// Film grain over the tint, specks up to `alpha`: white over the dark theme, black over the light one, like the
+    /// app's grain texture. Drawn by the renderer with the blur, so it needs the blur on.
+    pub fn grain(mut self, appearance: Appearance, alpha: f32) -> Self {
+        self.grain = match appearance {
+            Appearance::Dark => alpha,
+            Appearance::Light => -alpha,
+        };
+        self
     }
 
     /// The corner radius (clamped to half the shorter side, so a large value makes a capsule).
@@ -111,7 +130,7 @@ impl Glass {
         if sigma > 0.0 && tint.a <= 0.0 {
             tint.a = 1.0 / 255.0;
         }
-        window.paint_quad(gpui::quad(bounds, radius(bounds), tint, Edges::default(), marker(sigma), BorderStyle::default()));
+        window.paint_quad(gpui::quad(bounds, radius(bounds), tint, Edges::default(), marker(sigma, self.grain), BorderStyle::default()));
         let ring = if self.outset { bounds.dilate(px(1.0)) } else { bounds };
         let clear = Hsla::transparent_black();
         if let Some(edge) = self.edge {
@@ -124,13 +143,14 @@ impl Glass {
     }
 }
 
-/// The border colour that asks the renderer for `sigma` device pixels of blur, or a plain transparent one for none.
-fn marker(sigma: f32) -> Hsla {
+/// The border colour that asks the renderer for `sigma` device pixels of blur (and `grain`, see [`Glass::grain`]), or a
+/// plain transparent one for none.
+fn marker(sigma: f32, grain: f32) -> Hsla {
     #[cfg(target_os = "macos")]
     if sigma > 0.0 {
-        return gpui_apple::backdrop_blur_marker(sigma);
+        return gpui_apple::backdrop_blur_marker_grained(sigma, grain);
     }
-    let _ = sigma;
+    let _ = (sigma, grain);
     Hsla::transparent_black()
 }
 

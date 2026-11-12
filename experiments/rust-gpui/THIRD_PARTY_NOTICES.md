@@ -10,7 +10,7 @@ licences in their packages and are not listed here.
   `vendor/gpui-pre-apple/src/shaders.metal` (`backdrop_composite_vertex`, `backdrop_composite_fragment`) and
   `vendor/gpui-pre/src/scene.rs` (`backdrop_blur_marker`, `backdrop_blur_sigma`).
 - Here: `vendor/gpui-pre-apple/src/backdrop.rs` and the end of `vendor/gpui-pre-apple/src/shaders.metal`, adapted
-  (see `vendor/PATCHES.md`).
+  and extended (a half-float blur target; the tint, film grain and a dither in the composite; see `vendor/PATCHES.md`).
 - Licence: MIT.
 
 ```

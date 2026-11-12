@@ -63,9 +63,11 @@ The composer and the pills above it are frosted glass over the transcript (`src/
 one quad marked for a 24pt backdrop blur under the surface at 62% (composer) or 68% (pills). gpui-pre has no backdrop
 blur, so `vendor/gpui-pre-apple` is the published 0.3.12 with MonoCode's blur ported in (`vendor/PATCHES.md`, notices in
 `THIRD_PARTY_NOTICES.md`): the renderer copies what is drawn under the marked quad, blurs it with
-`MPSImageGaussianBlur` and writes it back before drawing the quad. Live window and headless snapshots both blur; the test
-platform draws nothing. `MILAGRE_GPUI_GLASS=0` keeps the tint only. Frame time with it on and off:
-`cargo test --release glass_frame_time -- --ignored --nocapture`.
+`MPSImageGaussianBlur` into half floats and writes it back with the tint, the Chat card's film grain and a dither (so
+dark falloffs do not band in the 8-bit drawable). Live window and headless snapshots both blur; the test platform draws
+nothing. `MILAGRE_GPUI_GLASS=0` keeps the tint only. Frame time with it on and off:
+`cargo test --release glass_frame_time -- --ignored --nocapture`. The composer over transcript text, for checking
+banding: `MILAGRE_GPUI_THEME=dark MILAGRE_GPUI_BAND_PNG=/tmp/band.png cargo test --release glass_band_snapshot -- --ignored`.
 
 ## Package and install (macOS)
 

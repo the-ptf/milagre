@@ -15,16 +15,28 @@ background compositing, alpha blending, rounded clipping) were not.
 
 How it works: a quad whose border colour is `backdrop_blur_marker(sigma)` (a fixed hue and saturation, alpha 0, the
 sigma in the lightness) makes the renderer, when it reaches that quad, end its render pass, copy the drawn pixels under
-the quad (plus 3 sigma around it) into a scratch texture, blur them with `MPSImageGaussianBlur` (clamped edges), write
-the blur back inside the quad's rounded bounds with a small composite pass, and resume. The quad itself then draws on
-top as the tint. Our `src/ui/glass.rs` paints that quad.
+the quad (plus 3 sigma around it) into a scratch texture, blur them with `MPSImageGaussianBlur` (clamped edges) into a
+half-float (`RGBA16Float`) texture, and resume after a small composite pass that writes, inside the quad's rounded
+bounds, the blur with the quad's solid background laid over it as the tint, optional film grain over that, and a
+triangular +-1 level dither into the 8-bit drawable. The renderer then skips the quad (its tint is already drawn); a
+quad whose background is not a solid colour is drawn on top as before. Our `src/ui/glass.rs` paints that quad.
+
+Why the half floats, the tint in the composite and the dither (MonoCode's version had none of them): an 8-bit blur of a
+dark, low-contrast backdrop comes out in whole levels, and the tint quad at 62% then compresses those into fewer, so the
+glass showed bands (flat runs 15 to 25 device pixels wide along a falloff, contour rings at 4x). Blurring into half
+floats keeps the fractions; applying the tint in the same shader keeps them through the tint; the dither turns them into
+noise at the single 8-bit write. The copy of the backdrop stays in the drawable's format: a blit cannot convert, and an
+8-bit source is exact anyway, so only the blur's output needs the precision. The grain is the marker's second value
+(`backdrop_blur_marker_grained`: the saturation's offset from its base, signed for white or black specks), per
+device-pixel white noise like `assets/grain/`. Measured with `glass_band_snapshot` and the GPU time of
+`glass_frame_time` (see the README): no measurable cost (whole frame about 3.0 ms GPU before and after).
 
 | File                    | Change                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/backdrop.rs`       | New (340 lines, MonoCode MIT header): the marker and its decoder (from their `gpui-pre/src/scene.rs`, kept out of gpui-pre so it needs no patch), the composite pipeline, cached MPS kernels (up to 4 sigmas), scratch texture pairs per region size (up to 4, freed after 120 frames unused), and `Backdrop::blur` (blit, MPS encode, composite). Links MetalPerformanceShaders. |
-| `src/metal_renderer.rs` | +50 -3: `Backdrop` field and its construction; `begin_frame` per frame; the quads batch is split at each marked quad (draw the quads before it, end the pass, blur, new pass); `new_command_encoder_for_texture` is `pub(crate)`; the layer is no longer framebuffer-only in every build (upstream only in `test-support` debug builds), so the drawable can be copied from.      |
-| `src/shaders.metal`     | +48: `backdrop_composite_vertex` and `backdrop_composite_fragment` (MonoCode's, unchanged).                                                                                                                                                                                                                                                                                       |
-| `src/gpui_apple.rs`     | +3: `mod backdrop;` and `pub use backdrop::{backdrop_blur_marker, backdrop_blur_sigma}`.                                                                                                                                                                                                                                                                                          |
+| `src/backdrop.rs`       | New (390 lines, MonoCode MIT header): the marker, with optional grain, and its decoders (from their `gpui-pre/src/scene.rs`, kept out of gpui-pre so it needs no patch), the composite pipeline, cached MPS kernels (up to 4 sigmas), scratch texture pairs per region size (up to 4, freed after 120 frames unused; the copy in the drawable's format, the blur in `RGBA16Float`), and `Backdrop::blur` (blit, MPS encode, composite with tint, grain and dither; returns whether it drew the tint). Links MetalPerformanceShaders. |
+| `src/metal_renderer.rs` | +56 -3: `Backdrop` field and its construction; `begin_frame` per frame; the quads batch is split at each marked quad (draw the quads before it, end the pass, blur, new pass, and skip the quad when the blur drew its tint); `new_command_encoder_for_texture` is `pub(crate)`; the layer is no longer framebuffer-only in every build (upstream only in `test-support` debug builds), so the drawable can be copied from.      |
+| `src/shaders.metal`     | +84: `backdrop_composite_vertex` (MonoCode's) and `backdrop_composite_fragment` (theirs plus the tint, grain and dither), and `backdrop_hash` (a PCG hash for the noise).                                                                                                                                                                                                                                                                                       |
+| `src/gpui_apple.rs`     | +5: `mod backdrop;` and `pub use backdrop::{backdrop_blur_grain, backdrop_blur_marker, backdrop_blur_marker_grained, backdrop_blur_sigma}`.                                                                                                                                                                                                                                                                                          |
 
 Cost: a frame with no marked quad pays one pass over the quads (a float compare each) and nothing else; the layer not
 being framebuffer-only may cost a little presentation bandwidth. Each marked quad costs a blit, the MPS blur and a

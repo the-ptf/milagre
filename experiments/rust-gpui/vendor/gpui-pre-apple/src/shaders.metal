@@ -1283,6 +1283,9 @@ float4 fill_color(Background background,
 // vendor/gpui-pre-apple/src/shaders.metal). Copyright (c) 2026 Nick, MIT License (full text in src/backdrop.rs and
 // THIRD_PARTY_NOTICES.md). The renderer copies what is already drawn behind a marked quad, blurs it with
 // MPSImageGaussianBlur, then writes it back inside the quad's rounded bounds before drawing the quad.
+// Changed here: the blur arrives in half floats; the composite lays the quad's solid tint and an optional
+// grain over it and dithers the result into the 8-bit drawable (the renderer then skips the quad), so dark,
+// shallow falloffs do not band.
 
 struct BackdropVertexOutput {
   float4 position [[position]];
@@ -1296,7 +1299,21 @@ struct BackdropCompositeParams {
   float2 viewport_size;
   float corner_radius;
   float padding;
+  float4 tint;
+  float grain;
+  float pad0;
+  float pad1;
+  float pad2;
 };
+
+// A white-noise value in [0, 1) per pixel (PCG hash), for the dither and the grain.
+float backdrop_hash(uint2 pixel) {
+  uint state = pixel.x * 747796405u + pixel.y * 2891336453u + 2u;
+  state = state * 747796405u + 2891336453u;
+  uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  word = (word >> 22u) ^ word;
+  return float(word >> 8) / 16777216.0;
+}
 
 vertex BackdropVertexOutput backdrop_composite_vertex(
     uint vertex_id [[vertex_id]],
@@ -1323,5 +1340,23 @@ fragment float4 backdrop_composite_fragment(BackdropVertexOutput input [[stage_i
   float2 half_size = params->size * 0.5;
   float2 corner = abs(position - (params->origin + half_size)) - half_size + params->corner_radius;
   float distance = length(max(corner, float2(0.))) + min(max(corner.x, corner.y), 0.) - params->corner_radius;
-  return mix(sharp, soft, saturate(0.5 - distance));
+  // The tint over the blur, as the quad would blend it (source-over in the drawable's own encoding).
+  float4 tint = params->tint;
+  float4 glass = float4(mix(soft.rgb, tint.rgb, tint.a), tint.a + soft.a * (1. - tint.a));
+  // Film grain: specks up to |grain| alpha, white for a positive grain, black for a negative one.
+  if (params->grain != 0.) {
+    // Its own noise (offset from the dither's), so the two do not correlate.
+    float speck = backdrop_hash(uint2(position) + uint2(65537u, 31337u)) * abs(params->grain);
+    glass.rgb = mix(glass.rgb, float3(params->grain > 0. ? 1. : 0.), speck);
+  }
+  float coverage = saturate(0.5 - distance);
+  float4 color = mix(sharp, glass, coverage);
+  // Dither before the 8-bit write: two independent white noises summed into a triangular distribution of +-1
+  // level, so every value, even one sitting on a level, spreads over its neighbours and the quantisation error no
+  // longer follows the gradient (no bands). Scaled by coverage: the untouched original outside the rounded corner
+  // keeps its exact pixels.
+  uint2 pixel = uint2(position);
+  float noise = backdrop_hash(pixel) + backdrop_hash(pixel + uint2(7919u, 104729u)) - 1.;
+  color.rgb += noise * coverage / 255.;
+  return color;
 }

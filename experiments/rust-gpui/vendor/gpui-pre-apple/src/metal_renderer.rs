@@ -898,7 +898,9 @@ impl MetalRenderer {
                             &command_encoder,
                         );
                         command_encoder.endEncoding();
-                        if let Err(error) = self.backdrop.blur(
+                        // The composite lays a solid tint over the blur itself (so its dither covers the
+                        // tinted result); then the quad is not drawn again.
+                        let tinted = match self.backdrop.blur(
                             &self.device,
                             quad,
                             sigma,
@@ -906,15 +908,19 @@ impl MetalRenderer {
                             viewport_size,
                             &command_buffer,
                         ) {
-                            log::error!("backdrop blur failed: {error:#}");
-                        }
+                            Ok(tinted) => tinted,
+                            Err(error) => {
+                                log::error!("backdrop blur failed: {error:#}");
+                                false
+                            }
+                        };
                         command_encoder = new_command_encoder_for_texture(
                             &command_buffer,
                             texture,
                             viewport_size,
                             None,
                         )?;
-                        start = ix;
+                        start = if tinted { ix + 1 } else { ix };
                     }
                     self.draw_quads(
                         start..range.end,

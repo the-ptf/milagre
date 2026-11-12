@@ -21,7 +21,9 @@ mod text_system;
 
 use objc2::MainThreadMarker;
 
-pub use backdrop::{backdrop_blur_marker, backdrop_blur_sigma};
+pub use backdrop::{
+    backdrop_blur_grain, backdrop_blur_marker, backdrop_blur_marker_grained, backdrop_blur_sigma,
+};
 pub use dispatcher::{AppleActivity, AppleDispatcher};
 #[cfg(feature = "font-kit")]
 pub use text_system::AppleTextSystem;
