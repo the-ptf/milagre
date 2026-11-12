@@ -192,6 +192,7 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     assert!(!reads.iter().any(|m| m == "project:open"), "no project:open for reads: {reads:?}");
     assert!(!fake.log().iter().any(|(m, a)| m == "project:read" && a[0] == GAMMA), "the unloaded Project is never read");
     assert!(m.vcx.debug_bounds("preview-note").is_some(), "Preview mode: Routines, Settings and the rest are off");
+    assert!(m.vcx.debug_bounds("bar-routines").is_none(), "no Routines button");
 
     // 2. The newest Chat opens with its saved transcript, on its own provider and model (locked).
     m.wait_for("the newest Chat's transcript", |m| m.items().len() == 2);
