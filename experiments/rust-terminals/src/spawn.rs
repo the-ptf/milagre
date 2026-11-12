@@ -43,7 +43,9 @@ pub trait PtyProcess: Send + Sync {
     fn resize(&self, cols: u16, rows: u16) -> Result<(), String>;
     /// Hangs the Terminal up (and stops what it started, per the spawner's cleanup policy).
     fn kill(&self);
-    /// True once nothing this PTY started is left to stop. Fakes are always clean.
+    /// True after the native shell was reaped, I/O teardown finished and the configured cleanup completed.
+    /// Descendant cleanup follows the spawner's process-snapshot policy; this is not a join of arbitrary descendants.
+    /// Fakes are always clean.
     fn cleaned(&self) -> bool {
         true
     }
