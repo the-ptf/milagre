@@ -6,6 +6,29 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 03:00 Toronto, Sidebar integration `1b180e46` is accepted and the separate
+normal Rust Preview is refreshed. Node differential/restart tests and 130 runtime
+checks pass; typed SidebarActions passes root's 85 tests/seven doctests. Final
+independent review closes the post-acceptance send P2: failed later metadata saves
+preserve the accepted receipt plus dirty-state diagnostics; direct patch failures
+still reject. The actual disk-fault regression saves exactly one SQLite user row,
+starts no extra provider turn, and proves retry/shutdown recovery. Stale SDK error
+wording was corrected before commit. Modern pins remain frontend/device-local.
+
+Normal staged and installed verifiers pass Rename, Done and Reopen, restore the
+original title/unread mark, and preserve transcript/summary. They send no model
+request, require no existing schedules, and observe native Quit/exit 0, empty stderr,
+actual socket/profile/shell cleanup and retained data. Installed evidence:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-qIgZ8y/report.json`;
+staged evidence `.../milagre-installed-preview-check-bbLjHW/report.json`.
+Package/retained rollback: `/private/tmp/milagre-rust-preview-package-nbata4vt/package-report.json`.
+Current shell SHA-256: `5a1f27edc8f2a02de841a9a67f5bbdc82173f8c9876bc3d17822567b5f554faa`.
+Current runtime SHA-256: `6054d7d6759262ec4d463380589261d954e1f8be79e75bb5d1a5d0be2142d70a`.
+GPUI received matching client/runtime pins and typed API; its adoption is pending.
+The one real-turn check already passed on earlier `862f4cd2`; it was not repeated
+or relabelled as new-pin real-provider evidence. No public routine enabling, phone,
+production-data adoption or completed-migration claim is made.
+
 At 02:30 Toronto, dedicated Sidebar metadata edits are implemented but not yet
 accepted or installed. Node differential/persistence tests and saved full 129-test
 runtime validation pass. Review of the ordinary edits found no P1/P2, but deeper

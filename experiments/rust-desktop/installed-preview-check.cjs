@@ -16,9 +16,9 @@ const checkRoutines = checks.includes("--paused-routines");
 const checkMetadata = checks.includes("--metadata");
 assert.ok(
   process.argv.length >= 4 &&
-    checks.length <= 2 &&
+    checks.length <= 3 &&
     new Set(checks).size === checks.length &&
-    checks.every((flag) => ["--paused-routines", "--metadata"].includes(flag)),
+    checks.every((flag) => ["--paused-routines", "--metadata", "--sidebar"].includes(flag)),
   "Pass the explicit Preview.app, dedicated data root and optional --paused-routines/--metadata",
 );
 assert.equal(path.basename(app), "Milagre Rust Preview.app");
@@ -163,6 +163,24 @@ exit(3)
       status: state.sessions["1"].status ?? null,
       summary: state.sessions["1"].summary,
     };
+  }
+  if (checks.includes("--sidebar")) {
+    const original = (await client.call("state:read", [receipt.project])).state.sessions["1"];
+    assert.ok(!original.done_at, "Sidebar check requires this test Chat initially not Done");
+    assert.deepEqual((await client.call("routines:list")).routines, [], "Never complete an existing schedule during this check");
+    await client.call("chat:patch", [receipt.project, 1, { title: "Installed Rust sidebar check" }]);
+    assert.equal((await client.call("state:read", [receipt.project])).state.sessions["1"].title, "Installed Rust sidebar check");
+    await client.call("chat:patch", [receipt.project, 1, { done: true, unread: false }]);
+    const done = (await client.call("state:read", [receipt.project])).state.sessions["1"];
+    assert.equal(typeof done.done_at, "number");
+    assert.equal(done.unread, undefined);
+    await client.call("chat:patch", [receipt.project, 1, { done: false, title: original.title ?? "", unread: original.unread === true }]);
+    const restored = (await client.call("state:read", [receipt.project])).state.sessions["1"];
+    assert.equal(restored.done_at, undefined);
+    assert.equal(restored.title, original.title);
+    assert.deepEqual(restored.summary, original.summary);
+    assert.deepEqual(await client.call("chat:messages", [receipt.project, 1]), first);
+    report.sidebar = { rename: true, done: true, reopen: true, originalTitleRestored: true, summaryUnchanged: true, transcriptUnchanged: true, sendCalls: 0 };
   }
   report.quit = execFileSync(helper, [String(child.pid), app], { encoding: "utf8", timeout: 20000 }).trim();
   report.exit = await bounded(exit, "native Quit and retained cleanup", 35000);

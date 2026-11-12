@@ -236,3 +236,21 @@ Do not spend another real turn on subsequent heartbeats for this same check.
 This verifies transport/stream/persistence/reopen and native lifecycle through the
 installed process. It does not drive or capture a fresh composer UI interaction;
 the separately documented native WebKit workflow evidence covers that scope.
+
+
+## Sidebar refresh
+
+Accepted `1b180e46` adds bounded actual Node-compatible Chat metadata behavior and
+typed shared-client SidebarActions. The optional `--sidebar` verifier mode tests
+Rename/Done/Reopen through the normal process, requires no existing schedules,
+restores the original title/unread value and asserts unchanged summary/transcript.
+It sends no model turn. It is API/lifecycle evidence, not a native menu screenshot.
+Both staged bbLjHW and installed qIgZ8y reports pass under the private temporary
+report directory prefix recorded in MIGRATION-STATUS.md. The installed app keeps
+normal features and a retained prior bundle under
+`/private/tmp/milagre-rust-preview-package-nbata4vt/`.
+
+Current shell: `5a1f27edc8f2a02de841a9a67f5bbdc82173f8c9876bc3d17822567b5f554faa`.
+Current runtime: `6054d7d6759262ec4d463380589261d954e1f8be79e75bb5d1a5d0be2142d70a`.
+Earlier real-provider acceptance remains tied to its earlier binary hashes. The
+Sidebar refresh spent no additional real turn. GPUI adoption is separate.
