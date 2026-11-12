@@ -521,7 +521,7 @@ fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut C
             .child(state_mark(ix, row, theme))
             .into_any_element();
     }
-    let (label, glyph) = if row.done { ("Reopen", IconName::Undo02) } else { ("Done", IconName::CheckmarkCircle02) };
+    let (label, glyph) = if row.done { ("Reopen", IconName::Undo02) } else { ("Done", IconName::Tick02) };
     div()
         .id(("chat-row-action", ix))
         .debug_selector(move || format!("chat-row-action-{ix}"))
