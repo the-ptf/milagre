@@ -24,6 +24,8 @@ gpui-component = "=0.9.1"
 anyhow = "1"
 serde_json = "1"
 futures = "0.3"
+# SIGTERM/SIGINT go through the app's quit path (main.rs). Already in the tree.
+libc = "0.2"
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }

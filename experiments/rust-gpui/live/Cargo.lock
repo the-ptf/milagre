@@ -4344,6 +4344,7 @@ dependencies = [
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
+ "libc",
  "milagre-daemon-client",
  "milagre-gpui-spike",
  "serde_json",

@@ -141,6 +141,7 @@ fn run_app(session: Session, guard: Arc<milagre_daemon_client::OwnedChatGuard>, 
             async {}
         })
         .detach();
+        quit_on_signals(cx);
         // `MILAGRE_GPUI_NO_ACTIVATE=1` (checks on a Mac someone is using): the window opens behind, never in front.
         if std::env::var_os("MILAGRE_GPUI_NO_ACTIVATE").is_none() {
             cx.activate(true);
@@ -156,4 +157,31 @@ fn run_setup_window(base: PathBuf) -> anyhow::Result<()> {
         cx.activate(true);
     });
     Ok(())
+}
+
+static SIGNALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn on_signal(_: libc::c_int) {
+    SIGNALLED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// SIGTERM, SIGINT and SIGHUP quit through the app's normal path, so the runtime is stopped and its temporary storage
+/// removed (`on_app_quit`). SIGKILL cannot be caught: the runtime still stops on its closed stdin and removes its
+/// profile and socket; only the client's empty launch folder under /tmp stays.
+fn quit_on_signals(cx: &mut App) {
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // SAFETY: the handler only stores to an atomic.
+        unsafe { libc::signal(signal, on_signal as *const () as libc::sighandler_t) };
+    }
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor().timer(Duration::from_millis(100)).await;
+            if SIGNALLED.load(std::sync::atomic::Ordering::SeqCst) {
+                eprintln!("live: quitting on a signal");
+                cx.update(|cx| cx.quit());
+                break;
+            }
+        }
+    })
+    .detach();
 }
