@@ -67,8 +67,11 @@ Routines durable CRUD library `bf9812a3` passes root's full 82-test feature suit
 (one optional ignored), independent review and actual Node result/file-byte
 comparisons. Test subprocesses now share the copied-writer lifecycle mutex to
 prevent inherited fork descriptors from racing cleanup; the initial failed run is
-retained. Agent default 71/feature 82 and ten full feature repeats pass. Runtime
-paused-storage composition and shared-client terminal capability are in progress;
+retained. Agent default 71/feature 82 and ten full feature repeats pass. Shared-client terminal capability `130d553c` passes root 71 tests/five compile-fail
+doctests, independent review and actual PTY output/resize/reconnect/cleanup checks.
+Its serialized I/O requires an explicit second same-daemon Client for long-poll
+reads; both connections must open/apply/accept/drain notifications. GPUI received
+the tested contract. Runtime paused-storage composition is still in progress;
 automatic routine execution remains absent. Phone connectivity, account/login
 adoption, broader services and full upgrade/rollback remain required. No
 migration-complete claim or percentage inferred from tests. Overnight continuation

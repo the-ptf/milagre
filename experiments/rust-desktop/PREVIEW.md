@@ -142,3 +142,9 @@ The shell-only refresh report and retained prior bundle are under
 49 with one optional ignored; strict normal-feature Clippy/format checks pass.
 The normal build has no synthetic reduced motion or smoke commands. Native
 real-content evidence was captured by the separate smoke build as documented.
+
+The final observer also waits for captured stdout/stderr to close, rather than
+accepting the earlier process-exit event while output could still be buffered.
+Installed acceptance with that observer passes at
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-a99tH4/report.json`.
+No binary change, model request or data mutation was needed for that verifier fix.

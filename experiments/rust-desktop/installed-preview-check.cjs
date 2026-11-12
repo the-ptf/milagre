@@ -85,10 +85,11 @@ exit(3)
   report.pid = child.pid;
   exit = new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("exit", (code, signal) => {
+    child.once("exit", () => {
       exited = true;
-      resolve({ code, signal });
     });
+    // Wait for captured stdout/stderr to close before accepting empty stderr.
+    child.once("close", (code, signal) => resolve({ code, signal }));
   });
   child.stderr.on("data", (bytes) => {
     stderr = (stderr + bytes).slice(-65536);
