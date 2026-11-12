@@ -6,6 +6,19 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 05:00 Toronto, saved quiet routine completion effects are accepted after
+independent source/log review with no remaining P1/P2. Full saved validation passes
+150 runtime and 232 owner tests, strict feature/normal Clippy and formatting.
+Root independently reran the fixed-native quiet completion/restart case. Divider
+quiet/summary, quiet title and origin-Chat archive effects flush before durable
+Run completion; successor user work refuses, uncertain writes fence without
+replay. This remains synthetic-fixture-only, not installed or publicly enabled.
+Unread rollback, pre-publication quiet events and model-generated acted titles
+remain open. A new collaboration subagent is implementing exact bounded unread
+mutation provenance, with explicit protection against user interleavings.
+Installed Preview pins and completed real-turn/native cleanup evidence remain
+unchanged; GPUI received the stable-pin coordination update.
+
 At 04:30 Toronto, installed hashes still match the accepted preference shell and
 `6054d7d6` runtime. Root rechecked the retained native-Quit observer (zero sends)
 and real-turn/reopen report (exactly one send); both remain passed. Production
