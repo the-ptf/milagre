@@ -329,3 +329,72 @@ async fn definitely_mismatched_link_target_does_not_hide_an_unrelated_valid_edge
     assert_eq!(linked[0].link_ids(), ["valid"]);
     linked[0].check().await.unwrap();
 }
+
+#[tokio::test]
+async fn real_size_repositories_and_local_clones_are_identified() {
+    let (temp, _, registry, _) = fixture();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let big = repo(&root, "big");
+    // 4,200 loose objects: more entries than discovery inspects, none of which it reads.
+    let blobs = root.join("blobs");
+    std::fs::create_dir(&blobs).unwrap();
+    let mut list = String::new();
+    for n in 0..4200 {
+        let file = blobs.join(n.to_string());
+        std::fs::write(&file, format!("blob {n}\n")).unwrap();
+        list.push_str(&format!("{}\n", file.display()));
+    }
+    let mut child = std::process::Command::new("/usr/bin/git")
+        .current_dir(&big)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &big)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .args(["hash-object", "-w", "--stdin-paths"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(child.stdin.as_mut().unwrap(), list.as_bytes()).unwrap();
+    drop(child.stdin.take());
+    assert!(child.wait().unwrap().success());
+    let objects = walk_count(&big.join(".git/objects"));
+    assert!(objects > 4096, "{objects} object entries");
+    let identity = registry.identify(&big).await.unwrap();
+    assert_eq!(identity.value["git"], true);
+    // A local clone hard-links every object to the source's.
+    git(&root, &["clone", "-q", "--local", "big", "clone"]);
+    let clone = root.join("clone");
+    let linked = std::fs::read_dir(clone.join(".git/objects"))
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.file_name().len() == 2)
+        .flat_map(|folder| std::fs::read_dir(folder.path()).unwrap().flatten())
+        .any(|object| {
+            use std::os::unix::fs::MetadataExt;
+            object.metadata().unwrap().nlink() > 1
+        });
+    assert!(linked, "git clone --local hard-linked no object");
+    let identity = registry.identify(&clone).await.unwrap();
+    assert_eq!(identity.value["path"], serde_json::json!(clone));
+    assert!(registry.identify(&big).await.is_ok());
+    // What discovery reads stays checked: a linked folder at the top of the Git directory is refused.
+    std::os::unix::fs::symlink(root.join("blobs"), clone.join(".git/linked")).unwrap();
+    let error = registry.identify(&clone).await.unwrap_err();
+    assert!(error.contains("symlinks"), "{error}");
+}
+
+fn walk_count(path: &std::path::Path) -> usize {
+    std::fs::read_dir(path)
+        .unwrap()
+        .flatten()
+        .map(|entry| {
+            1 + if entry.file_type().unwrap().is_dir() {
+                walk_count(&entry.path())
+            } else {
+                0
+            }
+        })
+        .sum()
+}

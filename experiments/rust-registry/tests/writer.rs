@@ -514,7 +514,8 @@ async fn unverifiable_git_project_aborts_cleanup_instead_of_pruning_saved_state(
         .await
         .unwrap();
     let before = bytes(copy.path(), "project-registry.json");
-    let huge = project.join(".git/too-many");
+    // Discovery reads refs/: a copy with more entries there than it inspects is refused.
+    let huge = project.join(".git/refs/too-many");
     std::fs::create_dir(&huge).unwrap();
     for n in 0..4097 {
         std::fs::write(huge.join(n.to_string()), "").unwrap();

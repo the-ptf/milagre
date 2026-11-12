@@ -41,33 +41,52 @@ fn git_directory(registry: &Registry, marker: &Path) -> Result<PathBuf> {
         .ok_or("Invalid Git directory marker")?;
     directory(registry, &marker.parent().unwrap().join(target))
 }
+/// Checks the Git metadata discovery reads, never the object store or logs: no top-level entry is a symbolic link
+/// (Git could follow a linked folder), and `refs/` and `worktrees/` (which `rev-parse` and `worktree list` read) hold
+/// only real folders and files, at most `MAX_ENTRIES` of them; every `config`/`config.worktree` there has no include
+/// and no `core.worktree`. Hard links are allowed: nothing here writes Git metadata, and `git clone --local` hard-links
+/// objects. Hooks, filters and fsmonitor never run (`git` disables them), and pointers are checked where they are read.
 fn verify_git(registry: &Registry, git_dir: &Path) -> Result<()> {
-    let mut pending = vec![git_dir.to_owned()];
-    let mut count = 0;
-    while let Some(path) = pending.pop() {
+    let limit = || "Git metadata inspection limit exceeded.".to_string();
+    let symlink = || "Git metadata symlinks are unsupported in registry copies.".to_string();
+    let mut count = 0usize;
+    let mut pending = Vec::new();
+    for entry in std::fs::read_dir(git_dir).map_err(error)? {
+        let entry = entry.map_err(error)?;
         count += 1;
-        if count > 4096 {
-            return Err("Git metadata inspection limit exceeded.".into());
+        if count > MAX_ENTRIES {
+            return Err(limit());
         }
+        let kind = entry.file_type().map_err(error)?;
+        if kind.is_symlink() {
+            return Err(symlink());
+        }
+        let name = entry.file_name();
+        let read = match name.to_str() {
+            Some("refs" | "worktrees") => kind.is_dir(),
+            Some("config" | "config.worktree") => true,
+            _ => false,
+        };
+        if read {
+            pending.push(entry.path());
+        }
+    }
+    while let Some(path) = pending.pop() {
         let meta = std::fs::symlink_metadata(&path).map_err(error)?;
         if meta.file_type().is_symlink() {
-            return Err("Git metadata symlinks are unsupported in registry copies.".into());
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            if meta.is_file() && meta.nlink() != 1 {
-                return Err("Git metadata hard links are unsupported in registry copies.".into());
-            }
+            return Err(symlink());
         }
         if meta.is_dir() {
             for entry in std::fs::read_dir(&path).map_err(error)? {
-                if pending.len() + count >= MAX_ENTRIES {
-                    return Err("Git metadata inspection limit exceeded.".into());
+                count += 1;
+                if count > MAX_ENTRIES {
+                    return Err(limit());
                 }
                 pending.push(entry.map_err(error)?.path());
             }
-        } else if !meta.is_file() {
+            continue;
+        }
+        if !meta.is_file() {
             return Err("Unsupported Git metadata file.".into());
         }
         if path
