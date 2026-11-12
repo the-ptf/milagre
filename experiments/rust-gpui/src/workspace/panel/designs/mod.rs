@@ -39,8 +39,8 @@ use self::board::{Board, View};
 use self::editor::{DesignEditor, EditorEvent};
 use self::fixture::DesignArtifact;
 use self::scene::{IconCache, Scene};
-use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TEXT_13, TextStepExt, Theme};
-use crate::ui::{EmptySize, EmptyState, Icon, IconName, IconSize};
+use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TextStepExt, Theme};
+use crate::ui::{EmptySize, EmptyState, IconName};
 
 /// The bar under the panel's tab strip: the tab's name and Send.
 pub const BAR_HEIGHT: Pixels = px(40.0);
@@ -468,8 +468,8 @@ impl DesignsView {
             .flex()
             .items_center()
             .gap_2()
-            .child(Icon::new(IconName::PaintBoard).size(IconSize::S14).color(theme.ink2))
-            .child(div().flex_1().min_w_0().truncate().text_step(TEXT_13).text_color(theme.ink).child("Designs"))
+            // No title: the panel's tab already says Designs. The bar shows only while there is feedback to send.
+            .justify_end()
             .when(feedback > 0, |el| {
                 let (ink, on_ink) = (theme.ink, theme.on_ink);
                 el.child(
@@ -527,8 +527,6 @@ impl Render for DesignsView {
         .absolute()
         .size_full();
         let view = self.view;
-        let line = theme.line;
-        let dots = canvas(|_, _, _| {}, move |bounds, _, window, _| frame::paint_dots(bounds, view, line, window)).absolute().size_full();
         let board = self.board();
         let groups = board.groups.iter().map(|group| frame::group(group, view, &theme)).collect::<Vec<_>>();
         let room = self.room;
@@ -554,8 +552,7 @@ impl Render for DesignsView {
             .flex()
             .flex_col()
             .text_color(theme.ink)
-            .child(self.bar(&theme, cx))
-            .child(div().flex_none().h(px(1.0)).bg(theme.line))
+            .when(self.feedback() > 0, |el| el.child(self.bar(&theme, cx)))
             .child(
                 div()
                     .id("designs-canvas")
@@ -574,7 +571,6 @@ impl Render for DesignsView {
                     .on_pinch(cx.listener(Self::on_pinch))
                     .on_key_down(cx.listener(Self::on_key_down))
                     .child(measure)
-                    .child(dots)
                     .children(groups)
                     .children(frames)
                     .when(empty, |el| {

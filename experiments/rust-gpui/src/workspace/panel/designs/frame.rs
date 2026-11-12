@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, Pixels, Rgba, SharedString, Window, div, point, prelude::*, px, size};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, Pixels, Rgba, SharedString, div, prelude::*, px};
 
 use super::DesignsView;
 use super::board::{self, FrameBox, GroupBox, HeaderFit, View};
@@ -15,24 +15,6 @@ use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, IconSize};
 
 fn p(value: f64) -> Pixels {
     px(value as f32)
-}
-
-/// The dot grid (`radial-gradient(var(--color-line) 1px, transparent 1px)`): a 2px dot centred in each tile, the tiles
-/// following the view.
-pub fn paint_dots(bounds: gpui::Bounds<Pixels>, view: View, color: Rgba, window: &mut Window) {
-    let step = board::dot_step(view.scale);
-    let (width, height) = (f64::from(f32::from(bounds.size.width)), f64::from(f32::from(bounds.size.height)));
-    let start = |offset: f64| offset.rem_euclid(step) - step + step / 2.0;
-    let mut y = start(view.y);
-    while y < height + step {
-        let mut x = start(view.x);
-        while x < width + step {
-            let origin = point(bounds.origin.x + p(x - 1.0), bounds.origin.y + p(y - 1.0));
-            window.paint_quad(gpui::fill(gpui::Bounds::new(origin, size(px(2.0), px(2.0))), color).corner_radii(px(1.0)));
-            x += step;
-        }
-        y += step;
-    }
 }
 
 /// A group's block (`rounded-card bg-hover`, scaled with the canvas) and its name and count above it (screen size).

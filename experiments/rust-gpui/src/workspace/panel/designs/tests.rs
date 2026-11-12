@@ -329,7 +329,7 @@ fn the_zoom_bar_zooms_about_the_middle_and_fits(cx: &mut TestAppContext) {
     let reset = testing::bounds(cx, "designs-zoom");
     cx.simulate_click(reset.center(), Modifiers::none());
     settle(cx);
-    assert_eq!(view.read_with(cx, |v, _| v.view().scale), 1.0);
+    assert!((view.read_with(cx, |v, _| v.view().scale) - 1.0).abs() < 1e-9, "reset to 100%");
     let fit = testing::bounds(cx, "designs-fit");
     cx.simulate_click(fit.center(), Modifiers::none());
     settle(cx);
