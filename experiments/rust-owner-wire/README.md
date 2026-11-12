@@ -35,6 +35,12 @@ For a state mutation, use `context.events.transaction(|publication| { ... })`, a
 
 The separate `rust-runtime` adapter accepts embedded fixture copies only and maps specific read methods to `ProjectReader`. Production profile binding, owner locks and persisted mutations require a separate ownership cutover under ADR-0003. Do not add an arbitrary profile-path constructor to bypass that work.
 
+### Data directory endpoint (owner holds the lock)
+
+`DataDirEndpoint::claim(data_dir, lock_token, version)` and `Server::bind_data_dir(endpoint, handler, config)` bind the socket the Node daemon derives for a data directory (`socket_path_for`: `/tmp/milagre-<uid>/<sha256(realpath)[..24]>.sock`, `apps/daemon/src/paths.cjs`). This is not a path constructor: `claim` succeeds only when `<realpath>/runtime.lock` is a real folder holding a plain, singly linked `owner.json` that names this process and the caller's token, so only an owner that already took the directory's Node-format lock can bind. This crate never takes, creates or removes that lock, and does not decide which directories may be claimed (`experiments/rust-profile-owner` admits isolated copies only).
+
+As `server.cjs` does once it holds the lock, a socket file left at the path is removed before binding, and only while the lock still proves ownership and only when it is a socket owned by this user; a regular file, link or another user's socket is refused and left. The socket directory is created 0700 when missing (never chmodded), the socket is 0600. `daemon:status` reports the endpoint's version and real data directory in the Node daemon's shape (`pid, version, protocolVersion, dataDir, socketPath, closing, capabilities, methods`, no `diagnostics`; `Server::disconnect_diagnostics` still has them). Authentication is refused on this endpoint (Unix sockets only). `Server::finish` waits for this binding's socket inode to go and never removes the data directory. `IsolatedProfile`, `Server::bind` and their behavior are unchanged.
+
 ## Protocol implemented
 
 | Contract                | Implementation                                                                                                                                                                                   |

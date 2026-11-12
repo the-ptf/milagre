@@ -3,8 +3,8 @@ use crate::{
     pages::Pages,
     profile::assert_same_user,
     protocol::{read_frame_with, safe_integer, valid_id_with},
-    DisconnectDiagnostics, DisconnectReason, IsolatedProfile, RpcError, RpcResult, MAX_FRAME_BYTES,
-    MAX_PENDING, VERSION,
+    DataDirEndpoint, DisconnectDiagnostics, DisconnectReason, IsolatedProfile, RpcError, RpcResult,
+    MAX_FRAME_BYTES, MAX_PENDING, VERSION,
 };
 use hmac::{Hmac, Mac};
 use rand::{rngs::OsRng, RngCore};
@@ -230,6 +230,37 @@ impl Server {
         handler: Arc<dyn Handler>,
         config: Config,
     ) -> Result<Self, RpcError> {
+        Self::bind_endpoint(Endpoint::Isolated(profile), handler, config)
+    }
+    /// Binds the socket the Node daemon derives for a data directory this process owns (see [`DataDirEndpoint`]).
+    /// A socket file left at that path is removed first, as the Node daemon does once it holds the directory's lock,
+    /// and only while the lock still proves it. `daemon:status` reports the endpoint's version and real data directory
+    /// in the Node daemon's shape. Authentication (Windows) is not supported on this endpoint.
+    pub fn bind_data_dir(
+        endpoint: DataDirEndpoint,
+        handler: Arc<dyn Handler>,
+        config: Config,
+    ) -> Result<Self, RpcError> {
+        if config.require_authentication {
+            return Err(RpcError::new(
+                "INVALID_CONFIG",
+                "A data directory endpoint doesn't support local authentication",
+            ));
+        }
+        let directory = endpoint
+            .socket_path()
+            .parent()
+            .ok_or_else(|| RpcError::new("UNSAFE_SOCKET", "The socket path has no folder"))?
+            .to_owned();
+        crate::data_dir::prepare_socket_directory(&directory)?;
+        endpoint.remove_stale_socket()?;
+        Self::bind_endpoint(Endpoint::DataDir(endpoint), handler, config)
+    }
+    fn bind_endpoint(
+        profile: Endpoint,
+        handler: Arc<dyn Handler>,
+        config: Config,
+    ) -> Result<Self, RpcError> {
         if !(1024..=MAX_FRAME_BYTES).contains(&config.max_frame_bytes)
             || config.outgoing_budget_bytes.is_some_and(|budget| {
                 budget < config.max_frame_bytes + 1 || budget > 2 * MAX_FRAME_BYTES
@@ -244,8 +275,14 @@ impl Server {
             ));
         }
         let token = if config.require_authentication {
+            let Endpoint::Isolated(isolated) = &profile else {
+                return Err(RpcError::new(
+                    "INVALID_CONFIG",
+                    "Authentication tokens live only in a fresh isolated profile",
+                ));
+            };
             let token = nonce();
-            let directory = profile.path().join("daemon-private");
+            let directory = isolated.path().join("daemon-private");
             fs::create_dir(&directory)?;
             fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
             let mut file = fs::OpenOptions::new()
@@ -337,6 +374,9 @@ impl Server {
         server.shutdown()?;
         let expires = Instant::now() + server.inner.config.shutdown_timeout;
         let profile = server.profile_path().to_owned();
+        let data_dir = matches!(server.inner.profile, Endpoint::DataDir(_));
+        let socket = server.socket_path().to_owned();
+        let identity = server.inner.socket_identity;
         loop {
             match Arc::try_unwrap(server) {
                 Ok(owned) => {
@@ -354,6 +394,21 @@ impl Server {
             thread::sleep(Duration::from_millis(2));
         }
         // Request/disconnect workers may still own Inner after Server drops.
+        // A data directory is never removed: wait for this binding's socket inode to go instead.
+        if data_dir {
+            while fs::symlink_metadata(&socket)
+                .is_ok_and(|meta| (meta.dev(), meta.ino()) == identity)
+            {
+                if Instant::now() >= expires {
+                    return Err(RpcError::new(
+                        "SHUTDOWN_TIMEOUT",
+                        "Data directory socket cleanup has not finished",
+                    ));
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+            return Ok(());
+        }
         // Wait for the actual temporary-profile destructor, not just refcount 0.
         while profile.try_exists()? {
             if Instant::now() >= expires {
@@ -389,8 +444,28 @@ impl Drop for Server {
     }
 }
 
+/// What a server is bound for: a fresh temporary profile, or a data directory this process owns.
+enum Endpoint {
+    Isolated(IsolatedProfile),
+    DataDir(DataDirEndpoint),
+}
+impl Endpoint {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Isolated(profile) => profile.path(),
+            Self::DataDir(endpoint) => endpoint.path(),
+        }
+    }
+    fn socket_path(&self) -> &Path {
+        match self {
+            Self::Isolated(profile) => profile.socket_path(),
+            Self::DataDir(endpoint) => endpoint.socket_path(),
+        }
+    }
+}
+
 struct Inner {
-    profile: IsolatedProfile,
+    profile: Endpoint,
     socket_identity: (u64, u64),
     config: Config,
     handler: Arc<dyn Handler>,
@@ -1026,10 +1101,21 @@ impl Client {
                 );
                 methods.sort();
                 methods.dedup();
-                json!({"pid":std::process::id(),"version":"rust-owner-wire-isolated-0.1.0","protocolVersion":VERSION,
-                    "dataDir":inner.profile.path(),"socketPath":inner.profile.socket_path(),"closing":inner.closing.load(Ordering::Acquire),
-                    "capabilities":["snapshot-pages-v1","result-pages-v1"],"methods":methods,
-                    "diagnostics":{"wire":inner.diagnostics.snapshot().value()}})
+                match &inner.profile {
+                    Endpoint::Isolated(profile) => {
+                        json!({"pid":std::process::id(),"version":"rust-owner-wire-isolated-0.1.0","protocolVersion":VERSION,
+                            "dataDir":profile.path(),"socketPath":profile.socket_path(),"closing":inner.closing.load(Ordering::Acquire),
+                            "capabilities":["snapshot-pages-v1","result-pages-v1"],"methods":methods,
+                            "diagnostics":{"wire":inner.diagnostics.snapshot().value()}})
+                    }
+                    // The Node daemon's shape (server.cjs): no diagnostics; they stay readable through
+                    // Server::disconnect_diagnostics.
+                    Endpoint::DataDir(endpoint) => {
+                        json!({"pid":std::process::id(),"version":endpoint.version(),"protocolVersion":VERSION,
+                            "dataDir":endpoint.path(),"socketPath":endpoint.socket_path(),"closing":inner.closing.load(Ordering::Acquire),
+                            "capabilities":["snapshot-pages-v1","result-pages-v1"],"methods":methods})
+                    }
+                }
             }
             "daemon:snapshot" => {
                 let _publication = inner.publication.lock().unwrap();
@@ -2157,5 +2243,67 @@ mod tests {
         Server::finish(server).unwrap();
         assert!(!profile.exists());
         releasing.join().unwrap();
+    }
+    #[test]
+    fn data_dir_endpoint_binds_the_node_socket_reports_node_status_and_keeps_the_directory() {
+        use std::io::{BufRead, BufReader};
+        let base = tempfile::tempdir().unwrap();
+        let data = base.path().join("profile");
+        fs::create_dir(&data).unwrap();
+        fs::create_dir(data.join("runtime.lock")).unwrap();
+        fs::write(
+            data.join("runtime.lock/owner.json"),
+            json!({"pid": std::process::id(), "token": "tok"}).to_string(),
+        )
+        .unwrap();
+        let endpoint = DataDirEndpoint::claim(&data, "tok", "9.9.9-test").unwrap();
+        let socket = crate::socket_path_for(&data).unwrap();
+        assert_eq!(endpoint.socket_path(), socket);
+        // A crashed owner's socket is replaced; authentication is refused on this endpoint.
+        crate::data_dir::prepare_socket_directory(socket.parent().unwrap()).unwrap();
+        drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+        let refused = Server::bind_data_dir(
+            DataDirEndpoint::claim(&data, "tok", "9.9.9-test").unwrap(),
+            Arc::new(Empty),
+            Config {
+                require_authentication: true,
+                ..Config::default()
+            },
+        );
+        assert_eq!(refused.err().unwrap().code, "INVALID_CONFIG");
+        let server =
+            Arc::new(Server::bind_data_dir(endpoint, Arc::new(Empty), Config::default()).unwrap());
+        let meta = fs::symlink_metadata(&socket).unwrap();
+        assert_eq!(meta.mode() & 0o777, 0o600);
+        let mut peer = UnixStream::connect(&socket).unwrap();
+        peer.write_all(b"{\"v\":1,\"id\":1,\"method\":\"daemon:status\",\"args\":[]}\n")
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(peer.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let status: Value = serde_json::from_str(&line).unwrap();
+        let result = &status["result"];
+        let keys: Vec<_> = result.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(
+            keys,
+            [
+                "pid",
+                "version",
+                "protocolVersion",
+                "dataDir",
+                "socketPath",
+                "closing",
+                "capabilities",
+                "methods"
+            ]
+        );
+        assert_eq!(result["version"], "9.9.9-test");
+        assert_eq!(result["dataDir"], json!(fs::canonicalize(&data).unwrap()));
+        assert_eq!(result["socketPath"], json!(socket));
+        drop(peer);
+        Server::finish(server).unwrap();
+        assert!(fs::symlink_metadata(&socket).is_err());
+        assert!(data.join("runtime.lock/owner.json").is_file());
     }
 }
