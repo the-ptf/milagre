@@ -175,6 +175,13 @@ mod tests {
             ("tldrEnabled", json!("true")),
             ("permissionMode", json!("full")),
             ("fastMode", json!(true)),
+            ("replies", json!("verbose")),
+            ("replies", json!("Concise")),
+            ("replies", json!("")),
+            ("replies", json!(2)),
+            ("replies", json!(true)),
+            ("replies", json!([])),
+            ("replies", json!({})),
         ] {
             let mut request = base.clone();
             request[field] = value;

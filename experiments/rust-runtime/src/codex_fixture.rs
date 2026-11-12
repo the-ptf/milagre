@@ -432,6 +432,14 @@ impl CodexFixture {
             context
                 .validate()
                 .map_err(|_| refused("Codex launch authority was revoked"))?;
+            // React forwards its Claude reply preference to every provider. Node's
+            // Codex beginTurn has no replies parameter; contract-valid styles have
+            // no Codex-native effect (pinned by the actual Node turn oracle).
+            if request.get("replies").is_some_and(|value| {
+                !value.is_null() && !matches!(value.as_str(), Some("concise" | "normal"))
+            }) {
+                return Err(refused("Codex reply preference must be concise or normal"));
+            }
             if request
                 .get("tldrEnabled")
                 .is_some_and(|v| !v.is_null() && !v.is_boolean())
@@ -504,6 +512,9 @@ impl CodexFixture {
             }
         }
         for key in ["images", "replies"] {
+            if key == "replies" && self.configured.is_some() {
+                continue;
+            }
             if request
                 .get(key)
                 .is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|v| !v.is_empty()))

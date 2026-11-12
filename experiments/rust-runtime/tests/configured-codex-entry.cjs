@@ -78,7 +78,7 @@ async function main() {
   const frames = path.join(parent, "native-threads.jsonl");
   fs.writeFileSync(
     probe,
-    `const fs=require('fs');let buf='';process.stdin.on('data',chunk=>{buf+=chunk;let n;while((n=buf.indexOf('\\n'))>=0){const raw=buf.slice(0,n);buf=buf.slice(n+1);if(!raw)continue;const frame=JSON.parse(raw);if(['thread/start','thread/resume'].includes(frame.method))fs.appendFileSync(${JSON.stringify(frames)},JSON.stringify({method:frame.method,params:frame.params})+'\\n');}});`,
+    `const fs=require('fs');let buf='';process.stdin.on('data',chunk=>{buf+=chunk;let n;while((n=buf.indexOf('\\n'))>=0){const raw=buf.slice(0,n);buf=buf.slice(n+1);if(!raw)continue;const frame=JSON.parse(raw);if(['thread/start','thread/resume','turn/start'].includes(frame.method))fs.appendFileSync(${JSON.stringify(frames)},JSON.stringify({method:frame.method,params:frame.params})+'\\n');}});`,
     { mode: 0o600 },
   );
   const program = path.join(parent, "codex");
@@ -115,6 +115,14 @@ async function main() {
       provider: "codex",
       model: "fixture-model",
       body: "Dedicated Codex entrypoint",
+      prompt: "Dedicated Codex entrypoint",
+      worktreeId: 1,
+      images: [],
+      files: [],
+      effort: null,
+      ultracode: false,
+      fastMode: false,
+      replies: "concise",
       clientMessageId: "codex-entry-1",
       permissionMode: "ask",
       tldrEnabled: true,
@@ -153,6 +161,14 @@ async function main() {
       provider: "codex",
       model: "fixture-model",
       body: "Resume dedicated Codex context",
+      prompt: "Resume dedicated Codex context",
+      worktreeId: 1,
+      images: [],
+      files: [],
+      effort: "high",
+      ultracode: false,
+      fastMode: false,
+      replies: "normal",
       clientMessageId: "codex-entry-2",
       permissionMode: "ask",
       tldrEnabled: true,
@@ -160,7 +176,8 @@ async function main() {
   ]);
   assert.equal((await resumed).type, "turn-completed");
   assert.equal((await second.client.call("chat:messages", [second.project, 1])).messages.length, 4);
-  const threads = fs.readFileSync(frames, "utf8").trim().split("\n").map(JSON.parse);
+  const recorded = fs.readFileSync(frames, "utf8").trim().split("\n").map(JSON.parse);
+  const threads = recorded.filter((frame) => frame.method !== "turn/start");
   assert.deepEqual(
     threads.map((frame) => frame.method),
     ["thread/start", "thread/resume"],
@@ -169,6 +186,51 @@ async function main() {
   assert.equal(threads[0].params.developerInstructions, threads[1].params.developerInstructions);
   const { sessionInstructions } = require("../../../packages/core/src/agents/events.cjs");
   assert.equal(threads[0].params.developerInstructions, sessionInstructions({ tldrEnabled: true }));
+  // Call the real Node implementation, not a duplicated request builder. React's
+  // provider-independent reply preference is deliberately absent from native Codex.
+  const { CodexSession } = require("../../../packages/core/src/agents/codex-provider.cjs");
+  async function nodeTurn(prompt, effort, replies, threadId) {
+    let native;
+    const session = {
+      cwd: first.project,
+      access: { roots: [], learned() {} },
+      permissions: { setMode() {} },
+      state: { threadId, turnId: null },
+      starting: Promise.resolve(),
+      rpc: {
+        async request(method, params) {
+          assert.equal(method, "turn/start");
+          native = params;
+          return { turn: { id: "oracle-turn" } };
+        },
+      },
+    };
+    const result = await CodexSession.prototype.beginTurn.call(session, {
+      prompt,
+      model: "fixture-model",
+      permissionMode: "ask",
+      images: [],
+      effort,
+      replies,
+      tldrEnabled: true,
+      ultracode: false,
+      fastMode: false,
+    });
+    assert.equal(result.turnId, "oracle-turn");
+    return native;
+  }
+  const turns = recorded.filter((frame) => frame.method === "turn/start");
+  assert.equal(turns.length, 2);
+  for (const [index, prompt, effort] of [
+    [0, "Dedicated Codex entrypoint", null],
+    [1, "Resume dedicated Codex context", "high"],
+  ]) {
+    const expected = await nodeTurn(prompt, effort, "concise", turns[index].params.threadId);
+    for (const replies of ["normal", null, undefined]) {
+      assert.deepEqual(await nodeTurn(prompt, effort, replies, turns[index].params.threadId), expected);
+    }
+    assert.deepEqual(turns[index].params, expected);
+  }
   await stop(second);
   completed = true;
   console.log(JSON.stringify({ passed: true, provider: "codex", turns: 2, reopenedWithoutSend: true, nativeResume: true, cleanup: true }));
