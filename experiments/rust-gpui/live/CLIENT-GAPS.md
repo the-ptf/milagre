@@ -142,3 +142,35 @@ Client gaps:
 | Add Project | `project:open [folder, {takeNotice: true}]` is served, but `server.cjs` lists it in `methods` only to `daemon:status [{commands: true}]`; the client's status probe sends `[]`, so `call` refuses it. Needs the client to ask with `{commands: true}` (or a typed `InstalledOwner::open_project(folder)`). The folder dialog is GPUI's own (`project:choose-folder` is Electron-only). |
 | Delete with Worktree cleanup | Only `HIDE_ONLY` is wired. Electron's `remove` mode (a Milagre Worktree no other Chat uses, checked clean) also needs `checkArchive`'s reads (`worktree:status [path, base]`, `worktree:roots []`, busy Terminals) and `worktree:remove [path, options]`; not ported, so every Worktree stays. |
 | Link with… / Remove Link with… | `canvas:links`, `canvas:link-add`, `canvas:link-remove`, `canvas:link-restore`, `linked:grant` are served; the Preview does not feed the sidebar's Links yet ("Link and ask" would also send a Chat message). Still off. |
+
+## Round 4 (2026-11-12): without Electron, on client `66a7795e2`
+
+The Preview now runs with Milagre.app closed: `InstalledOwner::adopt_or_start(&DaemonLaunch::find_installed_app()?)`
+starts the app's own daemon in Node mode when none runs (never in read-only mode; never stopped or replaced; left
+running on quit), and the main-process duties Electron had are the Preview's own.
+
+| Item | Status | How |
+| --- | --- | --- |
+| Start the daemon | works | `daemon::Start::Installed`; without Milagre.app: "Install Milagre to use this preview" |
+| Notifications, chime, dock badge | works | `notify.rs` (UNUserNotificationCenter in the bundle; settings seeded once from Electron's `preferences.json`) |
+| Settings › Notifications | works | kept in the Preview's `preferences.json` |
+| `milagre://` | works (pairing links only) | `deeplinks.rs`; Electron registers no scheme |
+| Show in Finder / Open in editor | works | `opener.rs`, native (`editor:list`, `editor:open`, `project:reveal` are Electron-only) |
+| Window frame, sidebar collapse | works | `window-state.json` in the Preview's folder (the GPUI sidebar has no width to keep) |
+| Live events | works | `agent:ports`, `pull-requests:changed`, `accounts:changed`, `canvas:links-changed` |
+| Add Project | works | `project:open` now listed to the client's `{commands:true}` handshake |
+| Delete with Worktree cleanup | works | `worktree:roots`, `worktree:status`, `worktree:remove` as `checkArchive` |
+| Link with / Remove Link with | works | `canvas:*`, `linked:grant`; "Link and ask" tested on the fake daemon only |
+| Computers | off | see below |
+
+### `call()` refusals found
+
+- `computers:vault-status []`: refused before any request, `Capability { required: "renderer:computers:vault-status" }`.
+  It is not one of the preload's renderer commands (Electron's main process asks it, `computer-unlock.cjs`), so the
+  client's allowlist leaves it out. The Preview shows computers only with the vault unlocked, so they stay hidden.
+  Needed: the client allowing `computers:vault-status` (a read) for installed owners. Even then a daemon the Preview
+  started itself stays locked: unlocking takes `computers:unlock [{key}]` with the key Electron seals in this Mac's
+  keychain (`safeStorage`), which a native frontend would have to read or own.
+- `editor:list`, `editor:open`, `project:reveal`, `settings:notify-when-waiting`, `settings:notification-chime`,
+  `settings:notification-schedule`, `notification:state`: Electron-only (not daemon methods), done natively instead.
+- `daemon:stop`: advertised by the daemon, refused by `call()` (never sent).
