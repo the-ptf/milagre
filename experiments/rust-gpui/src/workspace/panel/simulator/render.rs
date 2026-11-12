@@ -97,7 +97,7 @@ impl Render for SimulatorView {
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme.surface)
+            // No fill: the window's one surface and its grain show through (`workspace/mod.rs`).
             .text_color(theme.ink)
             .child(body)
     }
