@@ -12,6 +12,7 @@ acp-fixture = ["dep:milagre-acp"]
 app-fixture = ["dep:milagre-registry", "dep:milagre-accounts"]
 chat-runtime = ["dep:milagre-accounts", "dep:milagre-routines"]
 chat-runtime-fixture = ["chat-runtime"]
+routine-execution-fixture = ["chat-runtime-fixture", "milagre-owner-store/routine-execution-fixture"]
 
 [dependencies]
 milagre-registry = { path = "../rust-registry", optional = true }

@@ -53,6 +53,16 @@ use crate::transcripts::{
     JobId, JobOutcome, StagedTranscript, TranscriptJob, TranscriptJobs, TranscriptSource,
 };
 
+#[cfg(feature = "routine-execution-fixture")]
+mod routine_fixture;
+#[cfg(feature = "routine-execution-fixture")]
+pub use routine_fixture::RoutineFixtureError;
+enum SendAdmission {
+    Ordinary,
+    #[cfg(feature = "routine-execution-fixture")]
+    RoutineFixture,
+}
+
 /// What each provider can do (shared/provider-capabilities.mjs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Capabilities {
@@ -1306,17 +1316,18 @@ impl ChatHost {
     // ---- sending -------------------------------------------------------------------------------------------
 
     /// The requests this checkpoint refuses rather than approximates.
-    fn gates(request: &Value) -> Result<()> {
+    fn gates(request: &Value, admission: SendAdmission) -> Result<()> {
         let context_kind = field(request, "context")
             .and_then(|context| context.get("kind"))
             .and_then(Value::as_str);
         if context_kind == Some("compaction") {
             return Err(gate("Compacting a Chat"));
         }
-        if matches!(context_kind, Some("routine-run"))
+        if (matches!(context_kind, Some("routine-run"))
             || field(request, "context")
                 .and_then(|c| c.get("routine"))
-                .is_some_and(Value::is_object)
+                .is_some_and(Value::is_object))
+            && matches!(admission, SendAdmission::Ordinary)
         {
             return Err(gate("A Routine's message"));
         }
@@ -1503,13 +1514,16 @@ impl ChatHost {
 
     /// ChatHost.send / sendMessage.
     pub fn send(&mut self, request: &Value) -> Result<Sent> {
+        self.send_admitted(request, SendAdmission::Ordinary)
+    }
+    fn send_admitted(&mut self, request: &Value, admission: SendAdmission) -> Result<Sent> {
         self.send_attempted = true;
         if let Some(delivery) = request.get("delivery").filter(|value| !value.is_null()) {
             if !matches!(delivery.as_str(), Some("queue" | "now")) {
                 return Err(StoreError::Invalid("Invalid message delivery.".into()));
             }
         }
-        Self::gates(request)?;
+        Self::gates(request, admission)?;
         let project_text = request
             .get("projectPath")
             .and_then(Value::as_str)

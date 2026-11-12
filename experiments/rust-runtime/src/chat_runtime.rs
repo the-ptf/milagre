@@ -28,6 +28,9 @@ use crate::claude_fixture::{
 
 const MANIFEST: &str = "rust-chat-runtime.json";
 const LOCK: &str = ".rust-chat-runtime.lock";
+#[cfg(all(test, feature = "routine-execution-fixture"))]
+#[path = "routine_execution_fixture_tests.rs"]
+mod routine_execution_tests;
 const MANIFEST_LIMIT: usize = 32 * 1024;
 pub(crate) const METHODS: &[&str] = &[
     "project:read",

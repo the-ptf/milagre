@@ -28,6 +28,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # Hooks for tests only (ProjectStates::fail_next_commit). Never enabled by a build of the owner; the crate's own tests
 # turn it on through the dev-dependency below.
 test-fixtures = []
+# Trusted synthetic schedule admission only. Never part of a normal owner build.
+routine-execution-fixture = []
 
 [dev-dependencies]
 tempfile = "3"
