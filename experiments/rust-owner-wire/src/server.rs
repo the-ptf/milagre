@@ -135,6 +135,13 @@ pub trait Handler: Send + Sync + 'static {
             .map(|_| ())
             .map_err(ShutdownError::Incomplete)
     }
+    /// Out-of-band loss of the process holding the launcher's lifetime pipe.
+    /// This is never selected by an RPC. Resource owners may cancel active work,
+    /// but must retain authority until actual cleanup completes. Other handlers
+    /// keep their ordinary refusal semantics by default.
+    fn shutdown_after_launcher_loss(&self) -> Result<(), ShutdownError> {
+        self.shutdown_attempt()
+    }
     /// Notification only. Must not block, publish events or reenter the server. Resource owners must drain in shutdown.
     fn disconnected(&self, _client_id: u64) {}
 }
@@ -316,6 +323,12 @@ impl Server {
     pub fn shutdown(&self) -> Result<(), RpcError> {
         self.inner.shutdown(None)
     }
+    /// The owning launcher has closed its lifetime pipe. Unlike a viewer
+    /// disconnect or daemon:stop, this invokes the explicit owner-loss policy.
+    /// A failed/pending result is not a cleanup acknowledgement.
+    pub fn shutdown_after_launcher_loss(&self) -> Result<(), RpcError> {
+        self.inner.shutdown_with(None, true)
+    }
     /// Executable teardown: wait for EOF/stop workers to release this fresh
     /// fixture before main exits. `shutdown` alone does not consume Arc owners,
     /// and Rust does not keep the process alive for background thread destructors.
@@ -398,6 +411,13 @@ impl Inner {
         self: &Arc<Self>,
         acknowledgement: Option<(&Client, &Value)>,
     ) -> Result<(), RpcError> {
+        self.shutdown_with(acknowledgement, false)
+    }
+    fn shutdown_with(
+        self: &Arc<Self>,
+        acknowledgement: Option<(&Client, &Value)>,
+        launcher_lost: bool,
+    ) -> Result<(), RpcError> {
         let _exclusive = self.shutdown_lock.lock().unwrap();
         if self.stopped.load(Ordering::Acquire) {
             return Ok(());
@@ -416,7 +436,12 @@ impl Inner {
             active = self.drained.wait_timeout(active, remaining).unwrap().0;
         }
         drop(active);
-        match self.handler.shutdown_attempt() {
+        let shutdown = if launcher_lost {
+            self.handler.shutdown_after_launcher_loss()
+        } else {
+            self.handler.shutdown_attempt()
+        };
+        match shutdown {
             Ok(()) => {}
             Err(ShutdownError::Refused(error)) => {
                 self.closing.store(false, Ordering::Release);
@@ -1215,6 +1240,69 @@ mod tests {
         drop(server);
         assert_eq!(fs::read_to_string(&socket).unwrap(), "replacement");
         fs::remove_file(socket).unwrap();
+    }
+    #[test]
+    fn launcher_loss_is_separate_from_busy_stop_and_never_acknowledges_failed_cleanup() {
+        struct Owned {
+            loss_calls: AtomicUsize,
+        }
+        impl Handler for Owned {
+            fn methods(&self) -> Vec<String> {
+                vec![]
+            }
+            fn invoke(&self, _: &str, _: &[Value], _: &ClientContext) -> RpcResult {
+                Ok(Value::Null)
+            }
+            fn snapshot(&self, _: &ClientContext) -> RpcResult {
+                Ok(json!({}))
+            }
+            fn shutdown_attempt(&self) -> Result<(), ShutdownError> {
+                Err(ShutdownError::Refused(RpcError::new(
+                    "BUSY",
+                    "An active turn remains",
+                )))
+            }
+            fn shutdown_after_launcher_loss(&self) -> Result<(), ShutdownError> {
+                match self.loss_calls.fetch_add(1, Ordering::AcqRel) {
+                    0 => Err(ShutdownError::Incomplete(RpcError::new(
+                        "QUIT_PENDING",
+                        "Native child still retained",
+                    ))),
+                    1 => Err(ShutdownError::Incomplete(RpcError::new(
+                        "SAVE_FAILED",
+                        "Exact owner save failure",
+                    ))),
+                    _ => Ok(()),
+                }
+            }
+        }
+        let handler = Arc::new(Owned {
+            loss_calls: AtomicUsize::new(0),
+        });
+        let server = Server::bind(
+            IsolatedProfile::create().unwrap(),
+            handler.clone(),
+            Config::default(),
+        )
+        .unwrap();
+        assert_eq!(server.shutdown().unwrap_err().code, "BUSY");
+        assert!(!server.inner.closing.load(Ordering::Acquire));
+        assert_eq!(handler.loss_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            server.shutdown_after_launcher_loss().unwrap_err().code,
+            "QUIT_PENDING"
+        );
+        assert!(server.inner.closing.load(Ordering::Acquire));
+        assert!(!server.is_stopped());
+        assert!(server.socket_path().exists());
+        let failed = server.shutdown_after_launcher_loss().unwrap_err();
+        assert_eq!(failed.code, "SAVE_FAILED");
+        assert_eq!(failed.message, "Exact owner save failure");
+        assert!(!server.is_stopped());
+        assert!(server.socket_path().exists());
+        server.shutdown_after_launcher_loss().unwrap();
+        assert!(server.is_stopped());
+        assert_eq!(handler.loss_calls.load(Ordering::Acquire), 3);
     }
     #[test]
     fn failed_shutdown_preserves_listener_for_explicit_retry() {

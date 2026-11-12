@@ -93,6 +93,8 @@ struct Request {
     launch: Option<(Pin, Vec<u8>)>,
     fixture: bool,
     create: bool,
+    #[cfg(test)]
+    rejected: Option<mpsc::Sender<(u32, PathBuf)>>,
 }
 impl Request {
     fn prepare(root: &Path, manifest: Option<&Path>, fixture: bool) -> Result<Self> {
@@ -133,6 +135,8 @@ impl Request {
             launch,
             fixture,
             create,
+            #[cfg(test)]
+            rejected: None,
         })
     }
     fn check(&self) -> Result<()> {
@@ -205,6 +209,51 @@ fn location(root: &Path, protected: &[PathBuf]) -> Result<PathBuf> {
         }
     }
     Ok(root)
+}
+
+fn startup_refusal(value: &Value, pid: u32, request: &Request) -> Result<Option<Error>> {
+    let Some(error) = value.get("startupError") else {
+        return Ok(None);
+    };
+    if !keys(
+        value,
+        &["protocolVersion", "pid", "uid", "dataRoot", "startupError"],
+    ) || value["protocolVersion"] != 1
+        || value["pid"].as_u64() != Some(u64::from(pid))
+        || value["uid"].as_u64() != Some(u64::from(unsafe { libc::geteuid() }))
+        || value["dataRoot"].as_str() != request.root.to_str()
+        || !keys(error, &["code", "message"])
+    {
+        return Err(invalid());
+    }
+    let (code, message) = match error["code"].as_str() {
+        Some("CHAT_ROOT_BUSY") => (
+            "CHAT_ROOT_BUSY",
+            "This dedicated Rust Chat data root is already running",
+        ),
+        Some("CHAT_RUNTIME_START_FAILED") => (
+            "CHAT_RUNTIME_START_FAILED",
+            "The dedicated Rust Chat runtime could not start",
+        ),
+        _ => return Err(invalid()),
+    };
+    if error["message"].as_str() != Some(message) {
+        return Err(invalid());
+    }
+    request.parent.check()?;
+    if let Some(selection) = &request.initial {
+        selection.check()?;
+    }
+    if let Some((pin, bytes)) = &request.launch {
+        if private_bytes(pin)? != *bytes {
+            return Err(invalid());
+        }
+    }
+    Ok(Some(Error::Remote {
+        code: code.into(),
+        message: message.into(),
+        payload: error.clone(),
+    }))
 }
 
 fn endpoint(
@@ -398,6 +447,10 @@ fn worker(ready: reply::Sender<OwnedChatGuard>, request: Request) {
         let mut stdout = state.process.child.stdout.take().ok_or_else(invalid)?;
         let fd = stdout.as_raw_fd();
         let receipt = read_line(&mut stdout, fd, Instant::now() + RECEIPT_WAIT)?;
+        executable.check()?;
+        if let Some(error) = startup_refusal(&receipt, state.process.id(), &request)? {
+            return Err(error);
+        }
         let (endpoint, selection) = endpoint(&receipt, state.process.id(), &request, &executable)?;
         if !matches!(state.probe(), Wait::Running) {
             return Err(invalid());
@@ -409,6 +462,10 @@ fn worker(ready: reply::Sender<OwnedChatGuard>, request: Request) {
     let (endpoint, selection) = match admission {
         Ok(value) => value,
         Err(error) => {
+            #[cfg(test)]
+            if let Some(observe) = &request.rejected {
+                let _ = observe.send((state.process.id(), state.storage.root.path.clone()));
+            }
             ready.send(Err(error));
             abandon(state);
             return;

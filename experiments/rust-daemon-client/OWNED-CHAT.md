@@ -32,6 +32,15 @@ fields and stores the selected account/model and nonsecret paths. The captured
 input is compared to the runtime's saved launch configuration before publishing
 the guard. `open` requires the dedicated marked 0700 root and unchanged 0600
 saved manifest. In-place manifest changes, replacement and symlinks refuse.
+If the exact fixed child cannot start, it may instead emit one bounded, closed
+startup-refusal record on stdout. `Remote {code: "CHAT_ROOT_BUSY", ..}` means the
+dedicated root already has a writer, rather than a receipt EOF failure. Other
+startup failures use `CHAT_RUNTIME_START_FAILED` with a fixed safe message, never
+raw provider/account/install diagnostics. PID, uid, protocol, requested root,
+executable and captured selection are rechecked. This record grants no endpoint
+authority and is not proof of child termination. The existing supervisor retains
+the rejected child and temporary launch storage until an actual reap; wait errors
+remain sticky Unknown. It never removes the active owner's root/profile/socket.
 Production profile exclusions are captured before the child's environment is
 cleared. Neither account discovery nor secrets are read by this client.
 
@@ -160,8 +169,10 @@ uses the existing real PTY to initialize a synthetic local repository with an
 explicit private HOME and synthetic author/committer identity. It compares actual
 changes, history, uncommitted and full-commit diff-file/diff-files, an untracked
 patch and unchanged working bytes, closes its PTY and requires Complete cleanup.
-The stage now observes six daemon children and six cleanup records across four
-tests. Six Git socketpair tests cover exact supported wire options/captured cwd,
+The stage observes six admitted daemon children and six cleanup records across
+four tests. Two further startup attempts prove public typed Busy refusal and
+an observed rejected child's launch-storage cleanup, while the first owner stays
+usable and its data/profile/socket remain. Six Git socketpair tests cover exact supported wire options/captured cwd,
 authority/view/disconnect gates, boundary validation, absent capability, weak
 pending lifetime, exact remote errors and submitted timeout without replay.
 Signatures and bounds are in

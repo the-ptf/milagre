@@ -5,6 +5,26 @@ persistent runtime guard and typed ChatActions. Its authority, bounds, exact tes
 and remaining gates are in [OWNED-CHAT.md](OWNED-CHAT.md). Existing fixture APIs and
 their pins are unchanged; the original fixture contract below still applies.
 
+The dedicated `chat-runtime` success receipt is unchanged. Before any receipt,
+startup refusal may be one LF-terminated JSON record (at most 4096 bytes in the
+existing five-second admission deadline):
+
+```json
+{"protocolVersion":1,"pid":12345,"uid":501,"dataRoot":"/explicit/dedicated-root","startupError":{"code":"CHAT_ROOT_BUSY","message":"This dedicated Rust Chat data root is already running"}}
+```
+
+Both objects have closed schemas. PID/uid/requested root must match the exact
+spawned child, and executable/root/launch-selection pins are checked again.
+Only this Busy pair and `CHAT_RUNTIME_START_FAILED` / `The dedicated Rust Chat
+runtime could not start` are accepted. Code/message are returned as `Error::Remote`
+with the unchanged startupError object as payload. Unknown codes, fields, message
+text, identities, malformed JSON, oversized or late records refuse admission.
+No account/install diagnostic, stderr capture, socket path or authority grant is
+included. A refusal never means cleanup completed: the same retained supervisor
+still owns the exact child until confirmed reap, preserves Unknown on wait error,
+and removes only its own identity-checked temporary launch storage afterwards.
+Persistent data and the original active owner's wire profile remain untouched.
+
 ## Dedicated terminal actions (`owned-chat`, default off)
 
 `OwnedChatGuard::terminal_actions(&Client) -> Result<TerminalActions>` requires

@@ -1469,6 +1469,19 @@ mod configured_tests {
     #[test]
     fn configured_core_uses_captured_environment_actual_bundle_and_persistent_launch() {
         use std::os::fd::AsRawFd;
+        struct TestRootLease(std::fs::File);
+        impl Drop for TestRootLease {
+            fn drop(&mut self) {
+                // Match the real DataRoot's final-Arc authority boundary. Merely
+                // closing this test fd can leave its flock inherited by another
+                // concurrent test's fork until exec, after our local Arc ends.
+                while unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) } != 0 {
+                    if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                        break;
+                    }
+                }
+            }
+        }
         // Fixed child evidence only. This executes the same configured constructor/worker used by
         // a selected real CLI, without reading a real account or starting a model request.
         let fixture = ClaudeFixture::create(Scenario::Reply).unwrap();
@@ -1500,16 +1513,16 @@ mod configured_tests {
             .parent()
             .unwrap()
             .join("configured-root.lock");
-        let lease = Arc::new(
+        let lease = Arc::new(TestRootLease(
             std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create_new(true)
                 .open(&lock_path)
                 .unwrap(),
-        );
+        ));
         assert_eq!(
-            unsafe { libc::flock(lease.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            unsafe { libc::flock(lease.0.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
             0
         );
         let contender = std::fs::OpenOptions::new()

@@ -83,6 +83,129 @@ fn manifests_are_bounded_private_and_tied_to_root() {
     assert!(Selection::capture(root.path(), false).is_err());
 }
 
+fn refusal(request: &Request, pid: u32) -> Value {
+    json!({"protocolVersion":1,"pid":pid,"uid":unsafe {libc::geteuid()},"dataRoot":request.root,"startupError":{"code":"CHAT_ROOT_BUSY","message":"This dedicated Rust Chat data root is already running"}})
+}
+
+#[test]
+fn startup_refusal_requires_closed_shape_exact_child_root_and_safe_messages() {
+    let parent = private_root();
+    let root = parent.path().join("data");
+    fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    write_manifest(&root, &manifest(&root, false));
+    let request = Request::prepare(&root, None, false).unwrap();
+    let pid = 12345;
+    let value = refusal(&request, pid);
+    assert_eq!(
+        startup_refusal(&value, pid, &request).unwrap(),
+        Some(Error::Remote {
+            code: "CHAT_ROOT_BUSY".into(),
+            message: "This dedicated Rust Chat data root is already running".into(),
+            payload: value["startupError"].clone()
+        })
+    );
+    let generic = json!({"code":"CHAT_RUNTIME_START_FAILED","message":"The dedicated Rust Chat runtime could not start"});
+    let mut failure = value.clone();
+    failure["startupError"] = generic.clone();
+    assert_eq!(
+        startup_refusal(&failure, pid, &request).unwrap(),
+        Some(Error::Remote {
+            code: "CHAT_RUNTIME_START_FAILED".into(),
+            message: "The dedicated Rust Chat runtime could not start".into(),
+            payload: generic
+        })
+    );
+    for (key, replacement) in [
+        ("protocolVersion", json!(2)),
+        ("pid", json!(pid + 1)),
+        ("uid", json!(unsafe { libc::geteuid() } + 1)),
+        ("dataRoot", json!("/other-root")),
+        ("extra", json!(true)),
+        ("startupError", Value::Null),
+        (
+            "startupError",
+            json!({"code":"CHAT_ROOT_BUSY","message":"secret raw path"}),
+        ),
+        (
+            "startupError",
+            json!({"code":"CHAT_ROOT_BUSY","message":"This dedicated Rust Chat data root is already running","extra":true}),
+        ),
+        (
+            "startupError",
+            json!({"code":"UNKNOWN","message":"This dedicated Rust Chat data root is already running"}),
+        ),
+    ] {
+        let mut invalid = value.clone();
+        invalid[key] = replacement;
+        assert!(
+            startup_refusal(&invalid, pid, &request).is_err(),
+            "accepted {invalid}"
+        );
+    }
+    for key in ["protocolVersion", "pid", "uid", "dataRoot"] {
+        let mut invalid = value.clone();
+        invalid.as_object_mut().unwrap().remove(key);
+        assert!(startup_refusal(&invalid, pid, &request).is_err());
+    }
+    assert_eq!(
+        startup_refusal(&json!({"success":"handled separately"}), pid, &request).unwrap(),
+        None
+    );
+    fs::write(root.join(MANIFEST), b"{}").unwrap();
+    assert!(
+        startup_refusal(&value, pid, &request).is_err(),
+        "a refusal cannot bypass captured root/selection checks"
+    );
+}
+
+#[test]
+fn startup_refusal_line_uses_existing_size_deadline_and_json_bounds() {
+    use std::os::unix::net::UnixStream;
+    let body = json!({"startupError":{"code":"CHAT_ROOT_BUSY","message":"This dedicated Rust Chat data root is already running"}});
+    for length in [4096, 4097] {
+        let mut bytes = serde_json::to_vec(&body).unwrap();
+        bytes.resize(length - 1, b' ');
+        bytes.push(b'\n');
+        let (mut input, mut output) = UnixStream::pair().unwrap();
+        let writer = thread::spawn(move || output.write_all(&bytes).unwrap());
+        let fd = input.as_raw_fd();
+        let result = read_line(&mut input, fd, Instant::now() + Duration::from_secs(1));
+        if length == 4096 {
+            assert_eq!(result.unwrap(), body);
+        } else {
+            assert!(matches!(
+                result,
+                Err(Error::Launch {
+                    code: "FIXTURE_RECEIPT_TOO_LARGE",
+                    ..
+                })
+            ));
+        }
+        drop(input);
+        writer.join().unwrap();
+    }
+    for bytes in [b"{not-json}\n".to_vec(), vec![b'x'; 4097]] {
+        let (mut input, mut output) = UnixStream::pair().unwrap();
+        let worker = thread::spawn(move || {
+            let _ = output.write_all(&bytes);
+        });
+        let fd = input.as_raw_fd();
+        assert!(read_line(&mut input, fd, Instant::now() + Duration::from_secs(1)).is_err());
+        drop(input);
+        worker.join().unwrap();
+    }
+    let (mut input, _output) = UnixStream::pair().unwrap();
+    let fd = input.as_raw_fd();
+    assert!(matches!(
+        read_line(&mut input, fd, Instant::now()),
+        Err(Error::Launch {
+            code: "FIXTURE_RECEIPT_TIMEOUT",
+            ..
+        })
+    ));
+}
+
 fn complete(guard: &OwnedChatGuard) {
     let until = Instant::now() + Duration::from_secs(15);
     loop {
@@ -124,9 +247,32 @@ fn owned_chat_reads_restart_and_reconnect() {
     fs::set_permissions(&selected, fs::Permissions::from_mode(0o600)).unwrap();
     let guard = block_on(OwnedChatGuard::create(&root, &selected)).unwrap();
     assert!(
-        block_on(OwnedChatGuard::open(&root)).is_err(),
-        "a second owner must refuse"
+        matches!(block_on(OwnedChatGuard::open(&root)),Err(Error::Remote{code,..}) if code=="CHAT_ROOT_BUSY"),
+        "public open must preserve the dedicated owner's typed Busy refusal"
     );
+    let (rejected, observed) = mpsc::channel();
+    let mut second = Request::prepare(&root, None, false).unwrap();
+    second.rejected = Some(rejected);
+    let refused = block_on(launch_request(second))
+        .err()
+        .expect("a second owner must refuse");
+    assert!(
+        matches!(&refused,Error::Remote{code,..} if code=="CHAT_ROOT_BUSY"),
+        "wrong startup refusal: {refused}"
+    );
+    let (rejected_pid, rejected_storage) = observed.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_ne!(rejected_pid, guard.info().pid);
+    let until = Instant::now() + Duration::from_secs(5);
+    while rejected_storage.exists() && Instant::now() < until {
+        thread::sleep(POLL);
+    }
+    assert!(
+        !rejected_storage.exists(),
+        "rejected child was not reaped/temporary storage retained"
+    );
+    assert!(root.exists());
+    assert!(guard.info().profile.exists());
+    assert!(guard.info().socket.exists());
     let (client, _, _notifications) = block_on(guard.connect(ClientOptions::default())).unwrap();
     let project = guard.project();
     assert!(
@@ -165,7 +311,7 @@ fn owned_chat_reads_restart_and_reconnect() {
     complete(&reopened);
     println!(
         "OWNED_CHAT_READS_EVIDENCE {}",
-        json!({"reads":6,"reconnect":true,"secondWriterRefused":true,"epochChanged":true,"sameState":true})
+        json!({"reads":6,"reconnect":true,"secondWriterRefused":true,"secondWriterCode":"CHAT_ROOT_BUSY","rejectedPid":rejected_pid,"rejectedLaunchStorageRemoved":true,"firstOwnerUsable":true,"epochChanged":true,"sameState":true})
     );
 }
 

@@ -63,9 +63,11 @@ fn recorded_chat_host_run_states_match_production_patches() {
         String::from_utf8_lossy(&output.stderr)
     );
     let pairs: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // Owner trace 37e0c0f34 adds 31 chat-summaries steps to the prior 231.
+    // Every pair below still compares all four depths against production Node.
     assert_eq!(
         pairs.len(),
-        231,
+        262,
         "update the recorded trace coverage explicitly"
     );
     let mut cases = Vec::new();

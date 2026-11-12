@@ -9,6 +9,8 @@ mod app_content;
 pub mod app_fixture;
 mod artifacts;
 #[cfg(feature = "chat-runtime")]
+mod chat_bootstrap;
+#[cfg(feature = "chat-runtime")]
 pub mod chat_runtime;
 mod claude_content;
 pub mod claude_fixture;

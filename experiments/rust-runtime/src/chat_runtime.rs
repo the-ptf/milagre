@@ -305,10 +305,21 @@ impl DataRoot {
     fn lock(directory: &File) -> Result<File, RpcError> {
         let lock = at(directory, LOCK, libc::O_RDWR | libc::O_CREAT, 0o600)?;
         plain(&lock)?;
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(refused(
-                "This dedicated Rust Chat data root is already running",
-            ));
+        loop {
+            if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                break;
+            }
+            let error = std::io::Error::last_os_error();
+            match error.kind() {
+                std::io::ErrorKind::Interrupted => continue,
+                std::io::ErrorKind::WouldBlock => {
+                    return Err(RpcError::new(
+                        "CHAT_ROOT_BUSY",
+                        "This dedicated Rust Chat data root is already running",
+                    ));
+                }
+                _ => return Err(error.into()),
+            }
         }
         Ok(lock)
     }
@@ -332,7 +343,12 @@ impl DataRoot {
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(project.join(".milagre"))?;
-        private_write(&metadata, "coordination.json", json!({"next_id":10,"name":"Rust Chat","worktrees":{"1":{"id":1,"name":"main","path":project}},"sessions":{"1":{"id":1,"worktree_id":1,"provider":"claude","permissionMode":"ask"}},"messages":[]}).to_string().as_bytes())?;
+        let seed = crate::chat_bootstrap::seed(
+            project
+                .to_str()
+                .ok_or_else(|| refused("Dedicated Project needs Unicode"))?,
+        );
+        private_write(&metadata, "coordination.json", seed.to_string().as_bytes())?;
         private_write(&directory, MANIFEST, &manifest)?;
         let data = Arc::new(Self {
             isolation,
@@ -939,7 +955,15 @@ mod tests {
         let root = DataRoot::create(&path, config()).unwrap();
         let manifest = fs::read(path.join(MANIFEST)).unwrap();
         let state = fs::read(root.project().join(".milagre/coordination.json")).unwrap();
-        assert!(DataRoot::open(&path, false).is_err());
+        let seeded: Value = serde_json::from_slice(&state).unwrap();
+        assert_eq!(seeded["projects"]["1"], json!({"id":1,"name":"Rust Chat"}));
+        assert_eq!(seeded["worktrees"]["1"]["project_id"], 1);
+        assert_eq!(seeded["sessions"]["1"]["agent_name"], "main");
+        assert_eq!(seeded["sessions"]["1"]["status"], "Created");
+        assert_eq!(
+            DataRoot::open(&path, false).err().unwrap().code,
+            "CHAT_ROOT_BUSY"
+        );
         assert!(DataRoot::create(&path, config()).is_err());
         assert_eq!(
             fs::metadata(path.join(MANIFEST)).unwrap().mode() & 0o777,

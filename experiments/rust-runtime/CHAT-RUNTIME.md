@@ -34,6 +34,47 @@ Run `open` after the prior process has stopped. `create` refuses every existing 
 
 The first stdout line is a JSON receipt with `profile`, `socket`, `pid`, `dataRoot` and `actor.project`. Connect using the existing daemon wire client with the receipt's `profile`; `daemon:stop` or stdin EOF starts owner shutdown. The fresh receipt is required after every restart. No production socket or daemon-selection pin changes.
 
+### Launcher loss
+
+The process holding the launcher's stdin pipe owns that lifetime grant. Closing
+the pipe (including a controller crash) uses an explicit out-of-band owner-loss
+shutdown path, separate from ordinary `daemon:stop` and viewer disconnects. The
+owner interrupts, ends and saves unfinished turns, then closes providers. No RPC
+selects this policy. A disconnected/reconnected viewer leaves the run intact
+while the launcher pipe stays open.
+
+Shutdown is acknowledged only after actual provider/PTY/worker drainage. A
+`QUIT_PENDING` result keeps the owner and native handles retained and is retried;
+after one second the driver reports that cleanup remains pending once. Closed
+stderr readers cannot panic the cleanup worker. A real nonpending save/ownership
+failure is preserved and reported, without a successful stop or automatic replay;
+authority/socket remain retained for repair and explicit stop retry. A stuck
+native cleanup may therefore retain the runtime indefinitely, rather than release
+its writer or claim the child exited.
+
+Launcher loss also retries the server's `SHUTDOWN_TIMEOUT` while an already
+accepted operation is still draining. Every attempt retains its configured
+timeout and closing admission, with a 20 ms retry backoff and one original
+code/message diagnostic. The owner teardown is not acknowledged or called ahead
+of the accepted operation. A deterministic wire test holds a real accepted call,
+observes the first short timeout and `CLOSING` refusal, then releases it and proves
+that the driver calls owner teardown once and completes. Ordinary wire stop does
+not gain this retry policy; actual save/ownership failures still stop the driver
+without being masked or automatically retried.
+
+`tests/launcher-loss.cjs` kills only its spawned controller handle with SIGKILL.
+The runtime inherits that controller's stdout as its lifetime stdin, while the
+outer harness retains the exact runtime Child handle for exit/reap evidence.
+The fixed native Claude child emits session-started and waits on stdin EOF.
+The test proves viewer reconnect preserves the active turn, controller loss leads
+to runtime exit 0 and native-child absence, private profile/socket/Project-lock
+cleanup, retained dedicated data, and a new runtime reading the saved failed turn
+without another send. It repeats with the runtime stderr reader closed. These are
+synthetic native-process tests, not a real-provider or actual GPUI crash claim.
+The original executable timed out at six seconds with the ordinary active-turn
+quit refusal; the repaired two-variant test passes. Logs:
+`/tmp/milagre-launcher-loss-{before,after,runtime-tests,wire-tests}.log`.
+
 The provider receives only the captured executable, explicit `HOME`, `CLAUDE_CONFIG_DIR`, `PATH`, `USER` and `LOGNAME`, the dedicated Project cwd and snapshotted TLDR/QA bundle. Both identity variables come from the required nonsecret `userName` field (nonempty, at most 256 bytes, no NUL); they are never inherited. This supplies the OS identity needed by native Claude's account lookup. Native session persistence is enabled. The runtime exposes only its configured Claude model and saved account metadata. It does not discover installed models, inspect credentials, provide account management, or claim authentication readiness. The content MCP tools below are attached to this same captured session. Other Milagre host tools, mobile adoption, arbitrary existing Projects and other providers remain outside this entrypoint.
 
 The owner and provider preserve their existing refusal and save semantics. A failed save or ownership check can refuse shutdown. Captured provider workers retain the data-root lease through cleanup, including dropped/error teardown. Immediate/queued image sends keep the prior existing-Chat restrictions and the adapter's 1 MiB request/native-frame budgets. Queued state may exceed the 32 KiB launch-manifest cap and uses the owner's JavaScript-compatible JSON decoder.

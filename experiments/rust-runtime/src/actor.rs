@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs,
+    io::Write,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -335,6 +336,14 @@ impl Handler for Actor {
             }
         })
     }
+    fn shutdown_after_launcher_loss(&self) -> Result<(), ShutdownError> {
+        // A viewer may disconnect without owning the daemon. Only loss of the
+        // launcher's lifetime pipe authorizes cancellation of unfinished turns.
+        // force ends/saves those turns; native/PTY drain still gates the ack.
+        self.call(Command::shutdown(true))
+            .map(|_| ())
+            .map_err(ShutdownError::Incomplete)
+    }
 }
 fn record_forgotten_answer(shared: &Shared) {
     // Saturating constant-space audit. Never write to a potentially blocked stderr pipe.
@@ -380,7 +389,10 @@ fn record_failure(shared: &Shared, error: String) {
     let bounded: String = error.chars().take(4096).collect();
     let mut previous = shared.failure.lock().unwrap();
     if previous.as_deref() != Some(&bounded) {
-        eprintln!("isolated owner transition failed: {bounded}");
+        let _ = writeln!(
+            std::io::stderr(),
+            "isolated owner transition failed: {bounded}"
+        );
         *previous = Some(bounded);
     }
 }
@@ -396,9 +408,15 @@ fn closed() -> RpcError {
 /// Retry only the owner's pending-job result, from outside its actor. The
 /// caller retains the Server on timeout; a pending result is never a stop ack.
 pub fn shutdown_pending(server: &Server, budget: Duration) -> Result<(), RpcError> {
+    retry_shutdown_pending(|| server.shutdown(), budget)
+}
+fn retry_shutdown_pending(
+    mut attempt: impl FnMut() -> Result<(), RpcError>,
+    budget: Duration,
+) -> Result<(), RpcError> {
     let deadline = Instant::now() + budget;
     loop {
-        match server.shutdown() {
+        match attempt() {
             Err(error) if error.code == "QUIT_PENDING" => {
                 if Instant::now() >= deadline {
                     return Err(error);
@@ -410,32 +428,55 @@ pub fn shutdown_pending(server: &Server, budget: Duration) -> Result<(), RpcErro
     }
 }
 
-/// Fixture executable EOF driver. A pending owner remains retained and ticked;
-/// failed saves and busy refusal are reported, not silently forced or retried.
+/// Executable lifetime-pipe driver. Launcher loss cancels active turns using
+/// the owner's explicit policy. A pending cleanup remains retained and ticked;
+/// actual save/ownership failures are reported and never acknowledged or hidden.
 pub fn stop_on_stdin(server: std::sync::Weak<Server>) {
     thread::spawn(move || {
         let _ = std::io::stdin().read_line(&mut String::new());
         let Some(server) = server.upgrade() else {
             return;
         };
-        let mut reported = false;
-        loop {
-            match shutdown_pending(&server, Duration::from_secs(1)) {
-                Err(error) if error.code == "QUIT_PENDING" => {
-                    if !reported {
-                        eprintln!("QUIT_PENDING: retaining the isolated owner until transcript cleanup completes");
-                        reported = true;
-                    }
+        drive_launcher_loss(&server, |error| {
+            let message: String = error.message.chars().take(256).collect();
+            match error.code.as_str() {
+                "QUIT_PENDING" => {
+                    let _ = writeln!(std::io::stderr(), "QUIT_PENDING: launcher-loss cleanup exceeded one second; retaining the isolated owner until actual cleanup completes");
                 }
-                Err(error) => {
-                    let message: String = error.message.chars().take(256).collect();
-                    eprintln!("{}: {message}. Shutdown did not finish; the fixture socket remains available. Resolve this condition, then retry daemon:stop. No forced shutdown was performed.", error.code);
-                    return;
+                "SHUTDOWN_TIMEOUT" => {
+                    let _ = writeln!(std::io::stderr(), "SHUTDOWN_TIMEOUT: {message}. Launcher-loss cleanup retains ownership and will retry after accepted commands drain.");
                 }
-                Ok(()) => return,
+                _ => {
+                    let _ = writeln!(std::io::stderr(), "{}: {message}. Launcher-loss cleanup did not finish; owner authority and the socket remain retained. Resolve this condition, then retry daemon:stop.", error.code);
+                }
             }
-        }
+        });
     });
+}
+fn drive_launcher_loss(server: &Server, mut report: impl FnMut(&RpcError)) {
+    let mut reported = false;
+    loop {
+        match retry_shutdown_pending(
+            || server.shutdown_after_launcher_loss(),
+            Duration::from_secs(1),
+        ) {
+            Err(error) if matches!(error.code.as_str(), "QUIT_PENDING" | "SHUTDOWN_TIMEOUT") => {
+                if !reported {
+                    report(&error);
+                    reported = true;
+                }
+                // Only the launcher-loss driver retries accepted-command drainage.
+                // Each server attempt keeps its own timeout and closing admission;
+                // this bounded backoff avoids a retry spin without releasing authority.
+                thread::sleep(TICK);
+            }
+            Err(error) => {
+                report(&error);
+                return;
+            }
+            Ok(()) => return,
+        }
+    }
 }
 fn convert(error: milagre_owner_store::StoreError) -> RpcError {
     let code = match &error {
@@ -1774,6 +1815,12 @@ fn start_provider(
     host.register(provider);
     // This fixed fixture Project is admitted by trusted setup, never a saved path.
     host.open_project(&project).map_err(convert)?;
+    #[cfg(feature = "chat-runtime")]
+    if let Some(configured) = &configured {
+        configured.check()?;
+        crate::chat_bootstrap::normalize_owned(&mut host, &project).map_err(convert)?;
+        configured.check()?;
+    }
     #[cfg(feature = "app-fixture")]
     let initial_run_seq = if bootstrap.as_ref().is_some_and(|b| b.populate_transcript) {
         populate_transcript(&mut host, &project, epoch, started)?
@@ -2193,6 +2240,137 @@ impl Provider for Scripted {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn launcher_loss_retries_a_timed_out_accepted_command_before_owner_teardown() {
+        use std::{
+            io::{BufRead, BufReader},
+            os::unix::net::UnixStream,
+            sync::Condvar,
+        };
+        struct Release(Arc<(Mutex<bool>, Condvar)>);
+        impl Release {
+            fn open(&self) {
+                *self.0 .0.lock().unwrap() = true;
+                self.0 .1.notify_all();
+            }
+        }
+        impl Drop for Release {
+            fn drop(&mut self) {
+                self.open();
+            }
+        }
+        struct Held {
+            gate: Arc<(Mutex<bool>, Condvar)>,
+            entered: SyncSender<()>,
+            closed: AtomicUsize,
+        }
+        impl Handler for Held {
+            fn methods(&self) -> Vec<String> {
+                vec!["blocked".into()]
+            }
+            fn invoke(&self, _: &str, _: &[Value], _: &ClientContext) -> RpcResult {
+                self.entered.send(()).unwrap();
+                let guard = self.gate.0.lock().unwrap();
+                let (guard, _) = self
+                    .gate
+                    .1
+                    .wait_timeout_while(guard, Duration::from_secs(5), |open| !*open)
+                    .unwrap();
+                if !*guard {
+                    return Err(RpcError::new(
+                        "TEST_TIMEOUT",
+                        "Accepted command gate stayed shut",
+                    ));
+                }
+                Ok(json!(true))
+            }
+            fn snapshot(&self, _: &ClientContext) -> RpcResult {
+                Ok(json!({}))
+            }
+            fn shutdown_after_launcher_loss(&self) -> Result<(), ShutdownError> {
+                self.closed.fetch_add(1, Ordering::AcqRel);
+                Ok(())
+            }
+        }
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let release = Release(gate.clone());
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let handler = Arc::new(Held {
+            gate,
+            entered: entered_tx,
+            closed: AtomicUsize::new(0),
+        });
+        let server = Arc::new(
+            Server::bind(
+                IsolatedProfile::create().unwrap(),
+                handler.clone(),
+                Config {
+                    shutdown_timeout: Duration::from_millis(20),
+                    ..Config::default()
+                },
+            )
+            .unwrap(),
+        );
+        let mut socket = UnixStream::connect(server.socket_path()).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        writeln!(
+            socket,
+            "{}",
+            json!({"v":1,"id":1,"method":"blocked","args":[]})
+        )
+        .unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (reports_tx, reports_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let closing = server.clone();
+        let worker = thread::spawn(move || {
+            drive_launcher_loss(&closing, |error| {
+                let _ = reports_tx.send((error.code.clone(), error.message.clone()));
+            });
+            done_tx.send(()).unwrap();
+        });
+        let reported = reports_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(reported.0, "SHUTDOWN_TIMEOUT");
+        assert!(reported.1.contains("Accepted commands have not drained"));
+        assert_eq!(handler.closed.load(Ordering::Acquire), 0);
+        assert!(!server.is_stopped());
+        assert!(server.socket_path().exists());
+        // The timeout must not reopen admission while the accepted operation remains held.
+        let mut probe = UnixStream::connect(server.socket_path()).unwrap();
+        probe
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        writeln!(
+            probe,
+            "{}",
+            json!({"v":1,"id":2,"method":"blocked","args":[]})
+        )
+        .unwrap();
+        let mut line = String::new();
+        BufReader::new(probe).read_line(&mut line).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["error"]["code"],
+            "CLOSING"
+        );
+        release.open();
+        line.clear();
+        BufReader::new(socket).read_line(&mut line).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["result"],
+            true
+        );
+        done_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        worker.join().unwrap();
+        assert!(server.is_stopped());
+        assert_eq!(handler.closed.load(Ordering::Acquire), 1);
+        assert!(
+            reports_rx.try_recv().is_err(),
+            "repeated drain timeouts report once"
+        );
+        Server::finish(server).unwrap();
+    }
     fn dormant() -> (Actor, Receiver<Request>) {
         let (send, receive) = mpsc::sync_channel(QUEUE);
         let shared = Arc::new(Shared {
