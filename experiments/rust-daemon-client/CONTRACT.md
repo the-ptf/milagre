@@ -5,6 +5,73 @@ persistent runtime guard and typed ChatActions. Its authority, bounds, exact tes
 and remaining gates are in [OWNED-CHAT.md](OWNED-CHAT.md). Existing fixture APIs and
 their pins are unchanged; the original fixture contract below still applies.
 
+## Dedicated terminal actions (`owned-chat`, default off)
+
+`OwnedChatGuard::terminal_actions(&Client) -> Result<TerminalActions>` requires
+the exact guard/connection pair. The capability holds a weak Client, never
+connects or reopens a view, and cannot select another daemon, Project, cwd or
+shell. Every route requires successful explicit `Client::open_view` on that
+connection. `project_current` alone does not satisfy this local gate. Chat IDs
+are positive JSON-safe numeric IDs; list/open derive `<captured Project>#<id>`.
+Backend membership/generation checks remain authoritative.
+
+```rust,ignore
+impl TerminalActions {
+    async fn list(&self, chat: u64) -> Result<Value>;
+    async fn profiles(&self) -> Result<Value>;
+    async fn open(&self, chat: u64, size: TerminalSize) -> Result<Value>;
+    async fn read(&self, id: &str, after: u64, limit: Option<u64>) -> Result<Value>;
+    async fn input(&self, id: &str, data: &str) -> Result<Value>;
+    async fn resize(&self, id: &str, size: TerminalSize) -> Result<Value>;
+    async fn close(&self, id: &str) -> Result<Value>;
+}
+// Public fields, validated before enqueue. Default is 80 x 24.
+struct TerminalSize { cols: u16, rows: u16 }
+```
+
+Each call maps only to its corresponding `terminal:*` route with one object
+argument. No `setShell`, attach-with-arbitrary-path, or raw RPC is exposed.
+Terminal IDs must be canonical lowercase UUID strings obtained from the daemon's
+open/list result; they carry no independent authority. Columns must be 2..=1000,
+rows 1..=500, `after` 0..=9007199254740991 UTF-16 units. An omitted read limit stays
+omitted; an explicit limit is 4096..=1048576 UTF-16 units. Input is at most 65536
+UTF-8 bytes (stricter than the daemon's 65536 UTF-16-unit limit). Empty input and
+control bytes remain valid. Serialized arguments are capped at 512 KiB, including
+JSON escaping, before enqueue. Returned JSON, output offsets/reset/ended flags,
+remote error payloads and uncertainty are preserved unchanged.
+
+All futures are executor independent. Dropping an unpolled call sends nothing;
+dropping an admitted wait only abandons the local result. Actions and pending
+waits do not retain a dropped Client. Disconnect returns `Disconnected`; an
+unopened view returns `ViewNotOpened`. A missing route returns `Capability`.
+No automatic retries/replays/reconnects occur. In particular, lost open/input
+receipts can mean a terminal was created or input ran. Reconcile with explicit
+list/read rather than replaying an uncertain mutation.
+
+### Explicit read connection required for responsive controls
+
+This checkpoint does not multiplex RPC. A daemon `terminal:read` can long-poll
+for eight seconds and holds up every later RPC on that same Client, including
+input, resize, stop and Chat actions. It is not an interactive-ready single-Client
+transport. An integration must explicitly connect a second Client through the
+**same retained guard**, use its TerminalActions only for reads, and keep controls
+on the main Client. This creates another reader socket, not another daemon/PTY
+owner. For each connection independently, explicitly open the Project, capture
+and apply a runtime snapshot, accept its opaque receipt, and consume Notifications.
+No connection is opened implicitly by TerminalActions. Both consumers must stay
+drained, even if the reader's duplicate notices are otherwise ignored; an unread
+bounded event queue can overflow and close that connection.
+
+`terminal:changed` and any advertised `terminal:preferences-changed` notices use
+the existing ordered, bounded notification stream and snapshot barrier. The
+owner's internal Exited event is not forwarded as a `terminal:exited` wire event.
+Terminal output is fetched using
+`read` with the actual returned UTF-16 offset, not inferred from event timing.
+Reconnection is explicit through the same guard, then reopen/apply/accept and
+list/read catch-up. PTY lifetime belongs to the daemon; disconnecting a reader is
+not terminal closure. Neither terminal-close acknowledgment nor connection drop
+substitutes for the retained guard's final cleanup evidence.
+
 `milagre-daemon-client` is the backend-owned protocol-v1 client boundary agreed with the GPUI workstream in Chat #11899. It is independent of Tauri, GPUI and the caller's async runtime. This checkpoint adds a separate connection-bound ScriptedActions capability to the owned-child launcher and protocol engine. Bounded deferred Project-state hydration remains available. Real `app-fixture` reads, live hydration, paging, reconnect and lifecycle checks run separately from the default test suite. **It is not production authority or a complete GPUI adapter.** No installed app or runtime imports this crate yet.
 
 ## Authority and owned-child launcher

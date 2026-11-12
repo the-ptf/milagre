@@ -20,6 +20,9 @@ use std::{
 #[cfg(feature = "owned-chat")]
 #[path = "chat_actions.rs"]
 pub(crate) mod chat_actions;
+#[cfg(feature = "owned-chat")]
+#[path = "terminal_actions.rs"]
+pub(crate) mod terminal_actions;
 
 static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 

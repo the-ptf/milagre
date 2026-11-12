@@ -320,3 +320,110 @@ fn owned_chat_fixed_provider_actions_persist_across_restart() {
         json!({"provider":"fixed native child","realProvider":false,"messages":2,"duplicateDidNotReplay":true,"staleAnswersRefused":true,"unreadPersisted":true,"epochChanged":true,"sameTranscript":true,"types":types})
     );
 }
+
+#[test]
+#[ignore = "run only using scripts/check-owned-chat.py with its private fixed-sibling stage"]
+fn owned_chat_terminal_actions_use_one_owner_with_explicit_reader_connection() {
+    use crate::{Notice, TerminalSize};
+    use futures::FutureExt;
+    let parent = private_root();
+    let root = parent.path().join("data");
+    let request =
+        Request::prepare(&root, Some(Path::new("/private-test-selection")), true).unwrap();
+    let guard = block_on(launch_request(request)).unwrap();
+    let (controls, _, mut control_events) =
+        block_on(guard.connect(ClientOptions::default())).unwrap();
+    let (reader, _, mut read_events) = block_on(guard.connect(ClientOptions::default())).unwrap();
+    let terminal = guard.terminal_actions(&controls).unwrap();
+    let reads = guard.terminal_actions(&reader).unwrap();
+    assert_eq!(block_on(terminal.profiles()), Err(Error::ViewNotOpened));
+    assert_eq!(block_on(reads.list(1)), Err(Error::ViewNotOpened));
+    for client in [&controls, &reader] {
+        block_on(client.open_view(guard.project())).unwrap();
+        let snapshot = block_on(client.runtime_snapshot()).unwrap();
+        block_on(client.accept_snapshot(&snapshot)).unwrap();
+    }
+    assert_eq!(
+        block_on(terminal.profiles()).unwrap()["defaultShell"],
+        "/bin/sh"
+    );
+    assert_eq!(block_on(terminal.list(1)).unwrap()["terminals"], json!([]));
+    let opened = block_on(terminal.open(1, TerminalSize::default())).unwrap();
+    let id = opened["id"].as_str().unwrap();
+    assert_eq!(opened["cwd"], guard.project());
+    assert_eq!(opened["chatId"], format!("{}#1", guard.project()));
+    block_on(terminal.input(id, "printf '\\162\\165\\163\\164\\055\\163\\150\\141\\162\\145\\144\\055\\160\\164\\171\\055\\157\\153\\012'\n")).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut offset = 0;
+    let mut text = String::new();
+    while !text.contains("rust-shared-pty-ok\r\n") {
+        assert!(
+            Instant::now() < deadline,
+            "actual shell output missing: {text:?}"
+        );
+        let result = block_on(reads.read(id, offset, Some(4096))).unwrap();
+        assert_eq!(result["ended"], false);
+        if result["reset"] == true {
+            text.clear();
+        }
+        text.push_str(result["data"].as_str().unwrap());
+        offset = result["offset"].as_u64().unwrap();
+    }
+    block_on(terminal.resize(
+        id,
+        TerminalSize {
+            cols: 120,
+            rows: 42,
+        },
+    ))
+    .unwrap();
+    let listed = block_on(terminal.list(1)).unwrap();
+    assert_eq!(listed["terminals"][0]["cols"], 120);
+    assert_eq!(listed["terminals"][0]["rows"], 42);
+    let (reconnected, _, mut reconnect_events) =
+        block_on(guard.connect(ClientOptions::default())).unwrap();
+    block_on(reconnected.open_view(guard.project())).unwrap();
+    let snapshot = block_on(reconnected.runtime_snapshot()).unwrap();
+    block_on(reconnected.accept_snapshot(&snapshot)).unwrap();
+    let catchup = guard.terminal_actions(&reconnected).unwrap();
+    let replay = block_on(catchup.read(id, 0, None)).unwrap();
+    assert!(replay["data"]
+        .as_str()
+        .unwrap()
+        .contains("rust-shared-pty-ok\r\n"));
+    assert_eq!(block_on(terminal.close(id)).unwrap(), Value::Null);
+    assert_eq!(block_on(terminal.list(1)).unwrap()["terminals"], json!([]));
+    assert_eq!(
+        block_on(reads.read(id, offset, None)).unwrap()["ended"],
+        true
+    );
+    assert!(matches!(
+        block_on(terminal.input(id, "refused")),
+        Err(Error::Remote { .. })
+    ));
+    let mut changed = false;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !changed && Instant::now() < deadline {
+        for events in [&mut control_events, &mut read_events, &mut reconnect_events] {
+            while let Some(notice) = events.next().now_or_never().flatten() {
+                match notice {
+                    Notice::Event { channel, .. } => changed |= channel == "terminal:changed",
+                    other => panic!("unexpected terminal connection close: {other:?}"),
+                }
+            }
+        }
+        if !changed {
+            thread::sleep(POLL);
+        }
+    }
+    assert!(changed);
+    complete(&guard);
+    controls.disconnect();
+    reader.disconnect();
+    reconnected.disconnect();
+    assert_eq!(block_on(terminal.profiles()), Err(Error::Disconnected));
+    println!(
+        "OWNED_CHAT_TERMINALS_EVIDENCE {}",
+        json!({"pid":guard.info().pid,"realProvider":false,"realPty":true,"routes":7,"explicitReaderConnection":true,"sameOwner":true,"reconnectCatchup":true,"octalOutputVerified":true,"resized":[120,42],"changedEvent":true,"closed":true})
+    );
+}

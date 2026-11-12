@@ -67,6 +67,12 @@ impl OwnedChatGuard {
         client.owned_actions_for(&self.authority, &self.info.model)
     }
 
+    /// The same dedicated owner, exact connection, and explicit Project view.
+    /// Terminal actions neither create another PTY service nor keep a Client alive.
+    pub fn terminal_actions(&self, client: &Client) -> Result<crate::TerminalActions> {
+        client.owned_terminals_for(&self.authority)
+    }
+
     pub fn info(&self) -> &OwnedChatInfo {
         &self.info
     }

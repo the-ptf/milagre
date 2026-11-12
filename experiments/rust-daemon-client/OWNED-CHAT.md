@@ -1,6 +1,6 @@
 # Dedicated Chat client, default-disabled checkpoint
 
-Enable `owned-chat` to use `OwnedChatGuard` and `ChatActions`. They have no Tauri,
+Enable `owned-chat` to use `OwnedChatGuard`, `ChatActions` and `TerminalActions`. They have no Tauri,
 GPUI or caller-thread Tokio dependency. The existing fixture API stays unchanged.
 This connects a persistent dedicated Rust Project, not an installed production
 profile or arbitrary existing daemon. It does not complete the backend migration.
@@ -99,8 +99,9 @@ global wire seq. The fixed provider's tested event sequence below is evidence fo
 that fixture, not an event list promised for every real-provider turn.
 
 Attachments, compact, steering, new Worktree/computer Chats, account/model switching,
-broader sidebar writes, terminal/content/git capabilities and production-data
-adoption remain separate checkpoints. This API contains no raw RPC method.
+broader sidebar writes, content/git capabilities and production-data adoption
+remain separate checkpoints. TerminalActions below is its own capability. This
+API contains no raw RPC method.
 
 ## Validation
 
@@ -134,6 +135,25 @@ not exact equality of that transient session marker. Both children exit 0 with a
 temporary cleanup flags and data retention true. Questions/mode/queue full wire
 shapes also have synthetic contract tests; a real native question, mode switch and
 nonempty queue lifecycle are not claimed by these new process checks.
+
+The third process test exercises the seven public TerminalActions routes against
+one fixture-configured runtime without launching a provider. It explicitly opens
+separate control/read Clients, applies and accepts each snapshot, opens the
+daemon's `/bin/sh` PTY, proves actual octal-encoded shell output rather than input
+echo, resizes to 120x42, reconnects a third reader to the same owner for catch-up,
+observes `terminal:changed`, closes the terminal, rejects subsequent input, and
+requires Complete cleanup with retained data. The stage now observes five daemon
+children across all three tests and five confirmed cleanup records.
+
+Eight terminal socketpair tests cover all exact route shapes, scope, limits,
+pre-open refusal, weak lifetime, missing capability, remote/timeout uncertainty,
+snapshot-held notices, and a forced blocked read on a second connection while
+control input completes on the first. The existing single-Client I/O worker
+serializes RPC, so a long-poll read on the control Client blocks input/resize/Chat
+actions. The caller must explicitly create the second connection through the same
+guard, open/apply/accept on both, and drain both notification queues. There is no
+implicit connection or multiplexing claim. Full signatures and bounds are in
+[CONTRACT.md](CONTRACT.md#dedicated-terminal-actions-owned-chat-default-off).
 
 The fixed turn observed `message-sent`, `turn-started`, `session-started`,
 `permission-request`, `permission-resolved`, two `text-delta` events and
