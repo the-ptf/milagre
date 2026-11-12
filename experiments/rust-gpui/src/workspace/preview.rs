@@ -110,6 +110,7 @@ pub fn settings_shows(cx: &App, page: crate::settings::search::SettingsSectionId
         S::Accounts => cx.has_global::<PreviewAccounts>(),
         S::Usage => cx.has_global::<PreviewPlanUsage>(),
         S::Notifications => cx.has_global::<PreviewNotifications>(),
+        S::Computer => cx.has_global::<PreviewComputers>(),
         _ => false,
     }
 }
@@ -119,3 +120,9 @@ pub fn settings_shows(cx: &App, page: crate::settings::search::SettingsSectionId
 pub struct PreviewOpeners;
 
 impl Global for PreviewOpeners {}
+
+/// Paired computers a data layer read (its computer vault unlocked): Settings lists them, each with a read-only page.
+#[derive(Clone, Debug, Default)]
+pub struct PreviewComputers(pub crate::data::ComputersSnapshot);
+
+impl Global for PreviewComputers {}

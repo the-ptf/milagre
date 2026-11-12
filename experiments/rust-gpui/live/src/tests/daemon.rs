@@ -1024,6 +1024,14 @@ fn notifications_and_live_events(cx: &mut TestAppContext) {
         fake.log().into_iter().filter(|(m, _)| m == "pull-requests:snapshot").map(|(_, a)| a).skip(prs_before).collect();
     assert_eq!(reads, [json!([ALPHA])], "only the Project this window shows");
 
+    // Paired computers: shown only with the daemon's computer vault unlocked. The shared client's `call()` does not send
+    // `computers:vault-status` (not a renderer command), so it is refused before a request and they stay hidden.
+    m.wait_for("the vault read", |m| m.controller.read_with(m.vcx, |c, _| c.vault().is_some()));
+    let vault = m.controller.read_with(m.vcx, |c, _| c.vault().cloned()).unwrap();
+    assert!(matches!(&vault, crate::computers::Vault::Refused(why) if why.contains("renderer:computers:vault-status")), "{vault:?}");
+    assert!(!fake.methods().iter().any(|m| m.starts_with("computers:")), "nothing about computers reached the daemon");
+    assert!(m.vcx.update(|_, cx| !cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>()));
+
     // Details' Show in Finder and Open in editor are drawn and handled here (recorded, not run, in tests).
     let dry = crate::opener::DryRun::default();
     m.vcx.update(|_, cx| cx.set_global(dry.clone()));

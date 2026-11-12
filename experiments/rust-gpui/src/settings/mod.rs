@@ -348,7 +348,17 @@ impl Render for SettingsModal {
         let active_hit = self.active_hit.min(hits.len().saturating_sub(1));
         let selected = self.selected.clone();
         let highlighted = self.highlighted_row.clone();
-        let computers = self.computers.clone();
+        // Preview mode: the paired computers the data layer read (its vault unlocked), not the ones from when Settings
+        // was made.
+        let computers = match cx.try_global::<crate::workspace::preview::PreviewComputers>() {
+            Some(read) if crate::workspace::preview::is_on(cx) => read
+                .0
+                .computers
+                .iter()
+                .map(|c| (c.id.to_string(), c.name.to_string(), c.state == crate::data::ComputerState::Online))
+                .collect(),
+            _ => self.computers.clone(),
+        };
         let projects = self.projects.clone();
         let this_mac_name = self.this_mac_name.clone();
         let entity = cx.entity();
@@ -512,6 +522,9 @@ fn render_section_body(
                 notifications::render_notifications(highlighted, cx).into_any_element()
             }
             SelectedSection::Section(section) => render_unavailable(section.as_str(), section.title(), section.icon(), cx),
+            SelectedSection::Computer { id, name, connected } if cx.has_global::<crate::workspace::preview::PreviewComputers>() => {
+                render_preview_computer(id, name, *connected, cx)
+            }
             SelectedSection::Computer { id, name, .. } => {
                 render_unavailable(&format!("computer-{}", group::slug(id)), name, IconName::Computer, cx)
             }
@@ -632,6 +645,36 @@ fn render_unavailable(slug_id: &str, title: &str, icon: IconName, cx: &App) -> A
                         .title(crate::workspace::preview::UNAVAILABLE)
                         .help("Change it in Milagre for now: this window shows it once it reads it from Milagre's daemon."),
                 ),
+        )
+        .into_any_element()
+}
+
+/// Preview: a paired computer the data layer read, read-only: its name and whether it is connected.
+fn render_preview_computer(id: &str, name: &str, connected: bool, cx: &App) -> AnyElement {
+    let theme = *cx.theme();
+    let selector = format!("settings-section-computer-{}", group::slug(id));
+    let message = cx
+        .try_global::<crate::workspace::preview::PreviewComputers>()
+        .and_then(|read| read.0.computers.iter().find(|c| c.id.as_ref() == id).and_then(|c| c.message.clone()));
+    div()
+        .debug_selector(move || selector.clone())
+        .flex()
+        .flex_col()
+        .gap(px(12.0))
+        .child(page_header(name.to_owned(), None, cx))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .px(px(12.0))
+                .py(px(8.0))
+                .rounded(RADIUS_CARD)
+                .border_1()
+                .border_color(theme.line)
+                .child(nav::computer_dot(connected, false, cx))
+                .child(div().flex_1().text_color(theme.ink).child(if connected { "Connected" } else { "Not connected" }))
+                .children(message.map(|m| div().text_step(TEXT_12).text_color(theme.ink3).child(m))),
         )
         .into_any_element()
 }

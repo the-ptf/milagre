@@ -79,7 +79,13 @@ fn not_available<T: Send + 'static>(method: &'static str) -> DataFuture<T> {
 
 impl DataSource for LiveSource {
     fn computers(&self) -> DataFuture<ComputersSnapshot> {
-        // This computer only: the runtime has no other computers.
+        // Milagre's daemon with its computer vault unlocked: its paired computers ([`crate::computers`]). Otherwise
+        // this computer only.
+        if let Reads::Daemon(daemon) = &self.reads
+            && let Some(snapshot) = daemon.computers()
+        {
+            return ready(Ok(snapshot));
+        }
         ready(Ok(ComputersSnapshot { this_mac: "This computer".into(), computers: Vec::new() }))
     }
 

@@ -93,6 +93,8 @@ struct State {
     preferred: Option<String>,
     /// The plan usage the sidebar shows: the last `usage:cached` read ([`crate::usage`]).
     usage: milagre_gpui_spike::data::UsageSnapshot,
+    /// Paired computers, only while the computer vault is unlocked ([`crate::computers`]).
+    computers: Option<milagre_gpui_spike::data::ComputersSnapshot>,
 }
 
 pub struct Daemon {
@@ -160,6 +162,15 @@ impl Daemon {
 
     pub fn set_usage(&self, usage: milagre_gpui_spike::data::UsageSnapshot) {
         self.lock().usage = usage;
+    }
+
+    /// Paired computers while the vault is unlocked; `None` keeps them hidden.
+    pub fn computers(&self) -> Option<milagre_gpui_spike::data::ComputersSnapshot> {
+        self.lock().computers.clone()
+    }
+
+    pub fn set_computers(&self, computers: Option<milagre_gpui_spike::data::ComputersSnapshot>) {
+        self.lock().computers = computers;
     }
 
     /// The live connection's Project and Client.
@@ -328,8 +339,17 @@ impl Daemon {
 }
 
 /// The commands [`Daemon::read`] sends: each only reads (the Node daemon's handlers in `packages/core/src/runtime.cjs`).
-pub const READS: &[&str] =
-    &["agent:models", "agent:ports", "pull-requests:snapshot", "accounts:list", "usage:cached", "usage:accounts:cached", "canvas:links"];
+pub const READS: &[&str] = &[
+    "agent:models",
+    "agent:ports",
+    "pull-requests:snapshot",
+    "accounts:list",
+    "usage:cached",
+    "usage:accounts:cached",
+    "canvas:links",
+    "computers:vault-status",
+    "computers:list",
+];
 
 /// The Project whose state is largest in a snapshot body (serialized size).
 fn largest(body: &serde_json::Value) -> Option<String> {

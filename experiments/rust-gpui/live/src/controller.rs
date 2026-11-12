@@ -358,6 +358,9 @@ pub struct LiveController {
     extras_at: HashMap<String, std::time::Instant>,
     /// The tapped channels received (tests).
     events: Vec<String>,
+    /// The last computer-vault read, and the refusal last logged.
+    vault: Option<crate::computers::Vault>,
+    computers_refused: Option<String>,
     /// The Preview's own notifications ([`crate::notify`]), on Milagre's daemon in a writable window.
     notifier: Option<Rc<crate::notify::Notifier>>,
     _subscriptions: Vec<Subscription>,
@@ -600,6 +603,8 @@ impl LiveController {
                 reading_extras: HashSet::new(),
                 extras_at: HashMap::new(),
                 events: Vec::new(),
+                vault: None,
+                computers_refused: None,
                 notifier: None,
                 _subscriptions: subscriptions,
                 _tasks: vec![pump, follow, run, tapped],
@@ -607,6 +612,7 @@ impl LiveController {
             this.follow_chat(cx);
             this.sync_unloaded(cx);
             this.read_accounts(cx);
+            this.read_computers(cx);
             this
         })
     }
@@ -638,6 +644,7 @@ impl LiveController {
         }
         self.on_store_changed(cx);
         self.read_accounts(cx);
+        self.read_computers(cx);
         cx.notify();
     }
 
@@ -767,6 +774,50 @@ impl LiveController {
     /// The tapped channels this window received, oldest first (tests).
     pub fn events(&self) -> &[String] {
         &self.events
+    }
+
+    /// Milagre's daemon: its paired computers, shown only while its computer vault is unlocked ([`crate::computers`]).
+    /// Read once per sync; a refusal is said once in the log and the computers stay hidden.
+    fn read_computers(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let Some((project, _)) = daemon.primary() else { return };
+        let daemon = daemon.clone();
+        let read = off_thread({
+            let daemon = daemon.clone();
+            move || futures::executor::block_on(crate::computers::read(&daemon, &project))
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(vault) = read.await else { return };
+            let _ = this.update(cx, |this, cx| {
+                let shown = match &vault {
+                    crate::computers::Vault::Unlocked(snapshot) => Some(snapshot.clone()),
+                    crate::computers::Vault::Locked => None,
+                    crate::computers::Vault::Refused(why) => {
+                        if this.computers_refused.as_deref() != Some(why.as_str()) {
+                            eprintln!("live: computers stay hidden: {why}");
+                            this.computers_refused = Some(why.clone());
+                        }
+                        None
+                    }
+                };
+                daemon.set_computers(shown.clone());
+                match shown {
+                    Some(snapshot) => cx.set_global(milagre_gpui_spike::workspace::preview::PreviewComputers(snapshot)),
+                    None => {
+                        if cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>() {
+                            cx.remove_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>();
+                        }
+                    }
+                }
+                this.vault = Some(vault);
+            });
+        })
+        .detach();
+    }
+
+    /// What the last computer-vault read found (tests).
+    pub fn vault(&self) -> Option<&crate::computers::Vault> {
+        self.vault.as_ref()
     }
 
     /// Milagre's daemon: Settings › Accounts, read once per sync (`accounts:list [false]`, no refresh) on the live

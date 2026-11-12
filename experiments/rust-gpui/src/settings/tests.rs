@@ -361,4 +361,20 @@ fn preview_settings_list_only_the_backed_sections(cx: &mut TestAppContext) {
     settings.update(cx, |s, cx| s.select_section(super::SelectedSection::Section(SettingsSectionId::Mcp), cx));
     settle(cx);
     assert_eq!(settings.read_with(cx, |s, _| s.selected_section_id()), SettingsSectionId::Appearance);
+    // Paired computers read with the vault unlocked: listed, each with a read-only page.
+    cx.update(|_, cx| {
+        cx.set_global(crate::workspace::preview::PreviewComputers(crate::data::ComputersSnapshot {
+            this_mac: "Mac".into(),
+            computers: vec![crate::data::Computer {
+                id: "studio".into(),
+                name: "Studio".into(),
+                state: crate::data::ComputerState::Online,
+                message: None,
+            }],
+        }))
+    });
+    settle(cx);
+    click(cx, "settings-nav-computer-studio");
+    assert!(cx.debug_bounds("settings-section-computer-studio").is_some(), "its read-only page");
+    assert!(cx.debug_bounds("settings-nav-this-mac").is_none() && cx.debug_bounds("settings-nav-devices").is_none());
 }

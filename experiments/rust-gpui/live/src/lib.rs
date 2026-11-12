@@ -24,6 +24,7 @@ pub mod map;
 #[path = "../../daemon-check/src/view.rs"]
 pub mod view;
 
+pub mod computers;
 pub mod controller;
 pub mod daemon;
 pub mod git;
