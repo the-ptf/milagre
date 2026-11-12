@@ -299,7 +299,7 @@ pub enum RowState {
     /// Working on a Delegation.
     Delegated,
     Interrupted,
-    /// Nothing going on: the recency (in accent while unread).
+    /// Nothing going on: the recency (brighter and medium while unread, never coloured: Victor, 2026-11-12).
     Idle {
         unread: bool,
     },
@@ -688,7 +688,7 @@ fn state_mark(ix: usize, row: &ChatRow, theme: &Theme) -> gpui::AnyElement {
         RowState::Idle { unread } => match &row.recency {
             Some(ago) => div()
                 .text_step(sidebar_step(TEXT_12))
-                .text_color(if unread { theme.accent } else { theme.ink4 })
+                .text_color(if unread { theme.ink } else { theme.ink4 })
                 .when(unread, |el| el.font_weight(FontWeight::MEDIUM))
                 .child(ago.clone())
                 .into_any_element(),
