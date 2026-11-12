@@ -133,6 +133,23 @@ mod tests {
     }
 
     #[test]
+    fn a_copy_around_a_registered_project_is_refused() {
+        let base = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(base.path()).unwrap().join("iso");
+        Isolation::create(&root, &Policy::default()).unwrap();
+        let data = root.join("profile");
+        std::fs::create_dir(&data).unwrap();
+        assert!(isolation_for(&data, &Policy::default()).is_ok());
+        // A Project the installed Milagre registered (or recently opened) inside the copy.
+        let registered = Policy {
+            protected: Vec::new(),
+            registered: vec![root.join("projects/real")],
+        };
+        let error = isolation_for(&data, &registered).unwrap_err();
+        assert!(error.contains("a Project Milagre knows"), "{error}");
+    }
+
+    #[test]
     fn the_real_profile_and_milagre_home_are_refused() {
         let home = account_home().unwrap();
         let policy = owner_policy();
