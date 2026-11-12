@@ -1,4 +1,4 @@
-//! Root view: three flush, full-height columns separated by `HAIRLINE`-wide lines (none in the no-dividers experiment).
+//! Root view: three flush, full-height columns; the sidebar keeps a 1px line on its right edge.
 //!
 //! How re-rendering works in this GPUI, and so how the views are mounted (CONVENTIONS.md has the rule):
 //! a `cx.notify()` re-renders the notifying view and every view on the path up to this root. A view that
@@ -30,7 +30,7 @@ use crate::overlays::palette::{PaletteEvent, PaletteView};
 use crate::overlays::{OpenGitActions, TogglePalette};
 use crate::routines::RoutinesView;
 use crate::settings::{self, SettingsModal, ToggleSettings};
-use crate::theme::{ActiveTheme, HAIRLINE, Theme};
+use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::chat::{ChatEvent, ChatView};
 use crate::workspace::panel::dock;
 use crate::workspace::panel::terminal::{self, TerminalDrawer};
@@ -289,7 +289,7 @@ impl Render for Workspace {
             // One top row in every state: open, the sidebar's header carries the traffic lights and the bar; as a rail they
             // run on over the Chat header's leading edge.
             .flex_row()
-            .when(self.link.is_none(), |el| el.child(self.sidebar.clone()).when(HAIRLINE > px(0.0), |el| el.child(hairline(&theme))))
+            .when(self.link.is_none(), |el| el.child(self.sidebar.clone()).child(sidebar_rule(&theme)))
             .child(columns)
             // Over the columns' headers, under Settings and the overlays.
             .children(self.edge_fade(cx))
@@ -302,6 +302,7 @@ impl Render for Workspace {
     }
 }
 
-fn hairline(theme: &Theme) -> impl IntoElement + use<> {
-    div().flex_none().w(HAIRLINE).h_full().bg(theme.line)
+/// The sidebar's right edge keeps its 1px line in the no-dividers experiment (Victor asked for it back).
+fn sidebar_rule(theme: &Theme) -> impl IntoElement + use<> {
+    div().flex_none().w(px(1.0)).h_full().bg(theme.line)
 }

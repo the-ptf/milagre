@@ -111,20 +111,22 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
     let toggle = cx.debug_bounds("toggle-panel").expect("the panel toggle");
     let window = cx.update(|window, _| window.viewport_size());
     assert_eq!(corner.right(), toggle.right());
-    assert_eq!(toggle.right(), window.width - px(12.0), "12px from the window's right edge");
+    let panel_left = window.width - px(panel.read_with(cx, |p, _| p.width()));
+    assert_eq!(toggle.right(), panel_left - px(12.0), "12px left of the open panel");
     assert_eq!(toggle.origin.y, px(6.0), "centred in the top bar row, as the bar's buttons");
     assert_eq!(toggle.size.width, px(32.0));
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!panel.read_with(cx, |p, _| p.is_open()), "the toggle closes the panel");
-    let closed = cx.debug_bounds("toggle-panel").expect("still there, in the same place");
-    assert_eq!(closed, toggle, "the toggle does not move when the panel closes");
+    let closed = cx.debug_bounds("toggle-panel").expect("still there");
+    assert_eq!(closed.right(), window.width - px(12.0), "closed: the Chat column reaches the window edge, and so does the toggle");
+    assert_eq!(closed.origin.y, toggle.origin.y, "same row");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1), "closed: the Chat header ends short of it");
     let bar = cx.debug_bounds("bar-search").unwrap();
     assert_eq!(bar.origin.y, toggle.origin.y, "in the bar's row, with its buttons");
     cx.simulate_click(closed.center(), Modifiers::none());
     assert!(panel.read_with(cx, |p, _| p.is_open()), "and opens it again");
-    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(0), "open: the panel's tab strip takes it");
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1), "open: the toggle sits at the Chat column's right edge too");
 }
 
 #[test]

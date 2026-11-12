@@ -186,14 +186,12 @@ impl Workspace {
         let collapsed = self.sidebar.read(cx).is_collapsed() && self.link.is_none();
         // As a rail, the lights and the bar reach over the Chat header's leading edge.
         let column_left = if collapsed { RAIL_WIDTH + 1.0 } else { SIDEBAR_WIDTH + 1.0 };
-        // The toggle sits at the window's right edge, in the top row: over the Chat header while the panel is closed,
-        // over the panel's tab strip while it is open.
-        let open = self.panel.read(cx).is_open();
-        let trailing = top_bar::chat_trailing_inset(if open { 0 } else { 1 });
+        // The toggle sits at the Chat column's right edge, in the top row: the window's edge while the panel is closed,
+        // just left of the panel while it is open, so the panel's tab strip keeps its whole width.
+        let trailing = top_bar::chat_trailing_inset(1);
         let leading = top_bar::chat_leading_inset(column_left);
         self.chat.update(cx, |chat, _| chat.set_header_insets(leading, trailing));
-        let clear = if open { top_bar::chat_trailing_inset(1) } else { gpui::px(0.0) };
-        self.panel.update(cx, |panel, cx| panel.set_header_trailing(clear, cx));
+        self.panel.update(cx, |panel, cx| panel.set_header_trailing(gpui::px(0.0), cx));
         div().relative().size_full().min_w_0().child(column).into_any_element()
     }
 
@@ -211,7 +209,9 @@ impl Workspace {
                 panel.toggle_tab(tab, cx)
             })
         });
-        Some(top_bar::corner(&items, on_toggle))
+        let panel = self.panel.read(cx);
+        let right = if panel.is_open() { panel.width() + f32::from(crate::theme::HAIRLINE) } else { 0.0 };
+        Some(top_bar::corner(&items, right, on_toggle))
     }
 
     /// The corner's toggles for the Chat on screen.

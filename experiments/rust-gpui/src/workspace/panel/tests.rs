@@ -53,7 +53,7 @@ fn the_strip_is_only_the_scrolling_tab_list(cx: &mut TestAppContext) {
     let window_width = cx.update(|window, _| window.viewport_size().width);
     let list = cx.debug_bounds("panel-tab-list").expect("tab list is drawn");
     assert!(cx.debug_bounds("panel-expand").is_none() && cx.debug_bounds("panel-close").is_none());
-    assert_eq!(list.right(), window_width - px(52.0), "ends short of the window's panel toggle: 12 + 32 + 8");
+    assert_eq!(list.right(), window_width - px(8.0), "the whole strip: the toggle sits left of the panel");
     assert!(list.left() >= window_width - px(PANEL_WIDTH));
 }
 

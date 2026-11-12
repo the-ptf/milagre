@@ -193,14 +193,15 @@ impl Corner {
     }
 }
 
-/// The corner's toggle, positioned absolutely in the window's top-right, in the top bar row (the window root draws it).
-pub fn corner(items: &[CornerItem], on_toggle: CornerHandler) -> AnyElement {
+/// The corner's toggle, positioned absolutely at the Chat column's top-right, in the top bar row (the window root
+/// draws it). `panel_right` is how far the open panel reaches in from the window's right edge (0 when it is closed).
+pub fn corner(items: &[CornerItem], panel_right: f32, on_toggle: CornerHandler) -> AnyElement {
     div()
         .id("corner-toggles")
         .debug_selector(|| "corner-toggles".into())
         .absolute()
         .top(bar_top())
-        .right(px(CORNER_RIGHT))
+        .right(px(panel_right + CORNER_RIGHT))
         .flex()
         .items_center()
         .gap(px(GAP))
