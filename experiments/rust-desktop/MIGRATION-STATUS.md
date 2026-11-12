@@ -6,6 +6,17 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+GPUI reports Sidebar adoption `2f34146e`, client `1b180e46`, runtime `6054d7d6`:
+Rename, Done/unread-clear, Reopen and Done undo now use typed SidebarActions;
+failed writes reread rows and show the reason. Pin/Delete remain disabled. Its
+fake-provider persistence/restart and exit checks pass, and its zip/installed
+Preview are refreshed. Root read the latest-pin real text-turn report and log:
+`~/Library/Application Support/Milagre GPUI Preview Smoke/run2/run3-6054.json`
+passed with one turn/no reported errors, and the log records Complete cleanup and
+data retention. The AppKit sandbox-extension warning remains. This is saved GPUI
+evidence, not a root live rerun. Its overlong rename refusal exercised only the
+client UTF-16 bound; it is not runtime-refusal evidence. Tauri/GPUI remain separate.
+
 At 03:00 Toronto, Sidebar integration `1b180e46` is accepted and the separate
 normal Rust Preview is refreshed. Node differential/restart tests and 130 runtime
 checks pass; typed SidebarActions passes root's 85 tests/seven doctests. Final
