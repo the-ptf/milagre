@@ -86,7 +86,7 @@ fn the_sidebar_shows_the_daemons_cached_usage_and_the_limit_card(cx: &mut TestAp
         "cached reads only: {reads:?}"
     );
     assert_eq!(reads[0].1, json!([ALPHA]), "the newest Chat's Project");
-    assert!(m.vcx.debug_bounds("preview-note").is_some(), "the preview note stays under the rows");
+    assert!(m.vcx.debug_bounds("preview-note").is_none(), "no status text under the rows");
 
     // The newest Chat's stopped reply carries the read-only limit card.
     m.until("the limit card", |m| m.items().iter().any(|i| i.starts_with("limit claude")));

@@ -4,12 +4,13 @@
 //!
 //! - `adopt_fails_then_follows_a_restarted_daemon`: no daemon (`DAEMON_UNAVAILABLE`), adoption, and a restarted daemon
 //!   (another process, so another PID: `INSTALLED_OWNER_CHANGED`) adopted again on the next connection.
-//! - `the_window_runs_chats_on_the_node_daemon`: the loaded Projects' Chats in one sidebar (an unloaded one listed by
-//!   name and never read), transcripts on each Project's own client, the Chat's own provider and model on sends, an
+//! - `the_window_runs_chats_on_the_node_daemon`: the loaded Projects' Chats in one sidebar (an unloaded one gets no
+//!   row and is never read; no status text under the rows), transcripts on each Project's own client, the Chat's own provider and model on sends, an
 //!   approval, a question, Stop, Rename, Done, Reopen, a Terminal (one request-only connection, no snapshot), Changes
 //!   and a new Chat on the picker's model; never a `project:open`, every write's connection loaded with
 //!   `project:read [path, {state:false}]`.
-//! - `an_unloaded_project_loads_when_opened`: name-only until its row is clicked, then loaded (`load_view`), synced
+//! - `an_unloaded_project_loads_when_opened`: no row and never loaded by itself; opened on purpose (`load_project`,
+//!   the path a ⌘K search takes), then loaded (`load_view`), synced
 //!   again, its Chats listed and its newest one open; `project:known` order unchanged.
 //! - `a_chat_with_no_model_sends_on_the_recommended_one`: the provider's first recommended model from `agent:models`;
 //!   a provider it lists none for, the maintained list's first model of it (as Electron's `resolveModel`).
@@ -20,7 +21,7 @@
 //!   pill's fix sent as `chat:send` with `prAction`.
 //! - `appearance_preferences_round_trip`: the Preview's own `preferences.json` (Settings › Appearance).
 //! - `a_read_only_window_writes_nothing`: the `--snapshot` mode: nothing but adoption, the snapshot and reads; an
-//!   unloaded Project stays name-only even when its row is clicked.
+//!   unloaded Project opened on purpose is refused.
 //! - `the_window_waits_for_milagre_and_follows_a_restart`: "Open Milagre first", then the daemon starts, then it
 //!   restarts in another process and the window syncs again on its own.
 
@@ -224,9 +225,10 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     let reads = fake.methods();
     assert!(!reads.iter().any(|m| m == "project:open"), "no project:open for reads: {reads:?}");
     assert!(!fake.log().iter().any(|(m, a)| m == "project:read" && a[0] == GAMMA), "the unloaded Project is never read");
-    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)], "the unloaded Project by name only");
-    assert!(m.vcx.debug_bounds("unloaded-project-0").is_some(), "its name-only row is drawn");
-    assert!(m.vcx.debug_bounds("preview-note").is_some(), "Preview mode: Routines, Settings and the rest are off");
+    // As Electron's sidebar: an unloaded Project gets no row at all, and no status text sits under the rows.
+    assert!(m.unloaded().is_empty(), "no name-only list");
+    assert!(m.vcx.debug_bounds("sidebar-unloaded").is_none(), "no Not loaded section");
+    assert!(m.vcx.debug_bounds("preview-note").is_none() && m.vcx.debug_bounds("sidebar-notice").is_none(), "no status text");
     assert!(m.vcx.debug_bounds("bar-routines").is_none(), "no Routines button");
 
     // 2. The newest Chat opens with its saved transcript, on its own provider and model (the picker open to change it).
@@ -416,12 +418,10 @@ fn a_read_only_window_writes_nothing(cx: &mut TestAppContext) {
     let drawer = m.workspace.read_with(m.vcx, |w, _| w.terminals.clone());
     drawer.update(m.vcx, |d, cx| d.set_chat(format!("{BETA}#1").into(), cx));
     let _view = drawer.update(m.vcx, |d, cx| d.add(cx));
-    // The unloaded Project is listed by name and stays so: opening it is refused here.
-    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)]);
-    let at = m.vcx.debug_bounds("unloaded-project-0").expect("gamma's row").center();
-    m.vcx.simulate_click(at, Modifiers::none());
+    // An unloaded Project opened on purpose is refused here: no load in read-only mode.
+    m.controller.update(m.vcx, |c, cx| c.load_project(GAMMA.to_owned(), cx));
     m.vcx.run_until_parked();
-    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)], "still name-only");
+    assert!(!m.row_keys().iter().any(|k| k.starts_with(GAMMA)), "still not loaded");
     m.wait_for("the refusals", |m| m.controller.read_with(m.vcx, |c, _| c.refused().len()) >= 3);
     assert!(m.controller.read_with(m.vcx, |c, _| c.refused().iter().any(|r| r == &format!("load the Project {GAMMA}"))));
     std::thread::sleep(Duration::from_millis(200));
@@ -496,19 +496,19 @@ fn an_unloaded_project_loads_when_opened(cx: &mut TestAppContext) {
     m.wait_for("the loaded Projects' rows", |m| m.row_keys().len() == 3);
     let known_before = fake.world().known.clone();
 
-    // Name-only until opened: nothing about gamma was read, and nothing loads in the background.
+    // No row, and nothing loads in the background: nothing about gamma was read.
     std::thread::sleep(Duration::from_millis(200));
     m.vcx.run_until_parked();
-    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)]);
+    assert!(m.unloaded().is_empty() && !m.row_keys().iter().any(|k| k.starts_with(GAMMA)));
     assert!(!fake.log().iter().any(|(_, a)| a[0] == GAMMA), "gamma untouched: {:?}", fake.methods());
     assert!(!fake.world().projects[GAMMA].loaded);
     let syncs = fake.methods().iter().filter(|m| *m == "daemon:snapshot").count();
 
-    // Opened from its row: loaded with load_view (never project:open), synced again, its Chats listed, its newest open.
-    let at = m.vcx.debug_bounds("unloaded-project-0").expect("gamma's row").center();
-    m.vcx.simulate_click(at, Modifiers::none());
+    // Opened on purpose (the path a ⌘K search takes): loaded with load_view (never project:open), synced again, its
+    // Chats listed, its newest open.
+    m.controller.update(m.vcx, |c, cx| c.load_project(GAMMA.to_owned(), cx));
     m.vcx.run_until_parked();
-    m.wait_for("gamma's Chats", |m| m.row_keys().contains(&format!("{GAMMA}#1")) && m.unloaded().is_empty());
+    m.wait_for("gamma's Chats", |m| m.row_keys().contains(&format!("{GAMMA}#1")));
     m.wait_for("gamma's newest Chat open", |m| {
         m.open_key().as_deref() == Some(format!("{GAMMA}#1").as_str()) && m.items() == ["user: never read", "reply: never read"]
     });

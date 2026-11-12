@@ -21,9 +21,9 @@
 //! - Writes ([`Daemon::writer`]): a short request-only connection of the Chat's Project, `load_view`, the action,
 //!   then closed. Refused in read-only mode (`--snapshot`, checks). Git reads use the same kind of connection; a
 //!   Terminal keeps one open for its reads and writes.
-//! - Projects the daemon knows but has not loaded this run are listed by name only ([`Daemon::unloaded`]): their
-//!   first `project:read` makes the daemon reconcile Worktrees and resume Chats a quit stopped, exactly as opening
-//!   them in Electron does, so one loads ([`Daemon::load`]) only when the person opens it, never in the background
+//! - Projects the daemon knows but has not loaded this run get no rows, as in Electron's sidebar: their first
+//!   `project:read` makes the daemon reconcile Worktrees and resume Chats a quit stopped, exactly as opening them in
+//!   Electron does, so one loads ([`Daemon::load`]) only when the person opens it on purpose, never in the background
 //!   and never in read-only mode.
 //!
 //! `DAEMON_UNAVAILABLE` (Milagre not running) and `INSTALLED_OWNER_CHANGED` (it restarted) are retried: adoption runs
@@ -247,11 +247,6 @@ impl Daemon {
         let writer = Writer { client, installed };
         writer.client.load_view(project).await.with_context(|| format!("project:read {project}"))?;
         Ok(writer)
-    }
-
-    /// The Projects the daemon knows (`project:known` order) that are not in `loaded`: listed by name only.
-    pub fn unloaded(&self, loaded: &[String]) -> Vec<KnownProject> {
-        self.lock().known.iter().filter(|known| !loaded.contains(&known.path)).cloned().collect()
     }
 
     /// Loads an unloaded Project because the person opened it: a request-only connection, `load_view`, closed. The

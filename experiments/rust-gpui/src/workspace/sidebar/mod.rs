@@ -278,50 +278,28 @@ impl Sidebar {
         }
     }
 
-    /// The usage block, or in preview mode the line that names the fixed account and model and what is not live.
+    /// The usage block. In preview mode no status text sits here (the sidebar looks like Electron's; what the data
+    /// layer does not back is off where it is): the plan usage rows when the data layer reads them, and the data
+    /// layer's notice (a write it could not make, no daemon yet) when there is one.
     fn usage_or_preview(&self, theme: &crate::theme::Theme, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         use crate::theme::TextStepExt as _;
-        let Some(preview) = crate::workspace::preview::get(cx).cloned() else {
+        if !crate::workspace::preview::is_on(cx) {
             return usage::rows(&self.data.usage, &self.usage_hooks(cx), theme);
-        };
-        // A data layer that reads plan usage (read-only) has the real rows above the note.
-        let live_usage = crate::workspace::preview::usage_is_live(cx);
-        let mut blocks = if live_usage { usage::rows(&self.data.usage, &self.usage_hooks(cx), theme) } else { Vec::new() };
-        blocks.push(
-            div()
-                .debug_selector(|| "preview-note".into())
-                .px_3()
-                .py_2()
-                .flex()
-                .flex_col()
-                .gap_0p5()
-                .text_step(crate::theme::TEXT_12)
-                .text_color(theme.ink3)
-                .child(div().text_color(theme.ink2).child(format!("Preview \u{b7} {} \u{b7} {}", preview.account, preview.model)))
-                .child(format!(
-                    "{}: {}",
-                    {
-                        let settings = if live_usage { "Appearance, Accounts and Usage" } else { "Appearance and Accounts" };
-                        let usage = if live_usage { "" } else { ", usage" };
-                        if crate::workspace::preview::allows(cx, menu::MenuAction::Pin)
-                            && crate::workspace::preview::allows(cx, menu::MenuAction::Delete)
-                        {
-                            format!("Panels other than Details and Changes, Settings other than {settings}, Routines{usage}")
-                        } else {
-                            format!(
-                                "Panels other than Details and Changes, Settings other than {settings}, Routines{usage}, Pin and Delete"
-                            )
-                        }
-                    },
-                    crate::workspace::preview::UNAVAILABLE.to_lowercase()
-                ))
-                .children(
-                    self.notice
-                        .clone()
-                        .map(|notice| div().debug_selector(|| "sidebar-notice".into()).text_color(theme.orange_ink).child(notice)),
-                )
-                .into_any_element(),
-        );
+        }
+        let mut blocks =
+            if crate::workspace::preview::usage_is_live(cx) { usage::rows(&self.data.usage, &self.usage_hooks(cx), theme) } else { Vec::new() };
+        if let Some(notice) = self.notice.clone() {
+            blocks.push(
+                div()
+                    .debug_selector(|| "sidebar-notice".into())
+                    .px_3()
+                    .py_2()
+                    .text_step(crate::theme::TEXT_12)
+                    .text_color(theme.orange_ink)
+                    .child(notice)
+                    .into_any_element(),
+            );
+        }
         blocks
     }
 

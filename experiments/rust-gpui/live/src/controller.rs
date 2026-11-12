@@ -23,7 +23,7 @@
 //! composer's), each write on a short request-only connection of the Chat's Project (loaded with `load_view`, never
 //! `project:open`), and a lost stream (the daemon restarted, quit, or sent another Project's oversized state)
 //! followed by a new sync, with "Open Milagre first" while there is no daemon. Projects the daemon knows but has not
-//! loaded are listed by name; opening one loads it and syncs again. In read-only mode (`--snapshot`) every write, and
+//! loaded get no rows (as in Electron); opening one on purpose loads it and syncs again. In read-only mode (`--snapshot`) every write, and
 //! every load, is refused here, before it reaches a connection.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -41,7 +41,7 @@ use milagre_gpui_spike::workspace::chat::composer::{ComposerLimits, Delivery};
 use milagre_gpui_spike::workspace::chat::running::RunningRow;
 use milagre_gpui_spike::workspace::chat::transcript::{ApprovalState, CardDecision, Item};
 use milagre_gpui_spike::workspace::preview::PreviewMode;
-use milagre_gpui_spike::workspace::sidebar::{Actions, RecordingActions, SidebarEvent, SidebarSeed, UnloadedProject};
+use milagre_gpui_spike::workspace::sidebar::{Actions, RecordingActions, SidebarEvent, SidebarSeed};
 use serde_json::Value;
 
 use crate::LiveStore;
@@ -650,26 +650,15 @@ impl LiveController {
         &self.refused
     }
 
-    /// Milagre's daemon: the Projects it knows but has not loaded, by name only in the sidebar (`project:known`
-    /// order), each marked while it loads. Nothing here loads one.
-    pub(crate) fn sync_unloaded(&mut self, cx: &mut Context<Self>) {
-        let Backend::Daemon(daemon) = &self.backend else { return };
+    /// Milagre's daemon: follows Projects asked to load ([`Self::load_project`]) until their Chats arrive, then opens
+    /// the newest. Projects the daemon knows but has not loaded get no rows, as in Electron's sidebar, and nothing loads
+    /// one by itself; the sidebar's name-only list stays empty.
+    pub(crate) fn sync_unloaded(&mut self, _cx: &mut Context<Self>) {
+        let Backend::Daemon(_) = &self.backend else { return };
         let loaded: Vec<String> = self.store.read(|reducer| {
             reducer.state().map(|applied| applied.projects.iter().map(|o| o.project.path.to_string()).collect()).unwrap_or_default()
         });
         self.loading.retain(|path| !loaded.contains(path));
-        let unloaded: Vec<UnloadedProject> = daemon
-            .unloaded(&loaded)
-            .into_iter()
-            // A Project hidden from the sidebar is not listed by name either (Filters › Projects).
-            .filter(|known| !crate::sidebar_writes::is_hidden(cx, &known.path))
-            .map(|known| UnloadedProject {
-                loading: self.loading.contains(&known.path),
-                name: if known.name.is_empty() { known.path.rsplit('/').next().unwrap_or(&known.path).to_owned() } else { known.name }
-                    .into(),
-                path: known.path.into(),
-            })
-            .collect();
         if let Some(path) = self.open_loaded.clone()
             && loaded.contains(&path)
         {
@@ -678,12 +667,11 @@ impl LiveController {
                 self.pending_open = Some(key);
             }
         }
-        let sidebar = self.workspace.read(cx).sidebar.clone();
-        sidebar.update(cx, |s, cx| s.set_unloaded_projects(unloaded, cx));
     }
 
-    /// A name-only Project opened: loaded on a request-only connection (`load_view`, which may resume its Chats as
-    /// opening it in Electron does), then the window syncs again and lists its Chats. Never in read-only mode.
+    /// A Project the daemon knows but has not loaded, opened on purpose (a future ⌘K search; the sidebar lists no such
+    /// rows): loaded on a request-only connection (`load_view`, which may resume its Chats as opening it in Electron
+    /// does), then the window syncs again, lists its Chats and opens the newest. Never in read-only mode.
     pub fn load_project(&mut self, path: String, cx: &mut Context<Self>) {
         let Backend::Daemon(daemon) = &self.backend else { return };
         let daemon = daemon.clone();

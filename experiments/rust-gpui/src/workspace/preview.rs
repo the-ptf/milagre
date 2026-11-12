@@ -4,7 +4,7 @@
 //! real: the side panel (Details, PR, Designs, Artifact, Browser, Simulator; Changes and its diff only once the data
 //! layer feeds them with `Panel::set_live_changes`), Routines (and the top bar's Routines, Link Projects and Search
 //! buttons), Settings and the notices are not shown; the sidebar's menus keep Mark as unread, Rename, Done and Reopen (the writes the runtime takes)
-//! while Pin, Delete and drag do nothing unless the data layer backs them ([`PreviewWrites`]); the usage block gives way to a line naming the fixed account and model and what is not available; the Terminal
+//! while Pin, Delete and drag do nothing unless the data layer backs them ([`PreviewWrites`]); the sidebar has no status text (the plan usage rows only when the data layer reads them, and its notice when it has one); the Terminal
 //! drawer is labelled as this computer's local shell unless the data layer hosts its terminals. The fixture app never sets it.
 //! Settings opens with Appearance (this window's own) and, once the data layer reads them, the accounts
 //! ([`PreviewAccounts`], read-only); every other section says it is not available yet. The panel shows Details and

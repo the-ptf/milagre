@@ -168,7 +168,7 @@ fn the_sidebar_writes_reach_the_daemon(cx: &mut TestAppContext) {
     let mut m = mount(cx, DaemonSession::start(Daemon::new(Some(data.clone()), false)), &prefs);
     m.until("the rows", |m| m.keys().len() == 4);
     let (alpha1, alpha2, beta1) = (format!("{ALPHA}#1"), format!("{ALPHA}#2"), format!("{BETA}#1"));
-    assert!(m.vcx.debug_bounds("preview-note").is_some());
+    assert!(m.vcx.debug_bounds("preview-note").is_none(), "no status text under the rows");
 
     // 1. Pin: this device's own, saved to the Preview's file; nothing is sent for a Chat that is not a Run Chat.
     m.menu(&alpha1, "pin");
