@@ -138,4 +138,8 @@ Checks run on the final source (all synthetic; fake gh children, throwaway HOME/
 `cargo test` (default) 95 passed, `--features chat-runtime` 136 passed (includes
 `tests/configured_pr_details.rs` driving `tests/configured-pr-details.cjs`, and the new
 service unit test), `--features routine-execution-fixture` 162 passed, clippy `-D warnings` on
-each of those three feature sets, fmt. Daemon client: see the checkpoint report.
+each of those three feature sets, fmt. Daemon client (public API unchanged): `cargo test --features owned-chat` 96 passed, 6 ignored;
+`--features installed-owner` 121 passed, 8 ignored; clippy `--all-features --all-targets -D warnings`,
+fmt; the ignored staged cases through `scripts/check-owned-chat.py` (5 of 5, including the PR-details
+case, which now asserts that a rewritten account file is adopted by the next read and a non-private
+one is refused without starting gh until it is private again, instead of the old permanent revocation).

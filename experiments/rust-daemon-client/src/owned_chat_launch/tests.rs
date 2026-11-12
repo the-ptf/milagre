@@ -807,11 +807,20 @@ print(json.dumps({{'data':{{'viewer':{{'login':'alice'}},'repository':{{'pullReq
     let first = block_on(reads.detail(12)).unwrap();
     assert_eq!(first["pr"]["title"], "SDK PR");
     assert_eq!(first["pr"]["headRefOid"], "2".repeat(40));
+    // `gh auth login` rewrites the account files between reads: the next read adopts
+    // them (and proves the viewer again) instead of needing a runtime restart.
     fs::write(&config_file, "synthetic-other\n").unwrap();
+    assert_eq!(block_on(reads.detail(12)).unwrap(), first);
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
+    // A non-private account file is refused without starting gh, and recovers once private.
+    fs::set_permissions(&config_file, fs::Permissions::from_mode(0o644)).unwrap();
     assert!(
         matches!(block_on(reads.detail(12)),Err(Error::Remote{code,..}) if code=="PR_SELECTION_REVOKED")
     );
-    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 1);
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
+    fs::set_permissions(&config_file, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(block_on(reads.detail(12)).unwrap(), first);
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 3);
     complete(&guard);
     client.disconnect();
     assert_eq!(block_on(reads.detail(12)), Err(Error::Disconnected));
@@ -829,6 +838,6 @@ print(json.dumps({{'data':{{'viewer':{{'login':'alice'}},'repository':{{'pullReq
     client.disconnect();
     println!(
         "OWNED_CHAT_PR_DETAILS_EVIDENCE {}",
-        json!({"explicitSyntheticGrant":true,"startupNetwork":false,"viewerObserved":true,"configEditRevoked":true,"restartReadEqual":true,"realProvider":false,"realGithub":false})
+        json!({"explicitSyntheticGrant":true,"startupNetwork":false,"viewerObserved":true,"configEditAdopted":true,"nonPrivateConfigRefusedThenRecovered":true,"restartReadEqual":true,"realProvider":false,"realGithub":false})
     );
 }
