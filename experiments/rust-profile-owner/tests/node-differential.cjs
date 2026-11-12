@@ -31,6 +31,9 @@ const layout = {
   worktreeRoot: path.join(root, "worktrees"),
   alpha: path.join(root, "projects", "alpha"),
   beta: path.join(root, "projects", "beta"),
+  // Opened in Node but never given a Chat: Node saves no state for them.
+  gamma: path.join(root, "projects", "gamma"),
+  delta: path.join(root, "projects", "delta"),
 };
 const VERSION = "0.0.0-test";
 
@@ -109,7 +112,8 @@ function seedBeta(project) {
 }
 
 async function setup() {
-  for (const folder of [layout.dataDir, layout.home, layout.alpha, layout.beta]) fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
+  for (const folder of [layout.dataDir, layout.home, layout.alpha, layout.beta, layout.gamma, layout.delta])
+    fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
   const git = (...args) =>
     execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", ...args], {
       env: cleanEnv(),
@@ -119,6 +123,8 @@ async function setup() {
   git("-C", layout.beta, "commit", "-q", "--allow-empty", "-m", "init");
   // project:known and project:recent carry each Git Project's origin.
   git("-C", layout.beta, "remote", "add", "origin", "git@github.com:Example/Beta.git");
+  git("init", "-q", "-b", "main", layout.delta);
+  git("-C", layout.delta, "commit", "-q", "--allow-empty", "-m", "init");
   const { saveProjectState } = require(path.join(repo, "packages/core/src/project-store.cjs"));
   await saveProjectState(layout.alpha, seedAlpha(layout.alpha));
   await saveProjectState(layout.beta, seedBeta(layout.beta));
@@ -208,7 +214,7 @@ async function call(client, method, args) {
 
 // The reads compared between owners, in one fixed order (the order Projects load in decides the snapshot's order).
 async function record(client) {
-  const { alpha, beta } = layout;
+  const { alpha, beta, gamma, delta } = layout;
   const cases = [];
   const add = async (method, args) => cases.push(await call(client, method, args));
   await add("project:known", []);
@@ -240,6 +246,20 @@ async function record(client) {
   await add("chat:message", [alpha, 8]);
   await add("chat:message", [beta, 12]);
   await add("chat:message", [alpha, 12345]);
+  // Projects without a saved state: read like the others, from the state Node makes for them.
+  await add("chat:messages", [gamma, 1, {}]);
+  await add("project:read", [gamma, { state: false }]);
+  await add("project:read", [gamma]);
+  await add("project:read", [delta]);
+  await add("project:read", [delta, { state: false }]);
+  await add("state:read", [gamma]);
+  await add("project:snapshot", [delta]);
+  for (const [scope, chat] of [
+    [gamma, 1],
+    [delta, 1],
+  ])
+    await add("chat:messages", [scope, chat, {}]);
+  await add("chat:message", [gamma, 1]);
   await add("chat:runs", []);
   // Refusals: a folder Milagre never opened, a Project not open, nothing at all, an unknown command.
   await add("project:read", [path.join(root, "projects")]);
@@ -290,7 +310,7 @@ async function main() {
     const client = await connect({ dataDir: layout.dataDir });
     try {
       // Registered and remembered as the desktop registers them; Node reconciles and saves each on its first load.
-      for (const project of [layout.alpha, layout.beta]) await client.call("project:open", [project]);
+      for (const project of [layout.alpha, layout.beta, layout.gamma, layout.delta]) await client.call("project:open", [project]);
       await client.call("project:set-hidden", [layout.beta, true]);
       await client.call("project:known", []);
       await client.call("daemon:flush", []);
@@ -298,6 +318,8 @@ async function main() {
       client.close();
     }
     await stopNode(node);
+    // Node saved no state for the Projects without a Chat (it saves only after a change).
+    for (const project of [layout.gamma, layout.delta]) assert.equal(fs.existsSync(path.join(project, ".milagre", "coordination.json")), false, project);
     console.log("primed");
     return;
   }

@@ -12,7 +12,8 @@ use milagre_owner_store::{
     ownership::{random_uuid, OwnerGuard, RustOwnerLock},
     states::ProjectStates,
     write::OwnerLock,
-    Isolation, PageOptions, ProjectReader, ProjectRepository, ProjectStore, StoreError,
+    Isolation, OwnedProject, PageOptions, ProjectReader, ProjectRepository, ProjectStore,
+    StoreError,
 };
 use milagre_owner_wire::{ClientContext, Handler, RpcError, RpcResult};
 use milagre_registry::{scopes, Registry};
@@ -90,6 +91,9 @@ struct Loaded {
     worktrees: Vec<Value>,
     /// Chats saved without a summary: Node makes theirs after reconciling, so it follows the fields reconcile adds.
     unsummarized: HashSet<String>,
+    /// A Project with no saved state (Node saves one only after a change): locked here, outside `ProjectStates`, and
+    /// read as runtime.cjs readStoredState's `null` reconciled into a fresh state.
+    unsaved: Option<OwnedProject>,
 }
 
 /// Node's key order for a Chat whose summary was made on read: last, after what reconcile added.
@@ -109,6 +113,8 @@ fn summaries_last(mut state: Value, unsummarized: &HashSet<String>) -> Value {
 struct Core {
     states: ProjectStates,
     loaded: HashMap<PathBuf, Loaded>,
+    /// The Projects in the order they were opened (the snapshot's order).
+    order: Vec<PathBuf>,
     /// Common Git directory -> its `milagre-runtime.lock`, shared by the Projects of one repository.
     repositories: HashMap<PathBuf, OwnerGuard>,
     closed: bool,
@@ -163,6 +169,7 @@ impl Profile {
             core: Mutex::new(Core {
                 states,
                 loaded: HashMap::new(),
+                order: Vec::new(),
                 repositories: HashMap::new(),
                 closed: false,
             }),
@@ -349,12 +356,16 @@ impl Profile {
                 taken = Some(common);
             }
         }
-        if let Err(error) = core.states.get(key) {
-            if let Some(mut guard) = taken.and_then(|common| core.repositories.remove(&common)) {
-                let _ = guard.release();
+        let unsaved = match self.open_state(core, key) {
+            Ok(unsaved) => unsaved,
+            Err(error) => {
+                if let Some(mut guard) = taken.and_then(|common| core.repositories.remove(&common))
+                {
+                    let _ = guard.release();
+                }
+                return Err(error);
             }
-            return Err(store(error));
-        }
+        };
         let unsummarized = ProjectStore::new(key)
             .read_raw()
             .ok()
@@ -376,25 +387,47 @@ impl Profile {
                 git,
                 worktrees: identity.worktrees,
                 unsummarized,
+                unsaved,
             },
         );
+        core.order.push(key.to_owned());
         Ok(())
+    }
+
+    /// The Project's lock and saved state: `ProjectStates` when it has one; without `coordination.json` (readStoredState's
+    /// ENOENT) the lock alone, taken here, and checked again for a state written meanwhile.
+    fn open_state(&self, core: &mut Core, key: &Path) -> Result<Option<OwnedProject>, RpcError> {
+        let state = |key: &Path| key.join(".milagre").join("coordination.json");
+        let missing = |key: &Path| matches!(std::fs::symlink_metadata(state(key)), Err(error) if error.kind() == std::io::ErrorKind::NotFound);
+        if missing(key) {
+            let owner = OwnedProject::open(&self.isolation, key, None).map_err(store)?;
+            if missing(key) {
+                return Ok(Some(owner));
+            }
+            owner.release().map_err(store)?;
+        }
+        core.states.get(key).map_err(store)?;
+        Ok(None)
     }
 
     /// The whole state Node holds for an open Project: the saved state matched with its Worktrees, Chat summaries kept
     /// current (a Chat made for a Worktree without one gets its summary as Node's compact step gives it).
     fn state(&self, core: &mut Core, key: &Path, project: &str) -> Result<Value, RpcError> {
-        let saved = core.states.whole_state(key).map_err(store)?;
+        let saved = if core.loaded[key].unsaved.is_some() {
+            None
+        } else {
+            Some(core.states.whole_state(key).map_err(store)?)
+        };
         Ok(Self::held(core, key, project, saved))
     }
 
     /// `saved` (a whole state these states hold) as Node holds it: reconciled, summaries current, in Node's key order.
-    fn held(core: &Core, key: &Path, project: &str, saved: Value) -> Value {
+    fn held(core: &Core, key: &Path, project: &str, saved: Option<Value>) -> Value {
         let loaded = &core.loaded[key];
         let reconciled =
-            crate::reconcile::reconcile(Some(&saved), &project_name(project), &loaded.worktrees);
-        let state = if reconciled == saved {
-            saved
+            crate::reconcile::reconcile(saved.as_ref(), &project_name(project), &loaded.worktrees);
+        let state = if saved.as_ref() == Some(&reconciled) {
+            reconciled
         } else {
             with_chat_summaries(
                 ProjectState::from_value(&reconciled),
@@ -509,6 +542,20 @@ impl Profile {
                 "The Rust profile owner doesn't serve Links yet.",
             ));
         }
+        let empty = || {
+            chat_page(
+                &[],
+                args.get(1).unwrap_or(&Value::Null),
+                &PageOptions::from_value(args.get(2)),
+            )
+        };
+        if core.loaded[Path::new(scope.unwrap_or_default())]
+            .unsaved
+            .is_some()
+        {
+            // A fresh state holds no messages.
+            return Ok(empty());
+        }
         let page = core.states.call("chat:messages", args).map_err(store)?;
         // A Chat whose Worktree went away isn't in the state Node holds: its page is empty there too.
         let path = scope.unwrap_or_default();
@@ -531,15 +578,7 @@ impl Profile {
                 .get(jsjson::property_key(Some(chat)))
                 .is_some()
         });
-        if kept {
-            Ok(page)
-        } else {
-            Ok(chat_page(
-                &[],
-                args.get(1).unwrap_or(&Value::Null),
-                &PageOptions::from_value(args.get(2)),
-            ))
-        }
+        Ok(if kept { page } else { empty() })
     }
 
     fn chat_message(&self, core: &mut Core, args: &[Value]) -> RpcResult {
@@ -550,8 +589,11 @@ impl Profile {
                 "The Rust profile owner doesn't serve Links yet.",
             ));
         }
-        if !scope.is_some_and(|scope| core.loaded.contains_key(Path::new(scope))) {
+        let Some(loaded) = scope.and_then(|scope| core.loaded.get(Path::new(scope))) else {
             return Err(failed("Open the Project before reading its messages."));
+        };
+        if loaded.unsaved.is_some() {
+            return Err(store(StoreError::MessageGone));
         }
         core.states.call("chat:message", args).map_err(store)
     }
@@ -563,8 +605,15 @@ impl Profile {
             return Ok(());
         }
         core.states.close().map_err(store)?;
-        core.loaded.clear();
         let mut result = Ok(());
+        for (_, loaded) in core.loaded.drain() {
+            if let Some(owner) = loaded.unsaved {
+                if let Err(error) = owner.release() {
+                    result = result.and(Err(store(error)));
+                }
+            }
+        }
+        core.order.clear();
         for (_, mut guard) in core.repositories.drain() {
             if let Err(error) = guard.release() {
                 result = result.and(Err(store(error)));
@@ -620,9 +669,14 @@ impl Handler for Profile {
         self.check_owned()?;
         let mut core = locked(&self.core);
         let mut projects = Vec::new();
-        for key in core.states.projects() {
-            let Some(saved) = core.states.current_whole_state(&key).map_err(store)? else {
-                continue;
+        for key in core.order.clone() {
+            let saved = if core.loaded[&key].unsaved.is_some() {
+                None
+            } else {
+                match core.states.current_whole_state(&key).map_err(store)? {
+                    Some(saved) => Some(saved),
+                    None => continue,
+                }
             };
             let path = key.to_string_lossy().into_owned();
             let state = Self::held(&core, &key, &path, saved);

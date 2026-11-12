@@ -29,6 +29,8 @@ struct Layout {
     worktree_root: PathBuf,
     alpha: PathBuf,
     beta: PathBuf,
+    gamma: PathBuf,
+    delta: PathBuf,
 }
 
 fn node(args: &[&str]) -> String {
@@ -148,12 +150,15 @@ fn differences(
 }
 
 /// What the owner holds while it runs, and leaves behind after it stopped.
-fn locks(layout: &Layout) -> [PathBuf; 4] {
+fn locks(layout: &Layout) -> [PathBuf; 7] {
     [
         layout.data_dir.join("runtime.lock"),
         layout.alpha.join(".milagre/runtime.lock"),
         layout.beta.join(".milagre/runtime.lock"),
         layout.beta.join(".git/milagre-runtime.lock"),
+        layout.gamma.join(".milagre/runtime.lock"),
+        layout.delta.join(".milagre/runtime.lock"),
+        layout.delta.join(".git/milagre-runtime.lock"),
     ]
 }
 
@@ -179,8 +184,22 @@ fn adopt(layout: &Layout, pid: u32) {
             .iter()
             .map(|project| PathBuf::from(&project.path))
             .collect();
-        assert_eq!(paths, [layout.beta.clone(), layout.alpha.clone()]);
-        for (path, chat) in [(&layout.alpha, 1u64), (&layout.beta, 1)] {
+        assert_eq!(
+            paths,
+            [
+                layout.delta.clone(),
+                layout.gamma.clone(),
+                layout.beta.clone(),
+                layout.alpha.clone()
+            ]
+        );
+        // Chat 2 of a Project without a saved state is the one Node makes for its Worktree: no messages yet.
+        for (path, chat, messages) in [
+            (&layout.alpha, 1u64, true),
+            (&layout.beta, 1, true),
+            (&layout.gamma, 2, false),
+            (&layout.delta, 2, false),
+        ] {
             let path = path.to_str().unwrap();
             let project = owner.project(path).expect("project authority");
             let (client, hello, notifications) = project
@@ -214,7 +233,7 @@ fn adopt(layout: &Layout, pid: u32) {
                 )
                 .await
                 .expect("chat page");
-            assert!(!page["messages"].as_array().unwrap().is_empty());
+            assert_eq!(!page["messages"].as_array().unwrap().is_empty(), messages);
             let read = client.project_read(path, true).await.expect("project_read");
             assert!(read["state"]["sessions"].is_object());
             let state = client.state_read(path).await.expect("state_read");
@@ -224,7 +243,7 @@ fn adopt(layout: &Layout, pid: u32) {
             notifications.discard();
             client.disconnect();
         }
-        println!("adoption passed: adopt_profile, known_projects, connect, load_view, runtime_snapshot + accept_snapshot, chat page, project/state reads for 2 Projects");
+        println!("adoption passed: adopt_profile, known_projects, connect, load_view, runtime_snapshot + accept_snapshot, chat page, project/state reads for 4 Projects (2 without a saved state)");
     });
 }
 
@@ -239,6 +258,8 @@ fn node_differential_adoption_exclusion_and_rollback() {
         worktree_root: root.join("worktrees"),
         alpha: root.join("projects/alpha"),
         beta: root.join("projects/beta"),
+        gamma: root.join("projects/gamma"),
+        delta: root.join("projects/delta"),
         root,
     };
     let root = layout.root.to_str().unwrap();
@@ -249,6 +270,9 @@ fn node_differential_adoption_exclusion_and_rollback() {
     node(&["setup", root]);
     node(&["prime", root]);
     node(&["record", root, out]);
+    // Node left gamma's (empty) .milagre behind when it released its lock; without it, the Rust run's one write that
+    // stays is visible: opening a Project makes its .milagre (0700) for the lock, as Node's ownProject does.
+    std::fs::remove_dir(layout.gamma.join(".milagre")).expect("Node left an empty .milagre");
     let before = snapshot(&layout.root);
 
     // (b) The Rust owner on the same data dir, read through the same client, compared case by case.
@@ -297,12 +321,17 @@ fn node_differential_adoption_exclusion_and_rollback() {
     assert_released(&layout, &socket);
     let after = snapshot(&layout.root);
     let changed = differences(&before, &after);
-    assert!(
-        changed.is_empty(),
+    assert_eq!(
+        changed,
+        ["added projects/gamma/.milagre (dir 700)"],
         "the Rust owner changed the data:\n{}",
         changed.join("\n")
     );
-    println!("rust run left {} entries byte-identical", after.len());
+    println!(
+        "rust run left {} entries byte-identical; its only write left behind: {}",
+        before.len(),
+        changed[0]
+    );
 
     // (d) The other way: the Rust owner refuses while Node owns the data dir.
     let mut hold = Command::new("node")
