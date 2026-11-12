@@ -5,6 +5,45 @@ for now; the Tauri shell is parked. See "Current plan" in
 [BACKEND-MIGRATION.md](BACKEND-MIGRATION.md) for the client commits and open items. The checkpoints
 below describe the owned Rust backend, which stays the later replacement for the Node daemon.
 
+## Owner takeover plan (2026-11-12, branch `milagre/chat-brbl`)
+
+Goal: the Rust owner replaces the Node daemon behind the same client API, one service at a time, until
+GPUI switches by adopting a different process. The switch point is `InstalledOwner::adopt_profile`: it
+finds the owner by the data directory's derived socket and checks `daemon:status`. A Rust owner on a
+Node-format data directory that passes those checks is adopted with no client or UI change.
+
+**Measured surface (replaces the rough 65%):** `node experiments/rust-desktop/owner-coverage.mjs --gpui
+<rust-gpui>` counts the daemon commands GPUI calls (live client and adapter, 106 today) and how many a Rust
+composition serves. Today: 38 of 106 (36%), and only in a dedicated single-Project root, never on a
+Node-format profile. Commands counted once each; behavior parity is per-command Node differential evidence.
+
+Priority order, each a reviewed checkpoint (tests, strict Clippy/fmt, independent review, evidence here):
+
+1. **Profile owner (switch point, data adoption foundation).** Rust owner on a throwaway Node-format data
+   directory: Node's derived socket, `runtime.lock` in Node's owner format (Node and Rust exclude each
+   other), Node-shaped `daemon:status`, multi-Project registry reads, `project:read`/`load_view`, paged
+   snapshot and Chat reads from Node-written files. Accepted when the unchanged `InstalledOwner` adopts it
+   and its reads match Node's on the same profile, and Node reopens the profile after Rust exits
+   (rollback). Victor's real profile and its registered Projects stay refused.
+2. **PR details** (`park/rust-pr-details`): fix the four review P2s, then serve `pr:detail` on the profile
+   owner with Node's error shapes.
+3. **Settings and discovery:** the file-backed `*:read`/`*:save` pairs GPUI calls (done, context, main-sync,
+   linked remote, device notes, auto-update, limits, keybindings, Linear enabled), `app:version`,
+   `project:set-hidden`, `project:image`, with Node differential tests on the same files.
+4. **Chats on the profile owner:** multi-Project actor over existing ChatHost/providers: send to any
+   registered Project with the request's provider/model, `accounts:select`/`assign`, delete/reload/detach,
+   limit switch/resume. Fake providers only.
+5. **Computers:** the daemon-owned vault and `computers:*` in Node's format (unlock with the existing key),
+   then the peer client.
+6. **Phone and peer hosts:** LAN, relay and pairing on `rust-remote`, reading existing pairings so paired
+   phones and computers keep working with no mobile build change.
+7. **Remaining services:** Worktrees/storage, PR actions and `pull-requests:snapshot`, usage, Linear,
+   delegation/negotiation, linked hosts, MCP configuration and lifecycle, login/OAuth.
+8. **Qualification:** real Claude/Codex turns and accounts (needs Victor's OK), upgrade/rollback on a copy of
+   a full-size profile, then GPUI adopts the Rust owner on a throwaway profile.
+
+Routines stay out of scope. Each step keeps the client API additive; GPUI pins are told about any change.
+
 Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the ordinary installed Rust shell still needs the production Node owner; the separate Rust Preview owns its dedicated Rust backend. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
 
 Never restart/replace the production host, take over live locks, launch a second live writer or change the native mobile fingerprint without explicit approval. Experimental ownership checks use separate dedicated roots or isolated copies. Real-provider evidence is stated explicitly below; other provider checks remain fake-process evidence. A passing library test is not a production cutover.
