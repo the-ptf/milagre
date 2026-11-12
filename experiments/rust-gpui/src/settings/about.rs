@@ -73,6 +73,7 @@ pub fn render_about(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
 
     let updates_hl = if highlighted == Some("Check for updates") { Some("Updates") } else { highlighted };
 
+    let shows = |title: &str| super::group::shows(cx, super::SettingsSectionId::About, title);
     let milagre_group = SettingsGroup::new()
         .title("Milagre")
         .highlighted_row(hl_shared)
@@ -84,22 +85,25 @@ pub fn render_about(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
                         .font_family(mono())
                         .text_step(TEXT_12)
                         .text_color(theme.ink2)
-                        .child("0.1.0"),
+                        .child(store.milagre_version.clone().unwrap_or_else(|| "0.1.0".to_owned())),
                 ),
         )
-        .row(
+        .row_if(
+            shows("Release channel"),
             SettingRow::new("Release channel")
                 .description(channel_desc)
                 .highlighted(highlighted)
                 .control(channel_select),
         )
-        .row(
+        .row_if(
+            shows("Updates"),
             SettingRow::new("Updates")
                 .description(updates_desc)
                 .highlighted(updates_hl)
                 .control(check_button),
         )
-        .row(
+        .row_if(
+            shows("Auto update"),
             CheckboxRow::new("about-auto-update", "Auto update", store.auto_update)
                 .description("Installs a downloaded update by itself once no Chat or Routine is running and nobody has used the Mac for 5 minutes. For a Mac nobody watches, like a server.")
                 .highlighted(highlighted)

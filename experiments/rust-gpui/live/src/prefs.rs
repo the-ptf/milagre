@@ -3,13 +3,15 @@
 //! runtime's `launch.json`) and read back on the next launch. The colour mode, theme and the Appearance options are
 //! kept; a custom theme's seeds are not yet. Settings › Notifications is kept here too (`notifications`, Electron's key
 //! names): on the first launch without it, it is seeded once from Electron's own `preferences.json`
-//! (`milagre-settings`, read only, never written) and saved. A read-only window (`--snapshot`) reads the file and
-//! never writes it.
+//! (`milagre-settings`, read only, never written) and saved. So are the other renderer preferences this window honours
+//! (`window`: Settings › General's editor and Keep awake, Settings › Chat's reasoning and tool calls), seeded the same
+//! way. A read-only window (`--snapshot`) reads the file and never writes it.
 
 use std::path::{Path, PathBuf};
 
 use gpui::{App, BorrowAppContext as _};
 use milagre_gpui_spike::settings::SettingsStore;
+use milagre_gpui_spike::settings::store::{EditorChoice, ToolCallDisplay};
 use milagre_gpui_spike::settings::appearance::{AppearanceOptions, AppearanceState, ThemePreference};
 use serde_json::{Value, json};
 
@@ -25,6 +27,7 @@ fn to_json(store: &SettingsStore) -> Value {
     let o = &state.options;
     json!({
         "notifications": crate::notify::to_json(&crate::notify::from_store(store)),
+        "window": window_json(store),
         "appearance": {
             "theme": state.theme.as_str(),
             "colorTheme": state.color_theme,
@@ -41,6 +44,33 @@ fn to_json(store: &SettingsStore) -> Value {
             "motion": o.motion,
         }
     })
+}
+
+/// The renderer preferences this window honours, with Electron's key names (`AppSettings` in `lib/settings.ts`).
+fn window_json(store: &SettingsStore) -> Value {
+    json!({
+        "editorId": store.default_editor.as_str(),
+        "keepAwake": store.keep_awake,
+        "toolCallDisplay": store.tool_call_display.as_str(),
+        "expandReasoning": store.expand_reasoning,
+    })
+}
+
+/// `store` with `window` (this file's `window`, or Electron's `milagre-settings`) over it; Electron's empty `editorId`
+/// (the first editor found) and an editor this window does not list are the system default.
+pub fn apply_window(store: &mut SettingsStore, window: &Value) {
+    if let Some(editor) = window["editorId"].as_str() {
+        store.default_editor = EditorChoice::parse(if editor == "code" { "vscode" } else { editor });
+    }
+    if let Some(on) = window["keepAwake"].as_bool() {
+        store.keep_awake = on;
+    }
+    if let Some(display) = window["toolCallDisplay"].as_str() {
+        store.tool_call_display = ToolCallDisplay::parse(display);
+    }
+    if let Some(on) = window["expandReasoning"].as_bool() {
+        store.expand_reasoning = on;
+    }
 }
 
 /// `state` with what the file holds over it; anything missing or of the wrong type keeps its value.
@@ -94,11 +124,22 @@ pub fn install_with(path: PathBuf, electron: &Path, read_only: bool, cx: &mut Ap
     if let Some(settings) = notifications {
         cx.update_global::<SettingsStore, _>(|store, _| crate::notify::into_store(&settings, store));
     }
+    let window = file.as_ref().map(|f| f["window"].clone()).filter(Value::is_object);
+    let window_seeded = window.is_none();
+    let window = window.or_else(|| {
+        std::fs::read(electron)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|e| serde_json::from_str::<Value>(e.get("milagre-settings")?.as_str()?).ok())
+    });
+    if let Some(window) = window {
+        cx.update_global::<SettingsStore, _>(|store, _| apply_window(store, &window));
+    }
     if read_only {
         return;
     }
     let mut saved = to_json(cx.global::<SettingsStore>());
-    if seeded {
+    if seeded || window_seeded {
         // Seeded once: kept in this window's file from now on.
         match write(&path, &saved) {
             Ok(()) => {}

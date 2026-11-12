@@ -3,6 +3,7 @@
 use gpui::{App, FontWeight, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px};
 
 use super::group::{CheckboxRow, ChoiceCard, SettingRow, SettingsGroup, page_header};
+use super::SettingsSectionId;
 use super::store::{ChatListMode, EditorChoice, SettingsStore, UsageDisplayMode};
 use crate::logic::lists::order::ChatOrder;
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_11, TEXT_13, TextStepExt};
@@ -118,17 +119,19 @@ pub fn render_general(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
                 }),
         );
 
+    // A preview shows only the groups it honours (`preview::PreviewSettings`).
+    let shows = |title: &str| super::group::shows(cx, SettingsSectionId::General, title);
     div()
         .debug_selector(|| "settings-section-general".into())
         .flex()
         .flex_col()
         .child(page_header("General", None, cx))
-        .child(editor_group)
-        .child(sidebar_group)
-        .child(chat_list_cards)
-        .child(done_group)
-        .child(plan_usage_group)
-        .child(system_group)
+        .when(shows("Editor"), |el| el.child(editor_group))
+        .when(shows("Sidebar"), |el| el.child(sidebar_group))
+        .when(shows("Chat list"), |el| el.child(chat_list_cards))
+        .when(shows("Done"), |el| el.child(done_group))
+        .when(shows("Plan usage"), |el| el.child(plan_usage_group))
+        .when(shows("System"), |el| el.child(system_group))
 }
 
 fn render_chat_list_cards(selected: ChatListMode, highlighted: Option<&str>, cx: &App) -> impl IntoElement {

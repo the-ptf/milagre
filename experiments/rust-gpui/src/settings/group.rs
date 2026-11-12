@@ -97,6 +97,16 @@ impl SettingsGroup {
         self.rows.extend(rows);
         self
     }
+
+    /// [`Self::row`] when `show` (a preview hides the rows it cannot honour).
+    pub fn row_if(self, show: bool, row: impl IntoElement) -> Self {
+        if show { self.row(row) } else { self }
+    }
+}
+
+/// Whether a row or group of `page` titled `title` shows (always outside preview mode).
+pub fn shows(cx: &App, page: super::SettingsSectionId, title: &str) -> bool {
+    crate::workspace::preview::settings_row_shows(cx, page, title)
 }
 
 impl RenderOnce for SettingsGroup {

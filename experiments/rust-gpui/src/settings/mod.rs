@@ -278,8 +278,11 @@ impl SettingsModal {
             return Vec::new();
         }
         let mut entries = build_search_entries(Some(&self.this_mac_name), &self.computers, &self.projects);
-        // Preview mode: only the sections it lists are searched.
-        entries.retain(|entry| crate::workspace::preview::settings_shows(cx, entry.page));
+        // Preview mode: only the sections it lists are searched, less the rows it hides.
+        entries.retain(|entry| {
+            let row_shows = |title: &str| crate::workspace::preview::settings_row_shows(cx, entry.page, title);
+            crate::workspace::preview::settings_shows(cx, entry.page) && row_shows(&entry.title) && entry.group.as_deref().is_none_or(row_shows)
+        });
         search_settings(&entries, &query, 60)
     }
 
@@ -411,8 +414,9 @@ impl Render for SettingsModal {
         if selected == SelectedSection::Section(SettingsSectionId::Appearance) {
             appearance_view.update(cx, |v, cx| v.set_found(highlighted.as_deref(), cx));
         }
-        // Preview: the section pages with their own state show fixture values; `render_section_body` decides.
-        let preview = crate::workspace::preview::is_on(cx);
+        // Preview: the section pages with their own state show fixture values; `render_section_body` decides. A section
+        // the data layer backs ([`crate::workspace::preview::PreviewSettings`]) draws its full page.
+        let preview = crate::workspace::preview::is_on(cx) && !crate::workspace::preview::settings_backs(cx, selected.section_id());
         let section_body = match accounts::section_body(&selected, highlighted.as_deref(), &self.accounts, &self.usage, cx)
             .filter(|_| !preview)
         {
@@ -420,7 +424,11 @@ impl Render for SettingsModal {
             None if preview => render_section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &appearance_view, cx),
             None => match devices::section_body(&selected, highlighted.as_deref(), &self.devices, cx)
                 .or_else(|| projects::section_body(&selected, highlighted.as_deref(), &self.project, cx))
-                .or_else(|| keybindings::section_body(&selected, highlighted.as_deref(), &this_mac_name, &computers, &self.keybindings, cx))
+                .or_else(|| {
+                    // A preview edits this computer's keybindings only (Milagre's daemon); paired computers' are not read.
+                    let keys_on: &[(String, String, bool)] = if crate::workspace::preview::is_on(cx) { &[] } else { &computers };
+                    keybindings::section_body(&selected, highlighted.as_deref(), &this_mac_name, keys_on, &self.keybindings, cx)
+                })
                 .or_else(|| mcp::section_body(&selected, highlighted.as_deref(), &self.projects, &self.tools, cx))
             {
                 Some(body) => body,
@@ -506,8 +514,8 @@ fn render_section_body(
     cx: &App,
 ) -> AnyElement {
     // Preview: Appearance (this window's own) and the data layer's read-only accounts; everything else says it is
-    // not available yet rather than show the fixture's values.
-    if crate::workspace::preview::is_on(cx) {
+    // not available yet rather than show the fixture's values, unless the data layer backs it.
+    if crate::workspace::preview::is_on(cx) && !crate::workspace::preview::settings_backs(cx, selected.section_id()) {
         return match selected {
             SelectedSection::Section(SettingsSectionId::Appearance) => appearance_view.clone().into_any_element(),
             SelectedSection::Section(SettingsSectionId::Accounts) if cx.has_global::<crate::workspace::preview::PreviewAccounts>() => {

@@ -435,10 +435,17 @@ fn render_section_list(
     let mut content = div().pb(px(12.0)).flex().flex_col().children(top_group).children(agents_group).children(code_group);
     if !preview {
         content = content.child(computers_group);
-    } else if shown(SettingsSectionId::Computer) && !computers.is_empty() {
-        // Preview with the computer vault unlocked: the paired computers only (read-only pages).
-        let mut paired = div().px(px(8.0)).flex().flex_col().gap(px(2.0)).child(nav_group_heading("Computers & devices", cx));
-        for (comp_id, comp_name, connected) in computers {
+    } else if make_section_item(SettingsSectionId::Devices).is_some() || (shown(SettingsSectionId::Computer) && !computers.is_empty()) {
+        // Preview: Devices when the data layer backs it, and with the computer vault unlocked the paired computers
+        // (read-only pages).
+        let mut paired = div()
+            .px(px(8.0))
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(nav_group_heading("Computers & devices", cx))
+            .children(make_section_item(SettingsSectionId::Devices));
+        for (comp_id, comp_name, connected) in computers.iter().filter(|_| shown(SettingsSectionId::Computer)) {
             let (active, id, name, is_conn) = (selected.is_computer(comp_id), comp_id.clone(), comp_name.clone(), *connected);
             let on_select_comp = on_select.clone();
             let nav_id = format!("settings-nav-computer-{}", slug(&id));
@@ -457,7 +464,7 @@ fn render_section_list(
         content = content.child(paired);
     }
 
-    if !projects.is_empty() && !preview {
+    if !projects.is_empty() && (!preview || shown(SettingsSectionId::Project)) {
         let mut projects_group = div().px(px(8.0)).flex().flex_col().gap(px(2.0)).child(nav_group_heading("Projects", cx));
         for (proj_path, proj_name) in projects {
             let active = selected.is_project(proj_path);

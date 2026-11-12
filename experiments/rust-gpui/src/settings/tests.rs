@@ -378,3 +378,35 @@ fn preview_settings_list_only_the_backed_sections(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("settings-section-computer-studio").is_some(), "its read-only page");
     assert!(cx.debug_bounds("settings-nav-this-mac").is_none() && cx.debug_bounds("settings-nav-devices").is_none());
 }
+
+/// A data layer that backs sections with Milagre's daemon ([`crate::workspace::preview::PreviewSettings`]): they are
+/// listed and draw their full pages, less the rows it hides, which are not searched either; Devices joins the
+/// Computers & devices group and Projects' pages their group only when backed.
+#[gpui::test]
+fn preview_settings_draw_backed_pages_less_hidden_rows(cx: &mut TestAppContext) {
+    use crate::workspace::preview::{PreviewMode, PreviewSettings};
+    let (workspace, cx) = testing::mount_workspace(cx);
+    cx.update(|_, cx| {
+        cx.set_global(PreviewMode { account: "test".into(), model: "test".into() });
+        cx.set_global(PreviewSettings {
+            sections: vec![SettingsSectionId::General, SettingsSectionId::Devices],
+            hidden: vec![(SettingsSectionId::General, "Sidebar"), (SettingsSectionId::General, "Chat order")],
+        });
+    });
+    let settings = workspace.read_with(cx, |w, _| w.settings.clone());
+    settings.update_in(cx, |s, window, cx| s.open(window, cx));
+    settle(cx);
+    assert!(cx.debug_bounds("settings-nav-general").is_some() && cx.debug_bounds("settings-nav-devices").is_some());
+    assert!(cx.debug_bounds("settings-nav-chat").is_none() && cx.debug_bounds("settings-nav-this-mac").is_none());
+    click(cx, "settings-nav-general");
+    assert!(cx.debug_bounds("settings-section-general").is_some(), "the full page");
+    assert!(cx.debug_bounds("settings-unavailable").is_none());
+    settings.update_in(cx, |s, window, cx| s.set_query("chat order", window, cx));
+    settle(cx);
+    let hits = settings.read_with(cx, |s, cx| s.current_hits(cx));
+    assert!(hits.iter().all(|h| h.entry.title != "Chat order"), "{hits:?}");
+    settings.update_in(cx, |s, window, cx| s.set_query("archive done", window, cx));
+    settle(cx);
+    let hits = settings.read_with(cx, |s, cx| s.current_hits(cx));
+    assert!(hits.iter().any(|h| h.entry.title == "Archive Done Chats after"), "{hits:?}");
+}

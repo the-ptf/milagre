@@ -21,9 +21,23 @@ pub struct ComputerKeys {
     pub writes: usize,
 }
 
+/// A write for a data layer that keeps this computer's keybindings itself ([`KeybindingsStore::live`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeyWrite {
+    /// `keybindings:set-command [command, rules]`: the command's rules, replaced.
+    SetCommand { command: String, rules: Vec<crate::logic::keybindings::rules::RuleDraft> },
+    /// `keybindings:reset []`.
+    ResetAll,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct KeybindingsStore {
     computers: BTreeMap<String, ComputerKeys>,
+    /// Set by a data layer that reads and writes this computer's file (Milagre's daemon): every edit of this computer
+    /// is queued in [`Self::outbox`] for it, besides being shown at once.
+    pub live: bool,
+    /// This computer's writes the data layer has not sent yet.
+    pub outbox: Vec<KeyWrite>,
     /// This window's Advanced switch: conditions are edited only while it is on.
     pub advanced: bool,
     /// How many times "Open keybindings.json" was pressed.
@@ -80,6 +94,9 @@ impl KeybindingsStore {
         }
         keys.state.rules = apply_edit(&keys.state.rules, edit);
         keys.writes += 1;
+        if self.live && id == LOCAL {
+            self.outbox.extend(edit.iter().map(|(command, rules)| KeyWrite::SetCommand { command: command.clone(), rules: rules.clone() }));
+        }
         Ok(())
     }
 
@@ -92,7 +109,22 @@ impl KeybindingsStore {
         keys.state.rules = default_keybindings();
         keys.state.issues.clear();
         keys.writes += 1;
+        if self.live && id == LOCAL {
+            self.outbox.push(KeyWrite::ResetAll);
+        }
         Ok(())
+    }
+
+    /// What a data layer read for computer `id` (`keybindings:read`, or a write's answer), or why it could not.
+    pub fn set_read(&mut self, id: &str, read: Result<KeybindingsState, String>) {
+        let keys = self.entry(id);
+        match read {
+            Ok(state) => {
+                keys.state = state;
+                keys.read_error = None;
+            }
+            Err(error) => keys.read_error = Some(error),
+        }
     }
 
     /// Fixture controls the tests use.

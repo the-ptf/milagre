@@ -37,6 +37,7 @@ pub mod panels;
 pub mod pr;
 pub mod prefs;
 pub mod session;
+pub mod settings;
 pub mod setup;
 pub mod sidebar_writes;
 pub mod sinks;

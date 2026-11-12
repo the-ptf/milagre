@@ -38,9 +38,9 @@ pub fn render_chat(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
         .flex()
         .flex_col()
         .child(page_header("Chat", Some("How messages and turns appear in the transcript."), cx))
-        .child(messages_group)
-        .child(reasoning_cards)
-        .child(tool_call_cards)
+        .when(super::group::shows(cx, super::SettingsSectionId::Chat, "Messages during a turn"), |el| el.child(messages_group))
+        .when(super::group::shows(cx, super::SettingsSectionId::Chat, "Reasoning"), |el| el.child(reasoning_cards))
+        .when(super::group::shows(cx, super::SettingsSectionId::Chat, "Tool calls"), |el| el.child(tool_call_cards))
 }
 
 fn render_reasoning_cards(expanded: bool, highlighted: Option<&str>, cx: &App) -> impl IntoElement {

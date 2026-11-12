@@ -175,6 +175,8 @@ pub struct World {
     pub vault: Value,
     pub computers: Value,
     pub remote: BTreeMap<String, Value>,
+    /// Settings' host-kept values and keybindings ([`super::fake_settings`]); `Null` until first asked.
+    pub settings: Value,
     /// Pending turns by Chat key: what finishes them.
     pending: BTreeMap<String, Pending>,
     terminals: BTreeMap<String, String>,
@@ -399,6 +401,7 @@ impl World {
                 let desktop = arg["commands"] == true;
                 let methods: Vec<&str> = METHODS
                     .iter()
+                    .chain(super::fake_settings::METHODS)
                     .chain(if desktop { DESKTOP } else { &[] })
                     .copied()
                     .filter(|m| !self.unlisted.iter().any(|u| u == m))
@@ -723,6 +726,7 @@ impl World {
             "git:diff-file" => json!({"patch":"@@ -1 +1,2 @@\n-old\n+new\n+line\n"}),
             "git:history" => json!({"isRepo":true,"branch":"main","base":"main","commits":[],"hasMore":false}),
             "git:changes" => json!({"isRepo":true}),
+            other if super::fake_settings::METHODS.contains(&other) => super::fake_settings::call(&mut self.settings, other, args)?,
             other => return Err(format!("unexpected {other}")),
         })
     }

@@ -444,6 +444,8 @@ impl LiveController {
         // Plan usage (`usage:cached`, read-only) in the sidebar's rows and card, and the limit card under a stopped reply.
         let sidebar = workspace.read(cx).sidebar.clone();
         crate::usage::attach(&sidebar, usage_daemon, cx);
+        // Settings' daemon sections ([`crate::settings`]).
+        crate::settings::attach(workspace, writes.0.clone(), cx);
         // `milagre://` links opened on this computer ([`crate::deeplinks`]).
         controller.update(cx, |c, cx| {
             let links = cx.spawn(async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
@@ -1624,6 +1626,7 @@ impl LiveController {
                 }
                 None => live_pr.update(cx, |pr, cx| pr.hide(&key, cx)),
             }
+            eprintln!("DEBUGPR key={key} pr_tab={:?} shown={:?} tabs={:?} active={:?}", self.pr_tab, shown_pr, panel.read(cx).visible_tabs(), panel.read(cx).active());
             if self.pr_tab.as_deref() == Some(key.as_str()) && shown_pr.as_ref().is_some_and(|(_, n)| n.is_some()) {
                 self.pr_tab = None;
                 panel.update(cx, |panel, cx| panel.activate(milagre_gpui_spike::workspace::panel::PanelTab::Pr, cx));

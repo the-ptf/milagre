@@ -522,6 +522,8 @@ pub const READS: &[&str] = &[
     "device-notes:read",
     "app-update:auto:read",
     "keybindings:read",
+    "main-sync:default:read",
+    "storage:worktrees",
 ];
 
 /// The Project whose state is largest in a snapshot body (serialized size).

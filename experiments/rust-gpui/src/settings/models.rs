@@ -85,9 +85,9 @@ pub fn render_models(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
         .flex()
         .flex_col()
         .child(page_header("Models", Some("Default model and permission mode for new chats."), cx))
-        .child(new_chats_group)
-        .child(context_section)
-        .child(replies_group)
+        .when(super::group::shows(cx, super::SettingsSectionId::Models, "New chats"), |el| el.child(new_chats_group))
+        .when(super::group::shows(cx, super::SettingsSectionId::Models, "Context"), |el| el.child(context_section))
+        .when(super::group::shows(cx, super::SettingsSectionId::Models, "Replies"), |el| el.child(replies_group))
 }
 
 fn render_context_settings(
@@ -387,9 +387,11 @@ fn render_context_settings(
         format!("Off by default. The button appears only at {button_pct}%.")
     };
 
+    let shows = |title: &str| super::group::shows(cx, super::SettingsSectionId::Models, title);
     let group = SettingsGroup::new()
         .highlighted_row(hl_shared)
-        .row(
+        .row_if(
+            shows("Context size beside Send"),
             CheckboxRow::new("models-context-size", "Context size beside Send", !quiet && store.show_context_size)
                 .description("Click it for usage and Compact now.")
                 .disabled(quiet)
@@ -407,7 +409,8 @@ fn render_context_settings(
                 }),
         )
         .row(thresholds_row)
-        .row(
+        .row_if(
+            shows("Show Compact below threshold"),
             CheckboxRow::new("models-show-compact-below", "Show Compact below threshold", !quiet && show_always)
                 .description(show_below_desc)
                 .disabled(quiet)

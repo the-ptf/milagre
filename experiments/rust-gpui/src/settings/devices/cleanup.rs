@@ -1,7 +1,8 @@
 //! The Clean up worktrees dialog (`settings/WorktreeCleanup.tsx`): the worktrees no Chat has used for 30, 60 or 90 days
 //! in two groups (no unsaved work, unsaved work), those with nothing unsaved checked at first, removed one at a time
 //! with progress and Stop. Its state is the global [`CleanupState`]; the dialog's body is rebuilt from it on every
-//! `window.refresh()`. The fixture removes a worktree every 300 ms and takes it out of the store.
+//! `window.refresh()`. The fixture removes a worktree every 300 ms and takes it out of the store; a data layer's
+//! [`CleanupRemover`] removes each for real, and one it keeps is named in the closing toast.
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -34,6 +35,16 @@ pub struct CleanupState {
 }
 
 impl Global for CleanupState {}
+
+/// Set by a data layer that removes worktrees itself (`storage:remove-worktree` on Milagre's daemon): the dialog
+/// removes each chosen one through it, in turn, instead of the fixture's timer. Its error keeps that worktree.
+#[derive(Clone)]
+pub struct CleanupRemover(pub RemoveWorktree);
+
+/// Removes the worktree at a path; its error keeps it.
+pub type RemoveWorktree = std::rc::Rc<dyn Fn(String, &mut App) -> gpui::Task<Result<(), String>>>;
+
+impl Global for CleanupRemover {}
 
 fn visible(store: &DevicesStore, state: &CleanupState) -> Vec<IdleWorktree> {
     idle_for(&store.idle, state.days, state.now)
@@ -312,24 +323,42 @@ fn remove(chosen: Vec<IdleWorktree>, window: &mut Window, cx: &mut App) {
     window
         .spawn(cx, async move |cx| {
             let mut removed = 0;
+            let mut failed = Vec::new();
             let mut stopped = false;
-            for item in chosen {
-                cx.background_executor().timer(Duration::from_millis(300)).await;
+            for (ix, item) in chosen.into_iter().enumerate() {
+                let remover = cx.update(|_, cx| cx.try_global::<CleanupRemover>().cloned()).ok().flatten();
+                if remover.is_none() {
+                    cx.background_executor().timer(Duration::from_millis(300)).await;
+                }
                 if cx.update(|_, cx| cx.global::<CleanupState>().stopping).unwrap_or(true) {
                     stopped = true;
                     break;
                 }
-                removed += 1;
                 let path = item.path.clone();
+                let outcome = match remover {
+                    Some(remover) => match cx.update(|_, cx| (remover.0)(path.clone(), cx)) {
+                        Ok(task) => task.await,
+                        Err(_) => break,
+                    },
+                    None => Ok(()),
+                };
+                let done = ix + 1;
+                let gone = outcome.is_ok();
+                match outcome {
+                    Ok(()) => removed += 1,
+                    Err(error) => failed.push(format!("{}: {error}", item.title)),
+                }
                 cx.update(|window, cx| {
-                    cx.update_global::<DevicesStore, _>(|store, _| store.remove_idle(&path));
-                    change(cx, |state| state.progress = Some(removed));
+                    if gone {
+                        cx.update_global::<DevicesStore, _>(|store, _| store.remove_idle(&path));
+                    }
+                    change(cx, |state| state.progress = Some(done));
                     window.refresh();
                 })
                 .ok();
             }
             cx.update(|window, cx| {
-                let toast = cleanup_toast(removed, &[], stopped);
+                let toast = cleanup_toast(removed, &failed, stopped);
                 cx.update_global::<DevicesStore, _>(|store, _| store.last_toast = Some(toast));
                 change(cx, |state| state.progress = None);
                 Dialog::close(window, cx);

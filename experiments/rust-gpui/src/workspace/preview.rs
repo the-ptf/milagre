@@ -7,8 +7,8 @@
 //! while Pin, Delete and drag do nothing unless the data layer backs them ([`PreviewWrites`]); the sidebar has no status text (the plan usage rows only when the data layer reads them, and its notice when it has one); the Terminal
 //! drawer is labelled as this computer's local shell unless the data layer hosts its terminals. The fixture app never sets it.
 //! Settings lists only the sections the data layer backs ([`settings_shows`]): Appearance (this window's own) and,
-//! once the data layer feeds them, Accounts ([`PreviewAccounts`], read-only), Usage and Notifications; the others are
-//! not in its list or its search, and it opens on Appearance. The panel shows Details and
+//! once the data layer feeds them, Accounts ([`PreviewAccounts`], read-only), Usage, Notifications and the sections in
+//! [`PreviewSettings`] (full pages, less the rows it hides); the others are not in its list or its search, and it opens on Appearance. The panel shows Details and
 //! the pill row only once the data layer feeds them (`Panel::set_live_details`, `PillRow::set_live`).
 
 use gpui::{App, Global, SharedString};
@@ -156,8 +156,30 @@ pub fn settings_shows(cx: &App, page: crate::settings::search::SettingsSectionId
         S::Usage => cx.has_global::<PreviewPlanUsage>(),
         S::Notifications => cx.has_global::<PreviewNotifications>(),
         S::Computer => cx.has_global::<PreviewComputers>(),
-        _ => false,
+        page => settings_backs(cx, page),
     }
+}
+
+/// The Settings sections a data layer backs with Milagre's daemon or this window's own preferences, drawn as their
+/// full pages ([`settings_backs`]), and the rows on them this window cannot honour ([`settings_row_shows`]).
+#[derive(Clone, Debug, Default)]
+pub struct PreviewSettings {
+    pub sections: Vec<crate::settings::search::SettingsSectionId>,
+    /// Rows and groups (their Settings search titles) on a listed section that stay hidden and out of search.
+    pub hidden: Vec<(crate::settings::search::SettingsSectionId, &'static str)>,
+}
+
+impl Global for PreviewSettings {}
+
+/// Whether a data layer draws `page` as its full page ([`PreviewSettings`]).
+pub fn settings_backs(cx: &App, page: crate::settings::search::SettingsSectionId) -> bool {
+    is_on(cx) && cx.try_global::<PreviewSettings>().is_some_and(|backed| backed.sections.contains(&page))
+}
+
+/// Whether a row or group titled `title` on `page` shows: always outside preview mode, else unless the data layer
+/// hides it ([`PreviewSettings::hidden`]).
+pub fn settings_row_shows(cx: &App, page: crate::settings::search::SettingsSectionId, title: &str) -> bool {
+    !is_on(cx) || !cx.try_global::<PreviewSettings>().is_some_and(|backed| backed.hidden.iter().any(|(p, t)| *p == page && *t == title))
 }
 
 /// Set by a data layer that opens folders itself (Show in Finder, Open in editor): Details shows those buttons.

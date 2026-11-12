@@ -4,10 +4,12 @@
 
 mod daemon;
 mod fake_daemon;
+mod fake_settings;
 mod git;
 mod owned;
 mod pr_accounts;
 mod remote_computers;
+mod settings;
 mod sidebar_writes;
 mod usage;
 

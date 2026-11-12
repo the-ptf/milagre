@@ -321,6 +321,11 @@ impl Transcript {
         cx.notify();
     }
 
+    /// The two Chat settings that shape the activity: tool calls, and whether thinking rows start open.
+    pub fn display(&self) -> (ToolCallDisplay, bool) {
+        (self.display, self.expand_reasoning)
+    }
+
     /// The two Chat settings that shape the activity: every item is built again, so heights are measured again.
     pub fn set_display(&mut self, display: ToolCallDisplay, expand_reasoning: bool, cx: &mut Context<Self>) {
         if (self.display, self.expand_reasoning) != (display, expand_reasoning) {
