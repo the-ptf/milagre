@@ -44,8 +44,32 @@ impl InstalledProject {
     /// re-adoption, before showing computers or calling `computers:add`. May show the macOS Keychain prompt. With no
     /// vault and no key yet, creates both as Electron would (Keychain item included), so Milagre.app installed later
     /// reads the same key.
+    /// Refused for any other data directory than the installed profile (`~/Library/Application Support/Milagre`):
+    /// the login Keychain item belongs to that profile, and a throwaway or test profile must never read it or seal
+    /// keys with it.
     pub async fn unlock_computers(&self, client: &Client) -> Result<ComputerUnlock> {
+        let installed = std::env::var_os("HOME")
+            .map(|home| std::path::PathBuf::from(home).join("Library/Application Support/Milagre"))
+            .and_then(|path| std::fs::canonicalize(path).ok());
+        if installed.as_deref() != Some(self.data_dir.as_path()) {
+            return Err(failure(
+                "KEYCHAIN_OTHER_PROFILE",
+                "The Keychain key belongs to the installed Milagre profile; this daemon uses another data directory.",
+            ));
+        }
         self.unlock_with(client, keychain_password).await
+    }
+
+    /// The same flow with a stand-in for the Keychain password, for throwaway and test profiles: nothing reads or
+    /// creates a Keychain item. A key sealed with a stand-in only opens with that stand-in.
+    pub async fn unlock_computers_with_stand_in(
+        &self,
+        client: &Client,
+        password: &[u8],
+    ) -> Result<ComputerUnlock> {
+        let password = password.to_vec();
+        self.unlock_with(client, move |_| Ok(password.clone()))
+            .await
     }
 
     pub(crate) async fn unlock_with(

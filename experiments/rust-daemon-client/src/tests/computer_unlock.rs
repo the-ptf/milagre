@@ -300,3 +300,26 @@ fn real_daemon_created_key_survives_a_restart() {
     let second = session(ComputerUnlock::Unlocked { imported: false });
     stop(second);
 }
+
+#[test]
+fn the_real_keychain_is_refused_for_any_other_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = std::fs::canonicalize(dir.path()).unwrap();
+    let (project, mut peer) = project_in(&data);
+    let worker = thread::spawn(move || {
+        handshake(&mut peer);
+        // Refused before any vault request: nothing else arrives.
+        peer.closed();
+    });
+    let (client, _, _) = block_on(project.connect(ClientOptions::default())).unwrap();
+    assert!(matches!(
+        block_on(project.unlock_computers(&client)),
+        Err(Error::Launch {
+            code: "KEYCHAIN_OTHER_PROFILE",
+            ..
+        })
+    ));
+    assert!(!data.join("computer-vault-key.json").exists());
+    client.disconnect();
+    worker.join().unwrap();
+}

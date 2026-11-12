@@ -124,3 +124,8 @@ and its daemon stopped, the GPUI Preview (c196660e, client a59bbb9d5) cold-start
 daemon in Node mode, the daemon came up locked, Victor allowed the Keychain prompt, and the
 Preview's own `unlock_computers` brought all 5 paired computers online over the relay before
 Milagre.app was reopened. Electron then adopted the Preview-started daemon.
+
+Round 9 (2026-11-12): after a GPUI test run read the real Keychain item for throwaway profiles,
+`unlock_computers` refuses any data directory other than the installed profile
+(`KEYCHAIN_OTHER_PROFILE`) before any request. Tests and throwaway profiles use
+`unlock_computers_with_stand_in(client, password)`, which never touches the Keychain.
