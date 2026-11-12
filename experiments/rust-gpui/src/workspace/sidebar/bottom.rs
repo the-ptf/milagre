@@ -56,8 +56,7 @@ pub const FILTERS_LEFT: f32 = FOOTER_PAD + FOOTER_BUTTON + FOOTER_GAP;
 /// The footer's height: the menu opens just above it.
 pub const FOOTER_BAR: f32 = FOOTER_HEIGHT;
 
-/// The Done row, then the toast's slot, the usage block and the footer, the last two under a 1px `line` rule (the
-/// Done row has none: it closes the list). The toast hangs
+/// The Done row, then the toast's slot, the usage block and the footer, with no rule between them. The toast hangs
 /// from a zero-height slot between Done and the usage block, so it floats over the usage meters.
 pub fn bottom_group(
     done: DoneSection,
@@ -66,7 +65,6 @@ pub fn bottom_group(
     footer: Footer,
     theme: &Theme,
 ) -> impl IntoElement + use<> {
-    let rule = || div().flex_none().h(px(1.0)).w_full().bg(theme.line);
     let hover = theme.hover;
     let DoneSection { count: done_count, open: done_open, on_toggle, list: done_list } = done;
     let done = div()
@@ -97,17 +95,7 @@ pub fn bottom_group(
         .py(px(8.0))
         .when(compact, |el| el.flex_row().items_center().justify_center().gap(px(2.0)))
         .children(usage_rows);
-    div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .child(done)
-        .children(done_list)
-        .child(toast)
-        .child(rule())
-        .child(usage)
-        .child(rule())
-        .child(footer_bar(footer, theme))
+    div().flex().flex_col().flex_none().child(done).children(done_list).child(toast).child(usage).child(footer_bar(footer, theme))
 }
 
 /// Add Project and Filters at the left, Settings at the right.
