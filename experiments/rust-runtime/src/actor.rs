@@ -1895,6 +1895,8 @@ pub(crate) fn start_configured(
     )
 }
 
+// One internal constructor shared by the fixture and configured providers; a parameter struct would only rename them.
+#[allow(clippy::too_many_arguments)]
 fn start_provider(
     profile: IsolatedProfile,
     isolation: Isolation,

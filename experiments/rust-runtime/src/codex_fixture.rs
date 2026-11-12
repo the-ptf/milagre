@@ -148,6 +148,8 @@ impl FixtureMonitor {
             == 0
     }
     /// Wait for actual worker drainage even after cleanup failure was reported.
+    /// Only the dedicated Chat runtime (feature `chat-runtime`) waits on it.
+    #[cfg_attr(not(feature = "chat-runtime"), allow(dead_code))]
     pub(crate) fn wait_drained(&self, timeout: Duration) -> bool {
         let count = self.shared.workers.lock().unwrap();
         *self
