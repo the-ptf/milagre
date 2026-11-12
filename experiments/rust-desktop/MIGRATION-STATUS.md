@@ -6,6 +6,14 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 04:00 Toronto, both installed previews remain on accepted pins. Two resumed
+subagents are implementing durable Tauri-only preferences on the dedicated root
+and synthetic routine-created Project Chats with durable attachment before send.
+Neither increment is accepted, installed or production-enabled yet. The installed
+real-turn/reopen/native-cleanup acceptance is already complete; no further model
+turn is required for that milestone. Full services, phone and data upgrade remain
+unfinished.
+
 GPUI reports Sidebar adoption `2f34146e`, client `1b180e46`, runtime `6054d7d6`:
 Rename, Done/unread-clear, Reopen and Done undo now use typed SidebarActions;
 failed writes reread rows and show the reason. Pin/Delete remain disabled. Its
@@ -35,7 +43,8 @@ staged evidence `.../milagre-installed-preview-check-bbLjHW/report.json`.
 Package/retained rollback: `/private/tmp/milagre-rust-preview-package-nbata4vt/package-report.json`.
 Current shell SHA-256: `5a1f27edc8f2a02de841a9a67f5bbdc82173f8c9876bc3d17822567b5f554faa`.
 Current runtime SHA-256: `6054d7d6759262ec4d463380589261d954e1f8be79e75bb5d1a5d0be2142d70a`.
-GPUI received matching client/runtime pins and typed API; its adoption is pending.
+GPUI received matching client/runtime pins and typed API; its subsequent adoption
+and real-turn evidence are recorded above.
 The one real-turn check already passed on earlier `862f4cd2`; it was not repeated
 or relabelled as new-pin real-provider evidence. No public routine enabling, phone,
 production-data adoption or completed-migration claim is made.

@@ -25,17 +25,21 @@ Shared client `9aa5deb3` adds a separate async `ScriptedActions` capability boun
 
 GPUI `9a50ea52` added live reducers and a manually connected mounted transcript, but source review found snapshot admission bypassing its limits. `801f9fee` repairs that P2 before state replacement and adds differential Node run traces. Independent local review closes that P2. Follow-ups through `8305226a` adopt ScriptedActions: saved evidence records 12 actual fixture tests, live run/text/terminal changes, interrupt/cancel and a six-item mounted transcript through the documented manual entity-swap seam. It does not prove composer-driven sends, visible streaming or automatic base-app binding. GPUI reports 23 ordinary tests and a 576-test base; those counts were not rerun by root. Its earlier 5/56 package estimate is historical. Shared-client adoption by Tauri, production authority, approvals/questions and full Designs/Artifacts authoring remain required.
 
-## Current safety gate (2026-11-11)
+## Current safety gate (2026-11-12)
 
 Current integration adds one shared persistent content owner, seven dedicated
 terminal routes and four private Git read routes. Shared client `90922b6c` exposes
 owned launch and typed real Chat actions behind a default-disabled feature.
 Native real-provider content creation, editor save and reload are verified with
 synthetic reduced motion only in the smoke build. The normal separate Preview is installed and passes no-args saved reads and native
-Quit/cleanup. Its latest real send reached the selected account quota; the earlier
-startup turn completed. A fresh installed turn waits until the 02:00 Toronto reset.
+Quit/cleanup. After the 02:00 Toronto quota reset, one fresh installed no-tools
+turn streamed and saved; a second process reopened the identical transcript with
+zero sends. Both native Quits removed their actual temporary roots and sockets.
+The earlier quota failure remains failed evidence. That acceptance used runtime
+`862f4cd2`; the later Sidebar refresh uses `6054d7d6` and passed separate installed
+read/write/cleanup checks without another model turn.
 This is not production profile adoption or full migration.
-Latest integration `3410109b` also fixes launcher-loss cleanup, typed root-busy startup and dedicated metadata. The installed normal Preview passes its final saved-read/metadata/native-Quit checks; runtime 125, wire 34 and shared-client 79 tests pass. GPUI has matching pins and reports its own real turn/restart preview. The detailed current checkpoint supersedes historical foundation counts below.
+Integration `3410109b` fixes launcher-loss cleanup, typed root-busy startup and dedicated metadata. Current Sidebar integration `1b180e46` passes 130 runtime tests and 85 shared-client tests plus seven doctests. GPUI adopted the matching client/runtime, reports a real text turn on `6054d7d6`, and remains a separate app on its own root. The detailed current checkpoint supersedes historical foundation counts below.
 
 
 The off-default `milagre-rust-chat` window now drives the unchanged production React UI against its exact owned `chat-runtime` child, with no Node fallback. Actual native WebKit runs pass composer send, streamed Claude text, visible Allow once and Deny buttons, saved messages and reload without replay. Allowed file bytes match; the denied file remains absent. Configured bootstrap supplies real Project/Canvas/account-scope reads. A native-discovered `chat:patch` error is fixed for the persisted unread-boolean subset; other patches refuse. Root passes 100 runtime tests, default/fixture desktop tests and strict checks; current screenshots show the read-status banner gone. [CHAT-DESKTOP.md](CHAT-DESKTOP.md) records hashes, evidence and limits. Thirty-six other unavailable method names remain visible in diagnostics, so this is one working Chat workflow, not full retained-service parity. Installed routing, production ownership, phone and GPUI pins remain unchanged.
