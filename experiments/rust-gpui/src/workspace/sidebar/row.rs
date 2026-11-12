@@ -320,6 +320,8 @@ pub struct ChatRowView {
     /// the swap changes the layout (the title gets shorter) and a hover style must not change it between prepaint and
     /// paint.
     hovered: bool,
+    /// The pointer is on the Done action itself: it brightens from ink-2 to ink, as the desktop's `hover:text-ink`.
+    done_hovered: bool,
     /// Snapshot seed: draw the row as hovered, its Done action showing.
     show_hover: bool,
 }
@@ -339,6 +341,7 @@ impl ChatRowView {
             pinned: false,
             dragging: false,
             hovered: false,
+            done_hovered: false,
             show_hover: false,
         }
     }
@@ -357,9 +360,17 @@ impl ChatRowView {
         }
     }
 
+    /// Whether the pointer is on the Done action (drawn in ink rather than ink-2).
+    #[cfg(test)]
+    pub(super) fn done_hovered(&self) -> bool {
+        self.done_hovered
+    }
+
     /// Draws the row as if the pointer rested on it (the hovered-row snapshot).
     pub fn set_show_hover(&mut self, show: bool) {
         self.show_hover = show;
+        // Snapshot aid (never in tests): `MILAGRE_GPUI_SIDEBAR_DONE_HOVER=1` also puts the pointer on the Done action.
+        self.done_hovered = show && !cfg!(test) && std::env::var_os("MILAGRE_GPUI_SIDEBAR_DONE_HOVER").is_some();
     }
 
     /// Where the row was last painted, in the window.
@@ -430,7 +441,7 @@ impl Render for ChatRowView {
                     )
                     .into_any_element(),
             })
-            .child(right_edge(ix, row, hovered, &theme, cx));
+            .child(right_edge(ix, row, hovered, self.done_hovered, &theme, cx));
 
         let meta = div()
             .flex()
@@ -516,6 +527,7 @@ impl Render for ChatRowView {
                 .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                     if this.hovered != *hovered {
                         this.hovered = *hovered;
+                        this.done_hovered &= *hovered;
                         cx.notify();
                     }
                     cx.emit(RowEvent::Hover(hovered.then(|| this.bounds.get())));
@@ -531,8 +543,16 @@ impl Render for ChatRowView {
     }
 }
 
-/// The first line's right edge: the state, or the Done action while the pointer is on the row.
-fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut Context<ChatRowView>) -> gpui::AnyElement {
+/// The first line's right edge: the state, or the Done action while the pointer is on the row. The action rests in
+/// ink-2 and brightens to ink while the pointer is on it (`hover:text-ink` on the desktop's `data-chat-done`).
+fn right_edge(
+    ix: usize,
+    row: &ChatRow,
+    hovered: bool,
+    done_hovered: bool,
+    theme: &Theme,
+    cx: &mut Context<ChatRowView>,
+) -> gpui::AnyElement {
     if !hovered {
         return div()
             .debug_selector(move || format!("chat-row-state-{ix}"))
@@ -542,6 +562,7 @@ fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut C
             .child(state_mark(ix, row, theme))
             .into_any_element();
     }
+    let ink = if done_hovered { theme.ink } else { theme.ink2 };
     div()
         .id(("chat-row-action", ix))
         .debug_selector(move || format!("chat-row-action-{ix}"))
@@ -551,13 +572,19 @@ fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut C
         .gap(px(ACTION_GAP))
         .text_step(sidebar_step(TEXT_12))
         .font_weight(FontWeight::MEDIUM)
-        .text_color(theme.ink2)
+        .text_color(ink)
         .cursor_pointer()
+        .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+            if this.done_hovered != *hovered {
+                this.done_hovered = *hovered;
+                cx.notify();
+            }
+        }))
         .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
             cx.stop_propagation();
             cx.emit(RowEvent::ToggleDone);
         }))
-        .child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.ink2))
+        .child(Icon::new(IconName::Tick02).size(IconSize::S14).color(ink))
         .child("Done")
         .into_any_element()
 }

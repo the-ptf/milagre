@@ -358,6 +358,11 @@ fn the_hover_action_moves_the_chat_to_done_and_cmd_z_brings_it_back(cx: &mut Tes
     assert!(cx.debug_bounds(selector).is_none(), "the pointer on the row swaps the state for the action");
     let action = cx.debug_bounds("chat-row-action-10").expect("Done shows on hover");
     assert!(action.right() <= row.right() - px(13.0) && action.left() > row.center().x, "at the right edge, inside the padding");
+    let done_hovered = |cx: &mut gpui::VisualTestContext| sidebar.read_with(cx, |s, cx| s.row_views[&ix].0.read(cx).done_hovered());
+    assert!(!done_hovered(cx), "on the row, the action rests in ink-2");
+    cx.simulate_mouse_move(action.center(), None, Modifiers::none());
+    cx.run_until_parked();
+    assert!(done_hovered(cx), "on the action itself it brightens to ink");
     let selected = sidebar.read_with(cx, |s, _| s.selected());
     let (rows, done) = sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count()));
     cx.simulate_click(action.center(), Modifiers::none());
