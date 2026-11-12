@@ -314,8 +314,9 @@ impl Handler for Actor {
         #[cfg(feature = "chat-runtime")]
         if self.github_methods().contains(&method) {
             let service = self.pr_details.as_ref().ok_or_else(closed)?;
+            service.admit()?;
             self.call(Command::Call("__pr:check".into(), vec![]))?;
-            let result = service.invoke(args);
+            let result = service.invoke(args, &|| !context.is_connected());
             self.call(Command::Call("__pr:check".into(), vec![]))?;
             return result;
         }
@@ -344,7 +345,7 @@ impl Handler for Actor {
     fn begin_shutdown(&self) {
         #[cfg(feature = "chat-runtime")]
         if let Some(service) = &self.pr_details {
-            service.revoke();
+            service.pause();
         }
     }
     fn shutdown_attempt(&self) -> Result<(), ShutdownError> {
@@ -356,6 +357,11 @@ impl Handler for Actor {
         .map(|_| ())
         .map_err(|error| {
             if refused.load(Ordering::Acquire) {
+                // The quit never began, so GitHub reads paused for it may resume.
+                #[cfg(feature = "chat-runtime")]
+                if let Some(service) = &self.pr_details {
+                    service.resume();
+                }
                 ShutdownError::Refused(error)
             } else {
                 ShutdownError::Incomplete(error)

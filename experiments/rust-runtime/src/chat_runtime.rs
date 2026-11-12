@@ -551,6 +551,11 @@ impl Bootstrap {
             return Ok(None);
         };
         let root = self.root.clone();
+        // Node's `localCommits`: the existing bounded, private Git reader on this
+        // Project, with no network or credentials. An unavailable count is 0, as in Node.
+        let git = Arc::new(crate::configured_git::ConfiguredGit::new(
+            self.root.project(),
+        )?);
         crate::configured_pr_details::ConfiguredPrDetails::new(
             milagre_pr_details::CapturedContext {
                 project: self.root.project(),
@@ -561,10 +566,16 @@ impl Bootstrap {
                 repository: config.repository.clone(),
                 account_login: config.account_login.clone(),
                 path: config.path.clone(),
-                computer_label: "this computer".into(),
+                // Node's `thisComputer`, which names the sign-in message.
+                computer_label: if cfg!(target_os = "macos") {
+                    "this Mac"
+                } else {
+                    "this computer"
+                }
+                .into(),
                 lifetime: self.root.clone(),
                 check: Arc::new(move || root.check().map_err(|e| e.message)),
-                local_commits: None,
+                local_commits: Some(Arc::new(move |head, _deadline| git.local_commits(head))),
             },
         )
         .map(Some)

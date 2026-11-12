@@ -151,6 +151,26 @@ impl ConfiguredGit {
         })
     }
 
+    /// Commits on the Project's HEAD that a PR head lacks, for `pr:detail`'s
+    /// `localCommits`. A Project without a local repository, or any failed count,
+    /// is 0, which Node reports by leaving the field out. The same root and
+    /// repository pins as every other read here bracket the Git call.
+    pub(crate) fn local_commits(&self, head: &str) -> Result<u64, String> {
+        self.root.check().map_err(|e| e.to_string())?;
+        if !self.check_repository().map_err(|e| e.message)? {
+            return Ok(0);
+        }
+        let count = self
+            .runtime
+            .block_on(self.reader.local_commits(&self.project, head))
+            .map_err(|e| e.message)?;
+        self.root.check().map_err(|e| e.to_string())?;
+        if !self.check_repository().map_err(|e| e.message)? {
+            return Err("The Project's Git directory changed during the read".into());
+        }
+        Ok(count)
+    }
+
     fn check_repository(&self) -> Result<bool, RpcError> {
         let directory = self.project.join(".git");
         let mut pin = self
