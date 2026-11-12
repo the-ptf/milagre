@@ -117,6 +117,8 @@ impl Default for ChatPanel {
 }
 
 pub struct Panel {
+    /// The film grain over the panel, as on the sidebar: a cached view, drawn once.
+    grain: Entity<crate::ui::grain::GrainView>,
     chat: SharedString,
     /// The Chat open at startup: the fixture gives it every tab.
     seeded: Option<SharedString>,
@@ -170,6 +172,7 @@ impl Panel {
         })
         .detach();
         let mut panel = Self {
+            grain: cx.new(|_| crate::ui::grain::GrainView::named("panel-grain")),
             chat,
             seeded,
             content,
@@ -458,6 +461,7 @@ impl Render for Panel {
         // diff is drawn by the window over the Chat column, never in the panel.
         let body = self.body_view(self.active()).map(|view| view.cached(StyleRefinement::default().size_full()).into_any_element());
         div()
+            .relative()
             .flex()
             .flex_col()
             .size_full()
@@ -465,5 +469,7 @@ impl Render for Panel {
             .child(header)
             .when(HAIRLINE > px(0.0), |el| el.child(div().flex_none().h(HAIRLINE).bg(theme.line)))
             .child(div().id("panel-body").flex_1().min_h_0().children(body))
+            // Over everything, like a film: the bodies paint their own fills, so under them it would not show.
+            .child(AnyView::from(self.grain.clone()).cached(StyleRefinement::default().absolute().top_0().left_0().size_full()))
     }
 }

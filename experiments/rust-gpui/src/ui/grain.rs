@@ -12,9 +12,12 @@ use crate::theme::{ActiveTheme, Appearance};
 
 /// One tile, in points.
 pub const GRAIN_TILE: f32 = 128.0;
-/// How many tiles across and down the view draws: enough for a 384pt wide, 3072pt tall surface (it clips the rest).
-const COLUMNS: usize = 3;
+/// How many tiles across and down the view draws: enough for a 1536pt wide, 3072pt tall surface (it clips the rest).
+const COLUMNS: usize = 12;
 const ROWS: usize = 24;
+
+/// How much of the baked texture shows: Victor asked for a quieter grain than the reference.
+const STRENGTH: f32 = 0.5;
 
 const LIGHT_SPECKS: &str = "grain/grain-light.png";
 const DARK_SPECKS: &str = "grain/grain-dark.png";
@@ -35,11 +38,17 @@ pub fn preload_grain(cx: &mut App) -> bool {
 /// The grain over a surface. Mount it with `AnyView::from(view).cached(..)` at the surface's size, absolutely.
 pub struct GrainView {
     renders: usize,
+    /// The debug selector, so tests can tell the sidebar's grain from the panel's.
+    selector: &'static str,
 }
 
 impl GrainView {
     pub fn new() -> Self {
-        Self { renders: 0 }
+        Self::named("grain")
+    }
+
+    pub fn named(selector: &'static str) -> Self {
+        Self { renders: 0, selector }
     }
 
     /// How many times it has rendered (tests: hovering and scrolling the sidebar must not render it).
@@ -58,7 +67,8 @@ impl Render for GrainView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders += 1;
         let path = texture(cx.theme().appearance);
-        div().debug_selector(|| "grain".into()).size_full().overflow_hidden().flex().flex_col().children(
+        let selector = self.selector;
+        div().debug_selector(move || selector.into()).size_full().overflow_hidden().opacity(STRENGTH).flex().flex_col().children(
             (0..ROWS).map(|_| div().flex().flex_none().children((0..COLUMNS).map(|_| img(path).flex_none().size(px(GRAIN_TILE))))),
         )
     }
