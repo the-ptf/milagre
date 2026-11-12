@@ -87,9 +87,12 @@ fn id_of(key: &str) -> Option<u64> {
     key.rsplit('#').next()?.parse().ok()
 }
 
-fn sessions(chats: &[FamilyChat]) -> FamilySessions {
+/// The Chats of `key`'s scope by id (ids repeat across scopes, so another scope's Chat must not stand in for one).
+fn sessions(chats: &[FamilyChat], key: &str) -> FamilySessions {
+    let scope = key.rsplit_once('#').map_or("", |(scope, _)| scope);
     chats
         .iter()
+        .filter(|chat| chat.key.rsplit_once('#').is_some_and(|(at, _)| at == scope))
         .filter_map(|chat| {
             let id = id_of(&chat.key)?;
             let parent = chat.parent.as_deref().and_then(id_of);
@@ -115,7 +118,7 @@ fn entry(chats: &[FamilyChat], key: &str, subchat: bool, role: Option<&'static s
 
 /// `chatBookmark` for the open Chat `key`, or `None` for a Chat with no listed ancestor.
 pub fn bookmark(chats: &[FamilyChat], key: &str) -> Option<Bookmark> {
-    let found = chat_bookmark(Some(&sessions(chats)), key)?;
+    let found = chat_bookmark(Some(&sessions(chats, key)), key)?;
     let parent = entry(chats, &found.parent, false, None)?;
     let title = chats.iter().find(|chat| chat.key == key)?.title.clone();
     let needs_you = matches!(parent.mark, ChatMark::Question | ChatMark::Waiting);
@@ -124,7 +127,7 @@ pub fn bookmark(chats: &[FamilyChat], key: &str) -> Option<Bookmark> {
 
 /// `familyMenuModel`: the family menu of the open Chat `key`, or `None` for a Chat with no family.
 pub fn family_menu(chats: &[FamilyChat], key: &str) -> Option<FamilyMenu> {
-    let map = sessions(chats);
+    let map = sessions(chats, key);
     let (root, children) = chat_family(Some(&map), key)?;
     let found = chat_bookmark(Some(&map), key);
     let above: Vec<String> = found.map(|found| found.above.iter().cloned().chain([found.parent.clone()]).collect()).unwrap_or_default();
