@@ -10,15 +10,20 @@ let now = input.now;
 let calls = 0;
 const observations = [];
 try {
-  const store = createRoutineStore({file, now: () => now, id: () => input.ids[calls++]});
+  const store = createRoutineStore({ file, now: () => now, id: () => input.ids[calls++] });
   for (const operation of input.operations) {
     now = operation.now;
     let result;
-    try { const value = store[operation.method](...operation.args); result = {ok: value === undefined ? null : value}; }
-    catch (error) { result = {error: error.message}; }
-    observations.push({result, file: fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null});
+    try {
+      const value =
+        operation.method === "createPaused" ? store.update(store.create(...operation.args).id, { enabled: false }) : store[operation.method](...operation.args);
+      result = { ok: value === undefined ? null : value };
+    } catch (error) {
+      result = { error: error.message };
+    }
+    observations.push({ result, file: fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null });
   }
 } finally {
-  fs.rmSync(root, {recursive: true, force: true});
+  fs.rmSync(root, { recursive: true, force: true });
 }
-console.log(JSON.stringify({observations, idCalls:calls, rootRemoved:!fs.existsSync(root)}));
+console.log(JSON.stringify({ observations, idCalls: calls, rootRemoved: !fs.existsSync(root) }));

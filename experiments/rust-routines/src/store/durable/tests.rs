@@ -633,3 +633,75 @@ fn graceful_process_restart_reopens_the_canonical_store() {
     assert_eq!(value["routines"][0]["enabled"], false);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn paused_create_matches_real_node_create_then_disable_and_has_no_enabled_disk_image() {
+    let _serial = super::super::PROCESS_TEST_SERIAL.lock().unwrap();
+    let root = root();
+    let at = 1_790_000_000_000;
+    let mut store = RoutineStore::open(&root, owner(), at).unwrap();
+    store
+        .inner
+        .as_mut()
+        .unwrap()
+        .ids
+        .extend(["paused-a".into(), "paused-b".into()]);
+    let input = input("Paused 😀 draft");
+    let created = store
+        .execute(Command::CreatePaused(input.clone()), at)
+        .unwrap();
+    assert_eq!(created.value["enabled"], false);
+    assert_eq!(
+        store.inner.as_ref().unwrap().model.saves,
+        1,
+        "one actual persisted image"
+    );
+    let saved = fs::read_to_string(file(&root)).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&saved).unwrap()["routines"][0]["enabled"],
+        false
+    );
+    let mut node = Process::new("node")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/durable-crud-node.cjs"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    serde_json::to_writer(node.stdin.as_mut().unwrap(),&json!({"now":at,"ids":["paused-a"],"operations":[{"method":"createPaused","args":[input.clone()],"now":at}]})).unwrap();
+    node.stdin.take();
+    let output = node.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let oracle: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        oracle["observations"][0],
+        json!({"result":{"ok":created.value},"file":saved})
+    );
+    store.inner.as_mut().unwrap().disk.fault = disk::Fault::AfterRename;
+    let error = store
+        .execute(Command::CreatePaused(input), at + 1)
+        .err()
+        .unwrap();
+    assert!(matches!(error, Error::Uncertain { .. }));
+    assert_eq!(store.inner.as_ref().unwrap().model.saves, 1);
+    assert_eq!(
+        store.inner.as_ref().unwrap().model.data["routines"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let actual: Value = serde_json::from_slice(&fs::read(file(&root)).unwrap()).unwrap();
+    assert_eq!(actual["routines"].as_array().unwrap().len(), 2);
+    assert!(actual["routines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["enabled"] == false));
+    store.close().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}

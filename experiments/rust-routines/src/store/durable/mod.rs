@@ -71,7 +71,12 @@ pub enum Command {
     Get(String),
     Runs(String),
     Create(Value),
-    Update { id: String, patch: Value },
+    /// Atomic paused draft: Node create + update(enabled:false) at one clock, one disk publication.
+    CreatePaused(Value),
+    Update {
+        id: String,
+        patch: Value,
+    },
     Remove(String),
 }
 impl Command {
@@ -80,7 +85,7 @@ impl Command {
             Self::List => ("list", vec![]),
             Self::Get(id) => ("get", vec![json!(id)]),
             Self::Runs(id) => ("runs", vec![json!(id)]),
-            Self::Create(input) => ("create", vec![input]),
+            Self::Create(input) | Self::CreatePaused(input) => ("create", vec![input]),
             Self::Update { id, patch } => ("update", vec![json!(id), patch]),
             Self::Remove(id) => ("remove", vec![json!(id)]),
         }
@@ -164,6 +169,7 @@ impl RoutineStore {
             state.fence(&error);
             return Err(error);
         }
+        let paused_create = matches!(&command, Command::CreatePaused(_));
         let (operation, arguments) = command.wire();
         limits::values(&arguments.iter().collect::<Vec<_>>())?;
         // Enter the same injective JS string/number representation as the oracle.
@@ -181,6 +187,12 @@ impl RoutineStore {
         let prepared = state.model.prepare(operation, arguments, now);
         state.model.ids.forced = None;
         let stamp = prepared?;
+        if paused_create {
+            if let Err(error) = pause_created_candidate(&mut state.model) {
+                state.model.discard(stamp)?;
+                return Err(error);
+            }
+        }
         let image = state.model.pending_image(stamp)?.map(str::to_owned);
         // Ensure the public result is representable before any persistence occurs.
         if let super::Phase::Pending(candidate) = &state.model.phase {
@@ -260,6 +272,24 @@ impl Drop for RoutineStore {
             }
         }
     }
+}
+// A schedule create's same-clock Node update changes only enabled. Build the
+// final candidate before any native save, so no enabled intermediate reaches disk or a caller.
+fn pause_created_candidate(model: &mut Model) -> Result<()> {
+    let super::Phase::Pending(candidate) = &mut model.phase else {
+        return Err(Error::Ownership);
+    };
+    let publication = candidate.publication.as_mut().ok_or(Error::Ownership)?;
+    let id = candidate.result["id"].clone();
+    let row = publication.data["routines"]
+        .as_array_mut()
+        .and_then(|rows| rows.iter_mut().find(|row| row["id"] == id))
+        .ok_or(Error::Ownership)?;
+    row["enabled"] = json!(false);
+    candidate.result["enabled"] = json!(false);
+    super::check::state(&publication.data)?;
+    publication.image = limits::image(&publication.data)?;
+    Ok(())
 }
 fn random_id() -> String {
     uuid::Uuid::new_v4().as_bytes()[..4]

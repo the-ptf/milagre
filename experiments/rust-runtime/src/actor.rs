@@ -83,14 +83,27 @@ fn configured_methods(enabled: bool) -> &'static [&'static str] {
 
 fn configured_service_methods(enabled: bool) -> Vec<&'static str> {
     if enabled {
-        TERMINAL_METHODS
+        #[allow(unused_mut)]
+        let mut methods: Vec<_> = TERMINAL_METHODS
             .iter()
             .chain(milagre_git_read::METHODS.iter())
             .copied()
-            .collect()
+            .collect();
+        #[cfg(feature = "chat-runtime")]
+        methods.extend(crate::configured_routines::METHODS);
+        methods
     } else {
         vec![]
     }
+}
+
+fn configured_routine_flags(enabled: bool, method: &str) -> bool {
+    #[cfg(feature = "chat-runtime")]
+    if enabled {
+        return crate::configured_routines::FLAGS.contains(&method);
+    }
+    let _ = (enabled, method);
+    false
 }
 
 enum Command {
@@ -277,6 +290,7 @@ impl Handler for Actor {
             "project:open" | "project:switch" | "project:current"
         ) && !app_methods(self.app_fixture).contains(&method)
             && !(method != "chat:patch" && configured_methods(self.configured).contains(&method))
+            && !configured_routine_flags(self.configured, method)
             && context.view().project_path.as_deref() != Some(&self.project)
         {
             return Err(RpcError::new(
@@ -464,6 +478,8 @@ struct State {
     terminals: Option<Arc<crate::configured_terminals::ConfiguredTerminals>>,
     #[cfg(feature = "chat-runtime")]
     git: Option<crate::configured_git::ConfiguredGit>,
+    #[cfg(feature = "chat-runtime")]
+    routines: Option<crate::configured_routines::ConfiguredRoutines>,
     _profile: ProfileLease,
 }
 impl Drop for State {
@@ -473,6 +489,13 @@ impl Drop for State {
         #[cfg(feature = "chat-runtime")]
         if let Some(terminals) = &self.terminals {
             terminals.drain_before_owner_drop();
+        }
+        #[cfg(feature = "chat-runtime")]
+        if let Some(routines) = &mut self.routines {
+            // Unknown routine persistence/cleanup cannot release this owner's Project lock.
+            while routines.close().is_err() {
+                thread::sleep(Duration::from_millis(20));
+            }
         }
         self.jobs.join();
     }
@@ -493,6 +516,10 @@ impl State {
             #[cfg(feature = "chat-runtime")]
             if let Some(terminals) = &self.terminals {
                 terminals.stop();
+            }
+            #[cfg(feature = "chat-runtime")]
+            if let Some(routines) = &mut self.routines {
+                routines.revoke();
             }
             self.project_changed = false;
             if self.opened {
@@ -525,6 +552,23 @@ impl State {
             return "Rust Chat";
         }
         "actor"
+    }
+    #[cfg(feature = "chat-runtime")]
+    fn reopen_routines(&mut self) -> Result<(), RpcError> {
+        if let Some(routines) = &mut self.routines {
+            return routines.reopen(self.host.states.now());
+        }
+        if self.configured.is_none() {
+            return Ok(());
+        }
+        let configured = self.configured.as_ref().ok_or_else(closed)?;
+        self.routines = Some(crate::configured_routines::ConfiguredRoutines::open(
+            configured.data_root(),
+            self.project.clone(),
+            configured.retained_check(),
+            self.host.states.now(),
+        )?);
+        Ok(())
     }
     fn project_git(&self) -> Result<bool, RpcError> {
         #[cfg(feature = "chat-runtime")]
@@ -618,6 +662,34 @@ impl State {
         #[cfg(feature = "chat-runtime")]
         if let Some(configured) = &self.configured {
             configured.check()?;
+            if crate::configured_routines::METHODS.contains(&method) {
+                if crate::configured_routines::FLAGS.contains(&method) {
+                    return Ok(json!({"enabled":true,"executionSupported":false}));
+                }
+                self.host
+                    .require_project_ready(&self.project)
+                    .map_err(convert)?;
+                let state = self
+                    .host
+                    .states
+                    .current(&self.project)
+                    .ok_or_else(closed)?
+                    .to_value();
+                let (value, emit) = self.routines.as_mut().ok_or_else(closed)?.invoke(
+                    method,
+                    args,
+                    &state,
+                    self.host.states.now(),
+                )?;
+                if let Err(error) = self.host.require_project_ready(&self.project) {
+                    self.routines.as_mut().ok_or_else(closed)?.revoke();
+                    return Err(RpcError::new("ROUTINE_TARGET_UNCERTAIN",format!("Routine state may have been saved; reopen and inspect before retrying: {error}")));
+                }
+                if emit {
+                    self.queue_event("routines:changed", json!({}))?;
+                }
+                return Ok(value);
+            }
             if method == "__terminal:check" {
                 self.host
                     .require_project_ready(&self.project)
@@ -759,6 +831,8 @@ impl State {
                         terminals.before_open()?;
                     }
                     self.host.open_project(&self.project).map_err(convert)?;
+                    #[cfg(feature = "chat-runtime")]
+                    self.reopen_routines()?;
                 }
                 let project = self.project()?;
                 if matches!(method, "project:open" | "project:switch") {
@@ -1339,6 +1413,10 @@ impl State {
                 "Terminal process cleanup is still pending",
             ));
         }
+        #[cfg(feature = "chat-runtime")]
+        if let Some(routines) = &mut self.routines {
+            routines.close()?;
+        }
         let was_running = self.host.quit_state() == QuitState::Running;
         let closed = self.host.shutdown(force);
         #[cfg(test)]
@@ -1760,6 +1838,18 @@ fn start_provider(
     } else {
         None
     };
+    #[cfg(feature = "chat-runtime")]
+    let routines = configured
+        .as_ref()
+        .map(|config| {
+            crate::configured_routines::ConfiguredRoutines::open(
+                config.data_root(),
+                project.clone(),
+                config.retained_check(),
+                epoch,
+            )
+        })
+        .transpose()?;
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
         send,
@@ -1808,6 +1898,8 @@ fn start_provider(
         terminals,
         #[cfg(feature = "chat-runtime")]
         git,
+        #[cfg(feature = "chat-runtime")]
+        routines,
         _profile: profile_lease,
     };
     state.cache(&shared)?;
@@ -2399,6 +2491,8 @@ mod publication_tests {
             terminals: None,
             #[cfg(feature = "chat-runtime")]
             git: None,
+            #[cfg(feature = "chat-runtime")]
+            routines: None,
             _profile: profile.lease(),
         };
         (profile, state, shared)
@@ -2434,6 +2528,28 @@ mod publication_tests {
         state.host.states.take_events();
         state.opened = true;
         (profile, state, shared, provider, sent.turn.unwrap())
+    }
+
+    #[cfg(feature = "chat-runtime")]
+    fn attach_routine_store(profile: &IsolatedProfile, state: &mut State) {
+        use std::os::unix::fs::PermissionsExt;
+        let manifest = profile.path().join("rust-chat-runtime.json");
+        fs::write(
+            &manifest,
+            json!({"schema":1,"kind":"milagre-rust-chat","root":profile.path(),"fixture":true})
+                .to_string(),
+        )
+        .unwrap();
+        fs::set_permissions(&manifest, fs::Permissions::from_mode(0o600)).unwrap();
+        state.routines = Some(
+            crate::configured_routines::ConfiguredRoutines::open(
+                profile.path(),
+                state.project.clone(),
+                Arc::new(|| Ok(())),
+                state.host.states.now(),
+            )
+            .unwrap(),
+        );
     }
 
     #[cfg(feature = "chat-runtime")]
@@ -3011,6 +3127,8 @@ mod publication_tests {
     #[test]
     fn shutdown_pump_diagnostics_cannot_hide_actual_save_failure_or_release_its_lock() {
         let (profile, mut state, shared, provider, turn) = shutdown_fixture();
+        #[cfg(feature = "chat-runtime")]
+        attach_routine_store(&profile, &mut state);
         state
             .host
             .states
@@ -3049,6 +3167,33 @@ mod publication_tests {
         // Restore only this fixture's injected failure for disposal; the tested shutdown above failed once.
         fs::remove_dir(&coordination).unwrap();
         fs::rename(saved, coordination).unwrap();
+        #[cfg(feature = "chat-runtime")]
+        {
+            let whole = state
+                .host
+                .states
+                .current(&state.project)
+                .unwrap()
+                .to_value();
+            assert_eq!(
+                state
+                    .routines
+                    .as_mut()
+                    .unwrap()
+                    .invoke("routines:list", &[], &whole, state.host.states.now())
+                    .unwrap_err()
+                    .code,
+                "ROUTINE_STORE_CLOSED"
+            );
+            assert!(
+                state.call("project:open", &[json!(state.project)]).is_err(),
+                "a closing host does not reopen normal admission"
+            );
+            server
+                .events()
+                .transaction(|publication| state.shutdown(&shared, publication, true, &mut refused))
+                .unwrap();
+        }
         state.host.shutdown(true).unwrap();
         server.shutdown().unwrap();
     }
@@ -3056,6 +3201,8 @@ mod publication_tests {
     #[test]
     fn shutdown_pump_diagnostics_do_not_bypass_a_persistently_stuck_turn() {
         let (profile, mut state, shared, provider, _) = shutdown_fixture();
+        #[cfg(feature = "chat-runtime")]
+        attach_routine_store(&profile, &mut state);
         let chat = format!("{}#1", state.project.display());
         provider.emit(
             &chat,
@@ -3098,6 +3245,36 @@ mod publication_tests {
             .unwrap()
             .contains("persistent synthetic fold failure"));
         assert!(!shared.delivery_failed.load(Ordering::Acquire));
+        #[cfg(feature = "chat-runtime")]
+        {
+            let whole = state
+                .host
+                .states
+                .current(&state.project)
+                .unwrap()
+                .to_value();
+            assert_eq!(
+                state
+                    .routines
+                    .as_mut()
+                    .unwrap()
+                    .invoke("routines:list", &[], &whole, state.host.states.now())
+                    .unwrap_err()
+                    .code,
+                "ROUTINE_STORE_CLOSED"
+            );
+            state.call("project:open", &[json!(state.project)]).unwrap();
+            assert_eq!(
+                state
+                    .routines
+                    .as_mut()
+                    .unwrap()
+                    .invoke("routines:list", &[], &whole, state.host.states.now())
+                    .unwrap()
+                    .0,
+                json!({"routines":[]})
+            );
+        }
         state.host.states.set_commit_failure_for_tests(None);
         state.host.shutdown(true).unwrap();
         server.shutdown().unwrap();
@@ -3428,6 +3605,8 @@ mod job_tests {
             terminals: None,
             #[cfg(feature = "chat-runtime")]
             git: None,
+            #[cfg(feature = "chat-runtime")]
+            routines: None,
             _profile: profile_lease,
         };
         state.cache(&shared).unwrap();

@@ -16,6 +16,8 @@ pub mod codex_fixture;
 #[cfg(feature = "chat-runtime")]
 mod configured_git;
 #[cfg(feature = "chat-runtime")]
+mod configured_routines;
+#[cfg(feature = "chat-runtime")]
 mod configured_terminals;
 pub mod content_fixture;
 mod copies;

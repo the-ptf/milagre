@@ -425,6 +425,9 @@ pub(crate) struct Bootstrap {
     accounts: Accounts,
 }
 impl Bootstrap {
+    pub(crate) fn data_root(&self) -> &Path {
+        self.root.isolation.root()
+    }
     pub(crate) fn retained_check(&self) -> crate::configured_terminals::Check {
         let root = self.root.clone();
         Arc::new(move || root.check())

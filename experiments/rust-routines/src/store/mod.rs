@@ -1,4 +1,5 @@
-//! Private schedule-only state fixture. No files, clock, thread, host or dispatch.
+//! Private schedule-only pure Model, plus an explicitly gated durable-file adapter.
+//! The Model owns no files, threads, host or dispatch; durable-store supplies native persistence.
 //! JSON values are encoded once through the pinned owner's pure codec copy.
 #![allow(dead_code)]
 // Serialize subprocess creation with copied-owner lifecycle tests: fork inherits
