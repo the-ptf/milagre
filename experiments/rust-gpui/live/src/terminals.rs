@@ -7,8 +7,10 @@
 //! the screen, `ended` closing the tab). The client's futures need no executor, so each thread blocks on its own.
 //! A Terminal opens in the owned Project's Chat the drawer belongs to; any other key is refused in the grid.
 //!
-//! Node-daemon mode ([`LiveTerminals::daemon`]): the same two connections, opened per Terminal on the Chat's own Project
-//! (`Daemon::lasting_writer`, which opens its view) and closed with it. Refused in read-only mode.
+//! Node-daemon mode ([`LiveTerminals::daemon`]): one request-only connection per Terminal on the Chat's own Project
+//! (`Daemon::writer`: connect, events discarded, `load_view`; no `daemon:snapshot`, no `project:open`), serving its
+//! `terminal:read` polling and its writes alike (the Node daemon answers each request on its own), closed with the
+//! Terminal. Refused in read-only mode.
 
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -57,11 +59,11 @@ impl LiveTerminals {
     }
 }
 
-/// One Terminal's two capabilities, and the daemon connections they live on (dropped with them).
+/// One Terminal's two capabilities, and the daemon connection they live on (dropped with them).
 struct Lane {
     controls: TerminalActions,
     reads: TerminalActions,
-    keep: Option<(Writer, Writer)>,
+    keep: Option<Arc<Writer>>,
 }
 
 fn size_of(size: GridSize) -> TerminalSize {
@@ -117,14 +119,10 @@ impl TerminalHost for LiveTerminals {
                 };
                 let daemon = daemon.clone();
                 Box::new(move || {
-                    let open = |what: &str| {
-                        block_on(daemon.lasting_writer(&project))
-                            .map_err(|e| format!("Couldn't open the Terminal's {what} connection: {e:#}"))
-                    };
-                    let (control, reader) = (open("control")?, open("output")?);
-                    let controls = control.terminals().map_err(|e| format!("{e:#}"))?;
-                    let reads = reader.terminals().map_err(|e| format!("{e:#}"))?;
-                    Ok(Lane { controls, reads, keep: Some((control, reader)) })
+                    let connection =
+                        block_on(daemon.writer(&project)).map_err(|e| format!("Couldn't open the Terminal's connection: {e:#}"))?;
+                    let controls = connection.terminals().map_err(|e| format!("{e:#}"))?;
+                    Ok(Lane { reads: controls.clone(), controls, keep: Some(Arc::new(connection)) })
                 })
             }
         };
@@ -132,7 +130,7 @@ impl TerminalHost for LiveTerminals {
             let _ = output.try_send(RemoteOutput::Failed("Terminals open in a Chat only.".into()));
             return (sink, received);
         };
-        let (opened_tx, opened_rx) = mpsc::channel::<(String, TerminalActions, Option<Writer>)>();
+        let (opened_tx, opened_rx) = mpsc::channel::<(String, TerminalActions, Option<Arc<Writer>>)>();
         let failed = output.clone();
         std::thread::Builder::new()
             .name("milagre-terminal-controls".into())
@@ -144,10 +142,8 @@ impl TerminalHost for LiveTerminals {
                         return;
                     }
                 };
-                let (_control, reader) = match keep {
-                    Some((control, reader)) => (Some(control), Some(reader)),
-                    None => (None, None),
-                };
+                // Both threads hold the connection; it closes when the last of them ends.
+                let (_control, reader) = (keep.clone(), keep);
                 let id = match block_on(controls.open(chat, size_of(size))) {
                     Ok(opened) => match opened["id"].as_str() {
                         Some(id) => id.to_owned(),

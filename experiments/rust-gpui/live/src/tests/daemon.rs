@@ -4,10 +4,17 @@
 //!
 //! - `adopt_fails_then_follows_a_restarted_daemon`: no daemon (`DAEMON_UNAVAILABLE`), adoption, and a restarted daemon
 //!   (another process, so another PID: `INSTALLED_OWNER_CHANGED`) adopted again on the next connection.
-//! - `the_window_runs_chats_on_the_node_daemon`: the loaded Projects' Chats in one sidebar (an unloaded one is never
-//!   read), transcripts on each Project's own client, the Chat's own provider and model on sends, an approval, a
-//!   question, Stop, Rename, Done, Reopen, a Terminal, Changes and a new Chat on the picker's model.
-//! - `a_read_only_window_writes_nothing`: the `--snapshot` mode: nothing but adoption, the snapshot and reads.
+//! - `the_window_runs_chats_on_the_node_daemon`: the loaded Projects' Chats in one sidebar (an unloaded one listed by
+//!   name and never read), transcripts on each Project's own client, the Chat's own provider and model on sends, an
+//!   approval, a question, Stop, Rename, Done, Reopen, a Terminal (one request-only connection, no snapshot), Changes
+//!   and a new Chat on the picker's model; never a `project:open`, every write's connection loaded with
+//!   `project:read [path, {state:false}]`.
+//! - `an_unloaded_project_loads_when_opened`: name-only until its row is clicked, then loaded (`load_view`), synced
+//!   again, its Chats listed and its newest one open; `project:known` order unchanged.
+//! - `a_chat_with_no_model_sends_on_the_recommended_one`: the provider's first recommended model from `agent:models`;
+//!   a provider with none refuses with a plain error.
+//! - `a_read_only_window_writes_nothing`: the `--snapshot` mode: nothing but adoption, the snapshot and reads; an
+//!   unloaded Project stays name-only even when its row is clicked.
 //! - `the_window_waits_for_milagre_and_follows_a_restart`: "Open Milagre first", then the daemon starts, then it
 //!   restarts in another process and the window syncs again on its own.
 
@@ -111,10 +118,11 @@ fn adopt_fails_then_follows_a_restarted_daemon() {
     let (client, _, _) = block_on(daemon.connect(BETA)).expect("adopted again after INSTALLED_OWNER_CHANGED");
     assert_eq!(daemon.pid(), Some(second.id()), "the new daemon is the one adopted");
     client.disconnect();
-    // A write connection opens its view; a read-only Daemon refuses before connecting.
+    // A write connection loads its Project (project:read, never project:open); a read-only Daemon refuses first.
     let writer = block_on(daemon.writer(BETA)).expect("a write connection");
     drop(writer);
     let read_only = Daemon::new(Some(data.clone()), true);
+    assert!(block_on(read_only.load(GAMMA)).is_err(), "no load in read-only mode");
     assert!(block_on(read_only.writer(BETA)).is_err());
     stop_process(second, &data);
     let _ = std::fs::remove_dir_all(&data);
@@ -151,6 +159,12 @@ impl Mounted<'_> {
         let row = sidebar.read_with(self.vcx, |s, _| s.selected_row().cloned()).expect("the row");
         self.vcx.update(|window, cx| chat.update(cx, |c, cx| c.set_chat(&row, window, cx)));
         self.vcx.run_until_parked();
+    }
+
+    /// The sidebar's name-only Projects: name and whether it is loading.
+    fn unloaded(&mut self) -> Vec<(String, bool)> {
+        let sidebar = self.workspace.read_with(self.vcx, |w, _| w.sidebar.clone());
+        sidebar.read_with(self.vcx, |s, _| s.unloaded_projects().iter().map(|p| (p.name.to_string(), p.loading)).collect())
     }
 
     fn open_key(&mut self) -> Option<String> {
@@ -191,6 +205,8 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     let reads = fake.methods();
     assert!(!reads.iter().any(|m| m == "project:open"), "no project:open for reads: {reads:?}");
     assert!(!fake.log().iter().any(|(m, a)| m == "project:read" && a[0] == GAMMA), "the unloaded Project is never read");
+    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)], "the unloaded Project by name only");
+    assert!(m.vcx.debug_bounds("unloaded-project-0").is_some(), "its name-only row is drawn");
     assert!(m.vcx.debug_bounds("preview-note").is_some(), "Preview mode: Routines, Settings and the rest are off");
     assert!(m.vcx.debug_bounds("bar-routines").is_none(), "no Routines button");
 
@@ -208,10 +224,14 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     m.open(&format!("{ALPHA}#1"));
     m.wait_for("alpha's transcript", |m| m.items() == ["user: Alpha question", "reply: Alpha answer"]);
 
-    // 4. Changes: the daemon's Git reads need the Project's view: one project:open, then the reads.
+    // 4. Changes: the daemon's Git reads on a request-only connection that loads the Project first (load_view).
     let panel = m.workspace.read_with(m.vcx, |w, _| w.panel.clone());
     m.wait_for("the live Changes", |m| panel.read_with(m.vcx, |p, _| p.is_live()));
-    assert!(fake.methods().iter().any(|m| m == "git:diff-files"));
+    let git = fake.connections().into_iter().find(|(_, m)| m == "git:diff-files").expect("a Git read").0;
+    let on_git: Vec<String> = fake.connections().into_iter().filter(|(c, _)| *c == git).map(|(_, m)| m).collect();
+    assert_eq!(on_git.first().map(String::as_str), Some("daemon:status"));
+    assert_eq!(on_git.get(1).map(String::as_str), Some("project:read"), "loaded before the read: {on_git:?}");
+    assert!(!on_git.iter().any(|m| m == "daemon:snapshot"), "request-only: {on_git:?}");
 
     // 5. A send to an existing Chat: its own provider and model, its id, after project:open.
     m.type_and_send("hello daemon");
@@ -221,8 +241,10 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     let send = sent(&fake).pop().unwrap();
     assert_eq!((send["provider"].as_str(), send["model"].as_str(), send["sessionId"].as_u64()), (Some("codex"), Some("gpt-5.5"), Some(1)));
     assert_eq!(send["permissionMode"], "auto", "the Chat's own permission mode");
-    let opened = fake.log().iter().filter(|(m, a)| m == "project:open" && a[0] == ALPHA).count();
-    assert!(opened >= 1, "writes open the Project's view first");
+    let loads =
+        fake.log().iter().filter(|(m, a)| m == "project:read" && a[0] == ALPHA && a[1] == serde_json::json!({"state": false})).count();
+    assert!(loads >= 1, "writes load the Project first (load_view)");
+    assert!(!fake.methods().iter().any(|m| m == "project:open"), "never project:open");
 
     // 6. An approval: the card, Allow once.
     m.type_and_send("[approve] run it");
@@ -303,6 +325,17 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     };
     m.wait_for("the Terminal's output", |m| screen(m).contains("echo node-terminal"));
     assert!(fake.log().iter().any(|(m, a)| m == "terminal:open" && a[0]["chatId"] == key));
+    // One request-only connection for the Terminal: its open, input and reads; no snapshot was taken on it.
+    let terminal: Vec<u64> = {
+        let mut on: Vec<u64> = fake.connections().into_iter().filter(|(_, m)| m.starts_with("terminal:")).map(|(c, _)| c).collect();
+        on.dedup();
+        on
+    };
+    assert_eq!(terminal.len(), 1, "one Terminal connection: {terminal:?}");
+    let on_terminal: Vec<String> = fake.connections().into_iter().filter(|(c, _)| *c == terminal[0]).map(|(_, m)| m).collect();
+    assert!(on_terminal.iter().any(|m| m == "terminal:read") && on_terminal.iter().any(|m| m == "terminal:input"), "{on_terminal:?}");
+    assert!(!on_terminal.iter().any(|m| m == "daemon:snapshot"), "no daemon:snapshot on the Terminal's connection: {on_terminal:?}");
+    assert_eq!(on_terminal.get(1).map(String::as_str), Some("project:read"), "loaded with load_view: {on_terminal:?}");
     drawer.update(m.vcx, |d, cx| d.hide(cx));
     drop(view);
 
@@ -320,6 +353,9 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     assert_eq!((send["provider"].as_str(), send["model"].as_str()), (Some("kiro"), Some("kiro:auto")));
     assert!(send.get("sessionId").is_none(), "a new Chat names none");
     assert_eq!(m.items().last().map(String::as_str), Some("reply: kiro kiro:auto replied to: a brand new Chat"));
+
+    assert!(!fake.methods().iter().any(|m| m == "project:open"), "never project:open in daemon mode");
+    assert!(!fake.log().iter().any(|(m, a)| m == "project:read" && a[0] == GAMMA), "the unloaded Project was never opened");
 
     // Quit closes this window's connections only.
     m.controller.update(m.vcx, |c, _| c.disconnect());
@@ -351,7 +387,14 @@ fn a_read_only_window_writes_nothing(cx: &mut TestAppContext) {
     let drawer = m.workspace.read_with(m.vcx, |w, _| w.terminals.clone());
     drawer.update(m.vcx, |d, cx| d.set_chat(format!("{BETA}#1").into(), cx));
     let _view = drawer.update(m.vcx, |d, cx| d.add(cx));
-    m.wait_for("the refusals", |m| m.controller.read_with(m.vcx, |c, _| c.refused().len()) >= 2);
+    // The unloaded Project is listed by name and stays so: opening it is refused here.
+    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)]);
+    let at = m.vcx.debug_bounds("unloaded-project-0").expect("gamma's row").center();
+    m.vcx.simulate_click(at, Modifiers::none());
+    m.vcx.run_until_parked();
+    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)], "still name-only");
+    m.wait_for("the refusals", |m| m.controller.read_with(m.vcx, |c, _| c.refused().len()) >= 3);
+    assert!(m.controller.read_with(m.vcx, |c, _| c.refused().iter().any(|r| r == &format!("load the Project {GAMMA}"))));
     std::thread::sleep(Duration::from_millis(200));
     m.vcx.run_until_parked();
     let methods = fake.methods();
@@ -398,5 +441,94 @@ fn the_window_waits_for_milagre_and_follows_a_restart(cx: &mut TestAppContext) {
     m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);
     stop_process(restarted, &data);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[gpui::test]
+fn an_unloaded_project_loads_when_opened(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("unloaded");
+    let fake = FakeDaemon::start(&data, world());
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    m.wait_for("the loaded Projects' rows", |m| m.row_keys().len() == 3);
+    let known_before = fake.world().known.clone();
+
+    // Name-only until opened: nothing about gamma was read, and nothing loads in the background.
+    std::thread::sleep(Duration::from_millis(200));
+    m.vcx.run_until_parked();
+    assert_eq!(m.unloaded(), [("gamma".to_owned(), false)]);
+    assert!(!fake.log().iter().any(|(_, a)| a[0] == GAMMA), "gamma untouched: {:?}", fake.methods());
+    assert!(!fake.world().projects[GAMMA].loaded);
+    let syncs = fake.methods().iter().filter(|m| *m == "daemon:snapshot").count();
+
+    // Opened from its row: loaded with load_view (never project:open), synced again, its Chats listed, its newest open.
+    let at = m.vcx.debug_bounds("unloaded-project-0").expect("gamma's row").center();
+    m.vcx.simulate_click(at, Modifiers::none());
+    m.vcx.run_until_parked();
+    m.wait_for("gamma's Chats", |m| m.row_keys().contains(&format!("{GAMMA}#1")) && m.unloaded().is_empty());
+    m.wait_for("gamma's newest Chat open", |m| {
+        m.open_key().as_deref() == Some(format!("{GAMMA}#1").as_str()) && m.items() == ["user: never read", "reply: never read"]
+    });
+    let loads: Vec<Value> = fake.log().into_iter().filter(|(m, a)| m == "project:read" && a[0] == GAMMA).map(|(_, a)| a).collect();
+    // The load, then (gamma's Chat open) its Changes read's own load_view: every one `{state:false}`.
+    assert!(!loads.is_empty() && loads.iter().all(|a| *a == serde_json::json!([GAMMA, {"state": false}])), "{loads:?}");
+    let first = fake.log().into_iter().find(|(_, a)| a[0] == GAMMA).map(|(m, _)| m);
+    assert_eq!(first.as_deref(), Some("project:read"), "gamma is loaded before anything else reads it");
+    assert!(!fake.methods().iter().any(|m| m == "project:open"), "never project:open");
+    assert!(fake.methods().iter().filter(|m| *m == "daemon:snapshot").count() > syncs, "synced again after the load");
+    assert_eq!(fake.world().known, known_before, "project:known order unchanged");
+    let errors = m.controller.read_with(m.vcx, |c, _| c.errors().to_vec());
+    assert!(errors.is_empty(), "{errors:?}");
+    println!("GPUI_DAEMON_LOAD_ON_OPEN loads={loads:?}");
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[gpui::test]
+fn a_chat_with_no_model_sends_on_the_recommended_one(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("models");
+    let mut world = world();
+    {
+        let alpha = world.projects.get_mut(ALPHA).unwrap();
+        // alpha#1: a Claude Chat with no recorded model; alpha#2 (the newest): a Kiro one, and Kiro has no catalog.
+        for (id, provider) in [(1u64, "claude"), (2, "kiro")] {
+            let chat = alpha.sessions.get_mut(&id).unwrap();
+            chat["provider"] = serde_json::json!(provider);
+            chat["summary"].as_object_mut().unwrap().remove("lastModel");
+        }
+    }
+    let fake = FakeDaemon::start(&data, world);
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    m.wait_for("the newest Chat", |m| m.open_key().as_deref() == Some(format!("{ALPHA}#2").as_str()) && m.items().len() == 2);
+
+    // No recommended Kiro model: a plain error, nothing sent.
+    m.type_and_send("no model to send on");
+    m.wait_for("the refusal", |m| !m.controller.read_with(m.vcx, |c, _| c.errors().is_empty()));
+    let errors = m.controller.update(m.vcx, |c, _| c.take_errors());
+    assert!(errors.iter().any(|e| e.contains("recommends no Kiro model")), "{errors:?}");
+    assert!(sent(&fake).is_empty(), "nothing was sent");
+    assert!(fake.methods().iter().any(|m| m == "agent:models"));
+
+    // A Claude Chat with no recorded model: Claude's first recommended model.
+    m.open(&format!("{ALPHA}#1"));
+    m.wait_for("alpha#1's transcript", |m| m.items() == ["user: Alpha question", "reply: Alpha answer"]);
+    m.type_and_send("on the recommended model");
+    m.wait_for("the reply", |m| !m.running() && m.items().last().is_some_and(|i| i.starts_with("reply: claude claude-opus-5-5 replied")));
+    let send = sent(&fake).pop().unwrap();
+    assert_eq!(
+        (send["provider"].as_str(), send["model"].as_str(), send["sessionId"].as_u64()),
+        (Some("claude"), Some("claude-opus-5-5"), Some(1))
+    );
+    let errors = m.controller.read_with(m.vcx, |c, _| c.errors().to_vec());
+    assert!(errors.is_empty(), "{errors:?}");
+    println!("GPUI_DAEMON_MODEL_FALLBACK send={send}");
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    drop(m);
+    drop(fake);
     let _ = std::fs::remove_dir_all(&data);
 }

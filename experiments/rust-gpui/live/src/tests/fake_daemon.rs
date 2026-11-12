@@ -6,8 +6,10 @@
 //! It serves what the Preview calls, with the shapes the Node daemon sends (`daemon:status` with `desktop-v1` and an
 //! unlisted `daemon:snapshot`, paged snapshots, `project:known`, `chat:messages`, the Chat, sidebar, terminal and Git
 //! methods) and pushes `project:state` / `agent:event` frames to every connection, numbered globally. Every request is
-//! logged, so a test can assert what was (and was not) asked: no `project:open` in read-only mode, no `project:read`
-//! of a Project the daemon has not loaded.
+//! logged with the connection it came on, so a test can assert what was (and was not) asked: no `project:open` at
+//! all, no `project:read` of a Project the daemon has not loaded until the person opens it, no `daemon:snapshot` on
+//! a Terminal's connection. `project:read [path, {state:false}]` loads a Project (it joins later snapshots), as the
+//! Node daemon's `readProject` does; `agent:models` answers [`World::models`].
 //!
 //! A send's body picks its turn: `[approve]` waits on a permission request, `[ask]` on a question, `[hold]` streams
 //! until interrupted, anything else replies at once.
@@ -34,6 +36,7 @@ const METHODS: &[&str] = &[
     "daemon:result-page",
     "chat:send",
     "chat:send-status",
+    "agent:models",
     "agent:interrupt",
     "agent:respond-permission",
     "agent:answer-question",
@@ -78,6 +81,11 @@ pub struct World {
     next_request: u64,
     /// Every request: method and args.
     pub log: Vec<(String, Value)>,
+    /// Every request's connection (numbered from 1 in the order they connected) and method, parallel to `log`.
+    pub connections: Vec<(u64, String)>,
+    next_connection: u64,
+    /// `agent:models`' answer.
+    pub models: Value,
     /// Pending turns by Chat key: what finishes them.
     pending: BTreeMap<String, Pending>,
     terminals: BTreeMap<String, String>,
@@ -99,7 +107,16 @@ fn now() -> i64 {
 impl World {
     /// A world with Projects (`path`, `name`, loaded) and their Chats (`id`, `title`, messages as (role, body)).
     pub fn with(projects: Vec<ProjectSpec<'_>>) -> Self {
-        let mut world = World { next_message: 100, ..World::default() };
+        let mut world = World {
+            next_message: 100,
+            models: json!({
+                "claude": [{"id":"claude-opus-5-5","name":"Opus 5.5","recommended":true},{"id":"claude-sonnet-5","recommended":true}],
+                "codex": [{"id":"gpt-5.5","recommended":false},{"id":"gpt-6.1-sol","recommended":true}],
+                "antigravity": [],
+                "kiro": null,
+            }),
+            ..World::default()
+        };
         for (path, name, loaded, chats) in projects {
             world.known.push(path.to_owned());
             let mut project = Project { name: name.to_owned(), loaded, sessions: BTreeMap::new(), messages: BTreeMap::new() };
@@ -257,10 +274,24 @@ impl World {
                 json!({"snapshotId":id,"pageCount":1,"eventSeq":self.event_seq})
             }
             "daemon:snapshot-page" => Value::String(self.snapshots.get(arg.as_str().ok_or("snapshot id")?).ok_or("no snapshot")?.clone()),
+            "project:read" if args[1]["state"] == false => {
+                // `readProject`: the Project loads (Worktrees reconciled, Chats resumed) and joins later snapshots.
+                let path = arg.as_str().ok_or("path")?;
+                let project = self.projects.get_mut(path).ok_or("Open this project in Milagre first.")?;
+                project.loaded = true;
+                json!({"path":path,"name":project.name,"version":1,"epoch":"fake"})
+            }
             "project:read" | "project:open" => {
                 let path = arg.as_str().ok_or("path")?;
                 let name = self.projects.get(path).ok_or("Open this project in Milagre first.")?.name.clone();
                 json!({"path":path,"name":name,"state":self.state(path),"version":1,"epoch":"fake"})
+            }
+            "agent:models" => {
+                let path = arg.as_str().ok_or("path")?;
+                if !self.projects.get(path).is_some_and(|p| p.loaded) {
+                    return Err("Open this project in Milagre first.".into());
+                }
+                self.models.clone()
             }
             "chat:runs" => json!({"runs":self.runs,"seq":self.runs_seq}),
             "chat:messages" => {
@@ -415,6 +446,11 @@ impl FakeDaemon {
         self.log().into_iter().map(|(method, _)| method).collect()
     }
 
+    /// Every request's connection and method.
+    pub fn connections(&self) -> Vec<(u64, String)> {
+        self.world.lock().unwrap().connections.clone()
+    }
+
     pub fn world(&self) -> std::sync::MutexGuard<'_, World> {
         self.world.lock().unwrap()
     }
@@ -456,7 +492,12 @@ fn serve(listener: UnixListener, world: Arc<Mutex<World>>, stop: Arc<(Mutex<bool
 
 fn connection(stream: UnixStream, world: Arc<Mutex<World>>, stop: Arc<(Mutex<bool>, Condvar)>, data: PathBuf, pid: u32) {
     let writer = Arc::new(Mutex::new(stream.try_clone().unwrap()));
-    world.lock().unwrap().writers.push(writer.clone());
+    let number = {
+        let mut world = world.lock().unwrap();
+        world.writers.push(writer.clone());
+        world.next_connection += 1;
+        world.next_connection
+    };
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     while reader.read_line(&mut line).unwrap_or(0) > 0 {
@@ -470,6 +511,7 @@ fn connection(stream: UnixStream, world: Arc<Mutex<World>>, stop: Arc<(Mutex<boo
         let reply = {
             let mut world = world.lock().unwrap();
             world.log.push((method.clone(), args.clone()));
+            world.connections.push((number, method.clone()));
             let reply = world.call(&method, &args, &data, pid);
             // An idle Terminal read waits a little, as the daemon's long poll does (outside the world's lock).
             if method == "terminal:read" && reply.as_ref().is_ok_and(|r| r["data"] == "") {

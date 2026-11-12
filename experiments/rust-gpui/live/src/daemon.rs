@@ -9,12 +9,18 @@
 //!   reducer. The daemon leaves a state over a quarter frame out of events (`stateTooLarge`) and the client reads it
 //!   again only for its own Project, closing the stream for any other; so the primary is the Project whose state is
 //!   largest, and a closed stream is followed by a new [`Daemon::sync`].
-//! - No `project:open` for reads (on the Node daemon it registers the Project, moves it to the top of the recent list
-//!   and focuses it). Transcripts of other Projects are read on a short connection of that Project, closed after.
-//! - Writes ([`Daemon::writer`]): a short connection of the Chat's Project, `project:open` (which the client requires
-//!   before any action), the action, then closed. Refused in read-only mode (`--snapshot`, checks).
-//! - Projects the daemon knows but has not loaded this run are not listed: their first `project:read` makes the daemon
-//!   resume interrupted Chats and sweep Routine Chats, work Electron itself has not asked for.
+//! - Never `project:open` (on the Node daemon it registers the Project, moves it to the top of the recent list and
+//!   focuses it). Every other connection is request-only (`Notifications::discard`: events dropped, no
+//!   `daemon:snapshot`) and loads its Project with `Client::load_view` (`project:read [path, {state:false}]`, the read
+//!   Electron's every-Project sidebar makes), which the client requires before any action.
+//! - Transcripts of other Projects are read on a short request-only connection of that Project, closed after.
+//! - Writes ([`Daemon::writer`]): a short request-only connection of the Chat's Project, `load_view`, the action,
+//!   then closed. Refused in read-only mode (`--snapshot`, checks). Git reads use the same kind of connection; a
+//!   Terminal keeps one open for its reads and writes.
+//! - Projects the daemon knows but has not loaded this run are listed by name only ([`Daemon::unloaded`]): their
+//!   first `project:read` makes the daemon reconcile Worktrees and resume Chats a quit stopped, exactly as opening
+//!   them in Electron does, so one loads ([`Daemon::load`]) only when the person opens it, never in the background
+//!   and never in read-only mode.
 //!
 //! `DAEMON_UNAVAILABLE` (Milagre not running) and `INSTALLED_OWNER_CHANGED` (it restarted) are retried: adoption runs
 //! again on every sync and once more on a refused connection.
@@ -84,7 +90,7 @@ impl Daemon {
         self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Nothing is written to the daemon: no `project:open`, action, terminal or Git read.
+    /// Nothing is written to the daemon, and no Project is loaded: no action, terminal or Git read, no `load_view`.
     pub fn read_only(&self) -> bool {
         self.read_only
     }
@@ -139,42 +145,64 @@ impl Daemon {
         unreachable!("the second attempt returns")
     }
 
-    /// A client of `project` for reads: the live one when it is that Project's, else a short connection (closed when
-    /// the returned guard drops). Opens no view.
+    /// A new request-only connection to `project`: its events are discarded (no `daemon:snapshot` is taken on it).
+    async fn request_only(&self, project: &str) -> Result<(Client, InstalledProject)> {
+        let (client, installed, notifications) = self.connect(project).await?;
+        notifications.discard();
+        Ok((client, installed))
+    }
+
+    /// A client of `project` for reads: the live one when it is that Project's, else a short request-only connection
+    /// (closed when the returned guard drops). Loads nothing.
     pub async fn reader(&self, project: &str) -> Result<Lease> {
         if let Some((primary, client)) = self.primary()
             && primary == project
         {
-            return Ok(Lease { client, short: None });
+            return Ok(Lease { client, short: false });
         }
-        let (client, _, notifications) = self.connect(project).await?;
-        Ok(Lease { client: client.clone(), short: Some((client, notifications)) })
+        let (client, _) = self.request_only(project).await?;
+        Ok(Lease { client, short: true })
     }
 
-    /// A short write connection of `project`: connected and its view opened (`project:open`), closed when dropped.
+    /// A request-only connection of `project` with the Project loaded (`load_view`, never `project:open`), closed
+    /// when dropped: the writes', Git reads' and a Terminal's.
     pub async fn writer(&self, project: &str) -> Result<Writer> {
         if self.read_only {
             return Err(anyhow!("Read-only: nothing is written to Milagre's daemon in this mode"));
         }
-        let (client, installed, notifications) = self.connect(project).await?;
-        let writer = Writer { client, installed, _notifications: Some(notifications) };
-        writer.client.open_view(project).await.with_context(|| format!("project:open {project}"))?;
+        let (client, installed) = self.request_only(project).await?;
+        let writer = Writer { client, installed };
+        writer.client.load_view(project).await.with_context(|| format!("project:read {project}"))?;
         Ok(writer)
     }
 
-    /// A write connection of `project` that stays open (the Terminal drawer's): its view opened, a snapshot taken and
-    /// accepted only to release events, and its events drained on a thread of its own (an unread queue would close
-    /// it). It still closes when another Project's oversized state arrives; the drawer then says the Terminal stopped.
-    pub async fn lasting_writer(&self, project: &str) -> Result<Writer> {
-        let mut writer = self.writer(project).await?;
-        let snapshot = writer.client.runtime_snapshot().await.context("daemon:snapshot (terminal connection)")?;
-        writer.client.accept_snapshot(&snapshot).await.context("accept (terminal connection)")?;
-        drop(snapshot);
-        let mut notices = writer._notifications.take().expect("a new writer's notifications");
-        std::thread::Builder::new()
-            .name("milagre-daemon-terminal-notices".into())
-            .spawn(move || while futures::executor::block_on(notices.next()).is_some() {})?;
-        Ok(writer)
+    /// The Projects the daemon knows (`project:known` order) that are not in `loaded`: listed by name only.
+    pub fn unloaded(&self, loaded: &[String]) -> Vec<KnownProject> {
+        self.lock().known.iter().filter(|known| !loaded.contains(&known.path)).cloned().collect()
+    }
+
+    /// Loads an unloaded Project because the person opened it: a request-only connection, `load_view`, closed. The
+    /// daemon may reconcile its Worktrees and resume Chats a quit stopped, as when it is opened in Electron. The live
+    /// connection's snapshot does not hold it yet, so it is closed ([`Daemon::resync`]) and the next sync lists it.
+    /// Refused in read-only mode.
+    pub async fn load(&self, project: &str) -> Result<()> {
+        if self.read_only {
+            return Err(anyhow!("Read-only: no Project is loaded in this mode"));
+        }
+        if !self.lock().known.iter().any(|known| known.path == project) {
+            return Err(anyhow!("{project} is not one of Milagre's Projects"));
+        }
+        let writer = self.writer(project).await?;
+        drop(writer);
+        self.resync();
+        Ok(())
+    }
+
+    /// Closes the live connection: its stream ends and the window syncs again (a new snapshot).
+    pub fn resync(&self) {
+        if let Some((_, client)) = self.lock().primary.take() {
+            client.disconnect();
+        }
     }
 
     /// Adopts the daemon (again), lists its Projects and makes a new primary connection: snapshot, apply, accept. The
@@ -241,25 +269,24 @@ fn largest(body: &serde_json::Value) -> Option<String> {
         .map(|(path, _)| path)
 }
 
-/// A read client: the live connection (left open) or a short one (closed on drop).
+/// A read client: the live connection (left open) or a short request-only one (closed on drop).
 pub struct Lease {
     pub client: Client,
-    short: Option<(Client, Notifications)>,
+    short: bool,
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        if let Some((client, _)) = &self.short {
-            client.disconnect();
+        if self.short {
+            self.client.disconnect();
         }
     }
 }
 
-/// A short write connection with its view open. Closed on drop.
+/// A request-only connection with its Project loaded. Closed on drop.
 pub struct Writer {
     pub client: Client,
     installed: InstalledProject,
-    _notifications: Option<Notifications>,
 }
 
 impl Writer {
@@ -279,6 +306,18 @@ impl Writer {
     pub fn terminals(&self) -> Result<TerminalActions> {
         self.installed.terminal_actions(&self.client).context("terminal actions")
     }
+
+    /// The first recommended model of `provider` in the daemon's catalog for this Project (`agent:models`), for a
+    /// Chat with no recorded model. `None` when the catalog recommends none (or has no list for it, as kiro may).
+    pub async fn recommended_model(&self, provider: &str) -> Result<Option<String>> {
+        let models = self.installed.models(&self.client).await.context("agent:models")?;
+        Ok(first_recommended(&models, provider))
+    }
+}
+
+/// The first `recommended` model id of `provider` in an `agent:models` answer.
+pub fn first_recommended(models: &serde_json::Value, provider: &str) -> Option<String> {
+    models[provider].as_array()?.iter().find(|m| m["recommended"] == true)?["id"].as_str().map(str::to_owned)
 }
 
 impl Drop for Writer {

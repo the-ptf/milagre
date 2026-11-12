@@ -40,6 +40,7 @@ pub mod rail;
 pub mod rename;
 mod row;
 pub mod undo;
+pub mod unloaded;
 mod usage;
 
 #[cfg(test)]
@@ -70,6 +71,7 @@ use list::ListFilters;
 pub use list::{ChatLists, SidebarData, SidebarSeed};
 pub use row::{ChatRow, RowState};
 use row::{ChatRowView, ROW_GAP, ROW_INSET, ROW_PITCH, RowEvent, RowMeta};
+pub use unloaded::UnloadedProject;
 
 pub const SIDEBAR_WIDTH: f32 = 304.0;
 /// Row views kept on each side of the visible range, so scrolling back a little does not rebuild them.
@@ -135,6 +137,8 @@ pub struct Sidebar {
     /// Where the Filters button was painted.
     filters_button: Rc<Cell<Bounds<Pixels>>>,
     collapsed: bool,
+    /// Projects the data layer knows but has not loaded: listed by name under the Chats (`unloaded.rs`).
+    unloaded: Vec<UnloadedProject>,
     /// The rail icon whose card is open (row index) and where the pointer was.
     rail_card: Option<(usize, Pixels)>,
     rail_task: Option<gpui::Task<()>>,
@@ -161,6 +165,8 @@ pub struct Sidebar {
 pub enum SidebarEvent {
     /// The New Chat button: the Chat column opens its new-Chat composer.
     NewChat,
+    /// A Project shown by name only was opened (its path): the data layer loads it.
+    OpenProject(gpui::SharedString),
 }
 
 impl gpui::EventEmitter<SidebarEvent> for Sidebar {}
@@ -211,6 +217,7 @@ impl Sidebar {
             filters_open: None,
             filters_button: Rc::default(),
             collapsed: false,
+            unloaded: Vec::new(),
             rail_card: None,
             rail_task: None,
             usage_card: None,
@@ -291,9 +298,11 @@ impl Sidebar {
                     "Panels other than Changes, Settings, Routines, usage, Pin and Delete: {}",
                     crate::workspace::preview::UNAVAILABLE.to_lowercase()
                 ))
-                .children(self.notice.clone().map(|notice| {
-                    div().debug_selector(|| "sidebar-notice".into()).text_color(theme.orange_ink).child(notice)
-                }))
+                .children(
+                    self.notice
+                        .clone()
+                        .map(|notice| div().debug_selector(|| "sidebar-notice".into()).text_color(theme.orange_ink).child(notice)),
+                )
                 .into_any_element(),
         ]
     }
@@ -308,6 +317,27 @@ impl Sidebar {
 
     pub fn notice(&self) -> Option<&gpui::SharedString> {
         self.notice.as_ref()
+    }
+
+    /// The Projects shown by name only (a live data layer's Projects not loaded yet); empty hides the section.
+    pub fn set_unloaded_projects(&mut self, projects: Vec<UnloadedProject>, cx: &mut Context<Self>) {
+        if self.unloaded != projects {
+            self.unloaded = projects;
+            cx.notify();
+        }
+    }
+
+    pub fn unloaded_projects(&self) -> &[UnloadedProject] {
+        &self.unloaded
+    }
+
+    /// A name-only Project row clicked: it shows as loading and the data layer is asked to load it.
+    pub fn open_unloaded(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(project) = self.unloaded.get_mut(ix).filter(|p| !p.loading) else { return };
+        project.loading = true;
+        let path = project.path.clone();
+        cx.emit(SidebarEvent::OpenProject(path));
+        cx.notify();
     }
 
     fn set_data(&mut self, data: SidebarData, select: Option<&str>) {
@@ -821,6 +851,11 @@ impl Render for Sidebar {
                     // Over the list, under the footer: the surface's colour at each edge that has more to scroll to.
                     .child(self.fade.overlay(grained(theme.canvas, theme.appearance))),
             )
+            .when(!self.unloaded.is_empty(), |el| {
+                let sidebar = cx.entity();
+                let on_open = Rc::new(move |ix, _: &mut Window, cx: &mut gpui::App| sidebar.update(cx, |s, cx| s.open_unloaded(ix, cx)));
+                el.child(unloaded::section(&self.unloaded, on_open, &theme))
+            })
             .child(bottom::bottom_group(done, self.usage_or_preview(&theme, cx), toast, footer, &theme))
             .children(self.overlays(window, cx))
             .into_any_element()

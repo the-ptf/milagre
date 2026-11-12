@@ -5,7 +5,8 @@
 //!
 //! On Milagre's daemon ([`LiveSource::daemon`]) the reducer holds every Project the daemon has loaded (the primary
 //! connection's snapshot); they are listed in `project:known` order. A transcript is read on its own Project's client
-//! (`Daemon::reader`). Nothing here opens a Project.
+//! (`Daemon::reader`, a short request-only connection). Nothing here opens or loads a Project: the ones the daemon
+//! knows but has not loaded are the controller's name-only rows, loaded only when the person opens one.
 
 use gpui::SharedString;
 use milagre_daemon_client::Client;

@@ -14,10 +14,12 @@
 //!
 //! Two backends ([`Backend`]): the owned runtime (one Project, one connection, its model fixed) and Milagre's running
 //! Node daemon ([`crate::daemon`], the Preview's default): every Project the daemon has loaded, each Chat on its own
-//! provider and model (a new Chat on the composer's), each write on a short connection of the Chat's Project, and a
-//! lost stream (the daemon restarted, quit, or sent another Project's oversized state) followed by a new sync, with
-//! "Open Milagre first" while there is no daemon. In read-only mode (`--snapshot`) every write is refused here,
-//! before it reaches a connection.
+//! provider and model (a Chat with none recorded on its provider's first recommended model, a new Chat on the
+//! composer's), each write on a short request-only connection of the Chat's Project (loaded with `load_view`, never
+//! `project:open`), and a lost stream (the daemon restarted, quit, or sent another Project's oversized state)
+//! followed by a new sync, with "Open Milagre first" while there is no daemon. Projects the daemon knows but has not
+//! loaded are listed by name; opening one loads it and syncs again. In read-only mode (`--snapshot`) every write, and
+//! every load, is refused here, before it reaches a connection.
 
 use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
@@ -34,7 +36,7 @@ use milagre_gpui_spike::workspace::chat::composer::{ComposerLimits, Delivery};
 use milagre_gpui_spike::workspace::chat::running::RunningRow;
 use milagre_gpui_spike::workspace::chat::transcript::{ApprovalState, CardDecision, Item};
 use milagre_gpui_spike::workspace::preview::PreviewMode;
-use milagre_gpui_spike::workspace::sidebar::{Actions, RecordingActions, SidebarSeed};
+use milagre_gpui_spike::workspace::sidebar::{Actions, RecordingActions, SidebarEvent, SidebarSeed, UnloadedProject};
 use serde_json::Value;
 
 use crate::LiveStore;
@@ -81,7 +83,13 @@ impl Backend {
                 Box::pin(async move {
                     let writer = daemon.writer(&project).await.map_err(|e| format!("{e:#}"))?;
                     // Actions other than a send never name a model; any valid pair does for them.
-                    let (provider, model) = model.unwrap_or((Provider::Claude, "default".into()));
+                    let (provider, mut model) = model.unwrap_or((Provider::Claude, "default".into()));
+                    // A Chat with no recorded model: its provider's first recommended model in the daemon's catalog.
+                    if model.is_empty() {
+                        model = writer.recommended_model(provider.id()).await.map_err(|e| format!("{e:#}"))?.ok_or_else(|| {
+                            format!("This Chat's model isn't known and Milagre recommends no {} model: nothing was sent", provider.name())
+                        })?;
+                    }
                     let actions = writer.chat_actions(provider.id(), &model).map_err(|e| format!("{e:#}"))?;
                     let result = act(actions).await;
                     drop(writer);
@@ -111,7 +119,7 @@ impl Backend {
         }
     }
 
-    /// The Project's Changes (the daemon: a short connection that has to open the Project's view first).
+    /// The Project's Changes (the daemon: a short request-only connection that loads the Project first).
     fn read_git(&self, project: &str) -> Local<milagre_gpui_spike::workspace::panel::changes::data::ChangesData> {
         match self {
             Backend::Owned { git, .. } => {
@@ -310,6 +318,10 @@ pub struct LiveController {
     /// The sidebar's "Open Milagre first" (or another sync failure) while there is no live connection.
     unavailable: Option<String>,
     syncs: u64,
+    /// Projects asked to load (Milagre's daemon) whose Chats have not arrived yet.
+    loading: HashSet<String>,
+    /// The Project last loaded from its name-only row: its newest Chat opens once it is listed.
+    open_loaded: Option<String>,
     preloaded: Option<(String, milagre_gpui_spike::data::MessagePage)>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
@@ -401,6 +413,12 @@ impl LiveController {
                 }),
                 cx.observe(&composer, |this: &mut Self, composer, cx| this.follow_composer(&composer, cx)),
                 cx.subscribe(&transcript, |this: &mut Self, _, decision: &CardDecision, cx| this.decide(decision, cx)),
+                // A Project listed by name only was opened: Milagre's daemon loads it.
+                cx.subscribe(&sidebar, |this: &mut Self, _, event: &SidebarEvent, cx| {
+                    if let SidebarEvent::OpenProject(path) = event {
+                        this.load_project(path.to_string(), cx);
+                    }
+                }),
             ];
             subscriptions.shrink_to_fit();
             let pump = match stream {
@@ -491,11 +509,14 @@ impl LiveController {
                 refused: Vec::new(),
                 unavailable: None,
                 syncs: 0,
+                loading: HashSet::new(),
+                open_loaded: None,
                 preloaded,
                 _subscriptions: subscriptions,
                 _tasks: vec![pump, follow, run],
             };
             this.follow_chat(cx);
+            this.sync_unloaded(cx);
             this
         })
     }
@@ -557,6 +578,74 @@ impl LiveController {
     /// Writes this read-only window refused before reaching a connection.
     pub fn refused(&self) -> &[String] {
         &self.refused
+    }
+
+    /// Milagre's daemon: the Projects it knows but has not loaded, by name only in the sidebar (`project:known`
+    /// order), each marked while it loads. Nothing here loads one.
+    fn sync_unloaded(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let loaded: Vec<String> = self.store.read(|reducer| {
+            reducer.state().map(|applied| applied.projects.iter().map(|o| o.project.path.to_string()).collect()).unwrap_or_default()
+        });
+        self.loading.retain(|path| !loaded.contains(path));
+        let unloaded: Vec<UnloadedProject> = daemon
+            .unloaded(&loaded)
+            .into_iter()
+            .map(|known| UnloadedProject {
+                loading: self.loading.contains(&known.path),
+                name: if known.name.is_empty() { known.path.rsplit('/').next().unwrap_or(&known.path).to_owned() } else { known.name }
+                    .into(),
+                path: known.path.into(),
+            })
+            .collect();
+        if let Some(path) = self.open_loaded.clone()
+            && loaded.contains(&path)
+        {
+            self.open_loaded = None;
+            if let Some(key) = newest_chat(&self.store, Some(&path)) {
+                self.pending_open = Some(key);
+            }
+        }
+        let sidebar = self.workspace.read(cx).sidebar.clone();
+        sidebar.update(cx, |s, cx| s.set_unloaded_projects(unloaded, cx));
+    }
+
+    /// A name-only Project opened: loaded on a request-only connection (`load_view`, which may resume its Chats as
+    /// opening it in Electron does), then the window syncs again and lists its Chats. Never in read-only mode.
+    pub fn load_project(&mut self, path: String, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let daemon = daemon.clone();
+        if daemon.read_only() {
+            self.refuse(format!("load the Project {path}"));
+            self.sync_unloaded(cx);
+            return;
+        }
+        if !self.loading.insert(path.clone()) {
+            return;
+        }
+        self.open_loaded = Some(path.clone());
+        self.sync_unloaded(cx);
+        cx.spawn(async move |this, cx| {
+            let target = path.clone();
+            let loaded = off_thread(move || futures::executor::block_on(daemon.load(&target))).await;
+            let error = match loaded {
+                Ok(Ok(())) => {
+                    eprintln!("live: loaded {path}; syncing again");
+                    return;
+                }
+                Ok(Err(error)) => format!("Couldn't load {path}: {error:#}"),
+                Err(_) => format!("Couldn't load {path}: the load thread ended"),
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.loading.remove(&path);
+                this.open_loaded = None;
+                let sidebar = this.workspace.read(cx).sidebar.clone();
+                sidebar.update(cx, |s, cx| s.set_notice(Some(error.clone().into()), cx));
+                this.error(error);
+                this.sync_unloaded(cx);
+            });
+        })
+        .detach();
     }
 
     // ---- What tests and the app read ----
@@ -814,6 +903,7 @@ impl LiveController {
     fn on_store_changed(&mut self, cx: &mut Context<Self>) {
         let sidebar = self.workspace.read(cx).sidebar.clone();
         sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+        self.sync_unloaded(cx);
         if let Some(key) = self.pending_open.clone()
             && sidebar.read(cx).row_keys().contains(&key)
         {
@@ -1054,10 +1144,6 @@ impl LiveController {
                         return None;
                     }
                 };
-                if matches!(backend, Backend::Daemon(_)) && model.1.is_empty() {
-                    self.error("This Chat's model isn't known here: send from Milagre. Nothing was sent".into());
-                    return None;
-                }
                 self.sent += 1;
                 let id = format!("gpui-{}-{}-{}", std::process::id(), crate::transcript::now_ms(), self.sent);
                 let options =

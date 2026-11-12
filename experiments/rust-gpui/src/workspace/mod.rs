@@ -114,6 +114,8 @@ impl Workspace {
             cx.subscribe_in(&palette, window, |this, _, event: &PaletteEvent, window, cx| this.on_palette_event(event, window, cx));
         let new_chat = cx.subscribe_in(&sidebar, window, |this, _, event: &SidebarEvent, window, cx| match event {
             SidebarEvent::NewChat => this.show_new_chat(window, cx),
+            // The live data layer loads it (its controller subscribes); the fixture has no unloaded Projects.
+            SidebarEvent::OpenProject(_) => {}
         });
         // A Subchat picked in the Details panel opens although the sidebar has no row for it.
         let details = panel.read(cx).details().clone();
