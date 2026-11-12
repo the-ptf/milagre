@@ -215,3 +215,24 @@ The current package and retained prior app are recorded under
 Client `3410109b` additionally preserves typed root-busy refusal from this exact
 child; old success receipts remain compatible. Matching pins were sent to GPUI.
 No production app, host or mobile fingerprint was replaced.
+
+
+## Installed real turn after quota reset
+
+At 2026-11-12 07:00:29 UTC, the normal installed app completed the one authorized
+no-tools Claude verification turn. `installed-preview-live-check.cjs --run` uses an
+external Node wire verifier, not a Node backend or synthetic provider. Its hard
+not-before gate precedes any app launch. The fresh marker streamed and two messages
+were saved. A second no-args app/runtime launch read the exact transcript with zero
+sends. Both native Quits exited 0 with drained empty stderr, actual profile/socket/
+shell removal and retained data. No permissions were requested or approved.
+
+Evidence: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-live-9Gumqg/report.json`.
+Runtime PIDs were 81643 then 81859. The installed shell/runtime hashes remain the
+accepted `125c2f59...fd5c1fa` and `862f4cd2...6d70502` recorded above. The earlier
+quota failure is retained as failed evidence; this is a new run, not a reclassification.
+Do not spend another real turn on subsequent heartbeats for this same check.
+
+This verifies transport/stream/persistence/reopen and native lifecycle through the
+installed process. It does not drive or capture a fresh composer UI interaction;
+the separately documented native WebKit workflow evidence covers that scope.
