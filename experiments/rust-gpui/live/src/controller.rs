@@ -101,6 +101,10 @@ pub struct LiveController {
     client: Client,
     actions: ChatActions,
     sidebar_writes: milagre_daemon_client::SidebarActions,
+    git: milagre_daemon_client::GitReads,
+    /// A Git read is in flight; another was asked for meanwhile.
+    reading_git: bool,
+    git_again: bool,
     store: LiveStore,
     project: String,
     sink: SinkState,
@@ -188,6 +192,9 @@ impl LiveController {
                 client: session.client.clone(),
                 actions: session.actions.clone(),
                 sidebar_writes: session.sidebar.clone(),
+                git: session.git.clone(),
+                reading_git: false,
+                git_again: false,
                 store: session.store.clone(),
                 project: session.project.clone(),
                 sink,
@@ -273,6 +280,7 @@ impl LiveController {
         self.open = key.zip(id).map(|(key, id)| OpenChat { key, id, ..OpenChat::default() });
         if self.open.is_some() {
             self.load(cx);
+            self.read_changes(cx);
         }
     }
 
@@ -333,6 +341,35 @@ impl LiveController {
         task.detach();
     }
 
+    /// Reads the Worktree's changes for the open Chat's panel (one read at a time; one more if asked meanwhile).
+    pub fn read_changes(&mut self, cx: &mut Context<Self>) {
+        if self.reading_git {
+            self.git_again = true;
+            return;
+        }
+        let Some(key) = self.open.as_ref().map(|open| open.key.clone()) else { return };
+        self.reading_git = true;
+        let git = self.git.clone();
+        cx.spawn(async move |this, cx| {
+            let data = crate::git::read(&git).await;
+            let _ = this.update(cx, |this, cx| {
+                this.reading_git = false;
+                match data {
+                    Ok(data) => {
+                        let panel = this.workspace.read(cx).panel.clone();
+                        panel.update(cx, |panel, cx| panel.set_live_changes(key.into(), data, cx));
+                    }
+                    Err(error) => this.error(format!("Couldn't read the Worktree's changes: {error:#}")),
+                }
+                if std::mem::take(&mut this.git_again) {
+                    this.read_changes(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn on_store_changed(&mut self, cx: &mut Context<Self>) {
         let sidebar = self.workspace.read(cx).sidebar.clone();
         sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
@@ -378,8 +415,9 @@ impl LiveController {
                     transcript.update(cx, |t, cx| t.finish_stream(ix, cx));
                 }
                 self.set_running(None, cx);
-                // The saved reply (and its steps) replace the live tail.
+                // The saved reply (and its steps) replace the live tail; the turn may have changed the Worktree.
                 self.load(cx);
+                self.read_changes(cx);
             }
             None => self.set_running(None, cx),
         }

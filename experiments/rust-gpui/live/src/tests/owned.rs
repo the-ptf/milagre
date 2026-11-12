@@ -26,11 +26,11 @@ use crate::session::{self, Root as RootKind, Session};
 
 const SESSION: &str = "gpui-native-session";
 
-fn stage() -> PathBuf {
+pub(super) fn stage() -> PathBuf {
     std::env::current_exe().unwrap().parent().unwrap().to_owned()
 }
 
-fn handshake(launch: Value) -> Vec<Value> {
+pub(super) fn handshake(launch: Value) -> Vec<Value> {
     vec![
         json!({"expect_launch": launch}),
         json!({"expect":{"subtype":"initialize"}}),
@@ -42,13 +42,13 @@ fn handshake(launch: Value) -> Vec<Value> {
         json!({"reply":{}}),
     ]
 }
-fn init() -> Value {
+pub(super) fn init() -> Value {
     json!({"emit":{"type":"system","subtype":"init","session_id":SESSION}})
 }
-fn delta(text: &str) -> Value {
+pub(super) fn delta(text: &str) -> Value {
     json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":text}}}})
 }
-fn result() -> Value {
+pub(super) fn result() -> Value {
     json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}})
 }
 fn permission(id: &str, command: &str) -> [Value; 2] {
@@ -59,7 +59,12 @@ fn permission(id: &str, command: &str) -> [Value; 2] {
 }
 
 /// The case folder: wrapper, both scripts and the private manifest. The root is left for `create`.
-fn prepare(case: &Path) -> (PathBuf, PathBuf) {
+pub(super) fn prepare(case: &Path) -> (PathBuf, PathBuf) {
+    prepare_with(case, None)
+}
+
+/// [`prepare`] with another first-launch script (`None`: the full flow's).
+pub(super) fn prepare_with(case: &Path, script: Option<Vec<Value>>) -> (PathBuf, PathBuf) {
     use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
     std::fs::DirBuilder::new().mode(0o700).create(case).unwrap();
     for dir in ["claude-home", "claude-config"] {
@@ -82,6 +87,7 @@ fn prepare(case: &Path) -> (PathBuf, PathBuf) {
     first.extend([json!({"sleep_ms":20}), result(), json!({"wait_eof":true})]);
     let mut resumed = handshake(json!({"flags":[format!("--resume={SESSION}")],"absent":["--no-session-persistence"]}));
     resumed.extend([json!({"expect":{"type":"user"}}), init(), delta("Resumed reply"), result(), json!({"wait_eof":true})]);
+    let first = script.unwrap_or(first);
     std::fs::write(case.join("first.json"), serde_json::to_vec(&first).unwrap()).unwrap();
     std::fs::write(case.join("resumed.json"), serde_json::to_vec(&resumed).unwrap()).unwrap();
     let fake = stage().join("runtime-fake-claude");
@@ -104,13 +110,13 @@ fn prepare(case: &Path) -> (PathBuf, PathBuf) {
     (case.join("root"), manifest)
 }
 
-struct Mounted<'a> {
-    vcx: &'a mut VisualTestContext,
-    workspace: Entity<Workspace>,
-    controller: Entity<LiveController>,
+pub(super) struct Mounted<'a> {
+    pub(super) vcx: &'a mut VisualTestContext,
+    pub(super) workspace: Entity<Workspace>,
+    pub(super) controller: Entity<LiveController>,
 }
 
-fn mount(cx: &mut TestAppContext, session: Session) -> Mounted<'_> {
+pub(super) fn mount(cx: &mut TestAppContext, session: Session) -> Mounted<'_> {
     let wiring = cx.update(|cx| {
         cx.set_global(milagre_gpui_spike::theme::Theme::dark());
         gpui_component::init(cx);
@@ -130,7 +136,7 @@ fn mount(cx: &mut TestAppContext, session: Session) -> Mounted<'_> {
 
 impl Mounted<'_> {
     /// Runs the app until `done` holds, waking for the client's I/O thread (bounded).
-    fn until(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
+    pub(super) fn until(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
         let until = Instant::now() + Duration::from_secs(20);
         loop {
             self.vcx.run_until_parked();
@@ -149,16 +155,16 @@ impl Mounted<'_> {
         }
     }
 
-    fn items(&mut self) -> Vec<String> {
+    pub(super) fn items(&mut self) -> Vec<String> {
         let transcript = self.workspace.read_with(self.vcx, |w, cx| w.chat.read(cx).transcript.clone());
         transcript.read_with(self.vcx, |t, _| shown_items(t.items()))
     }
 
-    fn running(&mut self) -> bool {
+    pub(super) fn running(&mut self) -> bool {
         self.workspace.read_with(self.vcx, |w, cx| w.chat.read(cx).running.is_some())
     }
 
-    fn type_and_send(&mut self, text: &str) {
+    pub(super) fn type_and_send(&mut self, text: &str) {
         let composer = self.workspace.read_with(self.vcx, |w, cx| w.chat.read(cx).composer.clone());
         self.vcx.update(|window, cx| {
             composer.update(cx, |c, cx| {
@@ -197,7 +203,7 @@ impl Mounted<'_> {
     }
 }
 
-fn finish(guard: &OwnedChatGuard) -> Value {
+pub(super) fn finish(guard: &OwnedChatGuard) -> Value {
     let report = session::shutdown_blocking(guard, Duration::from_secs(20)).expect("shutdown");
     println!("GPUI_LIVE_CLEANUP {report:?}");
     assert!(session::clean(&report), "not a clean stop: {report:?}");

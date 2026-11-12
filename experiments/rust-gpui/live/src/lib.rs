@@ -23,6 +23,7 @@ pub mod map;
 pub mod view;
 
 pub mod controller;
+pub mod git;
 pub mod session;
 pub mod setup;
 pub mod sinks;

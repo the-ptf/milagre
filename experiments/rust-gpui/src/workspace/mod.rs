@@ -270,9 +270,13 @@ impl Render for Workspace {
         }
         let preview = preview::is_on(cx);
         let columns = if preview {
-            // Preview: the Chat column (and its local Terminal) only; the panel and Routines are not backed.
+            // Preview: the Chat column and its Terminal; the panel only once a data layer feeds its Changes (the one
+            // tab the runtime backs), with its diff over the Chat as in the app. Routines are not backed.
             let body = self.chat.clone().into_any_element();
-            self.chat_column(terminal::column(body, &self.terminals, window, cx), cx)
+            let live_panel = self.panel.read(cx).is_live();
+            let body = if live_panel { self.diff_over_chat(body, window, cx) } else { body };
+            let column = self.chat_column(terminal::column(body, &self.terminals, window, cx), cx);
+            if live_panel { dock::layout(&self.panel, column, cx) } else { column }
         } else if self.routines_open {
             div().flex().flex_1().min_w_0().h_full().child(self.routines_column(cx)).into_any_element()
         } else {

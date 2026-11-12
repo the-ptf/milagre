@@ -221,8 +221,9 @@ impl Workspace {
     /// The panel toggle at the window's top-right, in the top bar's row. Not shown on the Routines page, which has
     /// no panel, or over the Link workspace, which draws its own.
     pub(super) fn corner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        // Preview: there is no side panel to toggle.
-        if self.routines_open || self.link.is_some() || crate::workspace::preview::is_on(cx) {
+        // Preview: a side panel to toggle only once a data layer feeds its Changes.
+        let unbacked = crate::workspace::preview::is_on(cx) && !self.panel.read(cx).is_live();
+        if self.routines_open || self.link.is_some() || unbacked {
             return None;
         }
         let items = self.corner_items(cx);

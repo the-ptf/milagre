@@ -65,7 +65,7 @@ def runtime_path(sha):
 
 RUNTIME = runtime_path(RUNTIME_SHA256)
 RUNNER = "milagre_gpui_live"
-TESTS = "tests::owned::"
+TESTS = "tests::"
 LOG = CRATE / "target/check-gpui-live.log"
 FAKE_MANIFEST = """[package]
 name = "runtime-fake-claude"
@@ -197,7 +197,7 @@ def run(backend):
         env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(stage / "home"), "TMPDIR": str(stage / "tmp"), "LANG": "en_US.UTF-8"}
         binary = stage / "gpui-live-tests"
         listed = subprocess.run([str(binary), "--ignored", "--list", TESTS], cwd=stage, env=env, capture_output=True, text=True, check=True)
-        tests = re.findall(r"^(tests::owned::\S+): test$", listed.stdout, re.MULTILINE)
+        tests = re.findall(r"^(tests::(?:owned|git)::\S+): test$", listed.stdout, re.MULTILINE)
         if not tests:
             raise SystemExit("No owned-runtime tests listed")
         outcomes, output = {}, []

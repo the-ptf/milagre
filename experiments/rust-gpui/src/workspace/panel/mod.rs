@@ -153,6 +153,8 @@ pub struct Panel {
     header_trailing: gpui::Pixels,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
     renders: usize,
+    /// A data layer feeds the Changes tab (`set_live_changes`): it is the only tab, and no fixture content shows.
+    live: bool,
 }
 
 impl Panel {
@@ -211,6 +213,7 @@ impl Panel {
             browser: cx.new(BrowserView::new),
             header_trailing: px(0.0),
             renders: 0,
+            live: false,
         };
         panel.load_simulator(cx);
         panel.load_details(cx);
@@ -313,7 +316,37 @@ impl Panel {
 
     /// The tabs the Chat on screen has, in order.
     pub fn visible_tabs(&self) -> Vec<PanelTab> {
+        if self.live {
+            return vec![PanelTab::Changes];
+        }
         PanelTab::SHOWN.into_iter().filter(|tab| self.content.has(*tab)).collect()
+    }
+
+    /// A data layer's Changes for `chat` (its Git reads): the panel shows that Chat's Changes and nothing else from
+    /// then on. Another Chat starts its view state afresh; the same Chat keeps its picks and folds.
+    pub fn set_live_changes(&mut self, chat: SharedString, data: changes::data::ChangesData, cx: &mut Context<Self>) {
+        let switched = !self.live || self.chat != chat;
+        self.live = true;
+        self.chat = chat.clone();
+        self.content = fixture::ChatContent { changes: data.clone(), designs: false, artifacts: false, pr: None, simulator: false };
+        self.state_mut().tab = PanelTab::Changes;
+        if switched {
+            self.changes.update(cx, |changes, cx| changes.set_chat(chat, data, cx));
+            self.relayout(cx);
+        } else {
+            self.changes.update(cx, |changes, cx| changes.set_data(data, cx));
+            cx.notify();
+        }
+    }
+
+    /// Whether a data layer feeds the panel (`set_live_changes`).
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    /// The Changes the panel holds for its Chat (the fixture's, or a data layer's).
+    pub fn changes_data(&self) -> &changes::data::ChangesData {
+        &self.content.changes
     }
 
     /// The panel's width: dragged this session, else the default. No tab has one of its own.
