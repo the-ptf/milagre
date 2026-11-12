@@ -77,9 +77,10 @@ pub struct DetailsView {
     family: Family,
     context_open: bool,
     finished_open: bool,
-    /// The Children and Background tasks sections' open state: kept for the session, across Chats.
+    /// The Children, Background tasks and Links sections' open state: kept for the session, across Chats.
     children_open: bool,
     background_open: bool,
+    links_open: bool,
     copied: bool,
     copy_timer: Option<Task<()>>,
     requests: Vec<Request>,
@@ -91,7 +92,7 @@ pub struct DetailsView {
 
 impl DetailsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        // Snapshot seed: `MILAGRE_GPUI_DETAILS_FOLD=children,background` starts those sections folded.
+        // Snapshot seed: `MILAGRE_GPUI_DETAILS_FOLD=children,background,links` starts those sections folded.
         let fold = if cfg!(test) { String::new() } else { std::env::var("MILAGRE_GPUI_DETAILS_FOLD").unwrap_or_default() };
         Self {
             key: SharedString::default(),
@@ -106,6 +107,7 @@ impl DetailsView {
             finished_open: false,
             children_open: !fold.contains("children"),
             background_open: !fold.contains("background"),
+            links_open: !fold.contains("links"),
             copied: false,
             copy_timer: None,
             requests: Vec::new(),
@@ -195,6 +197,10 @@ impl DetailsView {
         self.background_open
     }
 
+    pub fn links_open(&self) -> bool {
+        self.links_open
+    }
+
     pub fn renders(&self) -> usize {
         self.renders
     }
@@ -211,6 +217,11 @@ impl DetailsView {
 
     pub fn toggle_background(&mut self, cx: &mut Context<Self>) {
         self.background_open = !self.background_open;
+        cx.notify();
+    }
+
+    pub fn toggle_links(&mut self, cx: &mut Context<Self>) {
+        self.links_open = !self.links_open;
         cx.notify();
     }
 

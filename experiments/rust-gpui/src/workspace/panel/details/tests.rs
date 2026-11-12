@@ -192,3 +192,16 @@ fn children_and_background_toggle_and_stay_folded_across_chats(cx: &mut TestAppC
     view.update(cx, |v, cx| v.toggle_children(cx));
     assert!(!view.read_with(cx, |v, _| v.children_open()));
 }
+
+#[gpui::test]
+fn links_fold_and_stay_folded_across_chats(cx: &mut TestAppContext) {
+    let (panel, cx) = mount(cx);
+    let view = details(&panel, cx);
+    assert!(view.read_with(cx, |v, _| v.links_open()), "open by default");
+    assert!(cx.debug_bounds("details-pr").is_some(), "the PR row shows while open");
+    click(cx, "details-links-toggle");
+    assert!(!view.read_with(cx, |v, _| v.links_open()));
+    assert!(cx.debug_bounds("details-pr").is_none(), "folded: the rows are gone");
+    click(cx, "details-links-toggle");
+    assert!(view.read_with(cx, |v, _| v.links_open()));
+}

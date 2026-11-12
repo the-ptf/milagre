@@ -440,7 +440,12 @@ impl DetailsView {
     }
 
     pub(super) fn links(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows: Vec<AnyElement> = vec![heading(theme, "Links")];
+        let open = self.links_open();
+        let mut rows: Vec<AnyElement> =
+            vec![toggle_heading(theme, "details-links-toggle", "Links", open, on(cx, |this, cx| this.toggle_links(cx)))];
+        if !open {
+            return section(rows);
+        }
         if let Some((key, title)) = self.data.linear.clone() {
             let issue = key.clone();
             rows.push(
