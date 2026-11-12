@@ -17,7 +17,6 @@
 use gpui::{App, BorderStyle, Bounds, Corners, Edges, Hsla, IntoElement, Pixels, RenderOnce, Window, canvas, prelude::*, px};
 
 use crate::theme::{Appearance, Theme};
-use crate::ui::grain::CARD_STRENGTH;
 
 /// The blur radius of every glass surface (CSS `blur(24px)`; the gaussian's sigma, in points).
 pub const GLASS_BLUR: Pixels = px(24.0);
@@ -25,11 +24,6 @@ pub const GLASS_BLUR: Pixels = px(24.0);
 pub const GLASS_COMPOSER_FILL: f32 = 0.62;
 /// The pills' tint: `.status-pill`'s own mix, the surface at 68%.
 pub const GLASS_PILL_FILL: f32 = 0.68;
-/// Film grain over the glass tint, as strong as the Chat card's: the baked texture's specks reach 18/255 alpha
-/// (`tools/gen-grain.mjs`) and the card shows them at [`CARD_STRENGTH`], so the glass reads as the same grained
-/// surface as the card around it, and the grain hides what the dither leaves of the blur's steps. The renderer draws
-/// it per device pixel, fixed to the window like the tiled texture.
-pub const GLASS_GRAIN: f32 = 18.0 / 255.0 * CARD_STRENGTH;
 /// The light edge in dark: ink at 10%, and 18% along the top.
 const DARK_EDGE: f32 = 0.10;
 const DARK_TOP: f32 = 0.18;
@@ -63,15 +57,15 @@ impl Glass {
         Self { blur, tint: tint.into(), radius: px(0.0), edge: None, top_edge: None, outset: false, grain: 0.0 }
     }
 
-    /// The app's glass: [`GLASS_BLUR`] under the theme's `surface` at `fill`, with the appearance's light edge and
-    /// the card's grain.
+    /// The app's glass: [`GLASS_BLUR`] under the theme's `surface` at `fill`, with the appearance's light edge. A clean
+    /// surface: no film grain (Victor, 2026-11-12: the composer has no speckle; [`Glass::grain`] adds it on request).
     pub fn surface(theme: &Theme, fill: f32) -> Self {
         let ink = Hsla::from(theme.ink);
         let (edge, top) = match theme.appearance {
             Appearance::Dark => (ink.opacity(DARK_EDGE), ink.opacity(DARK_TOP)),
             Appearance::Light => (ink.opacity(LIGHT_EDGE), Hsla::from(theme.surface)),
         };
-        Self::new(GLASS_BLUR, Hsla::from(theme.surface).opacity(fill)).edge(edge).top_edge(top).grain(theme.appearance, GLASS_GRAIN)
+        Self::new(GLASS_BLUR, Hsla::from(theme.surface).opacity(fill)).edge(edge).top_edge(top)
     }
 
     /// Film grain over the tint, specks up to `alpha`: white over the dark theme, black over the light one, like the

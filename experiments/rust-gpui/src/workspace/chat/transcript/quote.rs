@@ -114,15 +114,21 @@ pub fn button_origin(at: Point<Pixels>, area: Bounds<Pixels>) -> Point<Pixels> {
     point(left - area.left(), top - area.top())
 }
 
-/// The Quote button: `surface`, `shadow-raised`, 32 high, 13 medium ink, its shortcut in 12 `ink-3`
-/// (`MessageSelection.tsx`).
+/// The hovered Quote button's fill: the surface with the theme's `hover` wash over it, opaque.
+pub fn hover_fill(theme: &Theme) -> gpui::Hsla {
+    gpui::Hsla::from(theme.surface).blend(gpui::Hsla::from(theme.hover))
+}
+
+/// The Quote button: `surface`, a 1px `line` border and `shadow-raised`, 32 high, 13 medium ink, its shortcut in 12
+/// `ink-3` (`MessageSelection.tsx`). Opaque in every state: hovered it is the surface with `hover` laid over it (the
+/// theme's `hover` alone is a translucent wash, which let the transcript's text show through the button).
 pub fn quote_button<F: Fn(&ClickEvent, &mut Window, &mut App) + 'static>(
     origin: Point<Pixels>,
     shortcut: Option<SharedString>,
     theme: &Theme,
     on_click: F,
 ) -> impl IntoElement + use<F> {
-    let hover = theme.hover;
+    let hover = hover_fill(theme);
     div()
         .id("quote-selection")
         .debug_selector(|| "quote-selection".into())
@@ -137,6 +143,8 @@ pub fn quote_button<F: Fn(&ClickEvent, &mut Window, &mut App) + 'static>(
         .px_3()
         .rounded(RADIUS_CONTROL)
         .bg(theme.surface)
+        .border_1()
+        .border_color(theme.line)
         .shadow(theme.shadow_raised())
         .text_step(TEXT_13)
         .font_weight(FontWeight::MEDIUM)
@@ -146,4 +154,19 @@ pub fn quote_button<F: Fn(&ClickEvent, &mut Window, &mut App) + 'static>(
         .on_click(on_click)
         .child("Quote")
         .children(shortcut.map(|keys| div().text_step(TEXT_12).font_weight(FontWeight::NORMAL).text_color(theme.ink3).child(keys)))
+}
+
+#[cfg(test)]
+mod opaque_tests {
+    use super::*;
+
+    #[test]
+    fn the_quote_button_is_opaque_hovered_or_not_in_both_themes() {
+        for theme in [Theme::dark(), Theme::light()] {
+            assert_eq!(gpui::Hsla::from(theme.surface).a, 1.0, "its fill");
+            let hover = hover_fill(&theme);
+            assert!((hover.a - 1.0).abs() < 1e-6, "hovered: {hover:?}");
+            assert_ne!(hover, gpui::Hsla::from(theme.surface), "hover still shows");
+        }
+    }
 }
