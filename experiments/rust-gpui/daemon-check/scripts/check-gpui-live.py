@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-1b180e46/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-1b180e46/,
+target/daemon-client-f946e184/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-f946e184/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,18 +37,20 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
-CLIENT_COMMIT = "1b180e46f1cee9100f511f38c10635866a869cec"
-CLIENT_TREE = "fa8a8f4d431981a00c4b2eb4c90cc00ad3794f3d"
+CLIENT_COMMIT = "f946e1848e46e89b9013157e1960deac1ab9b363"
+CLIENT_TREE = "cf8a21e5b66fa08bca723a7ae1a9685c8c597b8e"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-1b180e46"
+EXPORT = GPUI / "target/daemon-client-f946e184"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-1b180e46"
-# The agreed dedicated runtimes, newest first: 6054d7d6 (backend's signed runtime for client 1b180e46: Chat metadata
+FAKE_CRATE = CRATE / "target/fake-claude-f946e184"
+# The agreed dedicated runtimes, newest first: 30bdfd09 (backend's signed runtime for client f946e184: typed Git
+# reads and local PR diffs), 6054d7d6 (backend's signed runtime for client 1b180e46: Chat metadata
 # patch for rename, Done and Reopen), 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client
 # 3410109b: owner-death exit, CHAT_ROOT_BUSY, bootstrap project_id/agent_name), 846ee97a (backend 4c5f541a, adds PTY and Git on the runtime side; no
 # client facade for them) and c4a6c25a (content and late cleanup). `--sha256` picks another agreed one.
 AGREED = {
+    "30bdfd09631b4a223b6f560a690fa71034714cee684a4d5b6201f00c77f2e389": "backend signed runtime for client f946e184",
     "6054d7d6759262ec4d463380589261d954e1f8be79e75bb5d1a5d0be2142d70a": "backend signed runtime for client 1b180e46",
     "862f4cd2f7a7d243da524852320554e09fd8d11835523a3a6a4fdfa956d70502": "backend signed runtime for client 3410109b",
     "846ee97abc1d8ab38d2ea53c3e510fba726c305e1b58f7256fe07cd9805113f2": "backend 4c5f541a combined runtime",

@@ -15,9 +15,9 @@ path = "src/main.rs"
 
 [dependencies]
 milagre-gpui-spike = { path = ".." }
-# The backend's shared client at 1b180e46 (owned-chat Chat, terminal and sidebar actions) with its off-by-default `owned-chat` feature, exported (never edited) by
+# The backend's shared client at f946e184 (owned-chat Chat, terminal, sidebar and Git reads) with its off-by-default `owned-chat` feature, exported (never edited) by
 # ../daemon-check/scripts/check-gpui-live.py into the GPUI crate's ignored target/ directory.
-milagre-daemon-client = { path = "../target/daemon-client-1b180e46/experiments/rust-daemon-client", features = ["owned-chat"] }
+milagre-daemon-client = { path = "../target/daemon-client-f946e184/experiments/rust-daemon-client", features = ["owned-chat"] }
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
 gpui-component = "=0.9.1"
