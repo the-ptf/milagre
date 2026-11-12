@@ -215,13 +215,13 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
             ("M", "Relay Durable Object backoff", "milagre-ade · Victor XPro", Background),
             // Top-level Chats only, newest first: Subchats are in the Details panel.
             ("M", "Migrate desktop to Rust PoC", "milagre-ade · Victor XPro", Running),
-            ("M", "Fix Linux onboarding intro hang", "milagre-ade · #1020 · Victor XPro", Waiting),
+            ("M", "Fix Linux onboarding intro hang", "milagre-ade · #1020 · +1 · Victor XPro", Waiting),
             ("M", "Fix Windows port listener cleanup", "milagre · tianxu, offline", Unread),
             // Blocked PRs first (`rowPullRequests`): #1015's CI failed.
             ("M", "Codebase analysis and fixes", "milagre-ade · #1015 · +3 · Victor XPro", Running),
             ("M", "Rust terminal owner migration", "milagre-ade · Victor XPro", Idle),
             ("R", "RDCar ops", "rd-car · deer", Question),
-            ("R", "Tailscale routes for phone", "rd-car · #557 · deer", Running),
+            ("R", "Tailscale routes for phone", "rd-car · #557 · +2 · deer", Running),
             ("G", "Gestor RDCar", "Chats · deer", Unread),
             // Marked Done minutes ago: still listed.
             ("S", "Ship the Lighthouse budget", "site · #1011 · Victor XPro", Idle),

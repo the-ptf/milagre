@@ -230,7 +230,18 @@ impl FixtureData {
                 4 | 5 => (Live::Idle, true, Some(Outcome::Completed)),
                 _ => (Live::Idle, false, Some(Outcome::Completed)),
             };
-            let prs = if lcg.next().is_multiple_of(3) { vec![900 + (lcg.next() % 200) as u32] } else { Vec::new() };
+            // A third have PRs: one mostly, two or three on every fourth of those (the row then says "+2", "+3").
+            let prs = if lcg.next().is_multiple_of(3) {
+                let first = 900 + (lcg.next() % 200) as u32;
+                let count = match n % 8 {
+                    0 | 4 => 2,
+                    2 => 3,
+                    _ => 1,
+                };
+                (0..count).map(|k| first + k * 7).collect()
+            } else {
+                Vec::new()
+            };
             let provider = match n % 13 {
                 0 | 5 => Provider::Codex,
                 7 => Provider::Antigravity,
@@ -287,7 +298,7 @@ impl FixtureData {
         push(Spec {
             live: Live::Approval("npm test -- --only test-onboarding"),
             outcome: None,
-            prs: vec![1020],
+            prs: vec![1020, 1019],
             ..named(ADE, "Fix Linux onboarding intro hang", 8)
         });
         push(Spec { unread: true, ..named(MILAGRE, "Fix Windows port listener cleanup", 12) });
@@ -300,7 +311,7 @@ impl FixtureData {
         push(Spec { outcome: Some(Outcome::Failed), ..named(ADE, "Rust terminal owner migration", 18) });
         push(Spec { live: Live::Question("Which plan should the fleet report use?"), outcome: None, ..named(RD_CAR, "RDCar ops", 20) });
         // Working on another computer.
-        push(Spec { live: Live::Working, outcome: None, prs: vec![557], ..named(RD_CAR, "Tailscale routes for phone", 22) });
+        push(Spec { live: Live::Working, outcome: None, prs: vec![557, 561, 562], ..named(RD_CAR, "Tailscale routes for phone", 22) });
         push(Spec { unread: true, ..named(DEER_HOME, "Gestor RDCar", 25) });
         // Marked Done minutes ago: still in the list, dimmed, with the check (one in a Chats home, without a Project).
         push(Spec { done: Some(12), prs: vec![1011], ..named(SITE, "Ship the Lighthouse budget", 26) });
@@ -325,7 +336,7 @@ impl FixtureData {
         // A Run Chat the user kept (pinned once, so the host stopped hiding it).
         push(Spec { routine: Some(Some(false)), prs: vec![1013], ..named(ADE, "Babysit PR #1013", 50) });
         push(Spec { commands: vec!["npm run dev"], ..named(HAPPIERGYM, "Live Activity for rest timer", 60) });
-        push(Spec { unread: true, provider: Provider::Codex, prs: vec![1010], ..named(SITE, "Landing page Lighthouse budget", 75) });
+        push(Spec { unread: true, provider: Provider::Codex, prs: vec![1010, 1004], ..named(SITE, "Landing page Lighthouse budget", 75) });
         push(Spec { provider: Provider::Kiro, prs: vec![1005], ..named(ADE_COPY, "Chat switch panel flash", 90) });
         push(Spec { provider: Provider::Antigravity, ..named(NOTES, "Meeting notes cleanup", 110) });
 
