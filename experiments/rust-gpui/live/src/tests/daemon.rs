@@ -17,7 +17,7 @@
 //! - `details_pills_and_a_model_switch`: the Details tab and the pills from the state, `agent:ports` and
 //!   `pull-requests:snapshot`; the chip's label from `agent:models`; a pick on an open Chat sent with its next
 //!   message (another provider: the daemon switches it), kept for that Chat, with the picked effort; Settings with
-//!   Appearance, the daemon's accounts read-only (`accounts:list`) and every other section not available; the PR
+//!   Appearance, the daemon's accounts read-only (`accounts:list`) and no other section listed; the PR
 //!   pill's fix sent as `chat:send` with `prAction`.
 //! - `appearance_preferences_round_trip`: the Preview's own `preferences.json` (Settings › Appearance).
 //! - `a_read_only_window_writes_nothing`: the `--snapshot` mode: nothing but adoption, the snapshot and reads; an
@@ -681,7 +681,7 @@ fn details_pills_and_a_model_switch(cx: &mut TestAppContext) {
     m.wait_for("the picked model again", |m| m.composer_model() == (Provider::Codex, "gpt-6.1-sol".into(), false));
     assert_eq!(composer.read_with(m.vcx, |c, _| c.model_label().to_string()), "GPT-6.1-Sol");
 
-    // Settings: Appearance (this window's), the accounts read from the daemon (read-only), the rest not available.
+    // Settings: Appearance (this window's), the accounts read from the daemon (read-only); no other section listed.
     use milagre_gpui_spike::settings::SettingsSectionId;
     let settings = m.workspace.read_with(m.vcx, |w, _| w.settings.clone());
     m.wait_for("the accounts", |m| m.vcx.update(|_, cx| cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewAccounts>()));
@@ -698,7 +698,9 @@ fn details_pills_and_a_model_switch(cx: &mut TestAppContext) {
         settings.update(cx, |s, cx| s.select_section(milagre_gpui_spike::settings::SelectedSection::Section(SettingsSectionId::Mcp), cx))
     });
     m.vcx.run_until_parked();
-    assert!(m.vcx.debug_bounds("settings-unavailable").is_some(), "MCP is not available yet");
+    // Only the backed sections are listed: MCP is not, and asking for it shows Appearance.
+    assert!(m.vcx.debug_bounds("settings-nav-mcp").is_none() && m.vcx.debug_bounds("settings-nav-accounts").is_some());
+    assert_eq!(settings.read_with(m.vcx, |s, _| s.selected_section_id()), SettingsSectionId::Appearance);
     m.vcx.update(|_, cx| {
         settings
             .update(cx, |s, cx| s.select_section(milagre_gpui_spike::settings::SelectedSection::Section(SettingsSectionId::Appearance), cx))

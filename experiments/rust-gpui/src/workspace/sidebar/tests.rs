@@ -428,7 +428,12 @@ fn pressing_a_row_renders_each_row_once_per_event(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let after = sidebar.read_with(cx, |s, _| s.rows_built());
     assert_eq!(after - before, alive, "the mouse down rendered each live row once, the pressed one included");
-    cx.simulate_event(gpui::MouseUpEvent { position: row.center(), button: gpui::MouseButton::Left, modifiers: Modifiers::none(), click_count: 1 });
+    cx.simulate_event(gpui::MouseUpEvent {
+        position: row.center(),
+        button: gpui::MouseButton::Left,
+        modifiers: Modifiers::none(),
+        click_count: 1,
+    });
     cx.run_until_parked();
     let released = sidebar.read_with(cx, |s, _| s.rows_built());
     assert!(released - after <= alive + 1, "the mouse up rendered each row once, and at most the selection's changes more");

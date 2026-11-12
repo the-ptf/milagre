@@ -286,8 +286,11 @@ impl Sidebar {
         if !crate::workspace::preview::is_on(cx) {
             return usage::rows(&self.data.usage, &self.usage_hooks(cx), theme);
         }
-        let mut blocks =
-            if crate::workspace::preview::usage_is_live(cx) { usage::rows(&self.data.usage, &self.usage_hooks(cx), theme) } else { Vec::new() };
+        let mut blocks = if crate::workspace::preview::usage_is_live(cx) {
+            usage::rows(&self.data.usage, &self.usage_hooks(cx), theme)
+        } else {
+            Vec::new()
+        };
         if let Some(notice) = self.notice.clone() {
             blocks.push(
                 div()

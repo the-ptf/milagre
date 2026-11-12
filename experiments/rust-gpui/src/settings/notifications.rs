@@ -84,15 +84,21 @@ pub fn render_notifications(highlighted: Option<&str>, cx: &App) -> impl IntoEle
                 .on_change(|next, _, cx| {
                     cx.update_global::<SettingsStore, _>(|s, _| s.notify_on_attention = next);
                 }),
-        )
-        .row(
+        );
+    // Preview mode has no attention button and no Routines: their rows are not shown.
+    let preview = crate::workspace::preview::is_on(cx);
+    let alerts_group = if preview {
+        alerts_group
+    } else {
+        alerts_group.row(
             CheckboxRow::new("notifications-attention-button", "Attention button", store.show_attention_inbox)
                 .description("Top right, when a chat in another project needs an approval or an answer")
                 .highlighted(highlighted)
                 .on_change(|next, _, cx| {
                     cx.update_global::<SettingsStore, _>(|s, _| s.show_attention_inbox = next);
                 }),
-        );
+        )
+    };
 
     // Schedule group
     let schedule_group = render_schedule_group(store.notification_schedule.as_ref(), highlighted, hl_shared.clone(), cx);
@@ -143,7 +149,7 @@ pub fn render_notifications(highlighted: Option<&str>, cx: &App) -> impl IntoEle
         .child(alerts_group)
         .child(schedule_group)
         .child(sound_group)
-        .child(routines_group)
+        .when(!preview, |el| el.child(routines_group))
 }
 
 fn render_schedule_group(

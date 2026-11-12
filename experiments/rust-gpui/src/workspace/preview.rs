@@ -6,8 +6,9 @@
 //! buttons), Settings and the notices are not shown; the sidebar's menus keep Mark as unread, Rename, Done and Reopen (the writes the runtime takes)
 //! while Pin, Delete and drag do nothing unless the data layer backs them ([`PreviewWrites`]); the sidebar has no status text (the plan usage rows only when the data layer reads them, and its notice when it has one); the Terminal
 //! drawer is labelled as this computer's local shell unless the data layer hosts its terminals. The fixture app never sets it.
-//! Settings opens with Appearance (this window's own) and, once the data layer reads them, the accounts
-//! ([`PreviewAccounts`], read-only); every other section says it is not available yet. The panel shows Details and
+//! Settings lists only the sections the data layer backs ([`settings_shows`]): Appearance (this window's own) and,
+//! once the data layer feeds them, Accounts ([`PreviewAccounts`], read-only), Usage and Notifications; the others are
+//! not in its list or its search, and it opens on Appearance. The panel shows Details and
 //! the pill row only once the data layer feeds them (`Panel::set_live_details`, `PillRow::set_live`).
 
 use gpui::{App, Global, SharedString};
@@ -88,4 +89,27 @@ pub fn is_on(cx: &App) -> bool {
 
 pub fn get(cx: &App) -> Option<&PreviewMode> {
     cx.try_global::<PreviewMode>()
+}
+
+/// Set by a data layer that keeps Settings › Notifications itself (the Preview's own notifier): that section shows.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PreviewNotifications;
+
+impl Global for PreviewNotifications {}
+
+/// The Settings sections a preview shows: only those it backs (Appearance always; Accounts, Usage and Notifications
+/// once the data layer feeds them). Outside preview mode, every section. Paired computers and Projects' pages are not
+/// shown in preview mode.
+pub fn settings_shows(cx: &App, page: crate::settings::search::SettingsSectionId) -> bool {
+    use crate::settings::search::SettingsSectionId as S;
+    if !is_on(cx) {
+        return true;
+    }
+    match page {
+        S::Appearance => true,
+        S::Accounts => cx.has_global::<PreviewAccounts>(),
+        S::Usage => cx.has_global::<PreviewPlanUsage>(),
+        S::Notifications => cx.has_global::<PreviewNotifications>(),
+        _ => false,
+    }
 }

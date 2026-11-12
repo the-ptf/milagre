@@ -327,7 +327,13 @@ fn render_section_list(
 ) -> impl IntoElement {
     let theme = *cx.theme();
 
-    let make_section_item = |section: SettingsSectionId| -> AnyElement {
+    // Preview mode lists only the sections the data layer backs (`preview::settings_shows`); a group with none goes.
+    let preview = crate::workspace::preview::is_on(cx);
+    let shown = |section: SettingsSectionId| crate::workspace::preview::settings_shows(cx, section);
+    let make_section_item = |section: SettingsSectionId| -> Option<AnyElement> {
+        if !shown(section) {
+            return None;
+        }
         let active = selected.is_section(section);
         let on_select = on_select.clone();
         let id = format!("settings-nav-{}", section.as_str());
@@ -342,43 +348,47 @@ fn render_section_list(
             cx,
         )
         .into_any_element()
+        .into()
+    };
+    let group = |heading: Option<&'static str>, sections: &[SettingsSectionId]| -> Option<Div> {
+        let items: Vec<AnyElement> = sections.iter().filter_map(|s| make_section_item(*s)).collect();
+        if items.is_empty() {
+            return None;
+        }
+        let mut el = div().px(px(8.0)).flex().flex_col().gap(px(2.0));
+        if let Some(heading) = heading {
+            el = el.child(nav_group_heading(heading, cx));
+        }
+        Some(el.children(items))
     };
 
     // Top ungrouped sections
-    let top_group = div()
-        .px(px(8.0))
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .child(make_section_item(SettingsSectionId::General))
-        .child(make_section_item(SettingsSectionId::Appearance))
-        .child(make_section_item(SettingsSectionId::Chat))
-        .child(make_section_item(SettingsSectionId::Notifications))
-        .child(make_section_item(SettingsSectionId::Keybindings));
+    let top_group = group(
+        None,
+        &[
+            SettingsSectionId::General,
+            SettingsSectionId::Appearance,
+            SettingsSectionId::Chat,
+            SettingsSectionId::Notifications,
+            SettingsSectionId::Keybindings,
+        ],
+    );
 
     // Agents group
-    let agents_group = div()
-        .px(px(8.0))
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .child(nav_group_heading("Agents", cx))
-        .child(make_section_item(SettingsSectionId::Models))
-        .child(make_section_item(SettingsSectionId::Accounts))
-        .child(make_section_item(SettingsSectionId::Usage))
-        .child(make_section_item(SettingsSectionId::Skills))
-        .child(make_section_item(SettingsSectionId::Mcp))
-        .child(make_section_item(SettingsSectionId::Browser));
+    let agents_group = group(
+        Some("Agents"),
+        &[
+            SettingsSectionId::Models,
+            SettingsSectionId::Accounts,
+            SettingsSectionId::Usage,
+            SettingsSectionId::Skills,
+            SettingsSectionId::Mcp,
+            SettingsSectionId::Browser,
+        ],
+    );
 
     // Code group
-    let code_group = div()
-        .px(px(8.0))
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .child(nav_group_heading("Code", cx))
-        .child(make_section_item(SettingsSectionId::Worktrees))
-        .child(make_section_item(SettingsSectionId::Connections));
+    let code_group = group(Some("Code"), &[SettingsSectionId::Worktrees, SettingsSectionId::Connections]);
 
     // Computers & devices group
     let this_mac_active = selected.is_section(SettingsSectionId::ThisMac);
@@ -390,7 +400,7 @@ fn render_section_list(
         .flex_col()
         .gap(px(2.0))
         .child(nav_group_heading("Computers & devices", cx))
-        .child(make_section_item(SettingsSectionId::Devices))
+        .children(make_section_item(SettingsSectionId::Devices))
         .child(nav_item(
             "settings-nav-this-mac",
             "settings-nav-this-mac".to_string(),
@@ -422,9 +432,12 @@ fn render_section_list(
     }
 
     // Projects group
-    let mut content = div().pb(px(12.0)).flex().flex_col().child(top_group).child(agents_group).child(code_group).child(computers_group);
+    let mut content = div().pb(px(12.0)).flex().flex_col().children(top_group).children(agents_group).children(code_group);
+    if !preview {
+        content = content.child(computers_group);
+    }
 
-    if !projects.is_empty() {
+    if !projects.is_empty() && !preview {
         let mut projects_group = div().px(px(8.0)).flex().flex_col().gap(px(2.0)).child(nav_group_heading("Projects", cx));
         for (proj_path, proj_name) in projects {
             let active = selected.is_project(proj_path);
@@ -448,16 +461,9 @@ fn render_section_list(
     // Divider + Footer (Church, About)
     let divider = div().mx(px(16.0)).mt(px(12.0)).mb(px(4.0)).h(px(1.0)).bg(theme.line);
 
-    let footer_group = div()
-        .px(px(8.0))
-        .pt(px(8.0))
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .child(make_section_item(SettingsSectionId::Experimental))
-        .child(make_section_item(SettingsSectionId::About));
-
-    content = content.child(divider).child(footer_group);
+    if let Some(footer_group) = group(None, &[SettingsSectionId::Experimental, SettingsSectionId::About]) {
+        content = content.child(divider).child(footer_group.pt(px(8.0)));
+    }
 
     ScrollArea::new("settings-nav-scroll", scroll).fade(theme.canvas).child(content)
 }

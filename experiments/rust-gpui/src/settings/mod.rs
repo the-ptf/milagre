@@ -277,7 +277,9 @@ impl SettingsModal {
         if query.trim().is_empty() {
             return Vec::new();
         }
-        let entries = build_search_entries(Some(&self.this_mac_name), &self.computers, &self.projects);
+        let mut entries = build_search_entries(Some(&self.this_mac_name), &self.computers, &self.projects);
+        // Preview mode: only the sections it lists are searched.
+        entries.retain(|entry| crate::workspace::preview::settings_shows(cx, entry.page));
         search_settings(&entries, &query, 60)
     }
 
@@ -336,6 +338,10 @@ impl Render for SettingsModal {
             return div().into_any_element();
         }
 
+        // Preview mode opens on (and falls back to) Appearance when the section asked for is not one it lists.
+        if crate::workspace::preview::is_on(cx) && !crate::workspace::preview::settings_shows(cx, self.selected.section_id()) {
+            self.selected = SelectedSection::Section(SettingsSectionId::Appearance);
+        }
         let input = self.ensure_search_input(window, cx);
         let query = input.read(cx).value().to_string();
         let hits = self.current_hits(cx);
@@ -499,6 +505,11 @@ fn render_section_body(
             }
             SelectedSection::Section(SettingsSectionId::Usage) if cx.has_global::<crate::workspace::preview::PreviewPlanUsage>() => {
                 accounts::preview_plan::render(cx)
+            }
+            SelectedSection::Section(SettingsSectionId::Notifications)
+                if cx.has_global::<crate::workspace::preview::PreviewNotifications>() =>
+            {
+                notifications::render_notifications(highlighted, cx).into_any_element()
             }
             SelectedSection::Section(section) => render_unavailable(section.as_str(), section.title(), section.icon(), cx),
             SelectedSection::Computer { id, name, .. } => {

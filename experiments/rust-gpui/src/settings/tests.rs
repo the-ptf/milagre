@@ -319,3 +319,46 @@ fn browser_church_and_about_controls_update_the_settings_store(cx: &mut TestAppC
     click(cx, "settings-row-auto-update");
     assert!(cx.read_global::<SettingsStore, _>(|s, _| s.auto_update));
 }
+
+/// Preview mode lists, searches and opens only the sections the data layer backs: Appearance always, Accounts, Usage
+/// and Notifications once their globals are set; no other section, computer or Project page, and a request for one
+/// falls back to Appearance.
+#[gpui::test]
+fn preview_settings_list_only_the_backed_sections(cx: &mut TestAppContext) {
+    use crate::workspace::preview::{PreviewAccounts, PreviewMode, PreviewNotifications};
+    let (workspace, cx) = testing::mount_workspace(cx);
+    cx.update(|_, cx| {
+        cx.set_global(PreviewMode { account: "test".into(), model: "test".into() });
+        cx.set_global(PreviewAccounts(Vec::new()));
+        cx.set_global(PreviewNotifications);
+    });
+    let settings = workspace.read_with(cx, |w, _| w.settings.clone());
+    settings.update_in(cx, |s, window, cx| s.open(window, cx));
+    settle(cx);
+    assert_eq!(settings.read_with(cx, |s, _| s.selected_section_id()), SettingsSectionId::Appearance, "opens on Appearance");
+    for shown in ["appearance", "accounts", "notifications"] {
+        assert!(cx.debug_bounds(Box::leak(format!("settings-nav-{shown}").into_boxed_str())).is_some(), "{shown} is listed");
+    }
+    for hidden in ["general", "chat", "keybindings", "models", "usage", "skills", "mcp", "browser", "worktrees", "devices", "about"] {
+        assert!(cx.debug_bounds(Box::leak(format!("settings-nav-{hidden}").into_boxed_str())).is_none(), "{hidden} is not listed");
+    }
+    assert!(cx.debug_bounds("settings-nav-this-mac").is_none(), "no computers group");
+    assert!(cx.debug_bounds("settings-unavailable").is_none());
+    // Search: only the listed sections' rows.
+    settings.update_in(cx, |s, window, cx| s.set_query("keep awake", window, cx));
+    settle(cx);
+    assert!(settings.read_with(cx, |s, cx| s.current_hits(cx)).is_empty(), "a hidden section is not searched");
+    settings.update_in(cx, |s, window, cx| s.set_query("chime", window, cx));
+    settle(cx);
+    let hits = settings.read_with(cx, |s, cx| s.current_hits(cx));
+    assert!(!hits.is_empty() && hits.iter().all(|h| h.entry.page == SettingsSectionId::Notifications), "{hits:?}");
+    // Notifications draws its page, without the attention button and Routines rows.
+    settings.update_in(cx, |s, window, cx| s.set_query("", window, cx));
+    click(cx, "settings-nav-notifications");
+    assert!(cx.debug_bounds("settings-section-notifications").is_some());
+    assert!(cx.debug_bounds("notifications-attention-button").is_none() && cx.debug_bounds("notifications-unread-runs-dot").is_none());
+    // A hidden section asked for falls back to Appearance.
+    settings.update(cx, |s, cx| s.select_section(super::SelectedSection::Section(SettingsSectionId::Mcp), cx));
+    settle(cx);
+    assert_eq!(settings.read_with(cx, |s, _| s.selected_section_id()), SettingsSectionId::Appearance);
+}
