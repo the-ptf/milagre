@@ -74,6 +74,12 @@ impl PanelTab {
     pub const SHOWN: [PanelTab; 7] =
         [PanelTab::Details, PanelTab::Pr, PanelTab::Designs, PanelTab::Artifact, PanelTab::Changes, PanelTab::Simulator, PanelTab::Browser];
 
+    /// Whether the tab's body runs to the panel's left edge (the Artifact page and the Designs board), not inset by
+    /// the panel's half of the gap beside the Chat card.
+    pub fn edge_to_edge(self) -> bool {
+        matches!(self, PanelTab::Artifact | PanelTab::Designs)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             PanelTab::Changes => "Changes",
@@ -511,6 +517,16 @@ impl Render for Panel {
             // No fill of its own: the window's surface and its grain show through (`workspace/mod.rs`).
             .child(header)
             .when(HAIRLINE > px(0.0), |el| el.child(div().flex_none().h(HAIRLINE).bg(theme.line)))
-            .child(div().id("panel-body").debug_selector(|| "panel-body".into()).flex_1().min_h_0().children(body))
+            .child(
+                div()
+                    .id("panel-body")
+                    .debug_selector(|| "panel-body".into())
+                    .flex_1()
+                    .min_h_0()
+                    // A page or a board runs to the panel's left edge, over the panel's half of the Chat card's gap
+                    // (`dock.rs`), so no strip of the surface shows down its left side.
+                    .when(self.active().edge_to_edge(), |el| el.ml(-crate::workspace::shell::card::panel_lead()))
+                    .children(body),
+            )
     }
 }

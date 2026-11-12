@@ -323,6 +323,23 @@ fn the_page_fills_the_body_with_the_pills_floating_over_it(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn the_page_runs_to_the_panels_left_edge_and_lets_the_resize_handle_through(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    open_tab(&panel, cx);
+    let body = testing::bounds(cx, "artifact-page");
+    let header = testing::bounds(cx, "panel-header");
+    let card = testing::bounds(cx, "chat-card");
+    let lead = crate::workspace::shell::card::panel_lead();
+    assert_eq!(body.left(), header.left() - lead, "no inset: the page covers the panel's half of the gap");
+    assert_eq!(body.left() - card.right(), lead, "the Chat card keeps its own half");
+    assert_eq!(body.right(), header.right(), "the right edge is the panel's");
+    let host = view.read_with(cx, |view, _| view.host().cloned()).unwrap();
+    let edges: Vec<_> = host.read_with(cx, |host, _| host.cutouts().iter().filter(|c| !c.see_through).map(|c| c.bounds).collect());
+    let band = gpui::Bounds { origin: body.origin, size: gpui::size(px(super::HANDLE_REACH), body.size.height) };
+    assert_eq!(edges, vec![band], "the handle's band over the page passes the mouse, the page still drawn there");
+}
+
+#[gpui::test]
 fn hiding_the_tab_or_opening_settings_hides_the_page(cx: &mut TestAppContext) {
     let (panel, view, cx) = mount(cx);
     open_tab(&panel, cx);

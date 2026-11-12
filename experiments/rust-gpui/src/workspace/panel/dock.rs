@@ -19,6 +19,9 @@ use crate::workspace::shell::card;
 pub const MIN_CHAT_WIDTH: f32 = 420.0;
 /// How far either side of the panel's left edge a double-click counts as on the edge.
 const EDGE_GRAB: f32 = 4.0;
+/// How far the resize handle's grab band reaches into the panel past its left edge (gpui-base's `HANDLE_SIZE` plus
+/// `HANDLE_PADDING`). A native page there passes the mouse through, so the edge still drags over it.
+pub const HANDLE_REACH: f32 = 5.0;
 
 /// How wide a panel may be dragged and where it opens (`PANEL_WIDTHS`).
 #[derive(Clone, Copy, Debug, PartialEq)]

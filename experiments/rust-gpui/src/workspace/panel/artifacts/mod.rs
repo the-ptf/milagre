@@ -7,7 +7,8 @@
 //!   corner as on the desktop, and a page split into tabs shows them in a pill at its top-left instead of the title's
 //!   menu (a menu would open under the page). Both are GPUI glass pills: a native page draws above GPUI (D1), so the
 //!   host cuts a hole of each pill's shape in the page ([`Cutout`]) and GPUI's pill shows through it, over the page's
-//!   paper, and takes the mouse there.
+//!   paper, and takes the mouse there. The page runs to the panel's left edge; the resize handle's band over it is a
+//!   cutout that passes the mouse only, so the edge still drags.
 //! - Zoom is WebKit's page zoom, which lays the page out at the width it then fits, as the desktop's scaled iframe
 //!   does. Ctrl-wheel or a pinch over the page zooms about the pointer, a double-click away from text fits, and the
 //!   fit is the page's own width when it is wider than the panel, else 100%.
@@ -38,6 +39,7 @@ use gpui::{
 use self::fixture::HtmlArtifact;
 use self::messages::PageMessage;
 use self::protocol::Previews;
+use super::dock::HANDLE_REACH;
 use super::{Panel, PanelTab};
 use crate::platform::webview::{Cutout, HostRequest, WebEvent, WebHost, WebHostOptions};
 use crate::theme::{ActiveTheme, Appearance, TEXT_12, TextStepExt, Theme};
@@ -112,6 +114,8 @@ pub struct ArtifactsView {
     probe_scroll: ScrollHandle,
     /// The pills drawn this frame (the page tabs, the zoom), which the host cuts out of the page.
     pills: [Option<Bounds<Pixels>>; 2],
+    /// The page's left edge under the panel's resize handle, where the page lets the mouse through to it.
+    edge: Option<Bounds<Pixels>>,
     renders: usize,
     _subscriptions: Vec<Subscription>,
 }
@@ -146,6 +150,7 @@ impl ArtifactsView {
             probe: if cfg!(test) { None } else { probe::Mode::from_env() },
             probe_scroll: ScrollHandle::new(),
             pills: [None; 2],
+            edge: None,
             renders: 0,
             _subscriptions: vec![observe],
         };
@@ -375,13 +380,27 @@ impl ArtifactsView {
     /// Pill `slot` was drawn at `bounds` (window coordinates): the page lets it show and takes no mouse there.
     fn set_pill(&mut self, slot: usize, bounds: Option<Bounds<Pixels>>, cx: &mut Context<Self>) {
         self.pills[slot] = bounds;
-        let cutouts = self
+        self.send_cutouts(cx);
+    }
+
+    /// The page body's bounds, each prepaint: its left edge is the resize handle's.
+    fn set_page_bounds(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
+        let edge = Bounds { origin: bounds.origin, size: gpui::size(px(HANDLE_REACH), bounds.size.height) };
+        if self.edge != Some(edge) {
+            self.edge = Some(edge);
+            self.send_cutouts(cx);
+        }
+    }
+
+    fn send_cutouts(&mut self, cx: &mut Context<Self>) {
+        let pills = self
             .pills
             .iter()
             .flatten()
             // The glass's edge is a ring 1px outside the pill.
-            .map(|bounds| Cutout { bounds: bounds.dilate(px(1.0)), radius: px(f32::MAX), see_through: true })
-            .collect();
+            .map(|bounds| Cutout { bounds: bounds.dilate(px(1.0)), radius: px(f32::MAX), see_through: true });
+        let edge = self.edge.map(|bounds| Cutout { bounds, radius: px(0.0), see_through: false });
+        let cutouts = pills.chain(edge).collect();
         if let Some(host) = &self.host {
             host.update(cx, |host, _| host.set_cutouts(cutouts));
         }
@@ -480,7 +499,10 @@ impl Render for ArtifactsView {
             move |bounds, _, cx| {
                 if let Some(view) = view.upgrade() {
                     let (w, h) = (f64::from(f32::from(bounds.size.width)), f64::from(f32::from(bounds.size.height)));
-                    view.update(cx, |view, cx| view.set_room(w, h, cx));
+                    view.update(cx, |view, cx| {
+                        view.set_room(w, h, cx);
+                        view.set_page_bounds(bounds, cx);
+                    });
                 }
             },
             |_, _, _, _| {},
@@ -627,6 +649,14 @@ mod probe {
             let (inside, outside) = (host.native_hits_page(centre), host.native_hits_page(beside));
             eprintln!("probe {label}: pill at {centre:?}: page hit inside {inside:?}, just above {outside:?}");
             cut &= inside == Some(false) && outside == Some(true);
+        }
+        // The resize handle's band over the page's left edge gives the mouse to GPUI too; past it the page has it.
+        for cutout in host.cutouts().iter().filter(|c| !c.see_through) {
+            let y = cutout.bounds.center().y;
+            let on = host.native_hits_page(gpui::point(cutout.bounds.left() + px(2.0), y));
+            let past = host.native_hits_page(gpui::point(cutout.bounds.right() + px(3.0), y));
+            eprintln!("probe {label}: handle band {:?}: page hit on it {on:?}, past it {past:?}", cutout.bounds);
+            cut &= on == Some(false) && past == Some(true);
         }
         aligned && native.hit_page && cut
     }

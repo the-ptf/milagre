@@ -87,3 +87,26 @@ fn clicking_the_last_tab_scrolls_it_inside_the_list(cx: &mut TestAppContext) {
     assert!(pr.right() <= list.right(), "last tab right edge {:?} inside list {:?}", pr.right(), list.right());
     assert!(panel.read_with(cx, |p, _| p.tabs_scroll().offset().x) < px(0.0));
 }
+
+#[gpui::test]
+fn designs_and_artifact_run_to_the_panels_left_edge_and_the_others_keep_the_inset(cx: &mut TestAppContext) {
+    let (panel, cx) = mount(cx);
+    let lead = crate::workspace::shell::card::panel_lead();
+    let left = |cx: &mut gpui::VisualTestContext| {
+        let body = testing::bounds(cx, "panel-body");
+        let header = testing::bounds(cx, "panel-header");
+        (body.left() - header.left(), body.right() - header.right())
+    };
+    assert_eq!(left(cx), (px(0.0), px(0.0)), "Changes keeps the panel's inset");
+    for tab in [PanelTab::Designs, PanelTab::Artifact] {
+        panel.update(cx, |panel, cx| panel.activate(tab, cx));
+        cx.run_until_parked();
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert_eq!(left(cx), (-lead, px(0.0)), "{} runs to the edge, its right edge stays", tab.label());
+    }
+    let canvas = testing::bounds(cx, "panel-body");
+    panel.update(cx, |panel, cx| panel.activate(PanelTab::Designs, cx));
+    cx.run_until_parked();
+    assert_eq!(testing::bounds(cx, "designs-canvas").left(), canvas.left(), "the board starts at the edge, no padding");
+}
