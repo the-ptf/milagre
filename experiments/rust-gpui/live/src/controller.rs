@@ -23,8 +23,10 @@
 //! composer's), each write on a short request-only connection of the Chat's Project (loaded with `load_view`, never
 //! `project:open`), and a lost stream (the daemon restarted, quit, or sent another Project's oversized state)
 //! followed by a new sync, with "Open Milagre first" while there is no daemon. Projects the daemon knows but has not
-//! loaded get no rows (as in Electron); opening one on purpose loads it and syncs again. In read-only mode (`--snapshot`) every write, and
-//! every load, is refused here, before it reaches a connection.
+//! loaded get no rows (as in Electron); opening one on purpose loads it and syncs again. A daemon that has loaded none
+//! (just started, Milagre.app closed) gets its most recently opened Project loaded, as Electron's window opens its
+//! current Project on launch; the window shows it "Loading…" meanwhile, and never onboarding. In read-only mode
+//! (`--snapshot`) every write, and every load, is refused here, before it reaches a connection.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
@@ -503,8 +505,9 @@ impl LiveController {
             controller.update(cx, |c, cx| c.install_notifier(notifier, cx));
             cx.set_global(milagre_gpui_spike::workspace::preview::PreviewNotifications);
         }
-        if let Some(error) = error {
-            controller.update(cx, |this, cx| this.set_unavailable(Some(error), cx));
+        match error {
+            Some(error) => controller.update(cx, |this, cx| this.set_unavailable(Some(error), cx)),
+            None => controller.update(cx, |this, cx| this.load_first_when_none_loaded(cx)),
         }
         controller
     }
@@ -750,6 +753,7 @@ impl LiveController {
             self.load(cx);
         }
         self.on_store_changed(cx);
+        self.load_first_when_none_loaded(cx);
         self.read_accounts(cx);
         self.unlock_next = true;
         self.read_computers(cx);
@@ -1198,12 +1202,27 @@ impl LiveController {
     /// Milagre's daemon: follows Projects asked to load ([`Self::load_project`]) until their Chats arrive, then opens
     /// the newest. Projects the daemon knows but has not loaded get no rows, as in Electron's sidebar, and nothing loads
     /// one by itself; the sidebar's name-only list stays empty.
-    pub(crate) fn sync_unloaded(&mut self, _cx: &mut Context<Self>) {
-        let Backend::Daemon(_) = &self.backend else { return };
+    pub(crate) fn sync_unloaded(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let daemon = daemon.clone();
         let loaded: Vec<String> = self.store.read(|reducer| {
             reducer.state().map(|applied| applied.projects.iter().map(|o| o.project.path.to_string()).collect()).unwrap_or_default()
         });
         self.loading.retain(|path| !loaded.contains(path));
+        // A Project being loaded shows by name, "Loading…", until its Chats arrive (the window's loading state on a
+        // daemon that has loaded nothing yet).
+        let known = daemon.known();
+        let rows: Vec<milagre_gpui_spike::workspace::sidebar::UnloadedProject> = known
+            .iter()
+            .filter(|k| self.loading.contains(&k.path))
+            .map(|k| milagre_gpui_spike::workspace::sidebar::UnloadedProject {
+                path: k.path.clone().into(),
+                name: k.name.clone().into(),
+                loading: true,
+            })
+            .collect();
+        let sidebar = self.workspace.read(cx).sidebar.clone();
+        sidebar.update(cx, |s, cx| s.set_unloaded_projects(rows, cx));
         if let Some(path) = self.open_loaded.clone()
             && loaded.contains(&path)
         {
@@ -1212,6 +1231,27 @@ impl LiveController {
                 self.pending_open = Some(key);
             }
         }
+    }
+
+    /// Milagre's daemon after a sync that loaded no Project (it was just started, by this window or by a cold boot,
+    /// and Electron has not opened one): the most recently opened known Project is loaded, as Electron's window opens
+    /// its current Project on launch, so the window lands on its Chats and newest Chat instead of an empty list.
+    /// Nothing when a Project is already loaded or loading, the daemon knows none (the sidebar says "No Projects
+    /// yet"), or in read-only mode.
+    pub(crate) fn load_first_when_none_loaded(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        if daemon.read_only() || !self.loading.is_empty() {
+            return;
+        }
+        let any_loaded = self.store.read(|reducer| {
+            reducer.state().is_ok_and(|applied| applied.projects.iter().any(|o| !o.project.is_chats_home()))
+        });
+        if any_loaded {
+            return;
+        }
+        let Some(first) = daemon.known().first().map(|k| k.path.clone()) else { return };
+        eprintln!("live: no Project loaded yet; loading {first}, as Milagre's window opens its current Project");
+        self.load_project(first, cx);
     }
 
     /// A Project the daemon knows but has not loaded, opened on purpose (a future ⌘K search; the sidebar lists no such

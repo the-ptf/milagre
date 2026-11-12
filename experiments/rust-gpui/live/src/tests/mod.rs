@@ -3,6 +3,7 @@
 //! backend's fixed Claude stand-in.
 
 mod bundled;
+mod cold_start;
 mod daemon;
 mod fake_daemon;
 mod fake_settings;

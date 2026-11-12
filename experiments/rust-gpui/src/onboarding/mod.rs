@@ -54,7 +54,10 @@ impl OnboardingLayer {
         let mut layer = Self::default();
         if let Some(scenario) = start_from_env() {
             layer.start(Some(scenario), window, cx);
-        } else if no_project(cx) {
+        } else if !crate::workspace::preview::is_on(cx) && no_project(cx) {
+            // A live data layer (`PreviewMode`) decides after its own first sync, never from the source as the window
+            // opens: on Milagre's daemon, before the sync, or with the daemon's Projects not loaded yet, the source lists
+            // none although the daemon knows some.
             layer.start(None, window, cx);
         }
         layer

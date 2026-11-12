@@ -26,7 +26,9 @@
 //! - Projects the daemon knows but has not loaded this run get no rows, as in Electron's sidebar: their first
 //!   `project:read` makes the daemon reconcile Worktrees and resume Chats a quit stopped, exactly as opening them in
 //!   Electron does, so one loads ([`Daemon::load`]) only when the person opens it on purpose, never in the background
-//!   and never in read-only mode.
+//!   and never in read-only mode. The one exception is Electron's own: a daemon that has loaded no Project at all
+//!   (just started, Milagre.app closed) gets its most recently opened one loaded, as Electron's window opens its
+//!   current Project on launch (`LiveController::load_first_when_none_loaded`).
 //!
 //! `DAEMON_UNAVAILABLE` (Milagre not running) and `INSTALLED_OWNER_CHANGED` (it restarted) are retried: adoption runs
 //! again on every sync and once more on a refused connection.
