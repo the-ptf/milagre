@@ -6,6 +6,23 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 06:30 Toronto, broader integration lanes resumed their saved implementation
+without repeating completed work. The captured Codex bridge passes three native
+child tests, sixteen existing bridge tests and 93 default runtime checks; it
+still needs dedicated manifest/provider/catalog wiring and independent review.
+Local PR diff reads pass 24 Git tests (including 22 new Node comparison cases)
+and four configured-service cases; actor and typed-client exposure are now in
+progress. Both reuse selected MonoCode code with retained MIT notices. Neither
+increment is accepted or installed yet.
+
+Routine live annotation remains blocked by a review P2: Node classifies the last
+qualifying reply after non-thinking tool-step offsets; Rust live/saved paths
+selected different raw replies. A separate subagent is implementing one shared
+Node-compatible extractor and differential vectors before acceptance. Installed
+Preview pins, completed one-real-turn/reopen/native cleanup evidence and production
+remain unchanged. GPUI received routing plans, and its interrupted benchmark was
+authorized to restart on throwaway data without model turns.
+
 Victor explicitly prioritized broader backend integration through direct MIT
 MonoCode reuse. Two collaboration lanes now target pinned upstream
 `09d04436babb39ad72198cdf22f735067027fc04`: dedicated Codex launch/provider
