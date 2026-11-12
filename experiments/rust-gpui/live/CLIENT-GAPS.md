@@ -243,12 +243,45 @@ Remaining gaps:
   Devices page is hidden), so the note sits under Settings › About › Version. The relay (`relay.milagre.cloud`) and
   computers' links do not use cloudflared.
 - Paired computers: the vault key is Electron's (`safeStorage`); without Milagre.app there is none, so `computers:add`
-  is refused unless the key file is set up with `milagre computers setup-key`. Said in the same About note.
+  is refused unless the key file is set up with `milagre computers setup-key`. Said in the same About note. (Closed in
+  Round 8: client `bf698770` creates the first key.)
 - The bundle carries x64 and Linux helper binaries the arm64 Preview never runs (node-pty, agent-desktop; about 12 MB),
-  as the backend's script leaves them.
+  as the backend's script leaves them. (Closed in Round 8: `901e2fd1d`.)
 - `--cert` not run (no Developer ID certificate on this Mac yet) and nothing notarized. The entitlements were checked
   with an ad hoc hardened-runtime signature: with them the bundled Node opens a node-pty terminal; without them it dies
   at start. A notary run may still reject `ServeSimPasteboard.app` (an iOS-simulator app inside node_modules).
+
+## Round 8 (2026-11-12): client `bf698770`, cold start, Project pictures
+
+Re-pinned to `bf6987702` (`a59bbb9d5` plus `901e2fd1d`: the bundled daemon keeps only this Mac's architecture; and
+`unlock_computers` creating the first vault key and "Milagre Safe Storage" Keychain item as Electron does,
+`ComputerUnlock::Created` in place of `NoVault`).
+
+| Item | Status | How |
+| --- | --- | --- |
+| Cold start (Milagre.app closed) | fixed | A fresh daemon has loaded no Project, so the snapshot the window opened on listed none and the onboarding layer, which looked once as the window opened, showed "Choose your agent". A live window (`PreviewMode`) no longer starts onboarding from the data source; a sync that finds nothing loaded loads the most recently opened known Project (`project:read {state:false}`, as Electron's window opens its current Project on launch; never `project:open`, never read-only), shown "Loading…" in the sidebar meanwhile |
+| Daemon with no Project | unchanged | "No Projects yet: add one with Add Project." (onboarding's steps are fixture data and would open nothing on the daemon) |
+| Project pictures | works | `project:image [path]` once per loaded Project per run (`live/src/images.rs`): data URLs decoded, GitHub avatar URLs fetched with `/usr/bin/curl` (https, `avatars.githubusercontent.com` only, 5 MiB, 5 s), a picture that does not decode keeps the letter. Drawn in the sidebar row's mark, the rail tile and the new-Chat Project picker (a 16px tile, as `NewChatHeading`), contained in the tile's size, fill and rounding |
+| First computer key | works (fake only) | `Created` needs no notice; the About note no longer says paired computers are unavailable without Milagre.app. Test builds never reach the login Keychain (no stand-in: the vault stays locked) |
+
+Checks (2026-11-12): clean `git archive` export, strict Clippy and tests for the base crate (1449), live (50) and
+daemon-check (23); owned suite (2 pass, no process left); `check-preview-exits` (every path, apps left none). New
+fake-daemon tests: `tests::cold_start` (daemon up after the window opened; first sync already empty, which failed
+before the fix; no Project at all; pictures) and `remote_computers::a_first_vault_key_is_created_without_milagre`.
+Live, throwaway HOME and data folder, built app with `--no-installed-app`: empty, the sidebar says to add a Project;
+then a Project opened through the daemon's CLI, the daemon stopped by its PID and the app opened again: it started
+a new bundled daemon (nothing loaded), loaded the Project and came up on its new-Chat screen, not onboarding. Against
+Victor's daemon, read-only: `--snapshot` showed the rows' GitHub and icon pictures; the built app with no arguments
+stayed up 10 s and quit on SIGTERM, daemon left running.
+
+Sizes: bundled daemon 285 MB → 258 MB (257 MB in the app); app 401 MB → 375 MB; ad hoc zip 137.8 MB → 124.8 MB.
+
+Remaining gaps:
+
+- Details shows no Project tile in either app (Electron's Details has none), so no picture there; Settings' Project
+  rows still draw the letter (their view model carries no path yet).
+- Onboarding stays fixture-only in the Preview: a daemon with no Project shows the Add Project notice instead.
+- Avatars come through `curl`; a Mac offline at launch keeps the letter until the next run.
 
 ## Settings sections (2026-11-12)
 
