@@ -492,7 +492,8 @@ impl ChatView {
             .flex()
             .flex_col()
             // The pills sit 8px above the composer's top (`pills/mod.rs`), wherever it grows to.
-            .child(div().relative().w_full().h(px(0.0)).child(self.pills.clone()))
+            // Preview: the pills (PR, Tasks, Subagents, Ports) are not backed by the runtime.
+            .when(!crate::workspace::preview::is_on(cx), |el| el.child(div().relative().w_full().h(px(0.0)).child(self.pills.clone())))
             .child(
                 div()
                     .relative()

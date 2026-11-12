@@ -40,6 +40,8 @@ pub struct Wiring {
     pub commands: UnboundedSender<Command>,
     receiver: UnboundedReceiver<Command>,
     pub recorded: Arc<RecordingActions>,
+    /// A Chat's first page read before the window opened (snapshot mode): shown at once instead of read again.
+    pub preloaded: Option<(String, milagre_gpui_spike::data::MessagePage)>,
 }
 
 /// The app's globals for a live window: `Data` (the live source), the sidebar's actions and its seed (the Chat with
@@ -56,11 +58,11 @@ pub fn install_globals(session: &Session, cx: &mut App) -> Wiring {
     cx.set_global(SidebarSeed { open_chat: newest_chat(session) });
     // Everything the runtime does not back is off or labelled (`workspace::preview`).
     cx.set_global(PreviewMode { account: session.account_label.clone().into(), model: session.model.clone().into() });
-    Wiring { commands, receiver, recorded }
+    Wiring { commands, receiver, recorded, preloaded: None }
 }
 
 /// The listed Chat (it has messages) last active, to open on launch.
-fn newest_chat(session: &Session) -> Option<String> {
+pub fn newest_chat(session: &Session) -> Option<String> {
     session.store.read(|reducer| {
         let applied = reducer.state().ok()?;
         let open = applied.projects.iter().find(|open| open.project.path.as_ref() == session.project)?;
@@ -111,6 +113,7 @@ pub struct LiveController {
     closed: Option<String>,
     mode: PermissionMode,
     sent: u64,
+    preloaded: Option<(String, milagre_gpui_spike::data::MessagePage)>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -119,7 +122,7 @@ impl LiveController {
     /// Wires a live window: the composer's sink and limits, the fixed model, the event pump and the observers.
     pub fn attach(workspace: &Entity<Workspace>, mut session: Session, wiring: Wiring, window: &mut Window, cx: &mut App) -> Entity<Self> {
         let notifications = session.notifications.take().expect("the session's notifications");
-        let Wiring { commands, receiver, .. } = wiring;
+        let Wiring { commands, receiver, preloaded, .. } = wiring;
         let sink = SinkState::default();
         let (chat, sidebar) = workspace.read_with(cx, |w, _| (w.chat.clone(), w.sidebar.clone()));
         let (composer, transcript) = chat.read_with(cx, |c, _| (c.composer.clone(), c.transcript.clone()));
@@ -193,6 +196,7 @@ impl LiveController {
                 closed: None,
                 mode: PermissionMode::Ask,
                 sent: 0,
+                preloaded,
                 _subscriptions: subscriptions,
                 _tasks: vec![pump, follow, run],
             };
@@ -291,6 +295,15 @@ impl LiveController {
     fn load(&mut self, cx: &mut Context<Self>) {
         let Some(open) = &self.open else { return };
         let (key, id) = (open.key.clone(), open.id);
+        if self.preloaded.as_ref().is_some_and(|(k, _)| *k == key) {
+            let (_, page) = self.preloaded.take().expect("preloaded");
+            self.open = Some(OpenChat { key, id, loaded: true, ..OpenChat::default() });
+            let items = crate::transcript::saved_items(&page);
+            let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
+            transcript.update(cx, |t, cx| t.set_items(items, cx));
+            self.sync_tail(cx);
+            return;
+        }
         let adapter = DaemonAdapter::new(self.client.clone());
         let scope = ScopeKey::project(LOCAL, &self.project);
         let task = cx.spawn(async move |this, cx| {

@@ -136,16 +136,17 @@ struct SetupView {
     error: Option<SharedString>,
 }
 
-pub fn open_window(base: PathBuf, (claude, accounts): (Option<PathBuf>, Vec<AccountChoice>), cx: &mut App) {
+pub fn open_window(base: PathBuf, (claude, accounts): (Option<PathBuf>, Vec<AccountChoice>), cx: &mut App) -> gpui::AnyWindowHandle {
     let picked = (accounts.len() == 1).then_some(0);
     cx.open_window(
         WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(560.0), px(520.0)), cx))),
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(560.0), px(640.0)), cx))),
             ..Default::default()
         },
         |_, cx| cx.new(|_| SetupView { base, claude, accounts, picked, error: None }),
     )
-    .expect("open the setup window");
+    .expect("open the setup window")
+    .into()
 }
 
 impl SetupView {
@@ -184,7 +185,7 @@ impl Render for SetupView {
         let theme = *cx.theme();
         let ready = self.claude.is_some() && self.picked.is_some();
         let line = |text: String| div().text_color(theme.ink2).child(text);
-        let mut accounts = div().flex().flex_col().gap_1();
+        let mut accounts = div().id("setup-accounts").flex().flex_col().gap_1().max_h(px(220.0)).overflow_y_scroll();
         for (ix, account) in self.accounts.iter().enumerate() {
             let on = self.picked == Some(ix);
             accounts = accounts.child(
@@ -227,8 +228,9 @@ impl Render for SetupView {
                 div()
                     .text_color(theme.red)
                     .child("No Claude account folder found. Run `claude` once and sign in, then open the Preview again.")
+                    .into_any_element()
             } else {
-                accounts
+                accounts.into_any_element()
             })
             .children(self.error.clone().map(|error| div().text_color(theme.red).child(error)))
             .child(

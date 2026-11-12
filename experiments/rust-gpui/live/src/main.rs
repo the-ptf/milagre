@@ -70,7 +70,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
                 (root, Some(manifest))
             } else {
                 // First launch: propose this Mac's values; the setup window writes the manifest on Continue.
-                return run_setup_window(base);
+                return run_setup_window(base, flag(args, "--snapshot").map(PathBuf::from));
             }
         }
     };
@@ -115,21 +115,49 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         approve: args.iter().any(|a| a == "--approve"),
         report: PathBuf::from(report),
     });
-    run_app(session, guard, smoke);
+    let snapshot = flag(args, "--snapshot").map(PathBuf::from);
+    run_app(session, guard, smoke, snapshot);
     Ok(())
 }
 
-fn run_app(session: Session, guard: Arc<milagre_daemon_client::OwnedChatGuard>, smoke: Option<milagre_gpui_live::smoke::Smoke>) {
+fn run_app(
+    session: Session,
+    guard: Arc<milagre_daemon_client::OwnedChatGuard>,
+    smoke: Option<milagre_gpui_live::smoke::Smoke>,
+    snapshot: Option<PathBuf>,
+) {
     let client = session.client.clone();
+    // Snapshot: the open Chat's first page is read before the window opens, so its first frames show it.
+    let preloaded = snapshot.as_ref().and_then(|_| {
+        let key = milagre_gpui_live::controller::newest_chat(&session)?;
+        let id = milagre_gpui_live::sinks::chat_id(&session.project, &key)?;
+        let adapter = milagre_gpui_live::DaemonAdapter::new(session.client.clone());
+        let scope = milagre_gpui_spike::data::ScopeKey::project(milagre_gpui_spike::data::LOCAL, &session.project);
+        use milagre_gpui_spike::data::DataSource as _;
+        let page = futures::executor::block_on(adapter.chat_messages(scope, id, milagre_gpui_spike::data::PageRequest::OPEN)).ok()?;
+        Some((key, page))
+    });
     gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
         milagre_gpui_spike::app::init(cx);
-        let wiring = install_globals(&session, cx);
+        let mut wiring = install_globals(&session, cx);
+        wiring.preloaded = preloaded;
+        if snapshot.is_some() {
+            // As the base app's snapshot does: images decoded before the window, which may draw only its first frames.
+            for _ in 0..200 {
+                if milagre_gpui_spike::ui::preload_logos(cx) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
         let window = milagre_gpui_spike::app::open_main_window(cx);
         let workspace = window.read_with(cx, |root, _| milagre_gpui_spike::app::workspace_of(root)).ok().flatten().expect("the workspace");
         let controller = window
             .update(cx, |_, window, cx| LiveController::attach(&workspace, session, wiring, window, cx))
             .expect("attach the live controller");
-        if let Some(smoke) = smoke {
+        if let Some(path) = snapshot.clone() {
+            snapshot_then_quit(window.into(), path, cx);
+        } else if let Some(smoke) = smoke {
             milagre_gpui_live::smoke::start(smoke, window, workspace.clone(), controller.clone(), cx);
         }
         // Kept for the app's lifetime.
@@ -142,21 +170,39 @@ fn run_app(session: Session, guard: Arc<milagre_daemon_client::OwnedChatGuard>, 
         })
         .detach();
         quit_on_signals(cx);
-        // `MILAGRE_GPUI_NO_ACTIVATE=1` (checks on a Mac someone is using): the window opens behind, never in front.
-        if std::env::var_os("MILAGRE_GPUI_NO_ACTIVATE").is_none() {
+        // `MILAGRE_GPUI_NO_ACTIVATE=1` (checks on a Mac someone is using) and snapshots: the window opens behind.
+        if std::env::var_os("MILAGRE_GPUI_NO_ACTIVATE").is_none() && snapshot.is_none() {
             cx.activate(true);
         }
     });
 }
 
-fn run_setup_window(base: PathBuf) -> anyhow::Result<()> {
+fn run_setup_window(base: PathBuf, snapshot: Option<PathBuf>) -> anyhow::Result<()> {
     let detected = setup::detect();
     gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
         milagre_gpui_spike::app::init(cx);
-        setup::open_window(base, detected, cx);
-        cx.activate(true);
+        let window = setup::open_window(base, detected, cx);
+        match snapshot {
+            Some(path) => snapshot_then_quit(window, path, cx),
+            None => cx.activate(true),
+        }
     });
     Ok(())
+}
+
+/// `--snapshot PNG`: waits for the first frames, saves the window (never activated) and quits through the normal path.
+fn snapshot_then_quit(window: gpui::AnyWindowHandle, path: PathBuf, cx: &mut App) {
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(Duration::from_millis(2000)).await;
+        let saved = window.update(cx, |_, window, _| milagre_gpui_spike::snapshot::save_window_png(window, &path));
+        match saved {
+            Ok(Ok((w, h))) => eprintln!("live: snapshot {} ({w}x{h} px)", path.display()),
+            Ok(Err(error)) => eprintln!("live: snapshot failed: {error}"),
+            Err(error) => eprintln!("live: snapshot failed: window gone: {error}"),
+        }
+        cx.update(|cx| cx.quit());
+    })
+    .detach();
 }
 
 static SIGNALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

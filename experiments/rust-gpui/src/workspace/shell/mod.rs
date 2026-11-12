@@ -143,7 +143,9 @@ impl Workspace {
     /// The bar beside the traffic lights, for the root to draw over the columns.
     pub(super) fn top_bar(&self, cx: &mut Context<Self>) -> AnyElement {
         let collapsed = self.sidebar.read(cx).is_collapsed();
-        let routines_unread = !self.routines.read(cx).unread_routines.is_empty();
+        // Preview: Routines, Link Projects and Search would show fixture data; they do nothing and show no dot.
+        let preview = crate::workspace::preview::is_on(cx);
+        let routines_unread = !preview && !self.routines.read(cx).unread_routines.is_empty();
         let this = cx.entity();
         let bar = Bar {
             collapsed,
@@ -158,6 +160,9 @@ impl Workspace {
                 let this = this.clone();
                 // The Chat column (and the composer's focus) goes: the window keeps the keys, for Escape.
                 move |window, cx| {
+                    if crate::workspace::preview::is_on(cx) {
+                        return;
+                    }
                     this.update(cx, |this, cx| {
                         this.open_routines(cx);
                         window.focus(&this.focus, cx);
@@ -166,9 +171,16 @@ impl Workspace {
             }),
             on_link_projects: Rc::new({
                 let this = this.clone();
-                move |window, cx| this.update(cx, |this, cx| this.open_link_projects_from_bar(window, cx))
+                move |window, cx| {
+                    if !crate::workspace::preview::is_on(cx) {
+                        this.update(cx, |this, cx| this.open_link_projects_from_bar(window, cx))
+                    }
+                }
             }),
             on_search: Rc::new(|window, cx| {
+                if crate::workspace::preview::is_on(cx) {
+                    return;
+                }
                 if let Ok(action) = cx.build_action(PALETTE_ACTION, None) {
                     window.dispatch_action(action, cx);
                 }
@@ -209,7 +221,8 @@ impl Workspace {
     /// The panel toggle at the window's top-right, in the top bar's row. Not shown on the Routines page, which has
     /// no panel, or over the Link workspace, which draws its own.
     pub(super) fn corner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.routines_open || self.link.is_some() {
+        // Preview: there is no side panel to toggle.
+        if self.routines_open || self.link.is_some() || crate::workspace::preview::is_on(cx) {
             return None;
         }
         let items = self.corner_items(cx);
