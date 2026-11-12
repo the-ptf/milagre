@@ -6,6 +6,17 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 05:30 Toronto, unread provenance is implemented but NOT accepted. Saved source
+passes 234 owner and 150 runtime tests with strict feature/normal checks, and
+root reran the native quiet completion/restart test. Independent review found a
+P2: successful explicit `unread:true` when already true returns no state change,
+so metadata identity alone cannot protect that user action from later rollback.
+A collaboration subagent is adding exact-Chat invalidation on admitted explicit
+unread commands, including no-op patches, with an actual actor interleaving
+regression. This increment stays uncommitted and uninstalled pending the fix and
+rereview. Installed pins/accepted real-turn and native cleanup evidence remain
+unchanged; GPUI has been informed. No new model turn or production action occurred.
+
 At 05:00 Toronto, saved quiet routine completion effects are accepted after
 independent source/log review with no remaining P1/P2. Full saved validation passes
 150 runtime and 232 owner tests, strict feature/normal Clippy and formatting.
