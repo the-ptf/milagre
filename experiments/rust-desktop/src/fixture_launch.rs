@@ -1,5 +1,8 @@
 //! Direct-child authority for the fixed fixture and explicitly selected dedicated Chat root.
 //! Endpoints always come from the retained fixed sibling child, never renderer or profile discovery.
+#[cfg(feature = "chat-desktop")]
+#[path = "preview_preferences.rs"]
+mod preview_preferences;
 use serde_json::{json, Map, Value};
 use std::{
     fs::{self, File},
@@ -397,6 +400,8 @@ pub struct LaunchContext {
     storage: Arc<tempfile::TempDir>,
     _lock: File,
     preferences: Mutex<Map<String, Value>>,
+    #[cfg(feature = "chat-desktop")]
+    durable_preferences: Option<Mutex<Option<preview_preferences::Store>>>,
     clean: AtomicBool,
     failure_exit: AtomicBool,
     shell_io: Mutex<()>,
@@ -484,9 +489,18 @@ impl LaunchContext {
                 LaunchKind::Chat { .. } => Endpoint::receipt_for(&receipt, child.id(), &kind)?,
             };
             endpoint.connect()?;
-            Ok(endpoint)
+            #[cfg(feature = "chat-desktop")]
+            let durable = match &kind {
+                LaunchKind::Chat { data_root, .. } => {
+                    Some(preview_preferences::Store::open(data_root).map_err(io)?)
+                }
+                LaunchKind::Fixture => None,
+            };
+            #[cfg(not(feature = "chat-desktop"))]
+            let durable: Option<()> = None;
+            Ok((endpoint, durable))
         })();
-        let endpoint = match admitted {
+        let (endpoint, durable) = match admitted {
             Ok(v) => v,
             Err(e) => {
                 // Admission has not entered a UI loop. Do not return while a detached
@@ -510,7 +524,20 @@ impl LaunchContext {
             storage_identity,
             storage,
             _lock: lock,
-            preferences: Mutex::new(Map::new()),
+            #[cfg(feature = "chat-desktop")]
+            preferences: Mutex::new(
+                durable
+                    .as_ref()
+                    .map(|(_, values)| values.clone())
+                    .unwrap_or_default(),
+            ),
+            #[cfg(feature = "chat-desktop")]
+            durable_preferences: durable.map(|(store, _)| Mutex::new(Some(store))),
+            #[cfg(not(feature = "chat-desktop"))]
+            preferences: Mutex::new({
+                let _ = durable;
+                Map::new()
+            }),
             clean: AtomicBool::new(false),
             failure_exit: AtomicBool::new(false),
             shell_io: Mutex::new(()),
@@ -571,6 +598,12 @@ impl LaunchContext {
             return Err(invalid());
         }
         fs::remove_dir_all(self.storage.path()).map_err(io)?;
+        #[cfg(feature = "chat-desktop")]
+        if let Some(store) = &self.durable_preferences {
+            // Native contexts may outlive Quit. Release only this frontend's lock
+            // after confirmed child shutdown and shell removal, before reopening.
+            store.lock().map_err(|_| invalid())?.take();
+        }
         self.storage_removed.store(true, Ordering::Release);
         Ok(())
     }
@@ -598,6 +631,32 @@ impl LaunchContext {
         self.failure_exit_allowed()
     }
     pub fn preferences(&self) -> Result<Value> {
+        #[cfg(feature = "chat-desktop")]
+        if let Some(store) = &self.durable_preferences {
+            let _io = self.shell_io.lock().map_err(|_| invalid())?;
+            self.writable()?;
+            let mut child = self.child.lock().map_err(|_| invalid())?;
+            child.as_mut().ok_or_else(invalid)?.live()?;
+            self.endpoint.check()?;
+            store
+                .lock()
+                .map_err(|_| invalid())?
+                .as_ref()
+                .ok_or_else(invalid)?
+                .check()
+                .map_err(io)?;
+            let result = json!(*self.preferences.lock().map_err(|_| invalid())?);
+            child.as_mut().ok_or_else(invalid)?.live()?;
+            self.endpoint.check()?;
+            store
+                .lock()
+                .map_err(|_| invalid())?
+                .as_ref()
+                .ok_or_else(invalid)?
+                .check()
+                .map_err(io)?;
+            return Ok(result);
+        }
         Ok(json!(*self.preferences.lock().map_err(|_| invalid())?))
     }
     pub fn write_preference(&self, key: String, value: Value) -> Result<()> {
@@ -619,6 +678,30 @@ impl LaunchContext {
                 "FIXTURE_PREFERENCES_FULL",
                 "Fixture preferences exceed 1 MiB",
             ));
+        }
+        #[cfg(feature = "chat-desktop")]
+        if let Some(store) = &self.durable_preferences {
+            // Serialize against Quit and retain exact-child authority throughout I/O.
+            let mut child = self.child.lock().map_err(|_| invalid())?;
+            let authority = || -> std::io::Result<()> {
+                child
+                    .as_mut()
+                    .ok_or_else(|| std::io::Error::other("Dedicated child missing"))?
+                    .live()
+                    .map_err(|_| std::io::Error::other("Dedicated child exited"))?;
+                self.endpoint
+                    .check()
+                    .map_err(|_| std::io::Error::other("Dedicated endpoint changed"))
+            };
+            store
+                .lock()
+                .map_err(|_| invalid())?
+                .as_mut()
+                .ok_or_else(invalid)?
+                .save_authorized(&bytes, authority)
+                .map_err(io)?;
+            *prefs = next;
+            return Ok(());
         }
         // The temporary file stays owned until rename succeeds. A failed write,
         // sync or rename removes it and leaves the previous preferences intact.
@@ -835,6 +918,10 @@ mod chat_tests {
         let first_storage = first.storage.path().to_owned();
         assert_eq!(first.project(), root.join("project"));
         assert!(first.connect().is_ok());
+        first
+            .write_preference("milagre-theme".into(), json!("dark"))
+            .unwrap();
+        assert_eq!(first.preferences().unwrap()["milagre-theme"], "dark");
         let bytes = fs::read(root.join("rust-chat-runtime.json")).unwrap();
         let args = vec!["open".into(), root.to_string_lossy().into()];
         assert!(
@@ -853,6 +940,13 @@ mod chat_tests {
         let second = spawn(&args);
         assert_ne!(second.endpoint.pins[0].0, first_profile);
         assert!(second.connect().is_ok());
+        assert_eq!(second.preferences().unwrap()["milagre-theme"], "dark");
+        assert_eq!(
+            first
+                .write_preference("milagre-theme".into(), json!("late"))
+                .unwrap_err()["code"],
+            "FIXTURE_CLOSED"
+        );
         second.request_quit().unwrap();
         second.remove_shell_storage().unwrap();
         assert_eq!(

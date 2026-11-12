@@ -254,3 +254,7 @@ Current shell: `5a1f27edc8f2a02de841a9a67f5bbdc82173f8c9876bc3d17822567b5f554faa
 Current runtime: `6054d7d6759262ec4d463380589261d954e1f8be79e75bb5d1a5d0be2142d70a`.
 Earlier real-provider acceptance remains tied to its earlier binary hashes. The
 Sidebar refresh spent no additional real turn. GPUI adoption is separate.
+
+## Native preference persistence source checkpoint
+
+The dedicated Chat shell now saves its React preference map in `data/native-tauri-preferences.json`, under the same explicitly admitted dedicated root. It owns a frontend-specific lock and revalidates exact child/root/manifest authority before reads and save acknowledgement. Files are private, bounded and atomically replaced with file and directory sync. Post-rename failures remain failed and fence further access until reopen. The core daemon remains the only Project writer. Ordinary installed Rust/Electron preferences and ephemeral app fixtures are unchanged; window state/WebKit stay temporary. This preference map cannot rewrite the captured launch account/model/credentials. See [CHAT-DESKTOP.md](CHAT-DESKTOP.md#dedicated-native-preference-persistence-checkpoint) for tests and limits. This source checkpoint does not itself refresh the installed Preview or claim a native settings pass.
