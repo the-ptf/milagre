@@ -230,6 +230,20 @@ impl DetailsReader {
             self.context.computer_label
         )
     }
+    /// Call before the first `check` of a new request: while no read is in flight,
+    /// adopt account files a `gh auth login` rewrote since the last read (and clear
+    /// a recoverable account refusal). Behind a read in flight a changed file
+    /// refuses that read instead. Owner, root and executable failures stay.
+    pub fn admit(&self) -> Result<(), ServiceError> {
+        let idle = {
+            let board = self.board.lock().map_err(|_| Self::poisoned())?;
+            board.jobs.is_empty() && !board.running
+        };
+        if idle {
+            self.grant.begin_read()?;
+        }
+        Ok(())
+    }
     /// Exact production `pr:detail` argument shape. The fixed repository and
     /// account come from CapturedContext, not from this request.
     pub fn invoke(&self, args: &[Value]) -> Result<Value, ServiceError> {
@@ -245,15 +259,7 @@ impl DetailsReader {
         args: &[Value],
         gone: &dyn Fn() -> bool,
     ) -> Result<Value, ServiceError> {
-        // Idle: adopt account files a `gh auth login` rewrote since the last read.
-        // Behind a read in flight, a changed file refuses that read instead.
-        let idle = {
-            let board = self.board.lock().map_err(|_| Self::poisoned())?;
-            board.jobs.is_empty() && !board.running
-        };
-        if idle {
-            self.grant.begin_read()?;
-        }
+        self.admit()?;
         self.check()?;
         let [arg] = args else {
             return Err("Expected one PR detail argument".into());
