@@ -1155,6 +1155,13 @@ impl State {
             .states
             .flush(Some(&self.project))
             .map_err(convert)?;
+        #[cfg(feature = "routine-execution-fixture")]
+        if args[2].get("unread").is_some() {
+            // A successful explicit action wins over delayed routine completion,
+            // including equal-value patches which did not replace snapshot identity.
+            self.host
+                .routine_fixture_unread_intent(&self.project, session);
+        }
         self.project_changed |= changed;
         Ok(Value::Null)
     }
@@ -2802,6 +2809,127 @@ mod publication_tests {
             )
             .unwrap(),
         );
+    }
+
+    #[cfg(feature = "routine-execution-fixture")]
+    #[test]
+    fn explicit_unread_patch_supersedes_terminal_receipt_even_when_unchanged() {
+        for action in [
+            "none", "same", "read", "aba", "invalid", "foreign", "missing",
+        ] {
+            let (_profile, mut state, _shared) = fixture();
+            fs::create_dir_all(state.project.join(".milagre")).unwrap();
+            fs::write(
+                state.project.join(".milagre/coordination.json"),
+                json!({
+                    "next_id":10,"sessions":{"1":{"id":1,"worktree_id":1}},
+                    "worktrees":{"1":{"id":1,"path":state.project}},"messages":[]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            state
+                .host
+                .register(Box::new(milagre_owner_store::chat_host::MockProvider::new(
+                    "claude",
+                )));
+            state.host.open_project(&state.project).unwrap();
+            let chat = format!("{}#1", state.project.display());
+            let claim = json!({"routine":{"id":"abc00001","name":"Test","prompt":"Check","trigger":{"kind":"schedule"},
+                "permissionMode":"ask","model":"sonnet","target":{"kind":"chat","chatId":chat}},
+                "run":{"id":"abc00002","routineId":"abc00001","status":"running","startedAt":1790000000000i64}});
+            let turn = state
+                .host
+                .send_claimed_routine_fixture(&state.project, &claim, "sonnet")
+                .unwrap()
+                .turn
+                .unwrap();
+            state
+                .host
+                .receive(
+                    &chat,
+                    turn,
+                    &json!({"type":"text-delta","text":"(pass) Clean"}),
+                )
+                .unwrap();
+            state
+                .host
+                .receive(&chat, turn, &json!({"type":"turn-completed"}))
+                .unwrap();
+            assert_eq!(
+                state.host.states.current(&state.project).unwrap().rest["sessions"]["1"]["unread"],
+                true
+            );
+            let before = state
+                .host
+                .states
+                .current(&state.project)
+                .unwrap()
+                .rest
+                .clone();
+            let args = [json!(state.project), json!(1), json!({"unread":true})];
+            match action {
+                "none" => {}
+                "same" => {
+                    state.patch_chat(&args).unwrap();
+                    assert!(Arc::ptr_eq(
+                        &before,
+                        &state.host.states.current(&state.project).unwrap().rest
+                    ));
+                }
+                "read" => {
+                    state
+                        .patch_chat(&[json!(state.project), json!(1), json!({"unread":false})])
+                        .unwrap();
+                }
+                "aba" => {
+                    state
+                        .patch_chat(&[json!(state.project), json!(1), json!({"unread":false})])
+                        .unwrap();
+                    state.patch_chat(&args).unwrap();
+                }
+                "invalid" => {
+                    assert!(state
+                        .patch_chat(&[
+                            json!(state.project),
+                            json!(1),
+                            json!({"unread":true,"foreign":true})
+                        ])
+                        .is_err());
+                }
+                "foreign" => {
+                    assert!(state
+                        .patch_chat(&[
+                            json!(state.project.join("foreign")),
+                            json!(1),
+                            json!({"unread":true})
+                        ])
+                        .is_err());
+                }
+                "missing" => {
+                    assert!(state
+                        .patch_chat(&[json!(state.project), json!(999), json!({"unread":true})])
+                        .is_err());
+                }
+                _ => unreachable!(),
+            }
+            state
+                .host
+                .finish_claimed_routine_fixture_chat_for_turn(
+                    &state.project,
+                    &chat,
+                    "abc00002",
+                    Some("Clean"),
+                    Some("Clean"),
+                    Some(turn),
+                )
+                .unwrap();
+            let unread = state.host.states.current(&state.project).unwrap().rest["sessions"]["1"]
+                ["unread"]
+                == true;
+            assert_eq!(unread, matches!(action, "same" | "aba"), "{action}");
+            state.host.shutdown(false).unwrap();
+        }
     }
 
     #[cfg(feature = "chat-runtime")]

@@ -1,6 +1,11 @@
 //! Trusted fixture-only schedule admission. No wire method selects this path.
 use super::*;
 
+pub(super) struct UnreadReceipt {
+    pub(super) turn: TurnId,
+    pub(super) marked: Option<std::sync::Weak<serde_json::Map<String, Value>>>,
+}
+
 pub const ROUTINE_PASS_HINT: &str =
     "\n\nIf nothing needs doing, reply starting with \"(pass)\" and a short reason.";
 #[derive(Debug)]
@@ -43,11 +48,30 @@ impl ChatHost {
         {
             return Err(RoutineFixtureError::Busy);
         }
-        self.send_admitted(&request, SendAdmission::RoutineFixture)
-            .map_err(RoutineFixtureError::Dispatch)
+        if self.routine_unread.len() >= 64 && !self.routine_unread.contains_key(&chat) {
+            return Err(RoutineFixtureError::Refused(gate(
+                "Routine unread tracking capacity full",
+            )));
+        }
+        let sent = self
+            .send_admitted(&request, SendAdmission::RoutineFixture)
+            .map_err(RoutineFixtureError::Dispatch)?;
+        if let Some(turn) = sent.turn {
+            self.routine_unread
+                .insert(chat, UnreadReceipt { turn, marked: None });
+        }
+        Ok(sent)
     }
-    /// Saved completion effects only. Unread needs terminal mutation provenance and
-    /// is deliberately untouched here. No model naming authority is minted.
+    /// An admitted explicit read/unread action supersedes terminal rollback,
+    /// even when its value equals the saved value and produces no new snapshot.
+    pub fn routine_fixture_unread_intent(&mut self, project: &Path, session: i64) {
+        let chat = agent_runs::chat_key(&project.to_string_lossy(), &json!(session));
+        if let Some(receipt) = self.routine_unread.get_mut(&chat) {
+            receipt.marked = None;
+        }
+    }
+    /// Legacy saved-effects entrypoint: it holds no turn receipt, so unread is
+    /// untouched. The scheduler uses the exact-turn variant below. No model naming authority is minted.
     pub fn finish_claimed_routine_fixture_chat(
         &mut self,
         project: &Path,
@@ -56,11 +80,39 @@ impl ChatHost {
         quiet_summary: Option<&str>,
         quiet_title: Option<&str>,
     ) -> Result<()> {
+        self.finish_claimed_routine_fixture_chat_for_turn(
+            project,
+            chat,
+            run_id,
+            quiet_summary,
+            quiet_title,
+            None,
+        )
+    }
+    #[allow(clippy::too_many_arguments)] // Exact captured turn is independent authority, not caller state.
+    pub fn finish_claimed_routine_fixture_chat_for_turn(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        run_id: &str,
+        quiet_summary: Option<&str>,
+        quiet_title: Option<&str>,
+        turn: Option<TurnId>,
+    ) -> Result<()> {
         let (resolved, sid) = self.canonical_chat(chat)?;
-        if resolved != project || self.active_turn(chat).is_some() {
+        if resolved != project
+            || self.active_turn(chat).is_some()
+            || turn.is_some_and(|t| self.latest.get(chat).is_some_and(|latest| *latest != t))
+        {
             return Err(gate("Routine completion no longer owns an idle Chat"));
         }
         self.require_project_ready(project)?;
+        let marked = self
+            .routine_unread
+            .get(chat)
+            .filter(|receipt| Some(receipt.turn) == turn)
+            .and_then(|receipt| receipt.marked.as_ref())
+            .and_then(std::sync::Weak::upgrade);
         self.states
             .try_update(project, Some(&[sid]), true, |latest| {
                 let mut messages = latest.message_list().to_vec();
@@ -91,6 +143,14 @@ impl ChatHost {
                     .and_then(Value::as_object)
                     .cloned()
                     .ok_or_else(|| gate("Routine Chat disappeared"))?;
+                if quiet_summary.is_some()
+                    && marked
+                        .as_ref()
+                        .is_some_and(|rest| std::sync::Arc::ptr_eq(rest, &latest.rest))
+                {
+                    session.insert("unread".into(), json!(false));
+                }
+                next = agent_runs::with_session(&next, sid, session.clone());
                 if session
                     .get("routine")
                     .is_some_and(|origin| origin["runId"] == run_id)
@@ -112,6 +172,7 @@ impl ChatHost {
                 Ok(Some(next))
             })?;
         self.states.flush(Some(project))?;
+        self.routine_unread.remove(chat);
         Ok(())
     }
     /// Creates only a fresh primary-Project fixture Chat. The durable scheduler
@@ -335,6 +396,123 @@ mod tests {
         host.open_project(&project).unwrap();
         let claim = json!({"routine":{"id":"abc00001","name":"Synthetic schedule","prompt":"Check fixture","trigger":{"kind":"schedule"},"permissionMode":"ask","model":"sonnet","target":{"kind":"chat","chatId":format!("{}#1",project.display())}},"run":{"id":"abc00002","routineId":"abc00001","status":"running","startedAt":1_790_000_000_000i64}});
         (root, host, provider, project, claim)
+    }
+    #[test]
+    fn unread_tracking_capacity_refuses_before_dispatch_and_successful_close_drains() {
+        let (_root, mut host, provider, project, claim) = setup();
+        for id in 0..64 {
+            host.routine_unread.insert(
+                format!("{}#{}", project.display(), id + 100),
+                UnreadReceipt {
+                    turn: TurnId(id),
+                    marked: None,
+                },
+            );
+        }
+        let before = host.states.whole_state(&project).unwrap();
+        assert!(matches!(
+            host.send_claimed_routine_fixture(&project, &claim, "sonnet"),
+            Err(RoutineFixtureError::Refused(_))
+        ));
+        assert_eq!(host.states.whole_state(&project).unwrap(), before);
+        assert!(provider.state.lock().unwrap().turns.is_empty());
+        host.forget(&project, false).unwrap();
+        assert!(host.routine_unread.is_empty());
+    }
+    #[test]
+    fn unread_receipt_clears_only_exact_terminal_mutation_without_intervening_edits() {
+        for (preexisting, edited, wrong_turn, expected) in [
+            (false, false, false, false),
+            (true, false, false, true),
+            (false, true, false, true),
+            (false, false, true, true),
+        ] {
+            let (_root, mut host, _provider, project, claim) = setup();
+            let chat = claim["routine"]["target"]["chatId"].as_str().unwrap();
+            if preexisting {
+                host.states
+                    .try_update(&project, Some(&[1]), true, |latest| {
+                        let mut session =
+                            latest.sessions().unwrap()["1"].as_object().unwrap().clone();
+                        session.insert("unread".into(), json!(true));
+                        Ok(Some(agent_runs::with_session(latest, 1, session)))
+                    })
+                    .unwrap();
+            }
+            let sent = host
+                .send_claimed_routine_fixture(&project, &claim, "sonnet")
+                .unwrap();
+            let turn = sent.turn.unwrap();
+            host.receive(
+                chat,
+                turn,
+                &json!({"type":"text-delta","text":"(pass) Clean"}),
+            )
+            .unwrap();
+            let node_input = json!({"state":host.states.current(&project).unwrap().to_value(),"runs":host.runs,"chat":chat});
+            let script = r#"
+const {ChatHost}=require(process.argv[1]+"/packages/core/src/agents/chat-host.cjs");
+const input=JSON.parse(process.argv[2]);let state=input.state;
+const host={runs:input.runs,seq:0,turns:new Map(),now:()=>1790000000000,isChatFocused:()=>false,withNotes:s=>s,
+states:{update:async(_p,fn)=>{const old=state;state=fn(state);return {state,changed:state!==old};}}};
+ChatHost.prototype.fold.call(host,input.chat,{type:"turn-completed"}).then(({event,state})=>console.log(JSON.stringify({marked:event.markedUnread===true,enumerable:Object.keys(event).includes("markedUnread"),unread:state.sessions[1].unread}))).catch(e=>{console.error(e);process.exitCode=1});
+"#;
+            let output = std::process::Command::new("node")
+                .arg("-e")
+                .arg(script)
+                .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+                .arg(node_input.to_string())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let oracle: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(
+                oracle,
+                json!({"marked":!preexisting,"enumerable":false,"unread":true})
+            );
+            host.receive(chat, turn, &json!({"type":"turn-completed"}))
+                .unwrap();
+            assert_eq!(
+                host.routine_unread[chat].marked.is_some(),
+                oracle["marked"].as_bool().unwrap()
+            );
+            assert_eq!(
+                host.states.current(&project).unwrap().rest["sessions"]["1"]["unread"],
+                true
+            );
+            if edited {
+                for unread in [false, true] {
+                    host.states
+                        .try_update(&project, Some(&[1]), true, |latest| {
+                            let mut session =
+                                latest.sessions().unwrap()["1"].as_object().unwrap().clone();
+                            session.insert("unread".into(), json!(unread));
+                            Ok(Some(agent_runs::with_session(latest, 1, session)))
+                        })
+                        .unwrap();
+                }
+            }
+            let result = host.finish_claimed_routine_fixture_chat_for_turn(
+                &project,
+                chat,
+                "abc00002",
+                Some("Clean"),
+                Some("Clean"),
+                Some(if wrong_turn { TurnId(turn.0 + 1) } else { turn }),
+            );
+            assert_eq!(result.is_err(), wrong_turn);
+            assert_eq!(
+                host.states.current(&project).unwrap().rest["sessions"]["1"]["unread"],
+                expected
+            );
+            if !wrong_turn {
+                assert!(host.routine_unread.is_empty());
+            }
+        }
     }
     #[test]
     fn saved_quiet_context_and_title_match_actual_node_methods() {

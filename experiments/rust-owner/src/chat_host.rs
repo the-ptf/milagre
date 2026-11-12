@@ -1086,6 +1086,8 @@ pub struct ChatHost {
     seq: u64,
     starting: HashMap<String, String>,
     send_next: HashMap<String, String>,
+    #[cfg(feature = "routine-execution-fixture")]
+    routine_unread: HashMap<String, routine_fixture::UnreadReceipt>,
     /// Chats whose restore Stop just cancelled: Node's cancelHandoff runs afterTurn a second time, which holds the
     /// queue (any queued message left waits for Send now) before the pick it already took starts.
     hold_on_cancel: HashSet<String>,
@@ -1156,6 +1158,8 @@ impl ChatHost {
             seq: 0,
             starting: HashMap::new(),
             send_next: HashMap::new(),
+            #[cfg(feature = "routine-execution-fixture")]
+            routine_unread: HashMap::new(),
             hold_on_cancel: HashSet::new(),
             queue_waiters: HashSet::new(),
             turns: HashMap::new(),
@@ -3229,6 +3233,8 @@ impl ChatHost {
             .to_string();
         // A subagent's progress stays in memory until something else saves (Node's `persist: false`).
         let persist = kind != "subagent-update";
+        #[cfg(feature = "routine-execution-fixture")]
+        let mut marked_unread = false;
         let folded = self
             .states
             .try_update(&project, Some(&[session_id]), persist, |state| {
@@ -3268,6 +3274,14 @@ impl ChatHost {
                     && !jsjson::truthy(event.get("quiet"))
                     && !visible
                     && !archived;
+                #[cfg(feature = "routine-execution-fixture")]
+                {
+                    marked_unread = unread
+                        && state
+                            .sessions()
+                            .and_then(|ss| ss.get(&session_id.to_string()))
+                            .is_none_or(|s| s.get("unread") != Some(&Value::Bool(true)));
+                }
                 let next = if unread {
                     agent_runs::patch_unread(&next, session_id)
                 } else {
@@ -3317,6 +3331,18 @@ impl ChatHost {
             }
         }
         let (state, changed) = folded?;
+        #[cfg(feature = "routine-execution-fixture")]
+        if is_turn_end(&event) {
+            if let Some(receipt) = self.routine_unread.get_mut(chat) {
+                if self
+                    .active
+                    .get(chat)
+                    .is_some_and(|(turn, _)| *turn == receipt.turn)
+                {
+                    receipt.marked = marked_unread.then(|| std::sync::Arc::downgrade(&state.rest));
+                }
+            }
+        }
         self.seq = seq;
         // A subagent update goes out with the merged agent, and without the state.
         let published = if kind == "subagent-update" && changed {
@@ -3819,6 +3845,8 @@ impl ChatHost {
         }
         let closed = self.states.forget(&key);
         if closed.is_ok() {
+            #[cfg(feature = "routine-execution-fixture")]
+            self.routine_unread.retain(|chat, _| !in_project(chat));
             // Forgotten: only an explicit open_project makes it ready again.
             self.ready.remove(&key);
             self.not_ready.remove(&key);
@@ -5107,6 +5135,8 @@ impl ChatHost {
 
     /// The quit completed: nothing is ready, kept or published any more.
     fn closed(&mut self) {
+        #[cfg(feature = "routine-execution-fixture")]
+        self.routine_unread.clear();
         self.closed = true;
         self.ready.clear();
         self.not_ready.clear();

@@ -348,7 +348,14 @@ impl Scheduler {
                 ),
                 _ => continue,
             };
-            complete.push((run_id.clone(), pending.chat.clone(), status, error, summary));
+            complete.push((
+                run_id.clone(),
+                pending.chat.clone(),
+                pending.turn,
+                status,
+                error,
+                summary,
+            ));
         }
         if !complete.is_empty() {
             // The reply's kept terminal must be on disk before its Run becomes terminal.
@@ -356,15 +363,16 @@ impl Scheduler {
                 .flush(Some(&self.project))
                 .map_err(|e| e.to_string())?;
         }
-        for (run, chat, status, error, summary) in complete {
+        for (run, chat, turn, status, error, summary) in complete {
             self.check_owner()?;
             let title = summary.as_deref().and_then(quiet_title);
-            host.finish_claimed_routine_fixture_chat(
+            host.finish_claimed_routine_fixture_chat_for_turn(
                 &self.project,
                 &chat,
                 &run,
                 summary.as_deref(),
                 title.as_deref(),
+                turn,
             )
             .map_err(|e| e.to_string())?;
             self.check_owner()?;

@@ -901,6 +901,7 @@ fn quiet_fresh_chat_saves_title_context_archive_and_run_before_restart() {
         .unwrap()
         .to_string();
     assert_eq!(state["sessions"][&sid]["archived"], true);
+    assert_eq!(state["sessions"][&sid]["unread"], false);
     assert_eq!(state["sessions"][&sid]["generatedTitle"], runs[0]["title"]);
     assert_eq!(state["messages"][0]["context"]["quiet"], true);
     assert_eq!(

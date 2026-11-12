@@ -280,3 +280,70 @@ Strict feature/normal runtime all-target Clippy and feature owner all-target
 Clippy pass, as do rustfmt and whitespace checks. Logs:
 `/tmp/milagre-routine-completion-{final,owner-final,clippy,normal-clippy,owner-clippy-final}.log`.
 The full suites run against the final successor-user refusal guard.
+
+## Exact unread mutation provenance checkpoint (source, not installed)
+
+The owner now registers at most 64 trusted fixture routine turns. A successful
+terminal fold records whether that exact turn changed unread from non-true to
+true, matching actual Node `ChatHost.fold` and its non-enumerable `markedUnread`.
+A weak reference to the returned Project state's shared metadata map captures
+mutation identity without retaining old snapshot bytes. Saved quiet completion
+may revert unread only for the captured TurnId, while the Chat is idle, no
+successor message exists, and that metadata map is still exactly current.
+
+Any intervening Project metadata/session mutation expires this permission and
+leaves unread untouched. This is deliberately stricter than Node's immediate
+observer; an unrelated metadata edit may preserve an otherwise removable unread
+mark. Preexisting unread, a later user read/unread edit, a wrong/successor turn and
+an expired receipt cannot authorize clearing. Restart creates no receipt and
+never reconstructs one from disk. Completion releases tracking only after the
+owner flush succeeds; confirmed Project forget and shutdown drain it. Capacity
+refuses before provider dispatch. Ordinary/default owner behavior is unchanged.
+
+Evidence: owner table cases compare the actual Node terminal fold's marker and
+non-enumerability, then cover preexisting marks, actual false/true user edits and
+wrong TurnId refusal; a capacity case refuses before dispatch and confirms forget
+drainage. The existing fixed-native quiet completion/reopen case now requires
+saved `unread:false`. Live-event quiet annotation remains a separate missing seam;
+model-generated acted-run names and public scheduling remain unavailable.
+
+Focused logs: `/tmp/milagre-routine-unread-{owner-focused,native}.log`.
+Final source passes 234 owner checks and 150 runtime checks. Strict owner feature
+and runtime feature/normal all-target Clippy, rustfmt and whitespace checks pass.
+Logs: `/tmp/milagre-routine-unread-{owner-final,runtime-final,owner-clippy,runtime-clippy,normal-clippy}.log`.
+Earlier test compile errors are retained in separate `*-initial-compile.log`
+files. The first full runtime run exposed a real new cancellation guard regression:
+a confirmed closed session may remove `latest` after its valid terminal. The guard
+now refuses only a present different successor generation; rollback still needs
+the exact tracked receipt. The focused cancellation native test and the final full
+suite pass. The original failure stays in `runtime-full-initial.log`.
+
+### Explicit unread intent rereview fix
+
+Independent review found that an admitted public `chat:patch` with `unread:true`
+can be a no-op while a terminal-created unread mark is already true. Snapshot
+identity alone did not expire the receipt, so delayed quiet completion could
+clear that successful user action. The configured actor now expires only that
+Chat's rollback evidence after a successful explicit unread patch and flush,
+including equal-value patches. Rejected invalid/foreign/missing-Chat requests do
+not revoke evidence. The receipt's bounded turn tracking remains until ordinary
+completion/forget/shutdown cleanup.
+
+The actor regression folds an actual trusted scheduled turn through terminal,
+then exercises no action, same-value Mark unread, Mark read, read/unread ABA,
+and invalid/foreign/missing-Chat refusals before saved quiet completion. The
+same-value case asserts unchanged metadata Arc identity. Removing only the hook
+makes that case fail cleanly (`false` versus expected `true`), without timeout or
+process signalling. The hook is fixture-only; normal public patch behavior stays
+unchanged. `chat:patch` is the configured actor's read/unread mutation route;
+accepted-send metadata updates contain no unread key.
+
+Logs: `/tmp/milagre-routine-unread-intent-{focused,mutant,runtime-final,owner-final,runtime-clippy,normal-clippy,owner-clippy}.log`.
+Initial full-suite attempts omitted `NODE_PATH` and failed Node module discovery;
+those are retained as `*-missing-node-path.log`, separately from the reruns with
+the explicit existing checkout dependency directory. No installed process,
+production root, real provider, normal application binary or client was changed.
+
+Final explicit-intent validation passes 151 runtime and 234 owner checks.
+Feature/normal runtime and feature owner all-target strict Clippy, rustfmt and
+whitespace checks pass. All three actual actor timer cases remain green.
