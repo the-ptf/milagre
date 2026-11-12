@@ -51,7 +51,15 @@ fn snapshot_pr(number: u64, ready: bool, behind: bool) -> Value {
 
 fn world() -> World {
     let mut world = World::with(vec![
-        (ALPHA, "alpha", true, vec![(1, "Alpha older", vec![("user", "Q"), ("assistant", "A")]), (2, "Alpha newest", vec![("user", "Q2"), ("assistant", "A2")])]),
+        (
+            ALPHA,
+            "alpha",
+            true,
+            vec![
+                (1, "Alpha older", vec![("user", "Q"), ("assistant", "A")]),
+                (2, "Alpha newest", vec![("user", "Q2"), ("assistant", "A2")]),
+            ],
+        ),
         (BETA, "beta", true, vec![(1, "Beta only", vec![("user", "B"), ("assistant", "BA")])]),
     ]);
     world.prs.insert(ALPHA.into(), json!({"worktrees": {(ALPHA): snapshot_pr(21, true, false)}, "chats": {}, "pending": false}));
@@ -85,13 +93,19 @@ fn the_pr_panel_reads_and_writes_like_electron(cx: &mut TestAppContext) {
     assert_eq!(methods(&fake, "pr:detail")[0], json!([{"cwd": ALPHA, "number": 21}]));
     m.wait_for("the patches", |_| methods(&fake, "pr:diff-file").len() == 2);
     assert_eq!(methods(&fake, "pr:diff-files")[0], json!([{"cwd": ALPHA, "base": "aaa", "head": "bbb"}]));
-    assert_eq!(methods(&fake, "pr:diff-file")[0], json!([{"cwd": ALPHA, "base": "aaa", "head": "bbb", "path": "src/a.rs", "oldPath": null}]));
+    assert_eq!(
+        methods(&fake, "pr:diff-file")[0],
+        json!([{"cwd": ALPHA, "base": "aaa", "head": "bbb", "path": "src/a.rs", "oldPath": null}])
+    );
     m.wait_for("the pickers", |_| !methods(&fake, "pr:labels").is_empty() && !methods(&fake, "pr:reviewer-candidates").is_empty());
 
     // The pills: one open review thread, and Merge #21 (ready, no blocker), while the PR tab is not showing.
     let pills = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).pills.clone());
     m.wait_for("the review pill", |m| pills.read_with(m.vcx, |p, _| p.data().review_comments == 1));
-    assert_eq!(pills.read_with(m.vcx, |p, _| p.data().pr_action.as_ref().map(|a| (a.label.to_string(), a.merge))), Some(("Merge #21".into(), true)));
+    assert_eq!(
+        pills.read_with(m.vcx, |p, _| p.data().pr_action.as_ref().map(|a| (a.label.to_string(), a.merge))),
+        Some(("Merge #21".into(), true))
+    );
     // The review pill opens the PR tab; then both pills hide.
     m.vcx.run_until_parked();
     let at = m.vcx.debug_bounds("pill-review").expect("the review pill").center();
@@ -119,13 +133,20 @@ fn the_pr_panel_reads_and_writes_like_electron(cx: &mut TestAppContext) {
     pr.update(m.vcx, |v, cx| v.merge(false, cx));
     pr.update(m.vcx, |v, cx| v.merge(false, cx));
     m.wait_for("the refusal", |m| pr.read_with(m.vcx, |v, _| v.write_error() == Some("Merge blocked by branch rules")));
-    assert_eq!(pr.read_with(m.vcx, |v, _| v.detail().map(|d| d.state)), Some(milagre_gpui_spike::workspace::panel::pr::model::PullState::Open));
+    assert_eq!(
+        pr.read_with(m.vcx, |v, _| v.detail().map(|d| d.state)),
+        Some(milagre_gpui_spike::workspace::panel::pr::model::PullState::Open)
+    );
     assert_eq!(methods(&fake, "pr:merge").last().unwrap()[0]["admin"], json!(false));
     m.controller.update(m.vcx, |c, _| c.take_errors());
     fake.world().pr_refuse = None;
     pr.update(m.vcx, |v, cx| v.merge(false, cx));
     pr.update(m.vcx, |v, cx| v.merge(false, cx));
-    m.wait_for("merged", |m| pr.read_with(m.vcx, |v, _| !v.writing() && v.detail().is_some_and(|d| d.state == milagre_gpui_spike::workspace::panel::pr::model::PullState::Merged)));
+    m.wait_for("merged", |m| {
+        pr.read_with(m.vcx, |v, _| {
+            !v.writing() && v.detail().is_some_and(|d| d.state == milagre_gpui_spike::workspace::panel::pr::model::PullState::Merged)
+        })
+    });
 
     // `pull-requests:changed` for the Project reads the PR again.
     let before = methods(&fake, "pr:detail").len();
@@ -234,7 +255,9 @@ fn the_account_switcher_writes_like_electron(cx: &mut TestAppContext) {
     });
 
     // The usage-limit card: its account choice (`chat:limit-switch`) and "Continue at" (`chat:limit-resume`).
-    m.wait_for("the limit card's choice", |m| m.vcx.debug_bounds("limit-account-2-0").is_some() || m.vcx.debug_bounds("limit-account-3-0").is_some());
+    m.wait_for("the limit card's choice", |m| {
+        m.vcx.debug_bounds("limit-account-2-0").is_some() || m.vcx.debug_bounds("limit-account-3-0").is_some()
+    });
     let ix = if m.vcx.debug_bounds("limit-account-2-0").is_some() { 2 } else { 3 };
     let resume = m.vcx.debug_bounds("limit-resume").expect("Continue at").center();
     m.vcx.simulate_click(resume, Modifiers::none());
@@ -282,7 +305,15 @@ fn a_read_only_window_writes_nothing(cx: &mut TestAppContext) {
     let written: Vec<String> = fake
         .methods()
         .into_iter()
-        .filter(|m| m.starts_with("pr:merge") || m.starts_with("pr:ready") || m.starts_with("accounts:assign") || m.starts_with("accounts:select") || m == "usage:read" || m.starts_with("chat:limit") || m == "chat:send")
+        .filter(|m| {
+            m.starts_with("pr:merge")
+                || m.starts_with("pr:ready")
+                || m.starts_with("accounts:assign")
+                || m.starts_with("accounts:select")
+                || m == "usage:read"
+                || m.starts_with("chat:limit")
+                || m == "chat:send"
+        })
         .collect();
     assert!(written.is_empty(), "nothing written: {written:?}");
     m.controller.update(m.vcx, |c, _| c.disconnect());

@@ -29,7 +29,10 @@ pub enum Unlock {
     /// Locked, and this window does not unlock (read-only).
     Locked,
     /// The unlock failed: the client's code (`KEYCHAIN_UNAVAILABLE`, `VAULT_KEY_MISSING`, …) and message.
-    Failed { code: String, message: String },
+    Failed {
+        code: String,
+        message: String,
+    },
 }
 
 impl Unlock {
@@ -171,10 +174,7 @@ mod tests {
         assert_eq!(bare("tianxu", "/work/a"), "/work/a");
         assert_eq!(qualify("tianxu", "/work/a#3"), "tianxu|/work/a#3");
         assert_eq!(qualify("tianxu", "tianxu|/work/a#3"), "tianxu|/work/a#3");
-        assert_eq!(
-            Unlock::Failed { code: "KEYCHAIN_UNAVAILABLE".into(), message: "x".into() }.notice().as_deref(),
-            Some(ALLOW_KEYCHAIN)
-        );
+        assert_eq!(Unlock::Failed { code: "KEYCHAIN_UNAVAILABLE".into(), message: "x".into() }.notice().as_deref(), Some(ALLOW_KEYCHAIN));
         assert_eq!(Unlock::Done(milagre_daemon_client::ComputerUnlock::NoVault).notice(), None);
     }
 }

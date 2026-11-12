@@ -78,8 +78,9 @@ fn run(args: &[String]) -> anyhow::Result<()> {
             eprintln!("live: {why}: {}", milagre_gpui_live::daemon::INSTALL_MILAGRE);
         }
         let daemon = Daemon::starting(flag(args, "--profile").map(PathBuf::from), read_only, start);
+        let pr_seed = pr_seed(&daemon, snapshot.as_ref());
         let session = DaemonSession::start(daemon);
-        run_daemon_app(session, snapshot);
+        run_daemon_app(session, snapshot, pr_seed);
         return Ok(());
     }
     let (root, manifest) = match flag(args, "--root") {
@@ -206,11 +207,12 @@ fn run_app(
     });
 }
 
-fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>) {
+fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>, pr_seed: Option<milagre_gpui_live::pr::Seed>) {
     let daemon = session.daemon.clone();
     // Snapshot: the newest Chat's first page is read before the window opens (a read on its Project's client).
     let preloaded = snapshot.as_ref().and_then(|_| {
-        let key = milagre_gpui_live::controller::newest_chat(&session.store, None)?;
+        let key =
+            pr_seed.as_ref().map(|seed| seed.key.clone()).or_else(|| milagre_gpui_live::controller::newest_chat(&session.store, None))?;
         let (project, id) = milagre_gpui_live::sinks::split_key(&key)?;
         let source = milagre_gpui_live::source::LiveSource::daemon(session.store.clone(), daemon.clone());
         let scope = milagre_gpui_spike::data::ScopeKey::project(milagre_gpui_spike::data::LOCAL, &project);
@@ -239,6 +241,9 @@ fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>) {
             ));
         }
         wiring.preloaded = preloaded;
+        if let Some(seed) = pr_seed {
+            cx.set_global(seed);
+        }
         if snapshot.is_some() {
             for _ in 0..200 {
                 if milagre_gpui_spike::ui::preload_logos(cx) {
@@ -296,6 +301,9 @@ fn snapshot_then_quit(window: gpui::AnyWindowHandle, path: PathBuf, cx: &mut App
         // `MILAGRE_GPUI_SNAPSHOT_DELAY_MS`: longer for reads that take a while (a PR read from GitHub).
         let delay = std::env::var("MILAGRE_GPUI_SNAPSHOT_DELAY_MS").ok().and_then(|ms| ms.parse().ok()).unwrap_or(2000);
         cx.background_executor().timer(Duration::from_millis(delay)).await;
+        // A window that was never activated may have stopped drawing: ask for a frame of what it shows now.
+        let _ = window.update(cx, |_, window, _| window.refresh());
+        cx.background_executor().timer(Duration::from_millis(500)).await;
         let saved = window.update(cx, |_, window, _| milagre_gpui_spike::snapshot::save_window_png(window, &path));
         match saved {
             Ok(Ok((w, h))) => eprintln!("live: snapshot {} ({w}x{h} px)", path.display()),
@@ -332,4 +340,39 @@ fn quit_on_signals(cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// Evidence snapshots of the PR panel (`MILAGRE_GPUI_LIVE_PANEL=PR`): every loaded Project's PR poll, the newest Chat
+/// with a PR and that PR, read on a sync of its own before the window's (whose stream is not read while these wait).
+/// Reads only.
+fn pr_seed(daemon: &std::sync::Arc<Daemon>, snapshot: Option<&PathBuf>) -> Option<milagre_gpui_live::pr::Seed> {
+    snapshot?;
+    if std::env::var("MILAGRE_GPUI_LIVE_PANEL").as_deref() != Ok("PR") {
+        return None;
+    }
+    let session = DaemonSession::start(daemon.clone());
+    let seed = (|| {
+        let loaded: Vec<String> = session.store.read(|reducer| {
+            reducer
+                .state()
+                .map(|applied| applied.projects.iter().filter(|o| !o.project.is_chats_home()).map(|o| o.project.path.to_string()).collect())
+                .unwrap_or_default()
+        });
+        let mut prs = std::collections::HashMap::new();
+        for project in loaded {
+            if let Ok(answer) = futures::executor::block_on(daemon.read(&project, "pull-requests:snapshot", serde_json::json!([project]))) {
+                prs.insert(project, answer);
+            }
+        }
+        let (key, folder, number) = milagre_gpui_live::controller::newest_with_pr(&session.store, &prs)?;
+        let (project, _) = milagre_gpui_live::sinks::split_key(&key)?;
+        let detail =
+            futures::executor::block_on(daemon.read(&project, "pr:detail", serde_json::json!([{"cwd": folder, "number": number}])))
+                .ok()
+                .map(|answer| (folder, number, answer));
+        eprintln!("live: snapshot of {key} on PR #{number}");
+        Some(milagre_gpui_live::pr::Seed { key, prs, detail })
+    })();
+    daemon.disconnect();
+    seed
 }

@@ -28,8 +28,8 @@ use milagre_gpui_spike::logic::diff::git::{DiffFileResult, DiffStatus};
 use milagre_gpui_spike::workspace::panel::Panel;
 use milagre_gpui_spike::workspace::panel::pr::bridge::{PrBridge, Write};
 use milagre_gpui_spike::workspace::panel::pr::model::{
-    Check, Comment, Label, MergeMethod, Outcome, PrFile, PullRequestDetail, PullState, RepoLabel, ReviewDecision, Reviewer,
-    ReviewerState, Side, Thread,
+    Check, Comment, Label, MergeMethod, Outcome, PrFile, PullRequestDetail, PullState, RepoLabel, ReviewDecision, Reviewer, ReviewerState,
+    Side, Thread,
 };
 use serde_json::{Value, json};
 
@@ -179,17 +179,15 @@ pub fn detail_result(answer: &Value) -> Result<Read, String> {
 
 /// A write's answer (`PullRequestWriteResult`).
 pub fn write_result(answer: &Value) -> Result<(), String> {
-    if answer["ok"] == true {
-        Ok(())
-    } else {
-        Err(answer["message"].as_str().unwrap_or("GitHub didn't take that change.").to_owned())
-    }
+    if answer["ok"] == true { Ok(()) } else { Err(answer["message"].as_str().unwrap_or("GitHub didn't take that change.").to_owned()) }
 }
 
 /// One write as Electron's `window.milagre.pr` sends it: the command and its one request argument.
 pub fn request(cwd: &str, number: u32, write: &Write) -> (&'static str, Value) {
     match write {
-        Write::Merge { method, auto: Some(true), .. } => ("pr:merge", json!({"cwd": cwd, "number": number, "method": method.key(), "auto": true})),
+        Write::Merge { method, auto: Some(true), .. } => {
+            ("pr:merge", json!({"cwd": cwd, "number": number, "method": method.key(), "auto": true}))
+        }
         Write::Merge { method, auto: Some(false), .. } => {
             ("pr:merge", json!({"cwd": cwd, "number": number, "method": method.key(), "disableAuto": true}))
         }
@@ -217,7 +215,9 @@ pub fn request(cwd: &str, number: u32, write: &Write) -> (&'static str, Value) {
         }
         Write::Resolve { thread, resolved } => ("pr:resolve-thread", json!({"cwd": cwd, "threadId": thread, "resolved": resolved})),
         Write::DeleteComment { id } => ("pr:delete-comment", json!({"cwd": cwd, "commentId": id})),
-        Write::SubmitReview { event, body } => ("pr:submit-review", json!({"cwd": cwd, "number": number, "event": event.key(), "body": body})),
+        Write::SubmitReview { event, body } => {
+            ("pr:submit-review", json!({"cwd": cwd, "number": number, "event": event.key(), "body": body}))
+        }
     }
 }
 
@@ -299,6 +299,17 @@ impl PrBridge for LiveBridge {
     }
 }
 
+/// Evidence snapshots: the Chat to show on its PR tab, every loaded Project's PR poll and that PR's `pr:detail`
+/// answer, read before the window opens (a window snapshot draws only its first frames).
+#[derive(Clone, Debug)]
+pub struct Seed {
+    pub key: String,
+    pub prs: HashMap<String, Value>,
+    pub detail: Option<(String, u32, Value)>,
+}
+
+impl gpui::Global for Seed {}
+
 // ---- The panel's driver ----
 
 #[derive(Clone, Debug, PartialEq)]
@@ -332,6 +343,7 @@ pub struct LivePr {
     refused: Vec<String>,
     errors: Vec<String>,
     reads: u64,
+    seeded: Option<(String, u32, Result<Read, String>)>,
     _tasks: Vec<Task<()>>,
 }
 
@@ -364,6 +376,7 @@ impl LivePr {
             refused: Vec::new(),
             errors: Vec::new(),
             reads: 0,
+            seeded: None,
             _tasks: vec![run, poll],
         }
     }
@@ -375,6 +388,9 @@ impl LivePr {
         if self.cwd.as_deref() != Some(cwd) {
             self.cwd = Some(cwd.to_owned());
             self.cache = Rc::new(RefCell::new(Cache::default()));
+            if let Some((_, number, read)) = self.seeded.take().filter(|(folder, _, _)| folder == cwd) {
+                self.cache.borrow_mut().details.insert(number, read);
+            }
             let bridge = Rc::new(LiveBridge { cache: self.cache.clone(), writes: self.writes.clone() });
             let pr = self.panel.read(cx).pr().clone();
             pr.update(cx, |pr, cx| pr.set_bridge(bridge, cx));
@@ -388,6 +404,14 @@ impl LivePr {
                 self.read(number, cx);
             }
         }
+    }
+
+    /// A PR read before the window opened ([`Seed`]), in folder `cwd`.
+    pub fn seed(&mut self, cwd: &str, number: u32, answer: &Value) {
+        if self.cwd.as_deref() != Some(cwd) {
+            self.cwd = None;
+        }
+        self.seeded = Some((cwd.to_owned(), number, detail_result(answer)));
     }
 
     /// The Chat on screen has no Worktree or PR to show: the tab goes.
@@ -487,7 +511,11 @@ impl LivePr {
                     let logins = daemon.read(&project, "pr:reviewer-candidates", json!([{"cwd": cwd}])).await.unwrap_or_default();
                     Some((
                         list(&labels, "labels", |l| {
-                            Some(RepoLabel { name: l["name"].as_str()?.to_owned(), color: text(l, "color"), description: text(l, "description") })
+                            Some(RepoLabel {
+                                name: l["name"].as_str()?.to_owned(),
+                                color: text(l, "color"),
+                                description: text(l, "description"),
+                            })
                         }),
                         list(&logins, "logins", |l| l.as_str().map(str::to_owned)),
                     ))
@@ -553,7 +581,9 @@ impl LivePr {
             self.refused.push(format!("{method} #{number}"));
             eprintln!("live: read-only, not sent: {method} #{number}");
             let pr = self.panel.read(cx).pr().clone();
-            pr.update(cx, |pr, cx| pr.write_done(number, Err("Read-only: nothing is written to Milagre's daemon in this window.".into()), cx));
+            pr.update(cx, |pr, cx| {
+                pr.write_done(number, Err("Read-only: nothing is written to Milagre's daemon in this window.".into()), cx)
+            });
             return None;
         }
         self.sent.push((method.to_owned(), json!([request.clone()])));
@@ -665,7 +695,10 @@ mod tests {
         assert_eq!(request("/w", 7, &Write::Reply { thread: "T".into(), body: "b".into() }).1["threadId"], json!("T"));
         assert_eq!(request("/w", 7, &Write::Resolve { thread: "T".into(), resolved: true }).0, "pr:resolve-thread");
         assert_eq!(request("/w", 7, &Write::DeleteComment { id: "C".into() }).1, json!({"cwd": "/w", "commentId": "C"}));
-        assert_eq!(request("/w", 7, &Write::SubmitReview { event: ReviewEvent::Approve, body: String::new() }).1["event"], json!("APPROVE"));
+        assert_eq!(
+            request("/w", 7, &Write::SubmitReview { event: ReviewEvent::Approve, body: String::new() }).1["event"],
+            json!("APPROVE")
+        );
         let labels = Write::Labels { add: vec![Label { name: "perf".into(), color: "0".into() }], remove: vec!["old".into()] };
         assert_eq!(request("/w", 7, &labels), ("pr:set-labels", json!({"cwd": "/w", "number": 7, "add": ["perf"], "remove": ["old"]})));
         assert_eq!(write_result(&json!({"ok": false, "message": "Merge blocked"})), Err("Merge blocked".into()));

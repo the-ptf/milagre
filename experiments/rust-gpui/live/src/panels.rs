@@ -235,8 +235,10 @@ pub struct PillInputs {
 /// The PR the panel shows for a Chat (`App.tsx`): one picked (the sidebar's chip), else the first of its row's PRs,
 /// else its Worktree's branch PR.
 pub fn panel_pull_request(prs: &Value, folder: &str, chat: &Chat, picked: Option<u32>) -> Option<u32> {
+    // The row's own list (the sidebar's chip), so the panel opens on the PR the row shows.
     picked.or_else(|| {
-        let list = chat_pull_requests(prs, folder, chat);
+        let refs = chat.summary.as_ref().map(|s| s.pull_requests.clone()).unwrap_or_default();
+        let list = crate::pr::snapshot(prs).chat_pull_requests(folder, &refs);
         milagre_gpui_spike::logic::prs::blockers::row_pull_requests(&list).into_iter().find_map(|pr| pr.number)
     })
 }

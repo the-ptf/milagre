@@ -100,12 +100,21 @@ fn a_locked_vault_is_unlocked_and_the_computers_show(cx: &mut TestAppContext) {
     assert!(calls(&fake, "computers:invoke").iter().any(|a| a[1] == "chat:messages" && a[2][0] == REMOTE && a[2][1] == 1));
 
     // A remote turn's end notifies (the window is not focused in tests).
-    fake.world().emit("computers:event", json!({"computerId": "tianxu", "channel": "agent:event",
-        "payload": {"chatId": remote_key, "event": {"type": "turn-started", "turnId": "x"}}}));
-    fake.world().emit("computers:event", json!({"computerId": "tianxu", "channel": "agent:event",
-        "payload": {"chatId": remote_key, "event": {"type": "text-delta", "text": "Done remotely"}}}));
-    fake.world().emit("computers:event", json!({"computerId": "tianxu", "channel": "agent:event",
-        "payload": {"chatId": remote_key, "event": {"type": "turn-completed"}}}));
+    fake.world().emit(
+        "computers:event",
+        json!({"computerId": "tianxu", "channel": "agent:event",
+        "payload": {"chatId": remote_key, "event": {"type": "turn-started", "turnId": "x"}}}),
+    );
+    fake.world().emit(
+        "computers:event",
+        json!({"computerId": "tianxu", "channel": "agent:event",
+        "payload": {"chatId": remote_key, "event": {"type": "text-delta", "text": "Done remotely"}}}),
+    );
+    fake.world().emit(
+        "computers:event",
+        json!({"computerId": "tianxu", "channel": "agent:event",
+        "payload": {"chatId": remote_key, "event": {"type": "turn-completed"}}}),
+    );
     m.wait_for("the remote notification", |_| seen.borrow().posts.iter().any(|p| p.chat == remote_key));
     assert_eq!(seen.borrow().posts.iter().find(|p| p.chat == remote_key).map(|p| p.title.clone()).as_deref(), Some("Remote chat"));
 

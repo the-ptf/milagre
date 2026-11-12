@@ -332,63 +332,57 @@ pub fn card(
                 )
                 .child(div().text_step(TEXT_12).text_color(theme.ink3).child(model.updated.clone())),
         )
-        .when(!live, |el| {
-            el.child(IconButton::new("usage-card-refresh", IconName::Refresh).size(IconButtonSize::S28).glyph(IconSize::S16))
-        })
+        .when(!live, |el| el.child(IconButton::new("usage-card-refresh", IconName::Refresh).size(IconButtonSize::S28).glyph(IconSize::S16)))
         .when(live && writes, |el| {
-            el.child(
-                div().when(reading, |el| el.opacity(0.4)).child(
-                    IconButton::new("usage-card-refresh", IconName::Refresh)
-                        .size(IconButtonSize::S28)
-                        .glyph(IconSize::S16)
-                        .on_click(move |_, _, cx| {
-                            if !cx.has_global::<crate::workspace::preview::PreviewUsageReading>() {
-                                crate::workspace::preview::account_write(crate::workspace::preview::AccountWrite::RefreshUsage, cx);
-                            }
-                        }),
+            el.child(div().when(reading, |el| el.opacity(0.4)).child(
+                IconButton::new("usage-card-refresh", IconName::Refresh).size(IconButtonSize::S28).glyph(IconSize::S16).on_click(
+                    move |_, _, cx| {
+                        if !cx.has_global::<crate::workspace::preview::PreviewUsageReading>() {
+                            crate::workspace::preview::account_write(crate::workspace::preview::AccountWrite::RefreshUsage, cx);
+                        }
+                    },
                 ),
-            )
+            ))
         });
     // The picker's choices (`projectAccountOptions`): "Use computer default", then each saved account.
-    let picker = group.filter(|_| picker_open).map(|group| {
-        let current = group.account_id.clone().unwrap_or_default();
-        div().flex().flex_col().gap(px(2.0)).px(px(8.0)).pb(px(8.0)).children(group.choices().into_iter().enumerate().map(|(n, choice)| {
-            let selected = choice.value == current;
-            let (value, disabled) = (choice.value.clone(), choice.disabled);
-            let close = on_picker.clone();
-            div()
-                .id(("usage-card-pick", n))
-                .debug_selector(move || format!("usage-card-pick-{n}"))
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .px(px(8.0))
-                .py(px(4.0))
-                .rounded(RADIUS_CONTROL)
-                .text_step(TEXT_13)
-                .when(disabled, |el| el.opacity(0.4))
-                .when(!disabled, |el| {
-                    el.cursor_pointer().hover(move |style| style.bg(theme.hover)).on_click(move |_, _, cx| {
-                        close(false, cx);
-                        if !selected {
-                            let account_id = (!value.is_empty()).then(|| value.clone());
-                            crate::workspace::preview::account_write(
-                                crate::workspace::preview::AccountWrite::Assign { provider, account_id },
-                                cx,
-                            );
-                        }
-                    })
-                })
-                .child(
+    let picker =
+        group.filter(|_| picker_open).map(|group| {
+            let current = group.account_id.clone().unwrap_or_default();
+            div().flex().flex_col().gap(px(2.0)).px(px(8.0)).pb(px(8.0)).children(group.choices().into_iter().enumerate().map(
+                |(n, choice)| {
+                    let selected = choice.value == current;
+                    let (value, disabled) = (choice.value.clone(), choice.disabled);
+                    let close = on_picker.clone();
                     div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(div().truncate().text_color(theme.ink).child(choice.label.clone()))
-                        .children(choice.description.clone().map(|d| div().truncate().text_step(TEXT_12).text_color(theme.ink3).child(d))),
-                )
-                .when(selected, |el| el.child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.ink)))
-        }))
-    });
+                        .id(("usage-card-pick", n))
+                        .debug_selector(move || format!("usage-card-pick-{n}"))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .px(px(8.0))
+                        .py(px(4.0))
+                        .rounded(RADIUS_CONTROL)
+                        .text_step(TEXT_13)
+                        .when(disabled, |el| el.opacity(0.4))
+                        .when(!disabled, |el| {
+                            el.cursor_pointer().hover(move |style| style.bg(theme.hover)).on_click(move |_, _, cx| {
+                                close(false, cx);
+                                if !selected {
+                                    let account_id = (!value.is_empty()).then(|| value.clone());
+                                    crate::workspace::preview::account_write(
+                                        crate::workspace::preview::AccountWrite::Assign { provider, account_id },
+                                        cx,
+                                    );
+                                }
+                            })
+                        })
+                        .child(div().flex_1().min_w_0().child(div().truncate().text_color(theme.ink).child(choice.label.clone())).children(
+                            choice.description.clone().map(|d| div().truncate().text_step(TEXT_12).text_color(theme.ink3).child(d)),
+                        ))
+                        .when(selected, |el| el.child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.ink)))
+                },
+            ))
+        });
     let windows = (!model.windows.is_empty()).then(|| {
         div().flex().flex_col().gap(px(12.0)).px(px(16.0)).pt(px(12.0)).pb(px(16.0)).border_t_1().border_color(theme.line).children(
             model.windows.iter().map(|w| {

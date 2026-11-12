@@ -228,7 +228,15 @@ impl LiveAccounts {
     }
 
     /// A usage-limit card's account pick at item `ix` (`chat:limit-switch`).
-    pub fn limit_switch(&mut self, ix: usize, chat: (String, u64), provider: Provider, account_id: String, label: String, cx: &mut Context<Self>) {
+    pub fn limit_switch(
+        &mut self,
+        ix: usize,
+        chat: (String, u64),
+        provider: Provider,
+        account_id: String,
+        label: String,
+        cx: &mut Context<Self>,
+    ) {
         let (project, session) = chat;
         let args = json!([project, session, provider.id(), account_id]);
         self.send(project, "chat:limit-switch", args, Some((ix, label)), cx);
@@ -385,7 +393,10 @@ mod tests {
         let limit = UsageLimit { provider: Provider::Claude, account_id: Some("default".into()), resets_at: None };
         let choices = choices(&groups, &limit, 0);
         assert_eq!(choices.iter().map(|c| (c.id.as_str(), c.disabled)).collect::<Vec<_>>(), vec![("work", false), ("old", true)]);
-        assert_eq!(switched(&json!({"continued": true, "label": "work@example.com"}), "x"), "Switched to work@example.com. Continuing\u{2026}");
+        assert_eq!(
+            switched(&json!({"continued": true, "label": "work@example.com"}), "x"),
+            "Switched to work@example.com. Continuing\u{2026}"
+        );
         assert_eq!(switched(&json!({"continued": false}), "Work"), "Switched to Work. Send your message again to continue.");
     }
 }

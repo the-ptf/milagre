@@ -434,6 +434,21 @@ impl LiveController {
                     this.refresh_panels(cx);
                 }
             }));
+            // Evidence snapshots: the Chat with a PR, its PR polls and the PR itself, read before the window opened.
+            if let Some(seed) = cx.try_global::<crate::pr::Seed>().cloned() {
+                for (project, prs) in &seed.prs {
+                    if let Backend::Daemon(daemon) = &c.backend {
+                        daemon.set_prs(project, prs.clone());
+                    }
+                    c.prs.insert(project.clone(), prs.clone());
+                }
+                c.pr_snapshot_opened = true;
+                c.pr_tab = Some(seed.key.clone());
+                c.pending_open = Some(seed.key.clone());
+                if let Some((cwd, number, answer)) = &seed.detail {
+                    live_pr.update(cx, |pr, _| pr.seed(cwd, *number, answer));
+                }
+            }
             c.live_pr = Some(live_pr);
             let scope = c.open.as_ref().map(|open| open.project.clone());
             accounts.update(cx, |a, cx| a.set_scope(scope, cx));
@@ -948,25 +963,7 @@ impl LiveController {
 
     /// Opens the newest Chat whose PR poll names a PR, on its PR tab (snapshots).
     fn open_newest_with_pr(&mut self, cx: &mut Context<Self>) {
-        let prs = &self.prs;
-        let found = self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
-            applied
-                .projects
-                .iter()
-                .filter_map(|open| Some((open, open.state.as_ref()?, prs.get(open.project.path.as_ref())?)))
-                .flat_map(|(open, state, prs)| {
-                    state.sessions.values().filter(|chat| !chat.archived).filter_map(move |chat| {
-                        let folder = state.worktree_of(chat)?.path.to_string();
-                        crate::panels::panel_pull_request(prs, &folder, chat, None)?;
-                        let at = chat.summary.as_ref().and_then(|s| s.last_at).unwrap_or(0);
-                        Some((at, open.project.scope().chat_key(chat.id)))
-                    })
-                })
-                .max_by_key(|(at, _)| *at)
-                .map(|(_, key)| key)
-        });
-        if let Some(key) = found {
+        if let Some((key, _, _)) = newest_with_pr(&self.store, &self.prs) {
             self.pr_snapshot_opened = true;
             self.pr_tab = Some(key.clone());
             self.pending_open = Some(key);
@@ -1626,7 +1623,6 @@ impl LiveController {
                 }
                 None => live_pr.update(cx, |pr, cx| pr.hide(&key, cx)),
             }
-            eprintln!("DEBUGPR key={key} pr_tab={:?} shown={:?} tabs={:?} active={:?}", self.pr_tab, shown_pr, panel.read(cx).visible_tabs(), panel.read(cx).active());
             if self.pr_tab.as_deref() == Some(key.as_str()) && shown_pr.as_ref().is_some_and(|(_, n)| n.is_some()) {
                 self.pr_tab = None;
                 panel.update(cx, |panel, cx| panel.activate(milagre_gpui_spike::workspace::panel::PanelTab::Pr, cx));
@@ -2271,4 +2267,25 @@ fn chat_info(store: &LiveStore, key: &str, cx: &App) -> crate::notify::ChatInfo 
         Some(title)
     });
     crate::notify::ChatInfo { title: title.unwrap_or_default(), hidden: crate::sidebar_writes::is_hidden(cx, &project) }
+}
+
+/// The newest Chat whose PR poll names a PR: its key, Worktree folder and the PR its panel shows.
+pub fn newest_with_pr(store: &LiveStore, prs: &HashMap<String, Value>) -> Option<(String, String, u32)> {
+    store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            applied
+                .projects
+                .iter()
+                .filter_map(|open| Some((open, open.state.as_ref()?, prs.get(open.project.path.as_ref())?)))
+                .flat_map(|(open, state, prs)| {
+                    state.sessions.values().filter(|chat| !chat.archived).filter_map(move |chat| {
+                        let folder = state.worktree_of(chat)?.path.to_string();
+                        let number = crate::panels::panel_pull_request(prs, &folder, chat, None)?;
+                        let at = chat.summary.as_ref().and_then(|s| s.last_at).unwrap_or(0);
+                        Some((at, (open.project.scope().chat_key(chat.id), folder, number)))
+                    })
+                })
+                .max_by_key(|(at, _)| *at)
+                .map(|(_, found)| found)
+    })
 }
