@@ -633,7 +633,7 @@ impl Sidebar {
                     .flex_none()
                     .gap(px(4.0))
                     .py(px(6.0))
-                    .border_t_1()
+                    .border_t(crate::theme::HAIRLINE)
                     .border_color(theme.line)
                     // Under the footer's icons (the column is reversed, so first is lowest): each provider's mark.
                     .child(div().id("rail-usage").debug_selector(|| "rail-usage".into()).flex().flex_col().items_center().children(marks))
