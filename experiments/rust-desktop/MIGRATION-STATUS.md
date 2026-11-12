@@ -6,6 +6,34 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 07:30 Toronto, Codex ordinary composer checkpoint `dfda9b1e` is accepted and
+installed. Independent review found no P1/P2; root reran the actual entrypoint
+wire test. Saved validation passes 131 normal runtime checks, strict Clippy,
+formatting/lint and a failing old-behavior mutation control. Codex now accepts the
+global Claude reply preference (concise/normal/null/absent), matching actual Node
+Codex `beginTurn`, which does not consume it. Actual child frames match Node at
+null/high effort across restart/resume. Invalid types still refuse before workers.
+This remains fake-CLI evidence; no real Codex turn/account test was run.
+
+Staged `o5M09s` and installed `mHUGqC` observers pass Sidebar/read/metadata/native
+Quit and actual socket/profile/shell cleanup, with zero sends. Reports use the
+same temporary observer prefix below. Installed shell SHA-256:
+`3faffc928292add2976b2b70d37160783d1b5ef3650e87ca215a8245a2c61bcd`.
+Runtime SHA-256:
+`77c2ba7f37d41b0bb6faa29b518229c7b14f308945531c7f5184b07437c7e64b`.
+Provenance and retained prior bundle:
+`/private/tmp/milagre-rust-preview-package-iesnbi7g/install-report.json`.
+GPUI received matching pins; its measured benchmark remains tied to its original
+builds. Production start times are unchanged. No further real turn was spent.
+
+The benchmark suggests about 1% idle CPU in the debug shared runtime. Source audit
+found repeated unchanged whole-state hydration/copying on the 20 ms tick. A
+subagent is implementing and measuring an identity-keyed cache while retaining
+authority checks and timer cadence; no performance improvement is claimed yet.
+A separate subagent is porting configured Codex per-turn Auto/Full policy through
+existing native controls. Both increments are unaccepted/uninstalled. Full
+services, phone and existing-data upgrade remain incomplete.
+
 At 07:00 Toronto, combined integration `f946e184` is accepted and the separate
 normal Rust Preview is refreshed. Three independent source/log reviews report
 no remaining P1/P2. Root's combined full runs pass 157 runtime and 236 owner

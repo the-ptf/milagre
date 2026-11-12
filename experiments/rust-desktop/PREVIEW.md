@@ -281,3 +281,14 @@ model sends and actual child/socket/profile/shell cleanup. Full report paths and
 current hashes are in MIGRATION-STATUS.md. Package and retained prior bundle:
 `/private/tmp/milagre-rust-preview-package-ch1uct_1/install-report.json`.
 The earlier one-real-turn acceptance remains evidence for its original binary.
+
+## Ordinary Codex composer refresh
+
+Checkpoint `dfda9b1e` adds Node-compatible ordinary Codex reply-preference admission
+and validates effort/native frames across fake-CLI restart/resume. Root's actual
+wire rerun and independent review pass. Normal staged `o5M09s` and installed
+`mHUGqC` observers pass native Quit and cleanup with zero sends. Current hashes
+are recorded at the top of MIGRATION-STATUS.md; retained rollback/provenance:
+`/private/tmp/milagre-rust-preview-package-iesnbi7g/install-report.json`.
+The selected installed account/root remain Claude. This is not real Codex/account
+interoperability evidence, and it does not enable automatic routines.
