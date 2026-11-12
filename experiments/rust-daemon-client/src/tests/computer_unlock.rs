@@ -73,7 +73,7 @@ fn run(dir: &Path, script: impl FnOnce(&mut Peer) + Send + 'static) -> Result<Co
         peer.closed();
     });
     let (client, _, _) = block_on(project.connect(ClientOptions::default())).unwrap();
-    let result = block_on(project.unlock_with(&client, || Ok(PASSWORD.to_vec())));
+    let result = block_on(project.unlock_with(&client, |_| Ok(PASSWORD.to_vec())));
     client.disconnect();
     worker.join().unwrap();
     result
@@ -138,13 +138,53 @@ fn a_missing_wrapper_is_never_replaced() {
         !dir.path().join("computer-vault-key.json").exists(),
         "no new key is written"
     );
-    let outcome = run(dir.path(), |peer| {
+}
+
+#[test]
+fn a_first_key_is_created_like_electron_and_unlocks() {
+    use base64::Engine as _;
+    let dir = tempfile::tempdir().unwrap();
+    let sent = Arc::new(Mutex::new(String::new()));
+    let seen = sent.clone();
+    let outcome = run(dir.path(), move |peer| {
         vault(
             peer,
             json!({"unlocked":false,"configuredFile":false,"hasVault":false,"needsLegacyImport":false}),
-        )
+        );
+        let unlock = peer.request("computers:unlock");
+        *seen.lock().unwrap() = unlock["args"][0]["key"].as_str().unwrap().to_owned();
+        peer.reply(&unlock, Value::Null);
     });
-    assert_eq!(outcome.unwrap(), ComputerUnlock::NoVault);
+    assert_eq!(outcome.unwrap(), ComputerUnlock::Created);
+    let file = dir.path().join("computer-vault-key.json");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let saved: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["v"], 1);
+    let key =
+        String::from_utf8(open_v10(PASSWORD, saved["sealed"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(
+        key,
+        *sent.lock().unwrap(),
+        "the daemon gets the key that was sealed"
+    );
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(&key)
+            .unwrap()
+            .len(),
+        32
+    );
+    // A second launch opens the saved key instead of making another.
+    let again = run(dir.path(), |peer| {
+        vault(
+            peer,
+            json!({"unlocked":false,"configuredFile":false,"hasVault":true,"needsLegacyImport":false}),
+        );
+        let unlock = peer.request("computers:unlock");
+        peer.reply(&unlock, Value::Null);
+    });
+    assert_eq!(again.unwrap(), ComputerUnlock::Unlocked { imported: false });
 }
 
 #[test]
@@ -212,11 +252,51 @@ fn real_keychain_opens_the_installed_vault_key() {
     let saved = crate::computer_unlock::private_json(&file)
         .unwrap()
         .expect("vault key file");
-    let password = crate::computer_unlock::keychain_password().expect("Keychain access");
+    let password = crate::computer_unlock::keychain_password(false).expect("Keychain access");
     let key = open_v10(&password, saved["sealed"].as_str().unwrap()).expect("decrypts");
     let raw = base64::engine::general_purpose::STANDARD
         .decode(&key)
         .expect("base64 key");
     assert_eq!(raw.len(), 32);
     println!("real Keychain item opened the installed vault key: 32-byte key, not printed");
+}
+
+/// Live, by hand, throwaway profile only: Milagre.app's real daemon accepts a key created here, and after a daemon
+/// restart the saved key unlocks again. A test password stands in for the Keychain, so there's no prompt.
+/// `cargo test --features installed-owner real_daemon_created_key -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn real_daemon_created_key_survives_a_restart() {
+    use crate::{DaemonLaunch, InstalledOwner};
+    let dir = tempfile::tempdir().unwrap();
+    let data = std::fs::canonicalize(dir.path()).unwrap().join("profile");
+    let launch = DaemonLaunch::find_installed_app().expect("Milagre.app");
+    let session = |expect: ComputerUnlock| -> u32 {
+        let owner = block_on(InstalledOwner::adopt_or_start_profile(&data, &launch)).unwrap();
+        let project = owner.project("/tmp").unwrap();
+        let (client, _, _) = block_on(project.connect(ClientOptions::default())).unwrap();
+        let before = block_on(project.computers_vault_status(&client)).unwrap();
+        assert_eq!(before["unlocked"], false, "a fresh daemon starts locked");
+        let outcome = block_on(project.unlock_with(&client, |_| Ok(PASSWORD.to_vec()))).unwrap();
+        assert_eq!(outcome, expect);
+        let after = block_on(project.computers_vault_status(&client)).unwrap();
+        assert_eq!(after["unlocked"], true);
+        println!("{expect:?}: daemon {} unlocked", owner.info().pid);
+        client.disconnect();
+        owner.info().pid
+    };
+    let stop = |pid: u32| {
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        for _ in 0..40 {
+            if unsafe { libc::kill(pid as libc::pid_t, 0) } != 0 {
+                return;
+            }
+            thread::sleep(Duration::from_millis(250));
+        }
+        panic!("throwaway daemon {pid} did not stop");
+    };
+    let first = session(ComputerUnlock::Created);
+    stop(first);
+    let second = session(ComputerUnlock::Unlocked { imported: false });
+    stop(second);
 }

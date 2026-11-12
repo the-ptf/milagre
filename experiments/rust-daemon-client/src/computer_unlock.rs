@@ -26,8 +26,9 @@ pub enum ComputerUnlock {
     AlreadyUnlocked,
     /// Unlocked with Electron's sealed key, plus `imported` pre-vault pairings when the daemon asked for them.
     Unlocked { imported: bool },
-    /// No vault and no key yet: nothing to unlock until a first pairing. Electron creates the key then.
-    NoVault,
+    /// No vault and no key existed (a computer without Milagre.app): a new key was made the way Electron makes it,
+    /// sealed in Electron's format under the same Keychain item, and the vault unlocked with it.
+    Created,
 }
 
 impl InstalledProject {
@@ -40,7 +41,9 @@ impl InstalledProject {
     }
 
     /// Unlock the computer vault with Electron's safeStorage key from the login Keychain. Call at launch and after a
-    /// re-adoption, before showing computers or calling `computers:add`. May show the macOS Keychain prompt.
+    /// re-adoption, before showing computers or calling `computers:add`. May show the macOS Keychain prompt. With no
+    /// vault and no key yet, creates both as Electron would (Keychain item included), so Milagre.app installed later
+    /// reads the same key.
     pub async fn unlock_computers(&self, client: &Client) -> Result<ComputerUnlock> {
         self.unlock_with(client, keychain_password).await
     }
@@ -48,19 +51,28 @@ impl InstalledProject {
     pub(crate) async fn unlock_with(
         &self,
         client: &Client,
-        password: impl Fn() -> Result<Vec<u8>> + Send + Sync,
+        // `true` when the Keychain item may be created (a first key on this computer).
+        password: impl Fn(bool) -> Result<Vec<u8>> + Send + Sync,
     ) -> Result<ComputerUnlock> {
         let status = self.computers_vault_status(client).await?;
         let mut outcome = ComputerUnlock::AlreadyUnlocked;
         if status["configuredFile"] != true && status["unlocked"] != true {
-            let Some(saved) = private_json(&self.data_dir.join("computer-vault-key.json"))? else {
-                if status["hasVault"] == true {
-                    return Err(failure(
-                        "VAULT_KEY_MISSING",
-                        "The desktop key for existing computer credentials is missing.",
-                    ));
+            let file = self.data_dir.join("computer-vault-key.json");
+            let existing = private_json(&file)?;
+            if existing.is_none() && status["hasVault"] == true {
+                // Never replace a missing wrapper for an existing vault with a different key.
+                return Err(failure(
+                    "VAULT_KEY_MISSING",
+                    "The desktop key for existing computer credentials is missing.",
+                ));
+            }
+            let pw = password(existing.is_none())?;
+            let saved = match existing {
+                Some(saved) => saved,
+                None => {
+                    outcome = ComputerUnlock::Created;
+                    create_sealed_key(&file, &pw)?
                 }
-                return Ok(ComputerUnlock::NoVault);
             };
             if saved["v"] != 1 || !saved["sealed"].is_string() {
                 return Err(failure(
@@ -68,14 +80,16 @@ impl InstalledProject {
                     "The desktop computer key is damaged.",
                 ));
             }
-            let key = open_v10(&password()?, saved["sealed"].as_str().unwrap_or_default())?;
+            let key = open_v10(&pw, saved["sealed"].as_str().unwrap_or_default())?;
             let key = String::from_utf8(key).map_err(|_| {
                 failure("VAULT_KEY_DAMAGED", "The desktop computer key is damaged.")
             })?;
             client
                 .read("computers:unlock", json!([{"key": key}]))
                 .await?;
-            outcome = ComputerUnlock::Unlocked { imported: false };
+            if outcome != ComputerUnlock::Created {
+                outcome = ComputerUnlock::Unlocked { imported: false };
+            }
         }
         if status["needsLegacyImport"] == true {
             let saved =
@@ -85,7 +99,10 @@ impl InstalledProject {
                         "The earlier computer pairings file is missing.",
                     )
                 })?;
-            let value = open_v10(&password()?, saved["sealed"].as_str().unwrap_or_default())?;
+            let value = open_v10(
+                &password(false)?,
+                saved["sealed"].as_str().unwrap_or_default(),
+            )?;
             let value: Value = serde_json::from_slice(&value).map_err(|_| {
                 failure(
                     "LEGACY_KEYS_DAMAGED",
@@ -103,14 +120,66 @@ impl InstalledProject {
     }
 }
 
-/// The login Keychain password Electron's safeStorage uses for this app.
-pub(crate) fn keychain_password() -> Result<Vec<u8>> {
-    security_framework::passwords::get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(|_| {
+/// The login Keychain password Electron's safeStorage uses for this app. With `create`, a missing item is made as
+/// Chromium makes it (16 random bytes, base64), so Electron reuses it if Milagre.app is installed later.
+pub(crate) fn keychain_password(create: bool) -> Result<Vec<u8>> {
+    use security_framework::passwords::{get_generic_password, set_generic_password};
+    let unavailable = || {
         failure(
             "KEYCHAIN_UNAVAILABLE",
             "Allow access to the \"Milagre Safe Storage\" Keychain item to use your paired computers.",
         )
-    })
+    };
+    match get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
+        Ok(password) => Ok(password),
+        // errSecItemNotFound: this computer never had Milagre.app's safeStorage key.
+        Err(error) if create && error.code() == -25300 => {
+            let password = STANDARD.encode(random::<16>()?).into_bytes();
+            set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, &password)
+                .map_err(|_| unavailable())?;
+            Ok(password)
+        }
+        Err(_) => Err(unavailable()),
+    }
+}
+
+fn random<const N: usize>() -> Result<[u8; N]> {
+    let mut bytes = [0u8; N];
+    if unsafe { libc::getentropy(bytes.as_mut_ptr().cast(), N) } != 0 {
+        return Err(failure(
+            "RANDOM_UNAVAILABLE",
+            "Could not read secure random bytes",
+        ));
+    }
+    Ok(bytes)
+}
+
+/// A new 32-byte vault key, base64 and sealed in Electron's format, written exclusively with mode 0600. Another
+/// writer that won the race keeps its key: read that one instead (computer-unlock.cjs does the same).
+fn create_sealed_key(file: &Path, password: &[u8]) -> Result<Value> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let key = STANDARD.encode(random::<32>()?);
+    let saved = json!({"v": 1, "sealed": seal_v10(password, key.as_bytes())});
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(file)
+    {
+        Ok(mut out) => {
+            out.write_all(saved.to_string().as_bytes())
+                .and_then(|()| out.sync_all())
+                .map_err(|_| failure("UNSAFE_KEY_FILE", "Could not write the computer key file"))?;
+            Ok(saved)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => private_json(file)?
+            .ok_or_else(|| failure("UNSAFE_KEY_FILE", "Could not read the computer key file")),
+        Err(_) => Err(failure(
+            "UNSAFE_KEY_FILE",
+            "Could not write the computer key file",
+        )),
+    }
 }
 
 /// A private JSON file of the frontend's (`assertPrivate` in private-files.cjs): a regular file, not a link, owned by
@@ -159,7 +228,6 @@ pub(crate) fn open_v10(password: &[u8], sealed_base64: &str) -> Result<Vec<u8>> 
         .map_err(|_| damaged())
 }
 
-#[cfg(test)]
 pub(crate) fn seal_v10(password: &[u8], plain: &[u8]) -> String {
     use aes::cipher::BlockEncryptMut;
     let body = cbc::Encryptor::<aes::Aes128>::new(&derive(password).into(), &[b' '; 16].into())

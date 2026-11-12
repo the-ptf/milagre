@@ -26,7 +26,10 @@ service parity. Routines are out of scope for the Preview in this mode.
   `computer-unlock.cjs` does: reads `computer-vault-key.json` (private file checks), opens Electron's
   safeStorage seal (Chromium "v10": AES-128-CBC, PBKDF2-HMAC-SHA1 of the login Keychain item
   "Milagre Safe Storage" / "Milagre Key", salt "saltysalt", 1003 rounds, IV of spaces) and sends
-  `computers:unlock`; imports pre-vault pairings when `needsLegacyImport`. Already unlocked or
+  `computers:unlock`; imports pre-vault pairings when `needsLegacyImport`. On a computer that never
+  had Milagre.app (no vault, no key) it creates both as Electron would: a random 32-byte key sealed in
+  Electron's format, and the Keychain item if missing (16 random bytes, base64, as Chromium does), so
+  Milagre.app installed later reads the same key. Result `Created`. Already unlocked or
   file-keyed vaults are left alone; a missing wrapper for an existing vault is an error, never a new
   key. Reading the Keychain item from another app shows the macOS prompt once per app signature (an
   ad-hoc re-signed build asks again). `computers_vault_status(&client)` is the typed status read.
@@ -110,3 +113,8 @@ not printed, nothing sent to the daemon.
 Round 7 (2026-11-12): bundled Node. Real check: the bundle's daemon started on a throwaway profile
 in 0.49 s from its own Node (parent PID 1, 14 capabilities), then stopped and deleted. First build
 caught node-pty's `posix_spawnp failed` (spawn-helper not executable without install scripts).
+
+Round 8 (2026-11-12): first key created without Electron, replacing `milagre computers setup-key`
+for the Preview. Real check (ignored test `real_daemon_created_key_survives_a_restart`, throwaway
+profile, test password instead of the Keychain): Milagre.app's daemon accepted the created key, and
+after a daemon restart the saved key unlocked it again.
