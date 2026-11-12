@@ -126,7 +126,11 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
     assert_eq!(bar.origin.y, toggle.origin.y, "in the bar's row, with its buttons");
     cx.simulate_click(closed.center(), Modifiers::none());
     assert!(panel.read_with(cx, |p, _| p.is_open()), "and opens it again");
-    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1), "open: the toggle sits at the Chat column's right edge too");
+    assert_eq!(
+        chat.read_with(cx, |c, _| c.header_insets()).1,
+        top_bar::chat_trailing_inset(1),
+        "open: the toggle sits at the Chat column's right edge too"
+    );
 }
 
 #[test]
