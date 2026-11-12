@@ -7670,6 +7670,44 @@ test("Go to bottom returns the mobile transcript to the end and resumes followin
   assert.equal(jump(), undefined, "Switching Chats clears the previous button state");
 });
 
+test("a small mobile drag pauses following through growth and resumes only at the end", () => {
+  const screen = chatHost({ effects: true });
+  const page = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  const scrolls = [];
+  page().props.ref.current = { scrollToEnd: (options) => scrolls.push(options) };
+  const move = (y, height = 1800) =>
+    page().props.onScroll({
+      nativeEvent: {
+        contentSize: { height },
+        contentOffset: { y },
+        layoutMeasurement: { height: 600 },
+      },
+    });
+  page().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+  page().props.onContentSizeChange(0, 1800);
+  move(1200);
+  page().props.onEndVisible(true);
+  scrolls.length = 0;
+  page().props.onScrollBeginDrag({ nativeEvent: {} });
+  // Layout may report before the first native scroll event, then after an 8px movement within the old 120px threshold.
+  page().props.onContentSizeChange(0, 1800);
+  assert.equal(scrolls.length, 0, "Drag start pauses automatic corrections before the first movement");
+  move(1192);
+  page().props.onContentSizeChange(0, 1840);
+  assert.equal(scrolls.length, 0, "An 8px drag cannot be snapped back by streamed growth");
+  page().props.onScrollEndDrag();
+  page().props.onMomentumScrollBegin();
+  move(1184, 1840);
+  page().props.onMomentumScrollEnd();
+  page().props.onContentSizeChange(0, 1860);
+  assert.equal(scrolls.length, 0, "Reading stays paused after the fling ends");
+  page().props.onScrollBeginDrag({ nativeEvent: {} });
+  move(1260, 1860);
+  page().props.onScrollEndDrag();
+  page().props.onContentSizeChange(0, 1900);
+  assert.equal(scrolls.length, 1, "Dragging down to the actual end resumes following");
+});
+
 test("live tool activity opens in the activity sheet instead of expanding in the transcript", () => {
   const screen = chatHost();
   screen.params.id = "42";
