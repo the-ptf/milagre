@@ -65,8 +65,30 @@ fn owner_command(layout: &Layout) -> Command {
     command
 }
 
+/// A child that is killed if the test fails before it stopped on its own, so a failed run leaves no owner behind.
+struct Reaped(Child);
+impl std::ops::Deref for Reaped {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Reaped {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+impl Drop for Reaped {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
 /// Starts the Rust owner with stdin kept open; returns it and its ready line.
-fn start_owner(layout: &Layout) -> (Child, Value) {
+fn start_owner(layout: &Layout) -> (Reaped, Value) {
     let mut child = owner_command(layout)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -85,7 +107,7 @@ fn start_owner(layout: &Layout) -> (Child, Value) {
         );
     }
     (
-        child,
+        Reaped(child),
         serde_json::from_str(&line).expect("ready line is JSON"),
     )
 }
@@ -334,15 +356,17 @@ fn node_differential_adoption_exclusion_and_rollback() {
     );
 
     // (d) The other way: the Rust owner refuses while Node owns the data dir.
-    let mut hold = Command::new("node")
-        .arg(SCRIPT)
-        .args(["hold", root])
-        .env_remove("ELECTRON_RUN_AS_NODE")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
+    let mut hold = Reaped(
+        Command::new("node")
+            .arg(SCRIPT)
+            .args(["hold", root])
+            .env_remove("ELECTRON_RUN_AS_NODE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap(),
+    );
     let mut line = String::new();
     BufReader::new(hold.stdout.take().unwrap())
         .read_line(&mut line)
