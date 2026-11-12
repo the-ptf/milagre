@@ -28,7 +28,7 @@ fn the_chat_card_starts_under_the_top_row_sits_8px_from_the_panel_and_runs_to_th
             let state = format!("sidebar collapsed {collapsed}, panel open {open}");
             let card = cx.debug_bounds("chat-card").expect("the card is drawn");
             assert_eq!(card.top(), px(TOP_ROW), "right under the top row: {state}");
-            assert_eq!(card.top(), px(39.0), "about 8pt under the title text, which is centred at y 23");
+            assert_eq!(card.top(), px(46.0), "the title (centred at y 23) sits halfway between the window top and the card");
             assert_eq!(card.bottom(), window.height, "down to the window's bottom edge, no gap: {state}");
             let sidebar = if collapsed { RAIL_WIDTH } else { SIDEBAR_WIDTH };
             assert_eq!(card.left(), px(sidebar), "from the sidebar's edge, its rows 8px short of it: {state}");

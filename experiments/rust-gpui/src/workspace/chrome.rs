@@ -20,7 +20,7 @@ use crate::theme::HEADER_HEIGHT;
 
 /// The window's top row (the traffic lights, the bar, the Chat's title, the panel toggle and tabs): the Chat card,
 /// the sidebar's rows and the panel's content all start right under it, about 8pt below the title text's bottom.
-pub const TOP_ROW: f32 = 39.0;
+pub const TOP_ROW: f32 = 46.0;
 /// Where the top row's items are centred: the traffic lights' centre as drawn (`app.rs` puts their frame at y 15;
 /// Victor measured their centre at 23 in the live window).
 pub const TOP_ROW_CENTRE: f32 = 23.0;
