@@ -292,3 +292,16 @@ are recorded at the top of MIGRATION-STATUS.md; retained rollback/provenance:
 `/private/tmp/milagre-rust-preview-package-iesnbi7g/install-report.json`.
 The selected installed account/root remain Claude. This is not real Codex/account
 interoperability evidence, and it does not enable automatic routines.
+
+## State-cache and Codex mode refresh
+
+Checkpoint `bf688ece` is installed after combined tests and independent review.
+Configured Codex supports per-turn Ask/Auto/Full with native fake evidence only;
+mid-turn changes remain unavailable. The state cache avoids rebuilding unchanged
+hydrated histories while retaining authority checks and the existing tick cadence.
+Its operation microbenchmark is not a whole-app idle CPU measurement. Staged
+`Ja7sGV` and installed `DOk6oC` native lifecycle observers pass with zero sends.
+Current hashes are in MIGRATION-STATUS.md; retained rollback and provenance:
+`/private/tmp/milagre-rust-preview-package-q54i7oth/install-report.json`.
+No automatic scheduling, GitHub account adoption or production replacement is
+enabled by this refresh.

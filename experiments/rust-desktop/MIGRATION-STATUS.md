@@ -6,6 +6,40 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 08:00 Toronto, `bf688ece` is accepted and installed after two independent
+reviews and root combined checks: 160 runtime and 237 owner checks pass, with
+strict feature Clippy and formatting. Configured Codex per-turn Ask/Auto/Full
+policies match actual Node/native frame and approval fixtures. Full remains
+unconfined as in Node; mid-turn mode changes and real Codex/account validation
+remain open. The installed root keeps its selected Claude account.
+
+Whole-state hydration is cached by exact immutable state identities, with
+ownership verified on every hit. Actor snapshot reuse retains live runs,
+terminal/content/Git checks, open state and epoch/version checks. The tick cadence
+is unchanged. Large unloaded-history microbenchmark read CPU fell from about
+9 seconds to 6-52 ms per 200 reads, but empty-state savings were small. This does
+not establish that the benchmark's approximately 1% whole-runtime idle CPU is fixed.
+
+Normal staged `Ja7sGV` and installed `DOk6oC` observers pass Sidebar/read/native
+Quit and actual socket/profile/shell cleanup, with zero sends. Reports use the
+observer prefix below. Installed shell SHA-256:
+`31e10df2d7388c09306cf2c97b1a35455a745b822a4fbeeecf070aede278a140`.
+Runtime SHA-256:
+`b2ba55df836ed26b1b4c70ce6baafd2e3cc24bf29bb1cf5ed832829a2488018c`.
+Provenance/retained prior bundle:
+`/private/tmp/milagre-rust-preview-package-q54i7oth/install-report.json`.
+GPUI received matching hashes and test limits; client API remains `f946e184`.
+No further real turn was spent and production start times remain unchanged.
+
+The new PR-details reader passes nine isolated tests and complete Node panel
+normalization, but is NOT accepted or routed yet. A subagent is binding a separate
+explicit selected-GitHub/repository grant, viewer identity verification, bounded
+retained read executor and typed client. The ordinary agent-account service has
+no GitHub provider; no ambient credentials or always-successful callback may
+stand in for selected-account authority. Absent grant means no capability. No
+real GitHub grant is created in the installed root. GPUI's PR panel stays blocked
+until this binding is tested. Full services, phone and data upgrade remain open.
+
 At 07:30 Toronto, Codex ordinary composer checkpoint `dfda9b1e` is accepted and
 installed. Independent review found no P1/P2; root reran the actual entrypoint
 wire test. Saved validation passes 131 normal runtime checks, strict Clippy,
