@@ -5,7 +5,7 @@
 //! - Environment: the computer and how it is connected, the repo, the Worktree's branch and its path (click copies
 //!   it; the Finder and editor buttons ask the host to open it).
 //! - Context: tokens used of the window; expands to the composer ring's bar and Compact on Claude.
-//! - Children (collapsible, like T3 Code's Lineage): the open Chat's Subchats, nested, and its parent when it is one. A row opens that Chat
+//! - Lineage (collapsible, like T3 Code's): the open Chat's Subchats, nested, and its parent when it is one. A row opens that Chat
 //!   ([`DetailsEvent::OpenChat`]): the Workspace selects it, since the sidebar no longer lists Subchats.
 //! - Background tasks (collapsible): running commands, ports and subagents with their time and a stop button, then "N finished".
 //! - Links and PR, only when the Chat has them.
@@ -39,6 +39,8 @@ use crate::workspace::chat::pills::bookmark::FamilyChat;
 /// fit the Changes panel's default width).
 pub(crate) const ROW_HEIGHT: f32 = 32.0;
 pub(crate) const PAD_X: f32 = 16.0;
+/// How far a row (and its hover fill) sits in from each panel edge; the text keeps `PAD_X`.
+pub(crate) const ROW_INSET: f32 = 8.0;
 /// The vertical gap between two sections (the room a heading's rule used to leave).
 pub(crate) const SECTION_GAP: f32 = 12.0;
 pub(crate) const BRANCH_CHARS: usize = 34;
@@ -82,7 +84,7 @@ pub struct DetailsView {
     family: Family,
     context_open: bool,
     finished_open: bool,
-    /// The Children, Background tasks and Links sections' open state: kept for the session, across Chats.
+    /// The Lineage, Background tasks and Links sections' open state: kept for the session, across Chats.
     children_open: bool,
     background_open: bool,
     links_open: bool,

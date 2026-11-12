@@ -4,7 +4,7 @@ use gpui::{AnyElement, Context, Div, FontWeight, Rgba, SharedString, Stateful, d
 
 use super::data::{self, AgentInfo, middle_truncate};
 use super::family::SubchatRow;
-use super::{BRANCH_CHARS, DetailsView, PAD_X, PATH_CHARS, ROW_HEIGHT, Request, on};
+use super::{BRANCH_CHARS, DetailsView, PAD_X, PATH_CHARS, ROW_HEIGHT, ROW_INSET, Request, on};
 use crate::logic::activity::subchat_states::SubchatKind;
 use crate::theme::{RADIUS_CONTROL, TEXT_12, TEXT_13, TextStepExt, Theme};
 use crate::ui::{Icon, IconButton, IconButtonSize, IconName, IconSize, SectionLabel, Spinner, Tooltip};
@@ -15,8 +15,13 @@ use crate::workspace::chat::pills::data::AgentStatus;
 const CONTEXT_BAR: f32 = 248.0;
 const INDENT: f32 = 16.0;
 
-/// The row every line and heading shares: `ROW_HEIGHT` tall, the full panel width, the text padding inside it, so a
-/// hover fill on it runs edge to edge.
+/// The text's inset inside a row: the row sits `ROW_INSET` in from the panel's edges, so its text still starts `PAD_X`
+/// in.
+const ROW_PAD: f32 = PAD_X - ROW_INSET;
+
+/// The row every line and heading shares: `ROW_HEIGHT` tall, `ROW_INSET` in from each panel edge with the text padding
+/// inside it, so a hover fill is a rounded control-radius block under the text (the desktop's `rounded-control px-2
+/// hover:bg-hover` rows), not an edge-to-edge band.
 fn shell(theme: &Theme, id: impl Into<SharedString>) -> Stateful<Div> {
     let id: SharedString = id.into();
     let selector = id.clone();
@@ -28,10 +33,11 @@ fn shell(theme: &Theme, id: impl Into<SharedString>) -> Stateful<Div> {
         .flex_none()
         .items_center()
         .gap(px(8.0))
-        .w_full()
+        .mx(px(ROW_INSET))
         .h(px(ROW_HEIGHT))
-        .px(px(PAD_X))
-        .when(seeded, |el| el.bg(theme.hover2))
+        .px(px(ROW_PAD))
+        .rounded(RADIUS_CONTROL)
+        .when(seeded, |el| el.bg(theme.hover))
 }
 
 /// A plain section heading: the muted label in a row of the common height.
@@ -40,7 +46,7 @@ fn heading(theme: &Theme, id: &'static str, text: &'static str) -> AnyElement {
 }
 
 /// A collapsible section's heading: the muted label, the chevron at the right edge, the whole row toggles and
-/// hovers full width.
+/// hovers.
 fn toggle_heading(
     theme: &Theme,
     id: &'static str,
@@ -84,13 +90,14 @@ fn seeded_hover(id: &str) -> bool {
     !cfg!(test) && std::env::var("MILAGRE_GPUI_DETAILS_HOVER").is_ok_and(|seed| seed == id)
 }
 
-/// Makes a row clickable: a pointer and a square hover fill over the whole row (the row spans the panel's width).
+/// Makes a row clickable: a pointer and the `hover` fill (the desktop's pointer-hover token; `hover-2` is for an open
+/// or selected row) over the row's rounded block.
 fn clickable(
     row: Stateful<Div>,
     theme: &Theme,
     on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> Stateful<Div> {
-    let hover = theme.hover2;
+    let hover = theme.hover;
     row.cursor_pointer().hover(move |style| style.bg(hover)).on_click(on_click)
 }
 
@@ -175,7 +182,7 @@ impl DetailsView {
         if let Some(path) = &self.data.path {
             let copied = self.is_copied();
             let label = middle_truncate(path, PATH_CHARS);
-            let hover = theme.hover2;
+            let hover = theme.hover;
             let left = div()
                 .id("details-path")
                 .debug_selector(|| "details-path".to_string())
@@ -185,7 +192,7 @@ impl DetailsView {
                 .items_center()
                 .gap(px(8.0))
                 .h_full()
-                .px(px(PAD_X))
+                .px(px(ROW_PAD))
                 .cursor_pointer()
                 .tooltip(Tooltip::text(path.clone()))
                 .on_click(on(cx, |this, cx| this.copy_path(cx)))
@@ -196,7 +203,7 @@ impl DetailsView {
             let right: Vec<AnyElement> = if self.is_live() && !copied && !openers {
                 Vec::new()
             } else if copied {
-                vec![div().flex_none().pr(px(PAD_X)).text_step(TEXT_12).text_color(theme.green_ink).child("Copied").into_any_element()]
+                vec![div().flex_none().pr(px(ROW_PAD)).text_step(TEXT_12).text_color(theme.green_ink).child("Copied").into_any_element()]
             } else {
                 let (editor_name, editor_tip) = self.editor(cx);
                 let _ = editor_name;
@@ -215,7 +222,7 @@ impl DetailsView {
                     div()
                         .id("details-editor-tip")
                         .flex_none()
-                        .pr(px(PAD_X - 4.0))
+                        .pr(px(ROW_PAD - 4.0))
                         .tooltip(Tooltip::text(editor_tip))
                         .child(
                             IconButton::new("details-editor", IconName::Code)
@@ -233,8 +240,9 @@ impl DetailsView {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .w_full()
+                    .mx(px(ROW_INSET))
                     .h(px(ROW_HEIGHT))
+                    .rounded(RADIUS_CONTROL)
                     .hover(move |style| style.bg(hover))
                     .when(seeded_hover("details-path"), |el| el.bg(hover))
                     .text_step(TEXT_13)
@@ -302,7 +310,7 @@ impl DetailsView {
     pub(super) fn subchats(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let open = self.children_open();
         let mut rows: Vec<AnyElement> =
-            vec![toggle_heading(theme, "details-children-toggle", "Children", open, on(cx, |this, cx| this.toggle_children(cx)))];
+            vec![toggle_heading(theme, "details-children-toggle", "Lineage", open, on(cx, |this, cx| this.toggle_children(cx)))];
         if !open {
             return section("details-section-children", rows);
         }
@@ -313,7 +321,7 @@ impl DetailsView {
                     line(
                         theme,
                         "details-parent",
-                        glyph(theme, IconName::CornerUpLeft),
+                        glyph(theme, IconName::ArrowUpLeft01),
                         parent.title.clone(),
                         vec![value(theme, "Parent", None)],
                     ),
@@ -329,11 +337,11 @@ impl DetailsView {
             let row = line(
                 theme,
                 format!("details-subchat-{ix}"),
-                Icon::new(IconName::CornerUpLeft).size(IconSize::S14).color(theme.ink3).into_any_element(),
+                Icon::new(IconName::Redo03).size(IconSize::S14).color(theme.ink3).into_any_element(),
                 sub.title.clone(),
                 vec![state_mark(theme, &sub.key, sub.kind)],
             )
-            .pl(px(PAD_X + sub.depth as f32 * INDENT));
+            .pl(px(ROW_PAD + sub.depth as f32 * INDENT));
             rows.push(clickable(row, theme, on(cx, move |this, cx| this.open_chat(&key, cx))).into_any_element());
         }
         section("details-section-children", rows)
@@ -365,7 +373,7 @@ impl DetailsView {
                         self.stop_button(format!("details-stop-{}", command.id), Request::StopCommand(command.id.clone()), cx),
                     ],
                 )
-                .pr(px(PAD_X - 4.0))
+                .pr(px(ROW_PAD - 4.0))
                 .into_any_element(),
             );
         }
@@ -385,7 +393,7 @@ impl DetailsView {
                         self.stop_button(format!("details-stop-port-{}", port.pid), Request::StopPort(port.pid), cx),
                     ],
                 )
-                .pr(px(PAD_X - 4.0))
+                .pr(px(ROW_PAD - 4.0))
                 .into_any_element(),
             );
         }
@@ -402,7 +410,7 @@ impl DetailsView {
                         self.stop_button(format!("details-stop-agent-{}", agent.id), Request::StopAgent(agent.id.clone()), cx),
                     ],
                 )
-                .pr(px(PAD_X - 4.0))
+                .pr(px(ROW_PAD - 4.0))
                 .into_any_element(),
             );
         }
@@ -454,7 +462,7 @@ impl DetailsView {
                             agent.title.clone(),
                             vec![value(theme, time, None)],
                         )
-                        .pl(px(PAD_X + INDENT))
+                        .pl(px(ROW_PAD + INDENT))
                         .into_any_element(),
                     );
                 }

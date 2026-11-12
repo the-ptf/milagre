@@ -102,6 +102,9 @@ const ICONS = [
   "Clock01",
   "CornerDownRight",
   "CornerUpLeft",
+  // Lineage: a Chat's parent and its Subchats (the Details panel's Lineage rows)
+  "ArrowUpLeft01",
+  "Redo03",
   "Download04",
   // WP-27 pill row, Subchats, tasks and undo (PillMorph, TaskTrack, PhaseGraph, PortTrack, SubchatTrack, SubchatBookmark, UndoPanel)
   "ListTodo",

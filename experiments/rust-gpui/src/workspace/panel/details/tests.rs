@@ -259,7 +259,7 @@ fn chevrons_sit_at_the_right_edge_and_point_by_state(cx: &mut TestAppContext) {
         ("details-links-toggle", "details-links-toggle-chevron"),
     ] {
         let (row, chevron) = (testing::bounds(cx, row), testing::bounds(cx, chevron));
-        assert_eq!(chevron.right(), row.right() - gpui::px(super::PAD_X), "{row:?}: the chevron ends at the padding");
+        assert_eq!(chevron.right(), row.right() - gpui::px(super::PAD_X - super::ROW_INSET), "{row:?}: the chevron ends at the padding");
         assert_eq!(row.right(), context.right());
     }
     let open = testing::bounds(cx, "details-background-toggle-chevron").origin;
@@ -271,12 +271,15 @@ fn chevrons_sit_at_the_right_edge_and_point_by_state(cx: &mut TestAppContext) {
     assert_eq!(super::rows::chevron_icon(true), crate::ui::IconName::ArrowDown01);
 }
 
+/// A clickable row and its hover fill sit `ROW_INSET` in from each panel edge (a rounded block, as the desktop's
+/// `rounded-control px-2` rows), while its text and chevron keep `PAD_X` from the edge.
 #[gpui::test]
-fn clickable_rows_span_the_panels_full_width(cx: &mut TestAppContext) {
+fn clickable_rows_are_inset_from_the_panel_edges(cx: &mut TestAppContext) {
     let (_panel, cx) = mount(cx);
     let section = testing::bounds(cx, "details-section-environment");
+    let inset = gpui::px(super::ROW_INSET);
     for selector in ["details-context", "details-background-toggle", "details-links-toggle", "details-pr", "details-path-row"] {
         let bounds = testing::bounds(cx, selector);
-        assert_eq!((bounds.left(), bounds.right()), (section.left(), section.right()), "{selector} runs edge to edge");
+        assert_eq!((bounds.left(), bounds.right()), (section.left() + inset, section.right() - inset), "{selector} is inset");
     }
 }
