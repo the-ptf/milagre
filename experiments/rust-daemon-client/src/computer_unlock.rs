@@ -104,7 +104,7 @@ impl InstalledProject {
 }
 
 /// The login Keychain password Electron's safeStorage uses for this app.
-fn keychain_password() -> Result<Vec<u8>> {
+pub(crate) fn keychain_password() -> Result<Vec<u8>> {
     security_framework::passwords::get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(|_| {
         failure(
             "KEYCHAIN_UNAVAILABLE",
@@ -115,7 +115,7 @@ fn keychain_password() -> Result<Vec<u8>> {
 
 /// A private JSON file of the frontend's (`assertPrivate` in private-files.cjs): a regular file, not a link, owned by
 /// this user, mode 0600. `None` when absent.
-fn private_json(path: &Path) -> Result<Option<Value>> {
+pub(crate) fn private_json(path: &Path) -> Result<Option<Value>> {
     let meta = match std::fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),

@@ -103,8 +103,9 @@ frontend without Electron is supplying the vault key with `computers:unlock`.
 Round 6 (2026-11-12): computer vault unlock. 6 tests: an independent openssl known-answer vector for
 v10, wrong password and malformed seals refused, locked vault unlocked with the sealed key,
 unlocked and file-keyed vaults untouched, missing wrapper never replaced, world-readable key file
-refused, legacy pairings imported. Not yet run against the real Keychain item (needs the macOS
-prompt answered on this computer); the real vault is already unlocked by Electron.
+refused, legacy pairings imported. Live (2026-11-12, Victor present): the ignored test `real_keychain_opens_the_installed_vault_key`
+opened the installed vault key with the real Keychain item after one "Allow": a valid 32-byte key,
+not printed, nothing sent to the daemon.
 
 Round 7 (2026-11-12): bundled Node. Real check: the bundle's daemon started on a throwaway profile
 in 0.49 s from its own Node (parent PID 1, 14 capabilities), then stopped and deleted. First build

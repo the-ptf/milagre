@@ -199,3 +199,24 @@ fn earlier_pairings_are_imported_when_the_daemon_asks() {
         ComputerUnlock::Unlocked { imported: true }
     );
 }
+
+/// Live, read-only, by hand: opens the installed Milagre's sealed vault key with the real login Keychain item and
+/// checks it is a 32-byte key. Shows the macOS Keychain prompt; answer "Allow". Sends nothing, prints no secret.
+/// `cargo test --features installed-owner real_keychain -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn real_keychain_opens_the_installed_vault_key() {
+    use base64::Engine as _;
+    let home = std::env::var_os("HOME").unwrap();
+    let file = Path::new(&home).join("Library/Application Support/Milagre/computer-vault-key.json");
+    let saved = crate::computer_unlock::private_json(&file)
+        .unwrap()
+        .expect("vault key file");
+    let password = crate::computer_unlock::keychain_password().expect("Keychain access");
+    let key = open_v10(&password, saved["sealed"].as_str().unwrap()).expect("decrypts");
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(&key)
+        .expect("base64 key");
+    assert_eq!(raw.len(), 32);
+    println!("real Keychain item opened the installed vault key: 32-byte key, not printed");
+}
