@@ -327,6 +327,7 @@ fn the_family_menu_lists_the_chats_above_then_the_family() {
 fn a_subchat_shows_its_bookmark_and_the_family_menu_opens_it(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
+    let title_x = cx.debug_bounds("chat-identity-title").expect("the open top-level Chat's title").origin.x;
     // The fixture's Subchat of a Subchat, "Sidebar snapshot check", has no sidebar row: the Details panel opens it.
     let key = workspace
         .read_with(cx, |w, cx| w.sidebar.read(cx).family_chats())
@@ -350,6 +351,10 @@ fn a_subchat_shows_its_bookmark_and_the_family_menu_opens_it(cx: &mut TestAppCon
     let title = chat.read_with(cx, |c, _| c.title().to_string());
     assert_eq!(title, "Port the sidebar to GPUI");
     assert!(chat.read_with(cx, |c, _| c.bookmark().is_some()), "it is a Subchat of the top Chat itself");
+    // No back button: with nothing collapsed above it, the parent's title starts where a top-level title does.
+    assert!(cx.debug_bounds("bookmark-more").is_none());
+    let parent = cx.debug_bounds("bookmark-parent").expect("the parent crumb");
+    assert_eq!(parent.origin.x, title_x, "the parent crumb is flush with a Chat title");
 }
 
 #[gpui::test]

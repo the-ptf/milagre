@@ -2,7 +2,7 @@
 //! `SubchatBookmark.tsx`, `FamilyMenu.tsx`, `family-menu.ts`).
 //!
 //! A top-level Chat shows its title (13 medium ink) and its Project (13 ink-3). A Subchat shows where it lives:
-//! `‹ ● Parent / Subchat ⇅`: the left button goes up one level, the right one opens the family menu (the Chats above,
+//! `Parent / Subchat ⇅`: the parent's title, plain text at the title's place, goes up one level; the switcher opens the family menu (the Chats above,
 //! the family with live states and a tick on the open one, and the two ways into a split). A Chat that delegated
 //! further up shows only its nearest listed ancestor, the older ones collapsing into a "…" that opens the same menu.
 //! It is read from the Chat's own `parent`, so it survives a reload.
@@ -203,7 +203,7 @@ fn divider(theme: &Theme) -> AnyElement {
     div().flex_none().px_0p5().text_step(TEXT_13).text_color(theme.ink4).child("/").into_any_element()
 }
 
-/// `SubchatBookmark`: `… / ‹ ● Parent / Subchat ⇅`.
+/// `SubchatBookmark`: `… / Parent / Subchat ⇅`.
 pub fn bookmark_view(bookmark: &Bookmark, menu_open: bool, theme: &Theme, cx: &mut Context<ChatView>) -> AnyElement {
     let theme = *theme;
     let parent_key = bookmark.parent.key.clone();
@@ -229,15 +229,12 @@ pub fn bookmark_view(bookmark: &Bookmark, menu_open: bool, theme: &Theme, cx: &m
             .child(divider(&theme))
         })
         .child(
+            // The parent is plain text that links up a level: no button box and no left padding, so it starts where a
+            // top-level Chat's title does. ink-2, ink with an underline under the pointer, like a link.
             crumb("bookmark-parent")
                 .max_w(px(if needs { 260.0 } else { 180.0 }))
-                .pl_1p5()
-                .pr(px(10.0))
-                .bg(if needs { theme.orange_tint } else { theme.field })
                 .text_color(if needs { theme.ink } else { theme.ink2 })
-                .hover(move |style| style.bg(if needs { theme.orange_tint } else { theme.hover2 }))
-                .child(div().mr_1().flex_none().child(Icon::new(IconName::ArrowLeft01).size(IconSize::S14).color(theme.ink2)))
-                .child(div().mr_1().child(dot(bookmark.parent.mark, &theme)))
+                .hover(move |style| style.text_color(theme.ink).underline().text_decoration_color(theme.ink3))
                 .child(div().min_w_0().truncate().child(bookmark.parent.title.clone()))
                 .when(needs, |el| {
                     el.child(
