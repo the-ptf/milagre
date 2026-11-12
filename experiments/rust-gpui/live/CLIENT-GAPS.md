@@ -311,3 +311,14 @@ full table). Every write is tested on the fake daemon only.
 | Speech model / Voice | `app:dictation-*` Electron-only | not in the port |
 
 No client gap blocks the hidden ones except Browser and Speech (Electron-only); the rest need GPUI-side wiring.
+
+## Round 9 (2026-11-12): client `09a75bfc`, the real Keychain kept to the installed profile
+
+Re-pinned to `09a75bfc3` (`bf6987702` plus `unlock_computers` refusing any data folder but the installed profile's
+with `KEYCHAIN_OTHER_PROFILE`, before any Keychain read, and `unlock_computers_with_stand_in(client, password)` for tests
+and throwaway profiles). The Preview's test seam is now `Daemon::set_unlocker(Unlocker::StandIn(b"test-password"))`,
+which runs the client's own flow against the fake daemon (a 0600 `computer-vault-key.json` sealed in the throwaway data
+folder, `computers:unlock` with the key it opens); `Unlocker::Fail` stands in only for a refused Keychain read, which
+the stand-in cannot produce. Test builds with no stand-in still never call the real unlock (the vault stays locked).
+`KEYCHAIN_OTHER_PROFILE` is shown as a locked vault: computers hidden, no sidebar notice; pairing says "Paired computers
+are unavailable here: this daemon doesn't use Milagre's own profile."

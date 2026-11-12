@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-bf698770/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-bf698770/,
+target/daemon-client-09a75bfc/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-09a75bfc/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,6 +37,8 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
+# 09a75bfc = bf698770 plus `unlock_computers` refusing any data folder but the installed profile
+# (`KEYCHAIN_OTHER_PROFILE`) and `unlock_computers_with_stand_in` for tests and throwaway profiles.
 # bf698770 = a59bbb9d plus 901e2fd1 (bundle-node-daemon.sh keeps only this Mac's architecture) and
 # `unlock_computers` creating the first vault key and Keychain item as Electron does (`ComputerUnlock::Created`
 # replaces `NoVault`). a59bbb9d = 1ed6ff33 plus `DaemonLaunch::bundle` (a daemon built by scripts/bundle-node-daemon.sh, for a computer
@@ -47,13 +49,13 @@ LIVE = GPUI / "live"
 # daemon:snapshot and computers:* reachable). dd499372 = 3363d5b4 plus `InstalledProject::call`; 3363d5b4 = 5341ec75
 # plus `load_view`, `Notifications::discard` and `InstalledProject::models`; 5341ec75 is f946e184 plus the
 # off-by-default `installed-owner` feature. The owned path is unchanged, so the runtimes agreed for f946e184 still apply.
-CLIENT_COMMIT = "bf6987702f5992ebaa2a06d1c107ac43c77b98a3"
-CLIENT_TREE = "1fc751430e68652078aab1bd7fa80e52e9d06920"
+CLIENT_COMMIT = "09a75bfc394cf592d707eeb91e1f2ae4a7e7ade5"
+CLIENT_TREE = "2a579f00da15938c0b59f6066f9b4573d5a44189"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-bf698770"
+EXPORT = GPUI / "target/daemon-client-09a75bfc"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-bf698770"
+FAKE_CRATE = CRATE / "target/fake-claude-09a75bfc"
 # The agreed dedicated runtimes, newest first: 30bdfd09 (backend's signed runtime for client f946e184: typed Git
 # reads and local PR diffs), 6054d7d6 (backend's signed runtime for client 1b180e46: Chat metadata
 # patch for rename, Done and Reopen), 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client

@@ -8,7 +8,10 @@
 //!   (`KEYCHAIN_UNAVAILABLE`) shows [`ALLOW_KEYCHAIN`]; `VAULT_KEY_MISSING` (an existing vault without its key) never
 //!   writes a new key. On a computer that never had Milagre.app (no vault, no key) the client creates the first key
 //!   and its "Milagre Safe Storage" Keychain item as Electron does (`ComputerUnlock::Created`), so pairing works there
-//!   too and a Milagre.app installed later reads the same key.
+//!   too and a Milagre.app installed later reads the same key. Since client 09a75bfc the real unlock refuses any data
+//!   folder but the installed profile's (`KEYCHAIN_OTHER_PROFILE`, no Keychain read): a window on another profile
+//!   treats that as a locked vault (computers hidden, no notice; [`OTHER_PROFILE`] if pairing is asked for). Tests
+//!   and throwaway profiles unlock with the client's stand-in password flow ([`crate::daemon::Unlocker`]).
 //! - Unlocked, `computers:list []` feeds the sidebar's computers and Settings' computers group.
 //! - Each online computer's Projects, their states and its runs ([`Remote`]) are read with `computers:invoke [id,
 //!   method, args]` (`project:recent`, `state:read`, `chat:runs`; a remote transcript with `chat:messages`) on the
@@ -24,6 +27,9 @@ use crate::daemon::Daemon;
 
 /// What the window says when the login Keychain refused Electron's computer key.
 pub const ALLOW_KEYCHAIN: &str = "Allow Keychain access to use your paired computers.";
+
+/// Why pairing is refused on a daemon whose data folder is not the installed Milagre profile.
+pub const OTHER_PROFILE: &str = "Paired computers are unavailable here: this daemon doesn't use Milagre's own profile.";
 
 /// What an unlock found or did.
 #[derive(Clone, Debug, PartialEq)]
@@ -43,7 +49,19 @@ impl Unlock {
     pub fn notice(&self) -> Option<String> {
         match self {
             Unlock::Failed { code, .. } if code == "KEYCHAIN_UNAVAILABLE" => Some(ALLOW_KEYCHAIN.to_owned()),
+            // Another profile than Milagre's: the computers are unavailable, as while the vault is locked.
+            Unlock::Failed { code, .. } if code == "KEYCHAIN_OTHER_PROFILE" => None,
             Unlock::Failed { message, .. } => Some(format!("Your paired computers can't be used: {message}")),
+            _ => None,
+        }
+    }
+
+    /// Why `computers:add` cannot go ahead, if the unlock failed.
+    pub fn refusal(&self) -> Option<String> {
+        match self {
+            Unlock::Failed { code, .. } if code == "KEYCHAIN_UNAVAILABLE" => Some(ALLOW_KEYCHAIN.to_owned()),
+            Unlock::Failed { code, .. } if code == "KEYCHAIN_OTHER_PROFILE" => Some(OTHER_PROFILE.to_owned()),
+            Unlock::Failed { message, .. } => Some(message.clone()),
             _ => None,
         }
     }
@@ -180,5 +198,8 @@ mod tests {
         assert_eq!(qualify("tianxu", "tianxu|/work/a#3"), "tianxu|/work/a#3");
         assert_eq!(Unlock::Failed { code: "KEYCHAIN_UNAVAILABLE".into(), message: "x".into() }.notice().as_deref(), Some(ALLOW_KEYCHAIN));
         assert_eq!(Unlock::Done(milagre_daemon_client::ComputerUnlock::Created).notice(), None);
+        let other = Unlock::Failed { code: "KEYCHAIN_OTHER_PROFILE".into(), message: "x".into() };
+        assert_eq!(other.notice(), None, "another profile: unavailable, as locked");
+        assert_eq!(other.refusal().as_deref(), Some(OTHER_PROFILE));
     }
 }

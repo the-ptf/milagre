@@ -1,5 +1,6 @@
-//! Paired computers on a fake Node daemon, the Keychain read faked (`Daemon::set_unlocker`): nothing here reads this
-//! Mac's Keychain or touches a real vault.
+//! Paired computers on a fake Node daemon, unlocked with the shared client's stand-in password flow
+//! (`unlock_computers_with_stand_in`, through `Daemon::set_unlocker(Unlocker::StandIn)`): the client's own sealing and
+//! `computers:unlock` run against the fake, and nothing here reads this Mac's Keychain or touches a real vault.
 //!
 //! - `a_locked_vault_is_unlocked_and_the_computers_show`: locked at launch, unlocked once (the stand-in flips the fake's
 //!   vault), then `computers:list` fills Settings and the sidebar lists the online computer's Chat (`tianxu|/remote/p#1`),
@@ -8,9 +9,10 @@
 //! - `a_refused_keychain_says_so`: `KEYCHAIN_UNAVAILABLE` → "Allow Keychain access …", computers stay hidden.
 //! - `an_unlocked_vault_is_never_unlocked_again`: Electron already unlocked it: no unlock at all.
 //! - `a_first_vault_key_is_created_without_milagre`: no vault and no key (a computer without Milagre.app): the client's
-//!   unlock creates them (`ComputerUnlock::Created`, faked here), no notice, and the computers show.
+//!   stand-in unlock creates them (`ComputerUnlock::Created`: a 0600 `computer-vault-key.json` in the throwaway data
+//!   folder), no notice, and the computers show; the same stand-in opens that key again.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use gpui::TestAppContext;
 use serde_json::{Value, json};
@@ -18,7 +20,14 @@ use serde_json::{Value, json};
 use super::daemon::{Recorder, Seen, mount_daemon_full};
 use super::fake_daemon::{FakeDaemon, World, data_folder};
 use crate::controller::DaemonSession;
-use crate::daemon::Daemon;
+use crate::daemon::{Daemon, Unlocker};
+
+/// The stand-in for the "Milagre Safe Storage" Keychain password in every test here.
+const STAND_IN: &[u8] = b"test-password";
+
+fn stand_in() -> Unlocker {
+    Unlocker::StandIn(STAND_IN.to_vec())
+}
 
 const ALPHA: &str = "/fake-node/alpha";
 const REMOTE: &str = "/remote/p";
@@ -63,20 +72,23 @@ fn a_locked_vault_is_unlocked_and_the_computers_show(cx: &mut TestAppContext) {
     let data = data_folder("computers");
     let fake = FakeDaemon::start(&data, world(false));
     let daemon = Daemon::new(Some(data.clone()), false);
-    let unlocks = Arc::new(Mutex::new(0));
+    daemon.set_unlocker(stand_in());
+    // An existing vault and its sealed key, as Electron left them: the stand-in's first key, then locked again.
     {
-        let (world, unlocks) = (fake.world.clone(), unlocks.clone());
-        daemon.set_unlocker(Arc::new(move || {
-            *unlocks.lock().unwrap() += 1;
-            world.lock().unwrap().vault["unlocked"] = json!(true);
-            Ok(milagre_daemon_client::ComputerUnlock::Unlocked { imported: false })
-        }));
+        let mut w = fake.world();
+        w.vault["hasVault"] = json!(false);
+    }
+    let first = futures::executor::block_on(daemon.unlock_computers(ALPHA)).unwrap();
+    assert_eq!(first, crate::computers::Unlock::Done(milagre_daemon_client::ComputerUnlock::Created));
+    {
+        let mut w = fake.world();
+        w.vault = json!({"unlocked": false, "configuredFile": false, "hasVault": true, "needsLegacyImport": false});
     }
     let seen = std::rc::Rc::new(std::cell::RefCell::new(Seen::default()));
     let mut m = mount(cx, daemon.clone(), seen.clone());
 
     m.wait_for("the computers", |m| m.vcx.update(|_, cx| cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>()));
-    assert_eq!(*unlocks.lock().unwrap(), 1, "unlocked once, at launch");
+    assert_eq!(calls(&fake, "computers:unlock").len(), 2, "unlocked once at launch (after the setup's first key)");
     assert!(matches!(
         m.controller.read_with(m.vcx, |c, _| c.unlocked().cloned()),
         Some(crate::computers::Unlock::Done(milagre_daemon_client::ComputerUnlock::Unlocked { .. }))
@@ -123,7 +135,7 @@ fn a_locked_vault_is_unlocked_and_the_computers_show(cx: &mut TestAppContext) {
     // Pairing another computer unlocks first (already unlocked now: no Keychain read), then `computers:add`.
     m.controller.update(m.vcx, |c, cx| c.open_link("milagre://pair?x=1", cx));
     m.wait_for("computers:add", |_| !calls(&fake, "computers:add").is_empty());
-    assert_eq!(*unlocks.lock().unwrap(), 1, "an unlocked vault is not unlocked again");
+    assert_eq!(calls(&fake, "computers:unlock").len(), 2, "an unlocked vault is not unlocked again");
     m.controller.update(m.vcx, |c, cx| c.set_computers_enabled(true, cx));
     m.wait_for("computers:set-enabled", |_| calls(&fake, "computers:set-enabled") == vec![json!([true])]);
 
@@ -148,7 +160,8 @@ fn a_refused_keychain_says_so(cx: &mut TestAppContext) {
     let data = data_folder("computers-keychain");
     let fake = FakeDaemon::start(&data, world(false));
     let daemon = Daemon::new(Some(data.clone()), false);
-    daemon.set_unlocker(Arc::new(|| Err(("KEYCHAIN_UNAVAILABLE".into(), "Allow access".into()))));
+    // A refused Keychain read: the one outcome the stand-in cannot produce.
+    daemon.set_unlocker(Unlocker::Fail { code: "KEYCHAIN_UNAVAILABLE".into(), message: "Allow access".into() });
     let seen = std::rc::Rc::new(std::cell::RefCell::new(Seen::default()));
     let mut m = mount(cx, daemon, seen);
     let sidebar = m.workspace.read_with(m.vcx, |w, _| w.sidebar.clone());
@@ -169,7 +182,7 @@ fn an_unlocked_vault_is_never_unlocked_again(cx: &mut TestAppContext) {
     let data = data_folder("computers-unlocked");
     let fake = FakeDaemon::start(&data, world(true));
     let daemon = Daemon::new(Some(data.clone()), false);
-    daemon.set_unlocker(Arc::new(|| panic!("the Keychain is never read for an unlocked vault")));
+    daemon.set_unlocker(stand_in());
     let seen = std::rc::Rc::new(std::cell::RefCell::new(Seen::default()));
     let mut m = mount(cx, daemon, seen);
     m.wait_for("the computers", |m| m.vcx.update(|_, cx| cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>()));
@@ -177,6 +190,8 @@ fn an_unlocked_vault_is_never_unlocked_again(cx: &mut TestAppContext) {
         m.controller.read_with(m.vcx, |c, _| c.unlocked().cloned()),
         Some(crate::computers::Unlock::Done(milagre_daemon_client::ComputerUnlock::AlreadyUnlocked))
     ));
+    assert!(calls(&fake, "computers:unlock").is_empty(), "never unlocked again");
+    assert!(!data.join("computer-vault-key.json").exists(), "no key written");
     m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);
     drop(fake);
@@ -191,22 +206,14 @@ fn a_first_vault_key_is_created_without_milagre(cx: &mut TestAppContext) {
     first.vault = json!({"unlocked": false, "configuredFile": false, "hasVault": false, "needsLegacyImport": false});
     let fake = FakeDaemon::start(&data, first);
     let daemon = Daemon::new(Some(data.clone()), false);
-    let created = Arc::new(Mutex::new(0));
-    {
-        // The stand-in for the client creating the key and its Keychain item: never this Mac's Keychain.
-        let (world, created) = (fake.world.clone(), created.clone());
-        daemon.set_unlocker(Arc::new(move || {
-            *created.lock().unwrap() += 1;
-            let mut world = world.lock().unwrap();
-            world.vault["unlocked"] = json!(true);
-            world.vault["hasVault"] = json!(true);
-            Ok(milagre_daemon_client::ComputerUnlock::Created)
-        }));
-    }
+    daemon.set_unlocker(stand_in());
     let seen = std::rc::Rc::new(std::cell::RefCell::new(Seen::default()));
     let mut m = mount(cx, daemon.clone(), seen);
     m.wait_for("the computers", |m| m.vcx.update(|_, cx| cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>()));
-    assert_eq!(*created.lock().unwrap(), 1, "created once");
+    assert_eq!(calls(&fake, "computers:unlock").len(), 1, "created and unlocked once");
+    let key = data.join("computer-vault-key.json");
+    assert!(key.exists(), "the sealed key is in the throwaway data folder");
+    assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&key).unwrap().permissions()) & 0o777, 0o600);
     let unlocked = m.controller.read_with(m.vcx, |c, _| c.unlocked().cloned());
     assert_eq!(unlocked, Some(crate::computers::Unlock::Done(milagre_daemon_client::ComputerUnlock::Created)));
     assert_eq!(unlocked.and_then(|u| u.notice()), None, "nothing to say");

@@ -181,6 +181,8 @@ pub struct World {
     pub scope_accounts: Value,
     /// `computers:vault-status` and `computers:list`; `remote` answers `computers:invoke` by `"<id> <method>"`.
     pub vault: Value,
+    /// The key `computers:unlock` first opened the vault with; a later unlock must send the same one.
+    pub vault_key: Option<String>,
     pub computers: Value,
     pub remote: BTreeMap<String, Value>,
     /// Settings' host-kept values and keybindings ([`super::fake_settings`]); `Null` until first asked.
@@ -636,6 +638,17 @@ impl World {
             "chat:limit-resume" | "chat:limit-resume:cancel" => json!(true),
             "computers:vault-status" => self.vault.clone(),
             "computers:list" => self.computers.clone(),
+            // The client's unlock (stand-in password in tests) sends the vault key it opened; a first key makes the vault.
+            "computers:unlock" => {
+                let key = arg["key"].as_str().filter(|k| !k.is_empty()).ok_or("key")?.to_owned();
+                if let Some(known) = self.vault_key.as_ref().filter(|known| **known != key) {
+                    return Err(format!("Wrong computer key (expected {} bytes)", known.len()));
+                }
+                self.vault_key = Some(key);
+                self.vault["unlocked"] = json!(true);
+                self.vault["hasVault"] = json!(true);
+                json!({"ok": true})
+            }
             "computers:set-enabled" => json!({"ok": true}),
             "computers:add" if self.vault["unlocked"] != true => json!({"ok": false, "code": "keys"}),
             "computers:add" => json!({"ok": true}),

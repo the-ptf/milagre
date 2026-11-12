@@ -186,12 +186,20 @@ struct State {
     images: std::collections::HashMap<String, Option<Arc<gpui::Image>>>,
 }
 
-/// How the computer vault is unlocked: the shared client's `InstalledProject::unlock_computers` (Electron's sealed key
-/// from the login Keychain), or a test's stand-in for that Keychain read.
-pub type Unlocker = std::sync::Arc<dyn Fn() -> std::result::Result<milagre_daemon_client::ComputerUnlock, (String, String)> + Send + Sync>;
+/// How a test or throwaway profile unlocks the computer vault instead of the login Keychain. The real unlock is the
+/// shared client's `InstalledProject::unlock_computers`, which since 09a75bfc refuses any data folder other than the
+/// installed Milagre profile (`KEYCHAIN_OTHER_PROFILE`) before it reads the Keychain.
+#[derive(Clone, Debug)]
+pub enum Unlocker {
+    /// The client's own flow (`unlock_computers_with_stand_in`) with this password in place of the Keychain item's:
+    /// it reads or creates `computer-vault-key.json` in the daemon's data folder and sends `computers:unlock`.
+    StandIn(Vec<u8>),
+    /// An outcome the stand-in cannot produce (a refused Keychain read): the client's code and message.
+    Fail { code: String, message: String },
+}
 
 pub struct Daemon {
-    /// A stand-in for the Keychain unlock (tests); `None` is the real one.
+    /// A stand-in for the Keychain unlock (tests, throwaway profiles); `None` is the real one.
     unlocker: Mutex<Option<Unlocker>>,
     /// `None`: the installed Milagre (`~/Library/Application Support/Milagre`); tests pass a throwaway data folder.
     profile: Option<PathBuf>,
@@ -221,7 +229,7 @@ impl Daemon {
         Arc::new(Self { unlocker: Mutex::new(None), profile, read_only, start, state: Mutex::new(State::default()) })
     }
 
-    /// Tests: unlock with `unlocker` instead of the login Keychain.
+    /// Tests and throwaway profiles: unlock with `unlocker` instead of the login Keychain.
     pub fn set_unlocker(&self, unlocker: Unlocker) {
         *self.unlocker.lock().unwrap_or_else(|p| p.into_inner()) = Some(unlocker);
     }
@@ -251,18 +259,19 @@ impl Daemon {
                 return Ok(Unlock::Locked);
             }
             let seam = self.unlocker.lock().unwrap_or_else(|p| p.into_inner()).clone();
-            // Test builds never reach the login Keychain: since bf698770 the client's unlock reads the "Milagre Safe
-            // Storage" item (and makes one when missing) on a daemon with no vault, which a fake daemon is. A test
-            // with no stand-in leaves the vault locked, as a read-only window does.
+            // Test builds never reach the login Keychain: with no stand-in the vault stays locked, as a read-only
+            // window leaves it (the client also refuses every data folder but the installed profile's since 09a75bfc).
             if cfg!(test) && seam.is_none() {
                 return Ok(Unlock::Locked);
             }
+            let code = |error: Error| match &error {
+                Error::Launch { code, message } => ((*code).to_owned(), message.clone()),
+                other => (String::new(), other.to_string()),
+            };
             let outcome = match seam {
-                Some(unlock) => unlock(),
-                None => installed.unlock_computers(&client).await.map_err(|error| match &error {
-                    Error::Launch { code, message } => ((*code).to_owned(), message.clone()),
-                    other => (String::new(), other.to_string()),
-                }),
+                Some(Unlocker::StandIn(password)) => installed.unlock_computers_with_stand_in(&client, &password).await.map_err(code),
+                Some(Unlocker::Fail { code, message }) => Err((code, message)),
+                None => installed.unlock_computers(&client).await.map_err(code),
             };
             Ok(match outcome {
                 Ok(done) => Unlock::Done(done),

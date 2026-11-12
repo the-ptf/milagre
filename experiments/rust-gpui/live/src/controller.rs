@@ -866,8 +866,8 @@ impl LiveController {
         let daemon = daemon.clone();
         let job: Job = Box::pin(async move {
             // Before computers:add, as Electron does: a locked vault answers `{ok: false, code: "keys"}`.
-            if let crate::computers::Unlock::Failed { code, message } = daemon.unlock_computers(&project).await.map_err(|e| format!("{e:#}"))? {
-                return Err(if code == "KEYCHAIN_UNAVAILABLE" { crate::computers::ALLOW_KEYCHAIN.to_owned() } else { message });
+            if let Some(refusal) = daemon.unlock_computers(&project).await.map_err(|e| format!("{e:#}"))?.refusal() {
+                return Err(refusal);
             }
             let writer = daemon.writer(&project).await.map_err(|e| format!("{e:#}"))?;
             writer.call("computers:add", serde_json::json!([link, {}])).await.map_err(|e| format!("Couldn't add the computer: {e:#}"))?;
