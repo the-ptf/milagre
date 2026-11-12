@@ -35,12 +35,18 @@ echo '{"name":"milagre-daemon-bundle","private":true}' > "$out/app/package.json"
 # Milagre runs the user's installed claude (pathToClaudeCodeExecutable), never the SDK's bundled binary; Milagre.app
 # doesn't ship it either. node-pty keeps only its macOS prebuilds.
 rm -rf "$out"/app/node_modules/@anthropic-ai/claude-agent-sdk-*-*
+# The bundle carries this Mac's Node, so it runs on this architecture only: drop other platforms' binaries.
+case "$(uname -m)" in arm64) arch=arm64 ;; x86_64) arch=x64 ;; *) echo "unsupported architecture" >&2; exit 2 ;; esac
 for dir in "$out"/app/node_modules/node-pty/prebuilds/*; do
-  case "$(basename "$dir")" in darwin-*) ;; *) rm -rf "$dir" ;; esac
+  [ "$(basename "$dir")" = "darwin-$arch" ] || rm -rf "$dir"
+done
+rm -rf "$out"/app/node_modules/node-pty/third_party/conpty
+for bin in "$out"/app/node_modules/agent-desktop/bin/agent-desktop-*; do
+  case "$(basename "$bin")" in *-darwin-"$arch") ;; *) rm -f "$bin" ;; esac
 done
 # node-pty's own post-install marks spawn-helper executable; with install scripts off it stays 0644 and every
 # terminal fails with "posix_spawnp failed".
-chmod 755 "$out"/app/node_modules/node-pty/prebuilds/darwin-*/spawn-helper
+chmod 755 "$out"/app/node_modules/node-pty/prebuilds/darwin-"$arch"/spawn-helper
 cp "$node" "$out/bin/node"
 chmod 755 "$out/bin/node"
 entry="app/node_modules/@milagre/daemon/src/cli.cjs"

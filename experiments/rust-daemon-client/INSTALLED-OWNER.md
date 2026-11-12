@@ -32,7 +32,7 @@ service parity. Routines are out of scope for the Preview in this mode.
   ad-hoc re-signed build asks again). `computers_vault_status(&client)` is the typed status read.
 - `DaemonLaunch::bundle(dir)` starts a daemon from `scripts/bundle-node-daemon.sh <out> --version
   <v>` output, for a computer without Milagre.app: Node 24 (`bin/node`), daemon + core + shared with
-  production dependencies from the npm cache, and `manifest.json`. 285 MB on disk, 96 MB as
+  production dependencies from the npm cache, and `manifest.json`. 258 MB on disk (was 285 before dropping other platforms' binaries), 96 MB as
   tar.gz (Milagre.app is 599 MB). The SDK's bundled Claude binary is dropped (Milagre runs the
   user's installed `claude`), node-pty keeps only macOS prebuilds and gets its `spawn-helper`
   marked executable; the script fails unless a real pseudo-terminal opens under that Node. No
