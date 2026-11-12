@@ -1,6 +1,8 @@
 # What the shared client still lacks for the Preview's daemon mode
 
-Pinned client: `dd4993725` (`experiments/rust-daemon-client`, feature `installed-owner`). Since that commit
+Pinned client: `66a7795e2` (`experiments/rust-daemon-client`, feature `installed-owner`; `dd4993725` plus
+`InstalledOwner::adopt_or_start` / `DaemonLaunch` and the two-step `daemon:status [{commands:true}]` handshake, which
+makes `project:open`, `daemon:snapshot` and `computers:*` reachable: 344 methods live). Since `dd4993725`
 `InstalledProject::call(&client, method, args)` sends any command Electron's preload may send (343 names in
 `src/renderer_commands.rs`, minus `app-update:install`) when the daemon advertises it. So nearly every read and
 write behind Victor's five items is reachable; what is left is listed here, by item, with the exact method names

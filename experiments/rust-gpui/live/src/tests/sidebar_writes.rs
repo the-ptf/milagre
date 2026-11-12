@@ -4,8 +4,7 @@
 //! - `the_sidebar_writes_reach_the_daemon`: Pin (this device's, saved to the Preview's own file, never sent), Delete
 //!   (a running turn stopped, hidden at once, Undo restores; after the window `chat:delete`), Reload, Detach, Unlink
 //!   issue, Filters › Projects (`project:set-hidden`, the Chats gone and back) and Show (saved), and Add Project
-//!   (refused with a plain line while the daemon does not list `project:open`, as the installed one does not to this
-//!   client; listed, `project:open` of the picked folder, then a new sync lists it).
+//!   (refused with a plain line when the daemon does not list `project:open` even to `{commands: true}`; listed, `project:open` of the picked folder, then a new sync lists it).
 //! - `a_read_only_window_refuses_the_sidebar_writes`: saved pins still show; Delete, Pin and Reload are not offered;
 //!   every write that reaches the layer anyway is refused before a connection; nothing is saved.
 
@@ -221,7 +220,7 @@ fn the_sidebar_writes_reach_the_daemon(cx: &mut TestAppContext) {
     for method in ["chat:reload", "chat:detach", "worktree:unlink-issue"] {
         let connection = fake.connections().into_iter().rev().find(|(_, m)| m == method).unwrap().0;
         let on: Vec<String> = fake.connections().into_iter().filter(|(c, _)| *c == connection).map(|(_, m)| m).collect();
-        assert_eq!(on[..3], ["daemon:status", "project:read", method], "{method}: request-only, loaded first");
+        assert_eq!(on[..4], ["daemon:status", "daemon:status", "project:read", method], "{method}: request-only, loaded first");
     }
 
     // 6. Filters › Projects: beta hidden on the host, its Chats leave the lists; shown again, they come back.

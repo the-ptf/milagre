@@ -3,8 +3,8 @@
 //! the client's own tests use), so `InstalledOwner::adopt_profile` adopts it through the public path. The installed
 //! Milagre's socket is a different file in the same folder and is never touched.
 //!
-//! It serves what the Preview calls, with the shapes the Node daemon sends (`daemon:status` with `desktop-v1` and an
-//! unlisted `daemon:snapshot`, paged snapshots, `project:known`, `chat:messages`, the Chat, sidebar, terminal and Git
+//! It serves what the Preview calls, with the shapes the Node daemon sends (`daemon:status` with `desktop-commands-v1`, listing
+//! `project:open` and `daemon:snapshot` only to `{commands: true}`, paged snapshots, `project:known`, `chat:messages`, the Chat, sidebar, terminal and Git
 //! methods) and pushes `project:state` / `agent:event` frames to every connection, numbered globally. Every request is
 //! logged with the connection it came on, so a test can assert what was (and was not) asked: no `project:open` at
 //! all, no `project:read` of a Project the daemon has not loaded until the person opens it, no `daemon:snapshot` on
@@ -24,10 +24,11 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+/// What `daemon:status []` lists. The desktop's own commands ([`DESKTOP`]) are added only to `daemon:status
+/// [{commands: true}]`, as the Node daemon does (`desktop-commands-v1`, the client's two-step handshake).
 const METHODS: &[&str] = &[
     "project:known",
     "project:read",
-    "project:open",
     "project:current",
     "state:read",
     "chat:runs",
@@ -69,6 +70,9 @@ const METHODS: &[&str] = &[
     "project:recent",
 ];
 
+/// The desktop's own commands, listed only to a client asking `daemon:status [{commands: true}]`.
+const DESKTOP: &[&str] = &["project:open", "daemon:snapshot"];
+
 /// A Chat: id, title, messages as (role, body).
 pub type ChatSpec<'a> = (u64, &'a str, Vec<(&'a str, &'a str)>);
 /// A Project: path, name, loaded this run, its Chats.
@@ -100,7 +104,7 @@ pub struct World {
     next_connection: u64,
     /// `agent:models`' answer.
     pub models: Value,
-    /// Methods `daemon:status` leaves out (the installed daemon lists `project:open` only to `{commands: true}`).
+    /// Methods `daemon:status` leaves out even to `{commands: true}` (a daemon that does not serve them).
     pub unlisted: Vec<String>,
     /// `agent:ports`' answer (every Chat's ports by Chat key).
     pub ports: Value,
@@ -306,9 +310,18 @@ impl World {
     fn call(&mut self, method: &str, args: &Value, data_dir: &Path, pid: u32) -> Result<Value, String> {
         let arg = &args[0];
         Ok(match method {
-            "daemon:status" => json!({"pid":pid,"protocolVersion":1,"closing":false,"version":"fake-node","dataDir":data_dir,
-                "capabilities":["desktop-v1","snapshot-pages-v1","result-pages-v1"],
-                "methods":METHODS.iter().filter(|m| !self.unlisted.iter().any(|u| u == *m)).collect::<Vec<_>>()}),
+            "daemon:status" => {
+                let desktop = arg["commands"] == true;
+                let methods: Vec<&str> = METHODS
+                    .iter()
+                    .chain(if desktop { DESKTOP } else { &[] })
+                    .copied()
+                    .filter(|m| !self.unlisted.iter().any(|u| u == m))
+                    .collect();
+                json!({"pid":pid,"protocolVersion":1,"closing":false,"version":"fake-node","dataDir":data_dir,
+                    "capabilities":["desktop-v1","desktop-commands-v1","snapshot-pages-v1","result-pages-v1"],
+                    "methods":methods})
+            }
             "project:known" => Value::Array(self.known.iter().map(|p| json!({"path":p,"name":self.projects[p].name})).collect()),
             "daemon:snapshot" => {
                 let id = format!("snap-{}", self.snapshots.len() + 1);

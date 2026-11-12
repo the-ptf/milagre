@@ -253,8 +253,9 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     });
     let git = fake.connections().into_iter().find(|(_, m)| m == "git:diff-files").expect("a Git read").0;
     let on_git: Vec<String> = fake.connections().into_iter().filter(|(c, _)| *c == git).map(|(_, m)| m).collect();
-    assert_eq!(on_git.first().map(String::as_str), Some("daemon:status"));
-    assert_eq!(on_git.get(1).map(String::as_str), Some("project:read"), "loaded before the read: {on_git:?}");
+    // The client's two-step handshake (`daemon:status []`, then `[{commands: true}]`), then the load.
+    assert_eq!(on_git[..2], ["daemon:status", "daemon:status"], "{on_git:?}");
+    assert_eq!(on_git.get(2).map(String::as_str), Some("project:read"), "loaded before the read: {on_git:?}");
     assert!(!on_git.iter().any(|m| m == "daemon:snapshot"), "request-only: {on_git:?}");
 
     // 5. A send to an existing Chat: its own provider and model, its id, after project:open.
@@ -359,7 +360,11 @@ fn the_window_runs_chats_on_the_node_daemon(cx: &mut TestAppContext) {
     let on_terminal: Vec<String> = fake.connections().into_iter().filter(|(c, _)| *c == terminal[0]).map(|(_, m)| m).collect();
     assert!(on_terminal.iter().any(|m| m == "terminal:read") && on_terminal.iter().any(|m| m == "terminal:input"), "{on_terminal:?}");
     assert!(!on_terminal.iter().any(|m| m == "daemon:snapshot"), "no daemon:snapshot on the Terminal's connection: {on_terminal:?}");
-    assert_eq!(on_terminal.get(1).map(String::as_str), Some("project:read"), "loaded with load_view: {on_terminal:?}");
+    assert_eq!(
+        on_terminal.get(2).map(String::as_str),
+        Some("project:read"),
+        "loaded with load_view after the two-step handshake: {on_terminal:?}"
+    );
     drawer.update(m.vcx, |d, cx| d.hide(cx));
     drop(view);
 

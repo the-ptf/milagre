@@ -16,8 +16,8 @@
 //! - Reload (`chat:reload`), Detach from parent (`chat:detach`), Unlink issue (`worktree:unlink-issue`), Kept.
 //! - Add Project: the folder dialog, then `project:open [folder, {takeNotice: true}]` (the host registers it and puts
 //!   it first among the recent Projects, as Electron's Add Project does); the window then syncs again to list it. The
-//!   installed daemon advertises `project:open` only to `daemon:status [{commands: true}]`, which the shared client at
-//!   dd499372 does not send, so on it the client refuses the call and the sidebar says to add the folder in Milagre.
+//!   installed daemon advertises `project:open` only to `daemon:status [{commands: true}]`, which the shared client
+//!   asks since 66a7795e; a daemon that still does not list it is refused by the client and the sidebar says so.
 //!
 //! In read-only mode (`--snapshot`) each of these is refused before a connection, the sidebar goes back to what the
 //! daemon holds, nothing is saved and the hidden Projects are not read. The menu offers only Copy branch name then
@@ -577,10 +577,10 @@ impl SidebarWrites {
                 let connection = Connection::open(&daemon, &folder, false).await?;
                 match connection.installed.call(&connection.client, "project:open", json!([folder, {"takeNotice": true}])).await {
                     Ok(value) => Ok(value),
-                    // The installed daemon lists `project:open` only to a `daemon:status {commands: true}`, which the
-                    // shared client does not send, so the client refuses it before a request.
+                    // A daemon that does not list `project:open` even to `daemon:status {commands: true}` (older than
+                    // the desktop-commands handshake): the client refuses it before a request.
                     Err(milagre_daemon_client::Error::Capability { .. }) => {
-                        Err("this preview can't open folders on Milagre's daemon yet; add it in Milagre".to_owned())
+                        Err("this Milagre's daemon can't open folders for this preview; add it in Milagre".to_owned())
                     }
                     Err(error) => Err(format!("project:open: {error}")),
                 }
