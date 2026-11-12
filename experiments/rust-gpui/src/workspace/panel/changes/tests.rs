@@ -233,10 +233,12 @@ fn the_diff_shows_over_the_chat_with_back_named_after_it_and_goes_with_the_panel
     let title = workspace.read_with(cx, |w, cx| w.chat.read(cx).title().to_string());
     let diff = changes.read_with(cx, |c, _| c.diff_view()).expect("open");
     assert_eq!(diff.read_with(cx, |d, _| d.over_chat().map(|o| o.label.to_string())), Some(title));
-    // The bar keeps clear of the corner's toggles over the Chat column.
+    // The diff is on the Chat card, under the top row and the corner's toggle.
     let toolbar = cx.debug_bounds("diff-toolbar").expect("the toolbar");
     let corner = cx.debug_bounds("corner-toggles").expect("the corner");
-    assert!(toolbar.right() <= corner.left(), "{toolbar:?} left of {corner:?}");
+    let card = cx.debug_bounds("chat-card").expect("the card");
+    assert!(toolbar.top() >= corner.bottom() && toolbar.top() > card.top(), "{toolbar:?} under {corner:?}, on {card:?}");
+    assert!(toolbar.left() > card.left() && toolbar.right() < card.right(), "{toolbar:?} within {card:?}");
     // Hiding the panel takes the diff away.
     workspace.update(cx, |w, cx| w.panel.update(cx, |p, cx| p.close(cx)));
     settle(cx);

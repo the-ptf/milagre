@@ -10,9 +10,10 @@ fn mount(cx: &mut TestAppContext) -> (gpui::Entity<crate::workspace::Workspace>,
     testing::mount_workspace_on(cx, PanelTab::Changes)
 }
 
+/// The panel's edge: its tabs start after its half of the Chat card's gap.
 fn panel_left(cx: &mut gpui::VisualTestContext) -> gpui::Pixels {
     let tabs = cx.debug_bounds("panel-header").expect("the panel header is drawn");
-    tabs.left()
+    tabs.left() - crate::workspace::shell::card::panel_lead()
 }
 
 fn window_width(cx: &mut gpui::VisualTestContext) -> gpui::Pixels {

@@ -3,15 +3,14 @@
 //! the opener. Hiding the panel takes it away (the desktop closes it then).
 //!
 //! The window asks the panel which diff is open (`Panel::diff_over_chat`) and draws it over the Chat column's body
-//! with [`Workspace::diff_over_chat`]; the corner's toggles stay above it, so the bar keeps clear of them.
+//! with [`Workspace::diff_over_chat`]: over the Chat card's body, under the top row, so the Chat's title stays above it.
 
-use gpui::{AnyElement, AnyView, Context, Entity, Pixels, SharedString, StyleRefinement, Window, div, prelude::*};
+use gpui::{AnyElement, AnyView, Context, Entity, Pixels, SharedString, StyleRefinement, Window, div, prelude::*, px};
 
 use super::DiffView;
 use crate::theme::ActiveTheme;
 use crate::workspace::Workspace;
-use crate::workspace::shell::top_bar;
-use crate::workspace::sidebar::{SIDEBAR_WIDTH, rail::RAIL_WIDTH};
+use crate::workspace::shell::{card, top_bar};
 
 /// Back's label and the bar's insets while the diff is over the Chat column.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,10 +48,8 @@ impl Workspace {
         let Some(open) = self.panel.read(cx).diff_over_chat(cx) else { return body };
         let title = self.chat.read(cx).title();
         let label: SharedString = if title.is_empty() { "Back".into() } else { title.to_string().into() };
-        let collapsed = self.sidebar.read(cx).is_collapsed();
-        let left = if collapsed { RAIL_WIDTH } else { SIDEBAR_WIDTH } + 1.0;
-        // The panel is open (it holds the diff), so the corner toggle sits over the panel's tab strip, not this header.
-        let over = OverChat { label, leading: top_bar::chat_leading_inset(left), trailing: top_bar::chat_trailing_inset(1) };
+        // On the Chat card, under the top row: nothing of the window's reaches over its bar.
+        let over = OverChat { label, leading: px(top_bar::HEADER_PAD), trailing: px(top_bar::HEADER_PAD) };
         let pane = match open {
             OpenDiff::Changes(diff) => {
                 diff.update(cx, |diff, cx| diff.set_over_chat(Some(over), cx));
@@ -70,7 +67,10 @@ impl Workspace {
                     .id("diff-over-chat")
                     .debug_selector(|| "diff-over-chat".to_string())
                     .absolute()
-                    .inset_0()
+                    .top(card::body_top())
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
                     .occlude()
                     .bg(theme.page)
                     .child(pane),

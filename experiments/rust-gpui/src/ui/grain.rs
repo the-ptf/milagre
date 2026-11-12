@@ -1,4 +1,5 @@
-//! Film grain: a static noise texture tiled over a surface (the sidebar's, as in Victor's reference video).
+//! Film grain: a static noise texture tiled over a surface (the window's one surface under the sidebar, the top row
+//! and the panel, as in Victor's reference video).
 //!
 //! The texture is `assets/grain/` (`tools/gen-grain.mjs`): 256 px of per-pixel noise drawn as a 128pt tile, so one
 //! speck is one device pixel on a Retina display. Its strength is baked into the PNG's alpha (0 to 7 %, about 3.5 % on
@@ -38,7 +39,7 @@ pub fn preload_grain(cx: &mut App) -> bool {
 /// The grain over a surface. Mount it with `AnyView::from(view).cached(..)` at the surface's size, absolutely.
 pub struct GrainView {
     renders: usize,
-    /// The debug selector, so tests can tell the sidebar's grain from the panel's.
+    /// The debug selector, so tests can find it.
     selector: &'static str,
 }
 

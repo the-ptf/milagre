@@ -60,7 +60,6 @@ use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
 use crate::theme::ActiveTheme;
-use crate::ui::grain::GrainView;
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
@@ -149,9 +148,6 @@ pub struct Sidebar {
     links: Vec<links::CanvasLink>,
     link_open: Option<links::OpenLinks>,
     next_link: u64,
-    /// The film grain over the sidebar's fill, under the rows: a cached view of its own, so hovering and scrolling
-    /// never render it (`ui::grain`).
-    grain: Entity<GrainView>,
 }
 
 /// What the sidebar asks the window to do.
@@ -217,7 +213,6 @@ impl Sidebar {
             links: Vec::new(),
             link_open: None,
             next_link: 0,
-            grain: cx.new(|_| GrainView::new()),
         };
         commands::install_undo_keys(cx);
         let open_chat = seed.open_chat;
@@ -555,16 +550,6 @@ impl Sidebar {
 }
 
 impl Sidebar {
-    /// The grain over the fill: first, so every row paints over it, and cached at the sidebar's size.
-    fn grain_layer(&self) -> AnyElement {
-        AnyView::from(self.grain.clone()).cached(StyleRefinement::default().absolute().top_0().left_0().size_full()).into_any_element()
-    }
-
-    /// How many times the grain has rendered (tests).
-    pub fn grain_renders(&self, cx: &gpui::App) -> usize {
-        self.grain.read(cx).renders()
-    }
-
     /// The collapsed rail's icons for the list rows `range`.
     fn render_rail(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         range
@@ -614,9 +599,8 @@ impl Sidebar {
             .relative()
             .w(px(rail::RAIL_WIDTH))
             .h_full()
-            .bg(theme.canvas)
+            // Transparent: the window's surface and its grain show through (`workspace/mod.rs`).
             .text_color(theme.ink)
-            .child(self.grain_layer())
             // The traffic lights and the window's bar sit over this header and run on past the rail's edge, over the Chat
             // header's leading edge (`workspace/shell/top_bar.rs`): one top row, expanded or not.
             .child(chrome::header("sidebar-header"))
@@ -717,9 +701,8 @@ impl Render for Sidebar {
             .relative()
             .w(px(SIDEBAR_WIDTH))
             .h_full()
-            .bg(theme.canvas)
+            // Transparent: the window's surface and its grain show through (`workspace/mod.rs`).
             .text_color(theme.ink)
-            .child(self.grain_layer())
             .child(header({
                 let sidebar = cx.entity();
                 move |_, cx| sidebar.update(cx, |_, cx| cx.emit(SidebarEvent::NewChat))

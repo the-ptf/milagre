@@ -1,4 +1,5 @@
-//! Root view: three flush, full-height columns; the sidebar keeps a 1px line on its right edge.
+//! Root view: the sidebar, the Chat card and the side panel on one surface (`canvas`, one film grain under all of
+//! them, no lines between them); the Chat card (`shell/card.rs`) is the only detached part.
 //!
 //! How re-rendering works in this GPUI, and so how the views are mounted (CONVENTIONS.md has the rule):
 //! a `cx.notify()` re-renders the notifying view and every view on the path up to this root. A view that
@@ -6,7 +7,7 @@
 //! (`AnyView::cached`) unless they are dirty themselves; a dirty cached view re-renders its whole subtree,
 //! cached views inside it included.
 //!
-//! So only the panel is cached here: nothing inside it changes on its own. The sidebar and the Chat column
+//! So only the panel and the grain are cached here: nothing inside it changes on its own. The sidebar and the Chat column
 //! are plain children, because things inside them change all the time (a spinner turns in a sidebar row,
 //! the composer takes a key) and a cached container would then rebuild everything under it. Their renders
 //! stay cheap instead: the sidebar's rows, the transcript and the running row are cached leaves inside them.
@@ -24,13 +25,14 @@ mod tests;
 #[cfg(test)]
 mod wiring_tests;
 
-use gpui::{Context, Entity, KeyBinding, Subscription, Window, div, prelude::*, px};
+use gpui::{Context, Entity, KeyBinding, Subscription, Window, div, prelude::*};
 
 use crate::overlays::palette::{PaletteEvent, PaletteView};
 use crate::overlays::{OpenGitActions, TogglePalette};
 use crate::routines::RoutinesView;
 use crate::settings::{self, SettingsModal, ToggleSettings};
-use crate::theme::{ActiveTheme, Theme};
+use crate::theme::ActiveTheme;
+use crate::ui::grain::GrainView;
 use crate::workspace::chat::{ChatEvent, ChatView};
 use crate::workspace::panel::dock;
 use crate::workspace::panel::terminal::{self, TerminalDrawer};
@@ -44,6 +46,8 @@ pub struct Workspace {
     /// The Link workspace, in place of the sidebar and the columns while open (WP-48).
     pub link: Option<link::hooks::OpenLink>,
     pub panel: Entity<Panel>,
+    /// The film grain under the whole window: the sidebar, the top row and the panel are transparent over it.
+    pub grain: Entity<GrainView>,
     pub settings: Entity<SettingsModal>,
     /// ⌘K (WP-50), above everything else.
     pub palette: Entity<PaletteView>,
@@ -140,6 +144,7 @@ impl Workspace {
             chat,
             link: None,
             panel,
+            grain: cx.new(|_| GrainView::new()),
             settings,
             palette,
             dialog_host,
@@ -255,7 +260,7 @@ impl Render for Workspace {
             }
         }
         let columns = if self.routines_open {
-            div().flex().flex_1().min_w_0().h_full().child(self.routines.clone()).into_any_element()
+            div().flex().flex_1().min_w_0().h_full().child(self.routines_column(cx)).into_any_element()
         } else {
             let body = self.chat.clone().into_any_element();
             let body = self.diff_over_chat(body, window, cx);
@@ -265,6 +270,13 @@ impl Render for Workspace {
         let columns = self.link_or(columns);
         let settings = self.settings.clone();
         let palette = self.palette.clone();
+        // The Link workspace draws its own columns on the page; everything else sits on the one grained surface.
+        let surface = if self.link.is_some() { theme.page } else { theme.canvas };
+        let grain = self.link.is_none().then(|| {
+            gpui::AnyView::from(self.grain.clone())
+                .cached(gpui::StyleRefinement::default().absolute().top_0().left_0().size_full())
+                .into_any_element()
+        });
         terminal::on_actions(dock::on_actions(div(), &self.panel), &self.terminals)
             .id("workspace")
             .track_focus(&self.focus)
@@ -276,7 +288,7 @@ impl Render for Workspace {
             .relative()
             .flex()
             .size_full()
-            .bg(theme.page)
+            .bg(surface)
             .text_color(theme.ink)
             .font_family(crate::theme::ui_font())
             // The shell's window-level keys: ⌘B, ⌘N, the Window menu, and Escape after every view under focus.
@@ -289,10 +301,11 @@ impl Render for Workspace {
             // One top row in every state: open, the sidebar's header carries the traffic lights and the bar; as a rail they
             // run on over the Chat header's leading edge.
             .flex_row()
-            .when(self.link.is_none(), |el| el.child(self.sidebar.clone()).child(sidebar_rule(&theme)))
+            // First, so everything paints over it.
+            .children(grain)
+            .when(self.link.is_none(), |el| el.child(self.sidebar.clone()))
             .child(columns)
             // Over the columns' headers, under Settings and the overlays.
-            .children(self.edge_fade(cx))
             .child(self.top_bar(cx))
             .children(self.corner(cx))
             .child(self.notices.clone())
@@ -300,9 +313,4 @@ impl Render for Workspace {
             .child(self.settings.clone())
             .child(palette)
     }
-}
-
-/// The sidebar's right edge keeps its 1px line in the no-dividers experiment (Victor asked for it back).
-fn sidebar_rule(theme: &Theme) -> impl IntoElement + use<> {
-    div().flex_none().w(px(1.0)).h_full().bg(theme.line)
 }

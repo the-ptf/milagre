@@ -13,6 +13,7 @@ use gpui_component::{h_resizable, resizable_panel};
 
 use super::{Panel, PanelTab};
 use crate::logic::keybindings::{GpuiOptions, default_keybindings, gpui_bindings};
+use crate::workspace::shell::card;
 
 /// The narrowest the Chat gets while a panel beside it is dragged wider (`MIN_CHAT_WIDTH`).
 pub const MIN_CHAT_WIDTH: f32 = 420.0;
@@ -149,6 +150,8 @@ pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut 
         .child(reset)
         .child(
             h_resizable("dock")
+                // No line between the Chat card and the panel: the handle is the card's right gap, seen by its cursor.
+                .with_handle_appearance(quiet_handle())
                 .with_state(&state)
                 .on_resize(on_resize)
                 .child(resizable_panel().size_range(px(MIN_CHAT_WIDTH)..Pixels::MAX).child(chat))
@@ -157,8 +160,16 @@ pub fn layout(panel: &Entity<Panel>, chat: impl IntoElement + 'static, cx: &mut 
                         .size(px(width))
                         .size_range(px(rule.min)..px(rule.max))
                         .fixed()
-                        .child(div().relative().size_full().child(body(panel))),
+                        .child(div().relative().size_full().pl(card::panel_lead()).child(body(panel))),
                 ),
         )
         .into_any_element()
+}
+
+/// gpui-base's `ResizeHandleRenderer`, which gpui-component does not re-export: `C` is its handle context.
+type HandleRenderer<C> = std::rc::Rc<dyn Fn(&C, &mut Window, &mut App) -> Option<AnyElement>>;
+
+/// A resize handle that paints nothing: the edge it drags is the gap between the Chat card and the panel.
+fn quiet_handle<C: 'static>() -> HandleRenderer<C> {
+    std::rc::Rc::new(|_, _, _| Some(div().into_any_element()))
 }

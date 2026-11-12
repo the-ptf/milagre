@@ -81,17 +81,6 @@ fn the_top_row_is_the_same_height_and_place_in_all_four_states(cx: &mut TestAppC
 }
 
 #[gpui::test]
-fn a_short_gradient_fades_the_sidebar_into_the_page_in_the_top_row(cx: &mut TestAppContext) {
-    let (_workspace, cx) = testing::mount_workspace(cx);
-    let fade = cx.debug_bounds("top-row-fade").expect("the fade is drawn");
-    assert_eq!((fade.origin.x, fade.origin.y, fade.size.width, fade.size.height), (px(305.0), px(0.0), px(top_bar::EDGE_FADE), px(44.0)));
-    assert!(fade.size.width < px(top_bar::HEADER_PAD), "shorter than the Chat header's padding");
-    cx.simulate_keystrokes("cmd-b");
-    let fade = cx.debug_bounds("top-row-fade").expect("and as a rail");
-    assert_eq!((fade.origin.x, fade.origin.y), (px(RAIL_WIDTH + 1.0), px(0.0)));
-}
-
-#[gpui::test]
 fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestAppContext) {
     let (workspace, cx) = testing::mount_workspace(cx);
     let panel = workspace.read_with(cx, |w, _| w.panel.clone());
@@ -112,13 +101,13 @@ fn the_corner_has_one_toggle_that_opens_and_closes_the_side_panel(cx: &mut TestA
     let window = cx.update(|window, _| window.viewport_size());
     assert_eq!(corner.right(), toggle.right());
     let panel_left = window.width - px(panel.read_with(cx, |p, _| p.width()));
-    assert_eq!(toggle.right(), panel_left - px(12.0), "12px left of the open panel");
+    assert_eq!(toggle.right(), panel_left - px(12.0), "8px inside the Chat card, whose edge is 4px left of the open panel");
     assert_eq!(toggle.origin.y, px(6.0), "centred in the top bar row, as the bar's buttons");
     assert_eq!(toggle.size.width, px(32.0));
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!panel.read_with(cx, |p, _| p.is_open()), "the toggle closes the panel");
     let closed = cx.debug_bounds("toggle-panel").expect("still there");
-    assert_eq!(closed.right(), window.width - px(12.0), "closed: the Chat column reaches the window edge, and so does the toggle");
+    assert_eq!(closed.right(), window.width - px(16.0), "closed: 8px inside the Chat card, whose edge is 8px from the window's");
     assert_eq!(closed.origin.y, toggle.origin.y, "same row");
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).1, top_bar::chat_trailing_inset(1), "closed: the Chat header ends short of it");

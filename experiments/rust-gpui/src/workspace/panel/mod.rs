@@ -117,8 +117,6 @@ impl Default for ChatPanel {
 }
 
 pub struct Panel {
-    /// The film grain over the panel, as on the sidebar: a cached view, drawn once.
-    grain: Entity<crate::ui::grain::GrainView>,
     chat: SharedString,
     /// The Chat open at startup: the fixture gives it every tab.
     seeded: Option<SharedString>,
@@ -172,7 +170,6 @@ impl Panel {
         })
         .detach();
         let mut panel = Self {
-            grain: cx.new(|_| crate::ui::grain::GrainView::named("panel-grain")),
             chat,
             seeded,
             content,
@@ -444,7 +441,8 @@ impl Panel {
             .children(tabs);
         chrome::header("panel-tabs")
             .debug_selector(|| "panel-header".to_string())
-            .pl_2()
+            // The panel's half of the Chat card's gap is before it (`dock.rs`): the tabs keep their 8px from the edge.
+            .pl(px(8.0) - crate::workspace::shell::card::panel_lead())
             .pr(self.header_trailing.max(px(8.0)))
             .gap_1()
             .child(tab_list)
@@ -465,11 +463,9 @@ impl Render for Panel {
             .flex()
             .flex_col()
             .size_full()
-            .bg(theme.canvas)
+            // No fill of its own: the window's surface and its grain show through (`workspace/mod.rs`).
             .child(header)
             .when(HAIRLINE > px(0.0), |el| el.child(div().flex_none().h(HAIRLINE).bg(theme.line)))
             .child(div().id("panel-body").flex_1().min_h_0().children(body))
-            // Over everything, like a film: the bodies paint their own fills, so under them it would not show.
-            .child(AnyView::from(self.grain.clone()).cached(StyleRefinement::default().absolute().top_0().left_0().size_full()))
     }
 }

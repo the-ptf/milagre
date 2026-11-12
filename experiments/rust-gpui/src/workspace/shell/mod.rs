@@ -8,14 +8,20 @@
 //! - [`window_state`]: the window's frame and the sidebar's collapsed state, saved and restored.
 //! - [`persist`]: the small JSON files beside it (diff comments, the merge method).
 //!
-//! The look stays design A (the integrated sidebar): the bar is drawn over the sidebar's 44px header while the
-//! sidebar is open and over the Chat header's leading edge while it is a rail, as the desktop's bar moves.
+//! - [`card`]: the Chat card, the one detached part of the window (design `gpui-chat-card-a`).
+//!
+//! The look is Chat card A: the sidebar, the top row and the panel are one surface under one grain; the bar is drawn
+//! over the sidebar's 44px header while the sidebar is open and over the Chat header's leading edge while it is a
+//! rail, as the desktop's bar moves.
 
+pub mod card;
 pub mod keys;
 pub mod persist;
 pub mod top_bar;
 pub mod window_state;
 
+#[cfg(test)]
+mod card_tests;
 #[cfg(test)]
 mod tests;
 
@@ -134,16 +140,6 @@ impl Workspace {
         .detach();
     }
 
-    /// The fade where the sidebar's background meets the page's in the top row; none over the Link workspace, which
-    /// has no sidebar.
-    pub(super) fn edge_fade(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.link.is_some() {
-            return None;
-        }
-        let edge = if self.sidebar.read(cx).is_collapsed() { RAIL_WIDTH } else { SIDEBAR_WIDTH };
-        Some(top_bar::edge_fade(edge, cx.theme()))
-    }
-
     /// The bar beside the traffic lights, for the root to draw over the columns.
     pub(super) fn top_bar(&self, cx: &mut Context<Self>) -> AnyElement {
         let collapsed = self.sidebar.read(cx).is_collapsed();
@@ -153,7 +149,7 @@ impl Workspace {
             collapsed,
             routines_active: self.view() == View::Routines,
             routines_unread,
-            ground: top_bar::ground(collapsed, cx),
+            ground: top_bar::ground(cx),
             on_toggle: Rc::new({
                 let this = this.clone();
                 move |_, cx| this.update(cx, |this, cx| this.toggle_sidebar(cx))
@@ -181,18 +177,33 @@ impl Workspace {
         top_bar::bar(bar, cx.theme())
     }
 
-    /// The Chat column, its header kept clear of the bar and, when the panel is closed, of the corner toggle (the window root draws the toggle; see [`Self::corner`]).
+    /// The Chat column on the card, its header (in the top row, outside the card) kept clear of the bar and of the
+    /// panel toggle (the window root draws both; see [`Self::corner`]).
     pub(super) fn chat_column(&self, column: AnyElement, cx: &mut Context<Self>) -> AnyElement {
         let collapsed = self.sidebar.read(cx).is_collapsed() && self.link.is_none();
-        // As a rail, the lights and the bar reach over the Chat header's leading edge.
-        let column_left = if collapsed { RAIL_WIDTH + 1.0 } else { SIDEBAR_WIDTH + 1.0 };
-        // The toggle sits at the Chat column's right edge, in the top row: the window's edge while the panel is closed,
-        // just left of the panel while it is open, so the panel's tab strip keeps its whole width.
+        // As a rail, the lights and the bar reach over the Chat header's leading edge. The header starts inside the
+        // card's border.
+        let column_left = if collapsed { RAIL_WIDTH } else { SIDEBAR_WIDTH } + card::CARD_BORDER;
+        // The toggle sits at the card's right edge, in the top row: so the panel's tab strip keeps its whole width.
         let trailing = top_bar::chat_trailing_inset(1);
         let leading = top_bar::chat_leading_inset(column_left);
         self.chat.update(cx, |chat, _| chat.set_header_insets(leading, trailing));
         self.panel.update(cx, |panel, cx| panel.set_header_trailing(gpui::px(0.0), cx));
-        div().relative().size_full().min_w_0().child(column).into_any_element()
+        let open = self.panel.read(cx).is_open();
+        card::column(column, open, cx.theme())
+    }
+
+    /// The Routines page on the card, under an empty top row that still drags the window.
+    pub(super) fn routines_column(&self, cx: &mut Context<Self>) -> AnyElement {
+        let page = div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(crate::workspace::chrome::header("routines-top-row"))
+            .child(div().flex_none().h(card::header_gap()))
+            .child(div().flex().flex_1().min_h_0().child(self.routines.clone()))
+            .into_any_element();
+        card::column(page, false, cx.theme())
     }
 
     /// The panel toggle at the window's top-right, in the top bar's row. Not shown on the Routines page, which has
@@ -210,8 +221,9 @@ impl Workspace {
             })
         });
         let panel = self.panel.read(cx);
-        let right = if panel.is_open() { panel.width() + f32::from(crate::theme::HAIRLINE) } else { 0.0 };
-        Some(top_bar::corner(&items, right, on_toggle))
+        // The card's right edge, from the window's.
+        let card_right = card::right_gap(panel.is_open()) + if panel.is_open() { panel.width() } else { 0.0 };
+        Some(top_bar::corner(&items, card_right, on_toggle))
     }
 
     /// The corner's toggles for the Chat on screen.

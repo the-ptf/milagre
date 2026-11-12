@@ -7,14 +7,15 @@
 //! of them ([`chat_leading_inset`], the desktop's `useControlsClearance`). The Canvas button is left out: the Canvas
 //! view is not migrated.
 //!
-//! The corner (`PanelToggles.tsx`): one right-panel toggle that opens and closes the side panel, 12px in, pressed while
-//! the panel shows. It sits at the window's top-right in the top bar's row, whether the panel is open or closed; the
-//! Chat header (panel closed) or the panel's tab strip (open) ends short of it ([`chat_trailing_inset`]). The panel's own
+//! The corner (`PanelToggles.tsx`): one right-panel toggle that opens and closes the side panel, pressed while the
+//! panel shows. It sits in the top bar's row over the Chat card's right edge, 8px in ([`CORNER_INSET`]): near the
+//! window's edge while the panel is closed, just left of the panel while it is open; the Chat header ends short of it
+//! ([`chat_trailing_inset`]). The panel's own
 //! tab strip has every tab, so no other toggle is drawn here, and the Terminals open with ⌘J.
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, IntoElement, Pixels, SharedString, Window, div, linear_color_stop, linear_gradient, prelude::*, px};
+use gpui::{AnyElement, App, IntoElement, Pixels, SharedString, Window, div, prelude::*, px};
 
 use super::keys::shortcut_hint;
 use crate::theme::{ActiveTheme, HEADER_HEIGHT, Theme};
@@ -29,8 +30,10 @@ pub const BAR_LEFT: f32 = 80.0;
 pub const BUTTON: f32 = 32.0;
 /// Between two buttons; the corner's pitch is a button plus this (`CORNER_PITCH`, 40).
 pub const GAP: f32 = 8.0;
-/// The corner's inset from the right edge.
+/// The Chat header's trailing clearance for the corner's toggles: their inset plus one gap.
 pub const CORNER_RIGHT: f32 = 12.0;
+/// The toggle's inset from the Chat card's right edge (its glyph lines up 16px in, with the header's padding).
+pub const CORNER_INSET: f32 = 8.0;
 /// The Chat header's own padding when nothing overlaps it.
 pub const HEADER_PAD: f32 = 16.0;
 /// Buttons in the bar: the sidebar toggle, Routines, Link Projects, Search.
@@ -81,24 +84,6 @@ pub struct Bar {
     pub on_search: Handler,
     /// Link Projects: the Link Projects dialog, then the new Link's workspace (`sidebar/hooks.rs`).
     pub on_link_projects: Handler,
-}
-
-/// How wide the fade is: shorter than the Chat header's own 16px padding, so it never tints the header's text.
-pub const EDGE_FADE: f32 = 12.0;
-
-/// Where the sidebar's background meets the page's, in the top row: a short horizontal gradient from the sidebar's
-/// background to the page's, on the page side of the edge (`edge` is the sidebar's width: its full width open, the
-/// rail's as a rail), so the row fades instead of ending in a hard edge. Draws over the Chat header, under the bar.
-pub fn edge_fade(edge: f32, theme: &Theme) -> AnyElement {
-    div()
-        .debug_selector(|| "top-row-fade".into())
-        .absolute()
-        .top_0()
-        .left(px(edge + 1.0))
-        .w(px(EDGE_FADE))
-        .h(HEADER_HEIGHT)
-        .bg(linear_gradient(90., linear_color_stop(theme.canvas, 0.), linear_color_stop(theme.page, 1.)))
-        .into_any_element()
 }
 
 /// The bar, positioned absolutely in the window's top-left. It occludes what is under it, so a press on it never
@@ -193,15 +178,15 @@ impl Corner {
     }
 }
 
-/// The corner's toggle, positioned absolutely at the Chat column's top-right, in the top bar row (the window root
-/// draws it). `panel_right` is how far the open panel reaches in from the window's right edge (0 when it is closed).
-pub fn corner(items: &[CornerItem], panel_right: f32, on_toggle: CornerHandler) -> AnyElement {
+/// The corner's toggle, positioned absolutely over the Chat card's top-right, in the top bar row (the window root
+/// draws it). `card_right` is how far the card's right edge is from the window's.
+pub fn corner(items: &[CornerItem], card_right: f32, on_toggle: CornerHandler) -> AnyElement {
     div()
         .id("corner-toggles")
         .debug_selector(|| "corner-toggles".into())
         .absolute()
         .top(bar_top())
-        .right(px(panel_right + CORNER_RIGHT))
+        .right(px(card_right + CORNER_INSET))
         .flex()
         .items_center()
         .gap(px(GAP))
@@ -243,8 +228,7 @@ fn tip(
     div().id(id.into()).tooltip(tooltip.build()).child(child)
 }
 
-/// The ring colour behind the bar: the sidebar's surface while it is open, the Chat's page while it is a rail.
-pub fn ground(collapsed: bool, cx: &App) -> gpui::Rgba {
-    let theme = cx.theme();
-    if collapsed { theme.page } else { theme.canvas }
+/// The ring colour behind the bar: the window's one surface, under the sidebar and the top row alike.
+pub fn ground(cx: &App) -> gpui::Rgba {
+    cx.theme().canvas
 }

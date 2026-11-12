@@ -378,12 +378,16 @@ impl Render for ChatView {
             pills.set_jump(away, cx);
             pills.set_return_focus(composer_focus);
         });
-        let header = chrome::header("chat-header").pl(self.header_insets.0).pr(self.header_insets.1).gap_2().relative().child(match &self
-            .bookmark
-        {
-            Some(bookmark) => bookmark::bookmark_view(bookmark, self.family_open, &theme, cx),
-            None => bookmark::identity(self.title.clone(), self.project.clone(), &theme),
-        });
+        let header = chrome::header("chat-header")
+            .debug_selector(|| "chat-header".into())
+            .pl(self.header_insets.0)
+            .pr(self.header_insets.1)
+            .gap_2()
+            .relative()
+            .child(match &self.bookmark {
+                Some(bookmark) => bookmark::bookmark_view(bookmark, self.family_open, &theme, cx),
+                None => bookmark::identity(self.title.clone(), self.project.clone(), &theme),
+            });
         let menu = match (&self.family, self.family_open, self.key.as_deref()) {
             (Some(menu), true, Some(key)) => Some(bookmark::family_menu_view(menu, key, &theme, cx)),
             _ => None,
@@ -397,8 +401,9 @@ impl Render for ChatView {
             .flex_1()
             .min_w_0()
             .h_full()
-            .bg(theme.page)
+            // The header sits in the window's top row, on its surface; the rest is on the Chat card, below its gap.
             .child(header)
+            .child(div().flex_none().h(crate::workspace::shell::card::header_gap()))
             .when(self.new_chat, |el| {
                 // `isNewChat`: `justify-center`, the transcript and the pills gone.
                 el.child(

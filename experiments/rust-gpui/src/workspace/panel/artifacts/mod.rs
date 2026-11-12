@@ -476,7 +476,6 @@ impl Render for ArtifactsView {
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme.canvas)
             .text_color(theme.ink)
             .child(self.page_bar(&theme, cx))
             .child(div().flex_none().h(px(1.0)).bg(theme.line))

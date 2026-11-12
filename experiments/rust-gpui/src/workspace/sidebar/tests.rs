@@ -401,29 +401,3 @@ fn every_done_chat_is_in_the_done_section_and_none_in_the_list() {
     let first: Vec<_> = lists.done.iter().take(2).map(|row| row.chat.display_title(&[]).to_string()).collect();
     assert_eq!(first, ["Ship the Lighthouse budget", "What's a good name for a CLI?"], "most recently marked first");
 }
-
-/// The film grain covers the sidebar under the rows and renders once: hovering rows and scrolling the list reuse it.
-#[gpui::test]
-fn the_grain_covers_the_sidebar_and_never_renders_again_on_hover_or_scroll(cx: &mut TestAppContext) {
-    let (sidebar, cx) = mount(cx);
-    let grain = cx.debug_bounds("grain").expect("the grain is drawn");
-    let column = cx.debug_bounds("sidebar-pinned").expect("the pinned rows, the sidebar's width");
-    assert_eq!((grain.left(), grain.top(), grain.size.width), (column.left(), px(0.0), column.size.width));
-    let footer = cx.debug_bounds("sidebar-footer").expect("the footer");
-    assert_eq!(grain.bottom(), footer.bottom(), "down to the sidebar's foot");
-    let before = sidebar.read_with(cx, |s, cx| s.grain_renders(cx));
-    assert!(before >= 1);
-    for selector in ["chat-row-3", "chat-row-4", "chat-row-5"] {
-        let row = cx.debug_bounds(selector).expect("a row");
-        cx.simulate_mouse_move(row.center(), None, Modifiers::none());
-        cx.run_until_parked();
-    }
-    let row = cx.debug_bounds("chat-row-5").expect("a row").center();
-    cx.simulate_event(gpui::ScrollEvent {
-        position: row,
-        delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-400.0))),
-        ..Default::default()
-    });
-    cx.run_until_parked();
-    assert_eq!(sidebar.read_with(cx, |s, cx| s.grain_renders(cx)), before, "no render for hover or scroll");
-}

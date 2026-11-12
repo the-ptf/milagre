@@ -340,7 +340,7 @@ impl Render for DetailsView {
             }
             body.push(section);
         }
-        div().size_full().bg(theme.canvas).child(
+        div().size_full().child(
             ScrollArea::new("details-scroll", &self.scroll)
                 .child(div().flex().flex_col().w_full().pt(px(SECTION_GAP)).pb(px(12.0)).children(body)),
         )
