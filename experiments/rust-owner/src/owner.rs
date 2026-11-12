@@ -292,7 +292,7 @@ impl OwnedProject {
     // ---- saveProjectState steps ------------------------------------------------------------------------------
 
     /// image-input.cjs decodeImages for one image: `(mime, bytes)`.
-    fn decode_image(image: &Value) -> std::result::Result<(String, Vec<u8>), String> {
+    pub(crate) fn decode_image(image: &Value) -> std::result::Result<(String, Vec<u8>), String> {
         let size_error = || {
             format!(
                 "Each image must be {} MiB or smaller.",

@@ -6,9 +6,11 @@
 //! PreToolUse hook, summarized thinking, reply style). This plan adds the rest of Node's ordinary
 //! launch: the appended system prompt, `settingSources`, `additionalDirectories`, the QA agents,
 //! SubagentStart context and prompt suggestions. Every one is required: a missing one is refused,
-//! never silently dropped. Ask/Auto/Full are admitted for Project Chats. Advisor roles, images,
+//! never silently dropped. Ask/Auto/Full are admitted for Project Chats. Advisor roles,
 //! account routing and user MCP extras remain outside this plan and refused (`tests/ordinary.rs`
-//! and `tests/modes.rs` compare with the Node traces).
+//! and `tests/modes.rs` compare with the Node traces). Image content uses the separate `prompt_images`
+//! helper and the isolated fixture's typed owner input path; this launch plan grants no image
+//! storage authority. Real-provider image validation and broader image flows remain gated.
 //!
 //! Transport difference (kept deliberately): SDK 0.3.288 sends `appendSystemPrompt` in `initialize`;
 //! this crate passes the same bytes through `--append-system-prompt-file` (a private 0600 file) and

@@ -111,11 +111,18 @@ pub struct ProviderError { pub kind: ProviderErrorKind, pub message: String } //
 - compaction;
 - usage-limit continuations and account routing (`limitResumeId`, `expectedAccountId`, …);
 - Routines' messages, a wake's guarded turn, `canStart`, `delivery: "now"`;
-- images, and a handed-over Chat's brief;
+- images unless the registered adapter explicitly supports the bounded image-input contract below, and a handed-over Chat's brief;
 - answers that need unported policy: chat secrets, bug-report approvals, Worktree setup reviews, images attached to answers, a Subchat suggestion card's answer (Subchat escalation bookkeeping isn't ported);
 - compaction progress (`context-compacting`, `context-compacted`, `agent_runs::UNSUPPORTED`) and malformed step, subagent and task events.
 
 Automatic compaction stays off (Node's default) and can't be turned on.
+
+**Bounded image inputs.** Registered adapters default to refusing images. The explicit Claude fixture adapter can
+accept existing-Chat sends and queued images through validated MIME/bytes, with pure preflight before any image or
+message write. The owner allows at most 10 images and 1 MiB decoded aggregate, stores Node-compatible metadata and
+hydrates only owner-selected queued content through checked descriptors. Missing/tampered queued images hold the
+queue instead of disappearing. New-Chat images, image steering/handoff, answer images and public image reads stay
+gated. See [PROVIDER-CONTRACT.md](PROVIDER-CONTRACT.md) for limits, metadata and intentional Node differences.
 
 - **Answers** (`agent:respond-permission`, `agent:answer-question`): validated as SessionManager does, the answers shown as the user's message after the reply so far (`recordAnswers`), handed to the provider and settled asynchronously: `NotWaiting` and proven `Failed` take the message back, `Uncertain` (the adapter's, a deadline's, or a closing session's) keeps it and blocks a retry of that request in that session generation until a definitive settlement or the session closes. Answers on their way and uncertain ones share `answer_capacity` slots (never evicted; at capacity a new answer is refused before anything is shown). Provider JSON is raw and encoded once in `deliver`. See `PROVIDER-CONTRACT.md`.
 

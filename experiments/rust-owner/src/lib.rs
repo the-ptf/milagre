@@ -32,6 +32,7 @@ pub mod chat_summaries;
 pub mod commands;
 pub mod error;
 pub mod handover;
+mod images;
 pub mod isolation;
 pub mod jsjson;
 pub mod message_store;

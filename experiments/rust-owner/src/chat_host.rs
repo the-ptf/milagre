@@ -26,7 +26,8 @@
 //!
 //! Explicit gates (refused with [`gate`] errors, never approximated): steering a running turn (admission and save are
 //! ported behind [`SteeringMode`], whose `Recorded` mode is for conformance and calls no provider), provider handoffs,
-//! compaction, usage-limit continuations and account routing, Routines' messages, wake turns, `canStart`, images,
+//! compaction, usage-limit continuations and account routing, Routines' messages, wake turns, `canStart`, images
+//! outside the explicit bounded adapter capability,
 //! handover briefs, Send now that would steer, answers that need unported policy (secrets, bug reports, setup reviews,
 //! images, Subchat cards), a turn the agent started by itself, quitting or closing a Project with turns running unless
 //! forced, and the agent events listed in [`crate::agent_runs::UNSUPPORTED`] (compaction progress).
@@ -44,6 +45,7 @@ use crate::brief::{inbound_reply, BriefEvent, BriefId, BriefModel, BriefRequest,
 use crate::chat_db::LookupField;
 use crate::error::{Result, StoreError};
 use crate::handover;
+pub use crate::images::ImageInput;
 use crate::jsjson::{self, RawJson};
 use crate::message_store::{Msg, MsgRef, ProjectState};
 use crate::states::ProjectStates;
@@ -414,6 +416,43 @@ struct PendingAnswer {
 ///   a newer session started since (Send now) stays. `shutdown()`: end every session.
 pub trait Provider: Send {
     fn name(&self) -> &str;
+    /// Explicit adapter grant, never a caller-supplied setting. Other adapters keep image sends refused.
+    fn supports_image_inputs(&self) -> bool {
+        false
+    }
+    /// Pure, bounded validation before the owner writes any image or message. Check the exact prompt, settings,
+    /// expanded image blocks and complete native frame budget without creating or changing a provider session.
+    fn validate_image_turn(
+        &self,
+        _request: &RawJson,
+        images: &[ImageInput],
+    ) -> std::result::Result<(), ProviderError> {
+        if images.is_empty() {
+            Ok(())
+        } else {
+            Err(ProviderError::new(
+                ProviderErrorKind::Refused,
+                "Sending images isn't supported by this provider adapter yet.",
+            ))
+        }
+    }
+    /// Only owner-validated bytes cross this boundary; request.images is empty. Recheck native frame limits before
+    /// mutating the session. The default preserves every existing text adapter and refuses nonempty images.
+    fn start_turn_with_images(
+        &mut self,
+        turn: TurnId,
+        request: &RawJson,
+        images: &[ImageInput],
+    ) -> std::result::Result<(), ProviderError> {
+        if images.is_empty() {
+            self.start_turn(turn, request)
+        } else {
+            Err(ProviderError::new(
+                ProviderErrorKind::Refused,
+                "Sending images isn't supported by this provider adapter yet.",
+            ))
+        }
+    }
     fn start_turn(
         &mut self,
         turn: TurnId,
@@ -1268,12 +1307,6 @@ impl ChatHost {
 
     /// The requests this checkpoint refuses rather than approximates.
     fn gates(request: &Value) -> Result<()> {
-        if field(request, "images")
-            .and_then(Value::as_array)
-            .is_some_and(|images| !images.is_empty())
-        {
-            return Err(gate("Sending images"));
-        }
         let context_kind = field(request, "context")
             .and_then(|context| context.get("kind"))
             .and_then(Value::as_str);
@@ -1310,6 +1343,162 @@ impl ChatHost {
                 "Choose a provider for the message.".into(),
             )),
         }
+    }
+
+    /// Image admission is complete before any content or state write. This bounded slice resolves only an existing
+    /// Chat, with no image steering or handoff. Queue entries are validated again against their eventual start.
+    fn prepare_send_images(&mut self, project: &Path, request: &Value) -> Result<Value> {
+        let empty = json!([]);
+        let images = request.get("images").unwrap_or(&empty);
+        let list = images
+            .as_array()
+            .ok_or_else(|| StoreError::Invalid("Images must be an array.".into()))?;
+        if list.is_empty() {
+            return Ok(empty);
+        }
+        let provider = request["provider"]
+            .as_str()
+            .expect("gates checked provider");
+        if !self
+            .providers
+            .get(provider)
+            .is_some_and(|adapter| adapter.supports_image_inputs())
+        {
+            return Err(gate("Sending images"));
+        }
+        let decoded = ImageInput::decode_all(images)?;
+        let session_id = request
+            .get("sessionId")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| gate("Creating a Chat with images"))?;
+        let latest = self.states.load(project, &[session_id])?;
+        let session = session_value(&latest, &json!(session_id))
+            .ok_or_else(|| StoreError::Invalid("That chat is no longer in the project.".into()))?;
+        if jsjson::truthy(session.get("formerWorktree")) {
+            return Err(StoreError::Invalid(FORMER_WORKTREE.into()));
+        }
+        if jsjson::truthy(session.get("workspacePath")) {
+            return Err(gate("A Link's shared Chat"));
+        }
+        if session.get("handoverDraft").is_some() {
+            return Err(gate("A handed-over Chat's image message"));
+        }
+        let worktree = latest
+            .get("worktrees")
+            .and_then(Value::as_object)
+            .and_then(|worktrees| worktrees.get(&jsjson::property_key(session.get("worktree_id"))))
+            .ok_or_else(|| {
+                StoreError::Invalid("That worktree is no longer in the project.".into())
+            })?;
+        if jsjson::truthy(worktree.get("sharedChat")) {
+            return Err(gate("A Link's shared Chat"));
+        }
+        let chat = chat_key(project.to_str().unwrap_or(""), &json!(session_id));
+        if let Some(id) = request.get("fromQueue").and_then(Value::as_str) {
+            if !session
+                .get("queued")
+                .and_then(Value::as_array)
+                .is_some_and(|queue| {
+                    queue
+                        .iter()
+                        .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id))
+                })
+            {
+                return Err(StoreError::Invalid(
+                    "That queued message was already sent or removed.".into(),
+                ));
+            }
+            if self.is_busy(&chat) {
+                return Err(StoreError::Invalid("The chat is busy.".into()));
+            }
+        }
+        let running_provider = self
+            .starting
+            .get(&chat)
+            .map(String::as_str)
+            .or_else(|| session.get("provider").and_then(Value::as_str));
+        if self.is_busy(&chat)
+            && request.get("delivery").and_then(Value::as_str) != Some("queue")
+            && provider_capabilities(running_provider).steer
+        {
+            return Err(gate("Steering a running turn with images"));
+        }
+        let session_value = json!(session_id);
+        let messages: Vec<_> = session_messages(&latest, &session_value).collect();
+        if !messages.is_empty() {
+            let last = messages
+                .iter()
+                .rev()
+                .find(|message| {
+                    message
+                        .get("context")
+                        .and_then(|c| c.get("kind"))
+                        .and_then(Value::as_str)
+                        == Some("handoff")
+                        && message
+                            .get("context")
+                            .and_then(|c| c.get("status"))
+                            .and_then(Value::as_str)
+                            != Some("failed")
+                })
+                .and_then(|message| {
+                    message
+                        .get("context")
+                        .and_then(|c| c.get("to"))
+                        .and_then(|to| to.get("provider"))
+                })
+                .or_else(|| session.get("provider"));
+            if last
+                .and_then(Value::as_str)
+                .is_some_and(|last| last != provider)
+            {
+                return Err(gate("Switching a Chat to another provider with images"));
+            }
+            if messages.iter().any(|message| {
+                message.get("role").and_then(Value::as_str) == Some("assistant")
+                    && message.get("outcome").and_then(Value::as_str) == Some("completed")
+            }) && !jsjson::truthy(session.get("native_session_id"))
+            {
+                return Err(gate("Restoring a Chat with images"));
+            }
+        }
+        let mut start = Map::new();
+        start.insert("provider".into(), json!(provider));
+        start.insert(
+            "model".into(),
+            request.get("model").cloned().unwrap_or(Value::Null),
+        );
+        for key in [
+            "permissionMode",
+            "effort",
+            "ultracode",
+            "fastMode",
+            "replies",
+            "tldrEnabled",
+        ] {
+            if let Some(value) = request.get(key) {
+                start.insert(key.into(), value.clone());
+            }
+        }
+        start.insert("prompt".into(), send_prompt(request));
+        start.insert("chatId".into(), json!(chat));
+        start.insert(
+            "cwd".into(),
+            worktree.get("path").cloned().unwrap_or(Value::Null),
+        );
+        start.insert("images".into(), json!([]));
+        if let Some(resume) = session.get("native_session_id") {
+            start.insert("resumeId".into(), resume.clone());
+        }
+        let raw = outbound_request(&Value::Object(start)).map_err(StoreError::Invalid)?;
+        self.providers
+            .get(provider)
+            .expect("checked above")
+            .validate_image_turn(&raw, &decoded)
+            .map_err(|error| StoreError::Invalid(error.message))?;
+        let stored = self.states.store_send_images(project, images, &decoded)?;
+        self.states.assert_owned(project)?;
+        Ok(stored)
     }
 
     /// ChatHost.send / sendMessage.
@@ -1360,7 +1549,35 @@ impl ChatHost {
                     turn: None,
                 });
             }
+            if request.get("fromQueue").and_then(Value::as_str).is_none() {
+                let state = self.states.get(&project)?;
+                if let Some(twin) = state.sessions().and_then(|sessions| {
+                    jsjson::js_entries(sessions)
+                        .into_iter()
+                        .map(|(_, session)| session)
+                        .find(|session| {
+                            session
+                                .get("queued")
+                                .and_then(Value::as_array)
+                                .is_some_and(|queue| {
+                                    queue.iter().any(|entry| {
+                                        entry.get("clientMessageId").and_then(Value::as_str)
+                                            == Some(id)
+                                    })
+                                })
+                        })
+                }) {
+                    return Ok(Sent {
+                        session_id: twin.get("id").cloned().unwrap_or(Value::Null),
+                        duplicate: true,
+                        queued: false,
+                        steering: false,
+                        turn: None,
+                    });
+                }
+            }
         }
+        let stored_images = self.prepare_send_images(&project, request)?;
         let provider = request["provider"].as_str().unwrap().to_string();
         let body = request.get("body").cloned().unwrap_or(Value::Null);
         let model = request.get("model").cloned();
@@ -1602,6 +1819,9 @@ impl ChatHost {
                             let mut entry = Map::new();
                             entry.insert("id".into(), Value::String(ids()));
                             entry.insert("body".into(), body.clone());
+                            if stored_images.as_array().is_some_and(|images| !images.is_empty()) {
+                                entry.insert("images".into(), stored_images.clone());
+                            }
                             if let Some(files) = field(request, "files")
                                 .and_then(Value::as_array)
                                 .filter(|files| !files.is_empty())
@@ -1806,7 +2026,7 @@ impl ChatHost {
                 message.insert("id".into(), jsjson::number(next_id));
                 message.insert("session_id".into(), session_id_value.clone());
                 message.insert("body".into(), body.clone());
-                message.insert("images".into(), json!([]));
+                message.insert("images".into(), stored_images.clone());
                 if let Some(files) = field(request, "files")
                     .and_then(Value::as_array)
                     .filter(|files| !files.is_empty())
@@ -2021,12 +2241,7 @@ impl ChatHost {
                 turn.insert(key.into(), value.clone());
             }
         }
-        let prompt = [request.get("prompt"), Some(&body)]
-            .into_iter()
-            .flatten()
-            .find(|value| jsjson::truthy(Some(value)))
-            .cloned()
-            .unwrap_or_else(|| json!("Describe the attached images."));
+        let prompt = send_prompt(request);
         turn.insert("prompt".into(), prompt);
         self.turns.insert(chat.clone(), Value::Object(turn.clone()));
         let mut start = turn;
@@ -2125,8 +2340,8 @@ impl ChatHost {
             return None;
         }
         let outcome = match self.providers.get_mut(provider) {
-            Some(adapter) => match outbound_request(request) {
-                Ok(request) => adapter.start_turn(turn, &request),
+            Some(adapter) => match outbound_image_request(request) {
+                Ok((request, images)) => adapter.start_turn_with_images(turn, &request, &images),
                 Err(why) => Err(ProviderError::new(ProviderErrorKind::Refused, why)),
             },
             None => Err(ProviderError::new(
@@ -3239,6 +3454,9 @@ impl ChatHost {
             return Ok(QueuedStart::NotStarted);
         }
         let project_text = agent_runs::project_of_key(chat).to_string();
+        let project = Self::project_path(&project_text);
+        self.require_ready(&project)?;
+        self.states.assert_owned(&project)?;
         let session_id = session_of_key(chat).unwrap_or(-1);
         let state = self.states.get(&Self::project_path(&project_text))?;
         let Some(entry) = session_value(&state, &json!(session_id))
@@ -3281,12 +3499,25 @@ impl ChatHost {
                 request.insert(key.into(), value.clone());
             }
         }
-        if entry
-            .get("images")
-            .and_then(Value::as_array)
-            .is_some_and(|images| !images.is_empty())
-        {
-            return Err(gate("A queued message's images"));
+        if let Some(images) = entry.get("images") {
+            // A previously saved duplicate needs no bytes at all. Public fromQueue never grants this read;
+            // `entry` was selected from the owner's own Chat queue above.
+            let saved = match entry
+                .get("clientMessageId")
+                .filter(|id| id.as_str().is_some_and(|id| !id.is_empty()))
+            {
+                Some(id) => self
+                    .states
+                    .find_message(&project, LookupField::ClientMessageId, id)?
+                    .is_some(),
+                None => false,
+            };
+            if !saved {
+                request.insert(
+                    "images".into(),
+                    self.states.hydrate_queued_images(&project, images)?,
+                );
+            }
         }
         request.insert("fromQueue".into(), json!(id));
         let sent = match self.send(&Value::Object(request)) {
@@ -3389,7 +3620,13 @@ impl ChatHost {
             }
             return Ok(());
         }
-        self.start_queued(chat, id).map(|_| ())
+        match self.start_queued(chat, id) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                self.hold_queue(chat)?;
+                Err(error)
+            }
+        }
     }
 
     /// chat:queue-remove: takes a message out of the queue without sending it. False when it was already gone.
@@ -5818,6 +6055,32 @@ fn ticket_value(ticket: AnswerTicket) -> Value {
 const IDENTITY_REFUSED: &str =
     "An id, path or model holding an unpaired UTF-16 surrogate can't be handed to an agent.";
 
+fn send_prompt(request: &Value) -> Value {
+    [request.get("prompt"), request.get("body")]
+        .into_iter()
+        .flatten()
+        .find(|value| jsjson::truthy(Some(value)))
+        .cloned()
+        .unwrap_or_else(|| json!("Describe the attached images."))
+}
+
+/// Strip all attachment metadata from the provider JSON. The only image authority is the typed validated list.
+fn outbound_image_request(
+    request: &Value,
+) -> std::result::Result<(RawJson, Vec<ImageInput>), String> {
+    let empty = json!([]);
+    let images = ImageInput::decode_all(request.get("images").unwrap_or(&empty))
+        .map_err(|e| e.to_string())?;
+    let mut fields = request
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "A turn's request must be an object.".to_string())?;
+    if fields.contains_key("images") {
+        fields.insert("images".into(), empty);
+    }
+    Ok((outbound_request(&Value::Object(fields))?, images))
+}
+
 /// An identity (a Chat key, a request or question id) as the provider gets it: plain, refused rather than replaced
 /// (a replacement could make two different identities equal).
 fn outbound_identity(text: &str) -> Result<String> {
@@ -5832,7 +6095,7 @@ enum Outbound {
     FreeText,
     /// An identity or a setting (ids, paths, model, enum-like names, flags): decoded exactly, or refused.
     Exact,
-    /// Images: none is the only value this checkpoint sends (sending images is gated).
+    /// Raw JSON carries no images. Explicit image-capable adapters receive a separate validated byte list.
     NoImages,
 }
 
@@ -5854,7 +6117,7 @@ const OUTBOUND_REQUEST: [(&str, Outbound); 13] = [
 ];
 
 /// A turn's request as the provider gets it, field by field (`OUTBOUND_REQUEST`): the prompt lossy, every identity
-/// exact or refused, images empty, an unknown field refused.
+/// exact or refused, raw images empty (typed separately), an unknown field refused.
 fn outbound_request(request: &Value) -> std::result::Result<RawJson, String> {
     let Value::Object(map) = request else {
         return Err("A turn's request must be an object.".into());

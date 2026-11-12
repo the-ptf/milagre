@@ -20,6 +20,7 @@ pub mod mcp;
 pub mod milagre;
 pub mod ordinary;
 pub mod process;
+pub mod prompt_images;
 pub mod protocol;
 pub mod raw_mcp;
 pub mod session;

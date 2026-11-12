@@ -1071,3 +1071,123 @@ fn changed_tldr_during_first_pending_start_cannot_replace_the_starting_worker() 
     provider.shutdown();
     assert!(monitor.wait_stopped(Duration::from_secs(3)));
 }
+
+#[test]
+fn typed_image_blocks_reach_native_cli_in_node_order() {
+    use milagre_owner_store::chat_host::ImageInput;
+    let trace: Value = serde_json::from_str(include_str!(
+        "../../rust-claude/tests/fixtures/conformance/claude-prompt-images.json"
+    ))
+    .unwrap();
+    let mut provider = ClaudeFixture::create(Scenario::Images).unwrap();
+    let monitor = provider.monitor();
+    let mut pid = None;
+    for (index, name) in ["inline-order", "queued-image"].into_iter().enumerate() {
+        let case = trace["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == name)
+            .unwrap();
+        let mut req = request(&provider);
+        req["prompt"] = case["prompt"].clone();
+        req["images"] = json!([]);
+        let images = ImageInput::decode_for_tests(&case["images"]).unwrap();
+        provider
+            .validate_image_turn(&RawJson(req.clone()), &images)
+            .unwrap();
+        provider
+            .start_turn_with_images(TurnId(index as u64 + 1), &RawJson(req), &images)
+            .unwrap();
+        if index == 0 {
+            std::fs::write(
+                provider.project().parent().unwrap().join("images-release"),
+                b"release",
+            )
+            .unwrap();
+        }
+        let events = collect(&mut provider, |events| events.iter().any(terminal));
+        assert!(events.iter().any(|event|matches!(event,ProviderEvent::Agent{event:RawJson(v),..}if v["type"]=="turn-completed")));
+        let current = monitor.pid("fixture");
+        assert!(pid.is_none_or(|pid| Some(pid) == current));
+        pid = current;
+    }
+    provider.shutdown();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}
+
+#[test]
+fn image_preflight_refuses_expansion_before_restarting_an_idle_session() {
+    use milagre_owner_store::chat_host::ImageInput;
+    let mut provider = ClaudeFixture::create(Scenario::Reply).unwrap();
+    let monitor = provider.monitor();
+    provider
+        .start_turn(TurnId(1), &RawJson(request(&provider)))
+        .unwrap();
+    collect(&mut provider, |events| events.iter().any(terminal));
+    let pid = monitor.pid("fixture");
+    let mut req = request(&provider);
+    req["images"] = json!([]);
+    req["tldrEnabled"] = json!(false);
+    // About 128 KiB incoming, 2 MiB expanded: below the native 64 MiB limit but above
+    // this fixture's stricter 1 MiB per-frame limit.
+    req["prompt"] = json!("[Image #1]".repeat(16));
+    let images=ImageInput::decode_for_tests(&json!([{ "dataUrl":format!("data:image/png;base64,iVBORw0KGgoAAAAA{}", "AAAA".repeat(32768)) }])).unwrap();
+    assert!(provider
+        .validate_image_turn(&RawJson(req.clone()), &images)
+        .is_err());
+    assert!(provider
+        .start_turn_with_images(TurnId(2), &RawJson(req), &images)
+        .is_err());
+    assert_eq!(monitor.pid("fixture"), pid);
+    assert_eq!(monitor.workers(), 1);
+    assert!(
+        provider.take_events().is_empty(),
+        "preflight cannot close or start anything"
+    );
+    provider.shutdown();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}
+
+#[test]
+fn image_expansion_preflight_precedes_owner_files_and_state() {
+    use milagre_owner_store::{
+        chat_host::ChatHost,
+        states::{ProjectStates, Timing},
+    };
+    let provider = ClaudeFixture::create(Scenario::Reply).unwrap();
+    let monitor = provider.monitor();
+    let project = provider.project().to_path_buf();
+    let mut host = ChatHost::new(ProjectStates::new(
+        provider.isolation(),
+        Timing::default(),
+        0,
+    ));
+    host.register(Box::new(provider));
+    host.open_project(&project).unwrap();
+    let before = host.states.current(&project).unwrap().to_value();
+    let saved = std::fs::read(project.join(".milagre/coordination.json")).unwrap();
+    let result = host.send(&json!({
+        "projectPath": project,
+        "sessionId": 1,
+        "provider": "claude",
+        "model": "sonnet",
+        "body": "[Image #1]".repeat(16),
+        "images": [{ "dataUrl": format!("data:image/png;base64,iVBORw0KGgoAAAAA{}", "AAAA".repeat(32768)) }],
+        "clientMessageId": "over-expanded",
+    }));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Expanded image prompt exceeds the native frame budget"));
+    assert_eq!(host.states.current(&project).unwrap().to_value(), before);
+    assert_eq!(
+        std::fs::read(project.join(".milagre/coordination.json")).unwrap(),
+        saved
+    );
+    assert!(!project.join(".milagre/images").exists());
+    assert_eq!(monitor.workers(), 0);
+    assert!(host.pump().is_empty());
+    host.shutdown(true).unwrap();
+    assert!(monitor.wait_stopped(Duration::from_secs(3)));
+}

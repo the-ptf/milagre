@@ -356,7 +356,12 @@ Owner integration and remaining mapping:
    effort/ultracode/fast mode ordering and task output are implemented. `prompt_suggestions` is an
    explicit option; the owner must read the user's setting. Per-turn wake/babysit guard replacement
    and escalation accounting remain outside this checkpoint.
-5. `promptImageBlocks` ordering (`[Image #N]` tokens) is not ported: the owner passes ordered parts.
+5. `prompt_images` ports `promptImageBlocks`/`prosePrompt` ordering (`[Image #N]` tokens) over
+   validated MIME/byte pairs and sizes the full expanded native frame before materialization.
+   The isolated Claude owner fixture uses it for direct and queued image sends to existing Chats;
+   `generate-prompt-images.cjs` records actual Node validation and ClaudeSession content. Real-provider
+   validation, new-Chat image sends, image steering/restoration/handoff and other providers remain gated.
+   See [the fixture checkpoint](../rust-runtime/CLAUDE-FIXTURE.md#image-input-checkpoint) for its stricter limits.
 6. Accounts: no `CLAUDE_CONFIG_DIR` routing or account switching; the owner sets the environment.
 
 Protocol and process:

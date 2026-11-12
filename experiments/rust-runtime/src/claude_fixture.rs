@@ -3,12 +3,13 @@
 use crate::instructions::{self, Bundle, HostNetwork};
 use milagre_claude::{
     ordinary::{node_trace, OrdinaryLaunch, OrdinaryTurn},
+    prompt_images::{self, PromptImage},
     session::IdleClose,
     ClaudeSession, LaunchOptions, SessionOptions,
 };
 use milagre_owner_store::{
     chat_host::{
-        AnswerId, AnswerOutcome, ModeChangeId, ModeOutcome, Provider, ProviderError,
+        AnswerId, AnswerOutcome, ImageInput, ModeChangeId, ModeOutcome, Provider, ProviderError,
         ProviderErrorKind, ProviderEvent, TurnId,
     },
     jsjson::RawJson,
@@ -32,6 +33,9 @@ const ANSWERS: usize = 32;
 const MODES: usize = 32;
 const EVENTS: usize = 256;
 const BYTES: usize = 4 * 1024 * 1024;
+// This bounded fixture admits at most 1 MiB per request and per expanded native user frame.
+// A repeated image token cannot multiply retained Start content up to the transport's 64 MiB.
+const IMAGE_FRAME_BYTES: usize = 1024 * 1024;
 #[derive(Clone, Copy, Debug)]
 pub enum Scenario {
     Reply,
@@ -58,6 +62,8 @@ pub enum Scenario {
     LiveModes,
     /// Background children/tasks retain a session across TLDR changes until they settle.
     BackgroundRetention,
+    /// Typed image sends, then a queued image turn, against actual Node user-content blocks.
+    Images,
     /// A native mode control that deliberately never acknowledges, for cancellation receipts.
     ModeStalled,
     /// A native mode control that refuses, for truthful failure receipts.
@@ -234,6 +240,7 @@ impl FixtureMonitor {
 }
 struct Start {
     id: TurnId,
+    content: Vec<Value>,
     request: Value,
     turn: OrdinaryTurn,
 }
@@ -453,6 +460,7 @@ impl ClaudeFixture {
         let bodies = match scenario {
             Scenario::Ordinary => ordinary_scripts(&trace)?,
             Scenario::BackgroundRetention => background_retention_scripts(&trace)?,
+            Scenario::Images => vec![images_script(&profile.path().join("images-release"))?],
             Scenario::Modes => vec![modes_script(&serde_json::from_str(MODES_TRACE)?)?],
             Scenario::LiveModes => {
                 vec![live_modes_script(&serde_json::from_str(LIVE_MODES_TRACE)?)?]
@@ -622,7 +630,7 @@ fn native_request(request: &Value, project: &Path) -> Result<(Value, OrdinaryTur
         .get("images")
         .is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
     {
-        return Err(refused("Images are unsupported"));
+        return Err(refused("Only typed owner image inputs are admitted"));
     }
     if !request["prompt"].is_string() {
         return Err(refused("Expected text prompt"));
@@ -640,17 +648,77 @@ fn native_request(request: &Value, project: &Path) -> Result<(Value, OrdinaryTur
     }
     Ok((native, turn))
 }
+/// Keep the historical 1 MiB fixture request ceiling after images move out of raw JSON.
+/// Count their canonical dataURL representation, including per-image objects and separators;
+/// caller paths/metadata are never inputs to native prompt assembly.
+fn typed_images<'a>(
+    request: &Value,
+    images: &'a [ImageInput],
+) -> Result<Vec<PromptImage<'a>>, ProviderError> {
+    let mut size = request.to_string().len();
+    for (index, image) in images.iter().enumerate() {
+        size = size
+            .checked_add(
+                "{\"dataUrl\":\"data:;base64,\"}".len()
+                    + image.mime().len()
+                    + image.bytes().len().div_ceil(3) * 4
+                    + usize::from(index > 0),
+            )
+            .ok_or_else(|| refused("Oversized fixture image turn"))?;
+        if size > 1024 * 1024 {
+            return Err(refused("Oversized fixture image turn"));
+        }
+    }
+    images
+        .iter()
+        .map(|image| PromptImage::new(image.mime(), image.bytes()).map_err(refused))
+        .collect()
+}
 impl Provider for ClaudeFixture {
     fn name(&self) -> &str {
         "claude"
     }
+    fn supports_image_inputs(&self) -> bool {
+        true
+    }
+    fn validate_image_turn(
+        &self,
+        request: &RawJson,
+        images: &[ImageInput],
+    ) -> Result<(), ProviderError> {
+        self.open()?;
+        native_request(&request.0, &self.project)?;
+        let images = typed_images(&request.0, images)?;
+        prompt_images::validate_content(
+            request.0["prompt"].as_str().unwrap(),
+            &images,
+            IMAGE_FRAME_BYTES.min(milagre_claude::Limits::default().max_outgoing_frame_bytes),
+        )
+        .map_err(refused)?;
+        Ok(())
+    }
     fn start_turn(&mut self, id: TurnId, request: &RawJson) -> Result<(), ProviderError> {
+        self.start_turn_with_images(id, request, &[])
+    }
+    fn start_turn_with_images(
+        &mut self,
+        id: TurnId,
+        request: &RawJson,
+        images: &[ImageInput],
+    ) -> Result<(), ProviderError> {
         let request = &request.0;
         self.open()?;
         if id.0 == 0 {
             return Err(refused("Invalid turn generation"));
         }
         let (mut native, turn) = native_request(request, &self.project)?;
+        let images = typed_images(request, images)?;
+        let content = prompt_images::user_content(
+            request["prompt"].as_str().unwrap(),
+            &images,
+            IMAGE_FRAME_BYTES.min(milagre_claude::Limits::default().max_outgoing_frame_bytes),
+        )
+        .map_err(refused)?;
         let chat = request["chatId"].as_str().unwrap().to_owned();
         self.slots
             .retain(|_, slot| !slot.done.load(Ordering::Acquire));
@@ -824,6 +892,7 @@ impl Provider for ClaudeFixture {
             .start
             .try_send(Start {
                 id,
+                content,
                 request: native,
                 turn,
             })
@@ -1157,9 +1226,7 @@ impl Worker {
             }
             if let Some(start) = pending.take() {
                 latest = start.id;
-                let request = start
-                    .turn
-                    .request(vec![json!({"type":"text","text":start.request["prompt"]})]);
+                let request = start.turn.request(start.content);
                 let result = tokio::select! {result=session.start_turn(request)=>Some(result),_=close.changed()=>None,_=interrupt.changed()=>None};
                 if let Some(pid) = session.pid() {
                     self.shared
@@ -1418,6 +1485,37 @@ fn background_retention_scripts(trace: &Value) -> Result<Vec<Value>, Box<dyn std
         scripts.push(Value::Array(steps));
     }
     Ok(scripts)
+}
+fn images_script(release: &Path) -> Result<Value, Box<dyn std::error::Error>> {
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../rust-claude/tests/fixtures/conformance/claude-prompt-images.json"
+    ))?;
+    let cases = oracle["cases"].as_array().ok_or("image cases")?;
+    let mut steps = vec![
+        json!({"expect":{"subtype":"initialize"}}),
+        json!({"reply":{}}),
+        json!({"expect":{"subtype":"set_max_thinking_tokens"}}),
+        json!({"reply":{}}),
+    ];
+    for (index, name) in ["inline-order", "queued-image"].into_iter().enumerate() {
+        let case = cases
+            .iter()
+            .find(|case| case["name"] == name)
+            .ok_or("image case")?;
+        steps.push(json!({"expect":{"type":"user","fields":{"/message/content":case["content"]}}}));
+        steps.push(
+            json!({"emit":{"type":"system","subtype":"init","session_id":"fixture-session"}}),
+        );
+        if index == 0 {
+            steps.push(json!({"wait_file":release}));
+        }
+        steps.push(json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude fixture hello"}}}}));
+        steps.push(
+            json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}}),
+        );
+    }
+    steps.push(json!({"wait_eof":true}));
+    Ok(Value::Array(steps))
 }
 fn script_for(scenario: Scenario, queue_release: &Path) -> Value {
     let mut steps = vec![json!({"expect":{"subtype":"initialize"}})];

@@ -1,5 +1,6 @@
 // Production Node clients against a Rust owner and checked-in native fake Claude only.
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { spawn, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
 const fs = require("node:fs");
@@ -58,6 +59,7 @@ async function scenario(name) {
     else if (name === "modes") await modes({ client, events, project, child });
     else if (name === "live-modes") await liveModes({ client, events, project });
     else if (name === "background-retention") await backgroundRetention({ client, runtime, events, project, retention });
+    else if (name === "images") await imageInputs({ client, events, project });
     else {
       const body = name === "unicode" ? "native \u{10fffe} \ue123 \ud83d" : "fixture input";
       await client.call("chat:send", [
@@ -341,6 +343,86 @@ async function modes({ client, events, project, child }) {
 }
 // Actual daemon client + real Rust mapper over the fixed native child. Diagnostics come from
 // that retained child's supervisor, so this scenario needs no process scan or external signals.
+async function imageInputs({ client, events, project }) {
+  const trace = require("../../rust-claude/tests/fixtures/conformance/claude-prompt-images.json");
+  const cases = ["inline-order", "queued-image"].map((name) => trace.cases.find((entry) => entry.name === name));
+  const send = (index) => ({
+    projectPath: project,
+    sessionId: 1,
+    worktreeId: 1,
+    body: cases[index].prompt,
+    clientMessageId: `images-${index}`,
+    provider: "claude",
+    model: "sonnet",
+    permissionMode: "ask",
+    ...(index ? { delivery: "queue" } : {}),
+    images: cases[index].images.map((image, imageIndex) => ({
+      ...image,
+      id: `image-${imageIndex}`,
+      name: `synthetic-${imageIndex}`,
+      path: `/never/read/synthetic-${imageIndex}.png`,
+    })),
+  });
+  const imagesDirectory = path.join(project, ".milagre", "images");
+  const before = await client.call("project:snapshot", [project]);
+  const messagesBefore = await client.call("chat:messages", [project, 1]);
+  const filesBefore = fs.existsSync(imagesDirectory) ? fs.readdirSync(imagesDirectory).sort() : [];
+  // The actor intentionally uses 4 KiB wire frames to exercise paging. Larger expanded-frame
+  // refusals run directly through ChatHost + ClaudeFixture in claude_bridge.rs.
+  await assert.rejects(
+    client.call("chat:send", [
+      {
+        ...send(0),
+        images: Array.from({ length: 11 }, () => cases[0].images[0]),
+      },
+    ]),
+  );
+  await assert.rejects(client.call("chat:send", [{ ...send(0), images: [{ path: "/never/read/synthetic.png" }] }]));
+  assert.deepEqual((await client.call("project:snapshot", [project])).state, before.state, "refusal precedes owner mutation");
+  assert.deepEqual(await client.call("chat:messages", [project, 1]), messagesBefore, "refusal saves no message");
+  assert.deepEqual(fs.existsSync(imagesDirectory) ? fs.readdirSync(imagesDirectory).sort() : [], filesBefore, "refusal saves no image");
+  assert.equal(events.length, 0, "refusal starts no native session");
+  await client.call("chat:send", [send(0)]);
+  await until("image native session", () => events.some((event) => event.type === "session-started"));
+  await client.call("chat:send", [send(1)]);
+  const waiting = await client.call("project:snapshot", [project]);
+  const queued = waiting.state.sessions["1"].queued;
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].body, cases[1].prompt);
+  assert.ok(queued[0].images.every((image) => image.path.startsWith(path.join(project, ".milagre", "images") + path.sep)));
+  assert.ok(queued[0].images.every((image) => !("dataUrl" in image)));
+  fs.writeFileSync(path.join(path.dirname(project), "images-release"), "release", { flag: "wx", mode: 0o600 });
+  await until("image and queued-image completion", () => events.filter((event) => event.type === "turn-completed").length === 2);
+  assert.equal(events.filter((event) => event.type === "session-started").length, 1, "queued images reuse native session");
+  assert.equal(events.filter((event) => event.type === "turn-failed").length, 0);
+  const saved = await client.call("chat:messages", [project, 1]);
+  for (const [index, entry] of cases.entries()) {
+    const message = saved.messages.find((candidate) => candidate.body === entry.prompt);
+    assert.ok(message);
+    assert.equal(message.images.length, entry.images.length);
+    for (const [imageIndex, metadata] of message.images.entries()) {
+      const input = send(index).images[imageIndex];
+      const [prefix, base64] = input.dataUrl.split(",");
+      const bytes = Buffer.from(base64, "base64");
+      const hash = crypto.createHash("sha256").update(bytes).digest("hex");
+      const extension = prefix.includes("image/png") ? "png" : "gif";
+      assert.equal(metadata.path, path.join(project, ".milagre", "images", `${hash}.${extension}`));
+      // Node's queuedImages reconstructs {id,name,dataUrl}; initial upload source metadata
+      // remains on the queued entry, while the eventual message records the reconstructed image.
+      assert.equal(metadata.sourcePath, index === 0 ? input.path : undefined);
+      assert.equal(metadata.name, input.name);
+      assert.ok(!("dataUrl" in metadata));
+      assert.deepEqual(fs.readFileSync(metadata.path), bytes, "saved file bytes match independently decoded synthetic data");
+      assert.equal(fs.statSync(metadata.path).mode & 0o777, 0o600);
+    }
+  }
+  assert.equal(saved.messages.filter((message) => message.body === "Claude fixture hello").length, 2);
+  assert.equal(((await client.call("project:snapshot", [project])).state.sessions["1"].queued ?? []).length, 0);
+  console.log(
+    JSON.stringify({ imageTurns: cases.length, savedImages: cases.reduce((sum, entry) => sum + entry.images.length, 0), queued: true, preflight: true }),
+  );
+}
+
 async function backgroundRetention({ client, runtime, events, project, retention }) {
   const oracle = require("../fixtures/session-retention-node.json");
   const expected = oracle.cases
@@ -477,6 +559,7 @@ async function ordinary({ client, events, project, child }) {
     "modes",
     "live-modes",
     "background-retention",
+    "images",
   ];
   const selected = process.argv[3] ? scenarios.filter((name) => name === process.argv[3]) : scenarios;
   assert.ok(selected.length, "Unknown fixed fixture scenario");

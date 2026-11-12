@@ -214,6 +214,31 @@ impl ProjectStates {
         slot.owner.verify_owned()
     }
 
+    /// Image writes/reads never open a Project. The host must already own the exact ready Project; hydration is
+    /// called only with the saved entry selected by its private queue path, never with send-request paths.
+    pub(crate) fn store_send_images(
+        &self,
+        project: &Path,
+        images: &Value,
+        decoded: &[crate::images::ImageInput],
+    ) -> Result<Value> {
+        let key = self.key(project)?;
+        let slot = self
+            .slots
+            .get(&key)
+            .ok_or_else(|| StoreError::Invalid("The image Project isn't open here.".into()))?;
+        slot.owner.store_send_images(images, decoded)
+    }
+
+    pub(crate) fn hydrate_queued_images(&self, project: &Path, images: &Value) -> Result<Value> {
+        let key = self.key(project)?;
+        let slot = self
+            .slots
+            .get(&key)
+            .ok_or_else(|| StoreError::Invalid("The image Project isn't open here.".into()))?;
+        slot.owner.hydrate_queued_images(images)
+    }
+
     /// The state a Project holds in memory now, if it is open (no read, no load).
     pub fn current(&self, project: &Path) -> Option<ProjectState> {
         let key = self.key(project).ok()?;

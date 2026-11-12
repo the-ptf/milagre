@@ -137,8 +137,12 @@ turn end, close, withdrawal and stale responses. There is no owner adapter in th
 ClaudeMapper. `FileImageStore` validates and writes returned Read bytes in an owner-selected
 private directory, with content hashes, atomic publication and Unix private modes. The source
 path is metadata only. Node traces compare both events and exact persisted bytes. Failed image
-writes preserve other events. No owner media route, retention/quota, input-image lifecycle,
-`promptImageBlocks` ordering or general MCP image extraction is supplied.
+writes preserve other events. The pure `prompt_images` helper now ports `promptImageBlocks`/`prosePrompt`
+ordering and preflights expanded native frame size. The isolated Claude owner fixture supplies validated
+bytes for direct and queued image sends to existing Chats, with owned storage and stricter budgets;
+see [its checkpoint](../rust-runtime/CLAUDE-FIXTURE.md#image-input-checkpoint). Real-provider validation,
+new-Chat image sends, image steering/restoration/handoff and other providers remain gated. No general
+owner media route, retention/quota or general MCP image extraction is supplied.
 
 Standalone mapping remains synchronous. Sessions capture image work under lock and perform it
 on the blocking pool. Results are mapped only for the current process generation; close can finish

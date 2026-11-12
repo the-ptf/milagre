@@ -212,8 +212,42 @@ deadline, capacity, close and readiness rules without a live provider.
   | `prompt`                                                                                               | free text: lone surrogate → U+FFFD |
   | `provider`, `model`, `permissionMode`, `effort`, `replies` (a style name), `chatId`, `cwd`, `resumeId` | exact, or refused                  |
   | `ultracode`, `fastMode`, `tldrEnabled`                                                                 | exact (flags)                      |
-  | `images`                                                                                               | must be empty (images are gated)   |
+  | `images`                                                                                               | raw JSON empty; validated bytes via `ImageInput` only |
   | anything else                                                                                          | refused: no rule yet               |
+
+  Image-capable adapters opt in with `supports_image_inputs()` (default false). The owner calls pure
+  `validate_image_turn(&RawJson, &[ImageInput])` before writing content or changing a message/queue, then
+  `start_turn_with_images(TurnId, &RawJson, &[ImageInput])` at launch. Both methods default to refusing nonempty
+  images. An adapter must preflight the exact eventual prompt/settings, expanded repeated inline image blocks and
+  complete native frame budget without creating or changing a session, and recheck at launch. `ImageInput` exposes
+  only validated MIME and bytes; its constructor is private (fixture decoding is behind `test-fixtures`). Raw JSON
+  `images` stays empty. No adapter receives image path authority or silently ignores an image list.
+
+  This experiment admits at most 10 images and 1 MiB decoded aggregate per send. These are intentionally tighter
+  than Node's 50 MiB per-image decoder; transport and adapter frame limits can be tighter still. The owner validates
+  the full list before any image write. PNG/JPEG/GIF/WebP signatures, MIME and canonical base64 follow Node
+  `image-input.cjs`. Stored metadata follows `storeImages`: remove `dataUrl`, replace `path` with the content hash
+  file, and retain the uploaded path as `sourcePath` unless a nonempty string sourcePath was supplied. Neither
+  caller path is read. Immutable images may remain unreferenced after a later write/save failure, as in Node; retry
+  reuses matching content and never replaces corrupt content. Temporary cleanup checks identity and operates
+  through held directory descriptors, including partial-write failure. The check and unlink are separate syscalls,
+  not an atomic conditional unlink against a hostile concurrent writer.
+
+  Existing Chats only: image sends that create a Chat, steer a running turn, switch provider or restore a missing
+  session are refused before content/message writes. Preflight may load a lazy Chat into memory. Answer attachments,
+  reply image capture and public image reads remain unsupported. Only the host's private selected queue entry may
+  hydrate a saved path; `fromQueue` on a public request grants no reads. Hydration requires the current ready/owned
+  Project, no-follow directory/file descriptors, a regular single-link file, an exact owned content path and hash,
+  bounded size and valid image signature. Missing, linked, foreign or corrupt queued files refuse and hold the queue
+  unchanged instead of Node's `queuedImages` silently dropping missing images. Node does drop extra metadata while
+  hydrating: the eventual queued message keeps only id/name plus its stored path. Saved/queued clientMessageId
+  duplicates are checked before decode/storage; a saved duplicate queue entry needs no image read to settle.
+
+  `fixtures/images-node.cjs` runs the real Node ChatHost/ProjectStates and image store with a synthetic provider
+  callback and disposable files. `tests/images.rs` compares direct/queued metadata, payload bytes, fallback prompts,
+  dedupe and validation against those methods and the source-pinned Claude image decoder oracle. Descriptor fault
+  tests cover partial-write cleanup, replaced directories and corrupt content. These are owner/adapter contracts,
+  not claims about live provider execution.
 
   Answers: answer strings are free text, question ids (keys) and request ids exact; the `chat` argument of every call
   exact. Free text is lossy only in the outbound copy: the saved message keeps it. An exact field holding an unpaired
