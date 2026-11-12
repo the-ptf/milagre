@@ -439,8 +439,6 @@ pub struct SettingsStore {
     pub signed_out_sessions: HashSet<String>,
 
     // Church (Experimental)
-    pub floating_inbox: bool,
-    pub floating_inbox_ticker: bool,
     pub ultracode_fatality: bool,
     pub new_chat_stats: bool,
     pub delegate_to_other_computers: bool,
@@ -504,8 +502,6 @@ impl Default for SettingsStore {
             signed_out_sessions: HashSet::new(),
 
             // Church (`DEFAULTS` + host settings defaults)
-            floating_inbox: false,
-            floating_inbox_ticker: true,
             ultracode_fatality: true,
             new_chat_stats: false,
             delegate_to_other_computers: false,

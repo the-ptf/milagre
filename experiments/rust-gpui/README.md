@@ -729,6 +729,8 @@ images and context. The fixture's two Chats have no messages, so the sidebar mou
 
 ## Settings notes
 
+There is no Voice section, floating inbox row, speech model row or Canvas and grid shortcut: those features are out of the port (PORT-MAP scope decisions). Browser stays.
+
 The in-window Settings dialog (WP-39) lives in `src/settings/` and renders over the three-column workspace with a scrim,
 a `1120 × 800` `rounded-window` (`12px`) surface, a `248px` `bg-canvas` left navigation rail, and a scrollable
 `max-w-[788px]` section body.
@@ -745,7 +747,7 @@ a `1120 × 800` `rounded-window` (`12px`) surface, a `248px` `bg-canvas` left na
 | `settings/notifications.rs` | Notifications (G-08): Alerts, Schedule (Anytime / Custom with day pills & time range), Sound, Routines     |
 | `settings/models.rs`        | Models (G-10): Default model & permission, Context preview & thresholds bar/steppers, Replies (TLDR)       |
 | `settings/browser.rs`       | Browser (G-16): Open links in (`Panel` / `System browser`), per-computer session sign-out                  |
-| `settings/church.rs`        | Church (G-23): Floating inbox (+ activity), Ultracode Fatality, New Chat stats, Delegate, Device notes     |
+| `settings/church.rs`        | Church (G-23): Ultracode Fatality, New Chat stats, Delegate, Device notes     |
 | `settings/about.rs`         | About (G-24): Version, Release channel, Check for updates, Auto update, Runtime, License, Privacy, Support |
 | `settings/tests.rs`         | Headless tests for search ranking/accents, modal open/close, nav & placeholders, search jump, all controls |
 
@@ -755,7 +757,7 @@ a `1120 × 800` `rounded-window` (`12px`) surface, a `248px` `bg-canvas` left na
   (`src/workspace/sidebar/bottom.rs`) dispatches `ToggleSettings`.
 - **Popovers inside Settings**: `SettingsModal` renders inside `Root`'s main view tree (not inside `Root`'s dialog
   portal), so `Select` triggers inside Settings open their `Popover` menus in `Root`'s popover layer above the modal.
-- **Placeholders**: Sections owned by other packages (`appearance` WP-40, `voice` & `keybindings` WP-41, `accounts` &
+- **Placeholders**: Sections owned by other packages (`appearance` WP-40, `keybindings` WP-41, `accounts` &
   `usage` WP-42, `skills`, `mcp` & `connections` WP-43, and `worktrees`, `devices`, `this-mac`, paired computers &
   recent Projects WP-44) appear in the left nav in their exact desktop order and render an `EmptyState` naming their
   work package.

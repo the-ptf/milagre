@@ -53,10 +53,10 @@ fn every_command_has_a_unique_id_and_a_key_it_can_read() {
 
 #[test]
 fn the_catalogue_matches_the_ts_in_size_order_and_flags() {
-    assert_eq!(KEYBINDING_COMMANDS.len(), 31);
+    assert_eq!(KEYBINDING_COMMANDS.len(), 26);
     assert_eq!(KEYBINDING_COMMANDS[0].id, "commandPalette.toggle");
     assert_eq!(KEYBINDING_COMMANDS[0].defaults, &["mod+k"]);
-    assert_eq!(KEYBINDING_COMMANDS[30].id, "simulator.toggle");
+    assert_eq!(KEYBINDING_COMMANDS[25].id, "simulator.toggle");
     let jump: Vec<_> = KEYBINDING_COMMANDS.iter().filter(|c| c.id.starts_with("chat.jump.")).collect();
     assert_eq!(jump.len(), 9);
     assert_eq!(jump[4].title, "Open Chat 5");
@@ -67,9 +67,7 @@ fn the_catalogue_matches_the_ts_in_size_order_and_flags() {
         [
             "settings.open",
             "theme.toggle",
-            "canvas.open",
             "usage.open",
-            "grid.toggle",
             "changes.toggle",
             "artifacts.toggle",
             "designs.toggle",
@@ -77,12 +75,12 @@ fn the_catalogue_matches_the_ts_in_size_order_and_flags() {
             "simulator.toggle"
         ]
     );
-    assert_eq!(KEYBINDING_COMMANDS.iter().filter(|c| c.mobile).count(), 7 + 9);
+    assert_eq!(KEYBINDING_COMMANDS.iter().filter(|c| c.mobile).count(), 6 + 9);
     assert_eq!(keybinding_command("chat.quote").map(|c| c.defaults[0]), Some("mod+shift+'"));
     assert!(keybinding_command("nope").is_none());
     assert_eq!(default_rules_for("chat.new"), vec![KeybindingRule::new("mod+n", "chat.new")]);
     assert!(default_rules_for("nope").is_empty());
-    assert_eq!(WHEN_KEYS.len(), 8);
+    assert_eq!(WHEN_KEYS.len(), 7);
 }
 
 #[test]
@@ -392,10 +390,10 @@ fn gpui_keystrokes_follow_gpui_syntax() {
 #[test]
 fn every_default_becomes_a_gpui_keystroke_gpui_can_name() {
     let all = pairs(&default_keybindings(), true);
-    assert_eq!(all.len(), 31);
+    assert_eq!(all.len(), 26);
     assert_eq!(all[0], ("cmd-k".to_string(), "commandPalette.toggle".to_string()));
     assert!(all.iter().any(|(k, c)| k == "cmd-1" && c == "chat.jump.1"));
-    assert!(all.iter().any(|(k, c)| k == "alt-cmd-right" && c == "grid.focusNext"));
+    assert!(all.iter().any(|(k, c)| k == "cmd-b" && c == "sidebar.toggle"));
     // No two defaults share a keystroke.
     assert_eq!(all.iter().map(|(k, _)| k).collect::<HashSet<_>>().len(), all.len());
 }
@@ -407,7 +405,7 @@ fn gpui_contexts_come_from_when_and_the_typing_gate() {
         KeybindingRule::new("mod+t", "terminal.new").with_when("terminalFocus"),
         KeybindingRule::new("mod+f", "chat.find").with_when("chatView && !(terminalFocus || editableFocus)"),
         KeybindingRule::new("x", "chat.quote"),
-        KeybindingRule::new("y", "dictation.toggle").with_when("a.b || c"),
+        KeybindingRule::new("y", "changes.toggle").with_when("a.b || c"),
         KeybindingRule::new("mod+y", "chat.parent").with_when("bad &&"),
     ];
     let bindings = gpui_bindings(&rules, true, GpuiOptions::default());
@@ -419,7 +417,7 @@ fn gpui_contexts_come_from_when_and_the_typing_gate() {
             ("cmd-t", "terminal.new", Some("terminalFocus")),
             ("cmd-f", "chat.find", Some("chatView && !(terminalFocus || editableFocus)")),
             ("x", "chat.quote", Some("!editableFocus")),
-            ("y", "dictation.toggle", Some("(a_b || c) && !editableFocus")),
+            ("y", "changes.toggle", Some("(a_b || c) && !editableFocus")),
         ],
         "the unparseable rule is left out"
     );

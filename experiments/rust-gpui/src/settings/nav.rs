@@ -353,7 +353,6 @@ fn render_section_list(
         .child(make_section_item(SettingsSectionId::General))
         .child(make_section_item(SettingsSectionId::Appearance))
         .child(make_section_item(SettingsSectionId::Chat))
-        .child(make_section_item(SettingsSectionId::Voice))
         .child(make_section_item(SettingsSectionId::Notifications))
         .child(make_section_item(SettingsSectionId::Keybindings));
 

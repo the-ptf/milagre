@@ -10,9 +10,8 @@ pub const WHEN_KEYS: &[(&str, &str)] = &[
     ("terminalFocus", "A Terminal has the keyboard."),
     ("editableFocus", "A text field, the composer or another editor has the keyboard."),
     ("composerFocus", "The composer has the keyboard."),
-    ("chatView", "A Chat is on screen (not Settings, the canvas, Routines or Usage)."),
+    ("chatView", "A Chat is on screen (not Settings, Routines or Usage)."),
     ("linkOpen", "A Link's workspace is on screen."),
-    ("gridShown", "Active Chats show as a grid."),
     ("isMac", "Milagre runs on a Mac."),
     ("isIpad", "Milagre runs on an iPad."),
 ];

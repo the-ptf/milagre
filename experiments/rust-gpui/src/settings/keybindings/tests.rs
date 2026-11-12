@@ -132,7 +132,7 @@ fn remove_when_and_reset_edits() {
 #[test]
 fn the_search_reads_titles_ids_groups_keys_and_conditions() {
     let mut rules = default_keybindings();
-    rules.push(KeybindingRule::new("mod+shift+y", "terminal.new").with_when("gridShown"));
+    rules.push(KeybindingRule::new("mod+shift+y", "terminal.new").with_when("linkOpen"));
     let hits = |query: &str| -> Vec<&'static str> {
         KEYBINDING_COMMANDS.iter().filter(|command| logic::matches(command, &rules, query, true)).map(|command| command.id).collect()
     };
@@ -144,7 +144,7 @@ fn the_search_reads_titles_ids_groups_keys_and_conditions() {
     assert_eq!(hits("panels terminal"), vec!["terminal.toggle", "terminal.new"]);
     assert_eq!(hits("TERMINAL new"), vec!["terminal.new"]);
     assert_eq!(hits("mod+shift+y"), vec!["terminal.new"]);
-    assert_eq!(hits("gridshown"), vec!["terminal.new"], "a condition is searchable");
+    assert_eq!(hits("linkopen"), vec!["terminal.new"], "a condition is searchable");
     assert!(hits("no such thing").is_empty());
 }
 

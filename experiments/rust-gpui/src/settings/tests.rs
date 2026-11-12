@@ -109,9 +109,7 @@ fn settings_nav_switches_between_simple_sections_and_placeholders(cx: &mut TestA
     assert!(cx.debug_bounds("settings-section-appearance").is_some());
     assert!(cx.debug_bounds("settings-placeholder-WP-40").is_none());
 
-    // Voice is a WP-41 placeholder (dictation is out of the port); Keybindings is a page.
-    click(cx, "settings-nav-voice");
-    assert!(cx.debug_bounds("settings-placeholder-WP-41").is_some());
+    // Keybindings is a page.
     click(cx, "settings-nav-keybindings");
     assert!(cx.debug_bounds("settings-section-keybindings").is_some());
     assert!(cx.debug_bounds("settings-placeholder-WP-41").is_none());
@@ -302,11 +300,6 @@ fn browser_church_and_about_controls_update_the_settings_store(cx: &mut TestAppC
     // Church (Experimental) section
     settings.update_in(cx, |s, window, cx| s.open_section(SettingsSectionId::Experimental, window, cx));
     settle(cx);
-    assert!(cx.debug_bounds("settings-row-show-chat-activity").is_none());
-    click(cx, "settings-row-floating-inbox");
-    assert!(cx.read_global::<SettingsStore, _>(|s, _| s.floating_inbox));
-    assert!(cx.debug_bounds("settings-row-show-chat-activity").is_some());
-
     click(cx, "settings-row-new-chat-stats");
     assert!(cx.read_global::<SettingsStore, _>(|s, _| s.new_chat_stats));
 

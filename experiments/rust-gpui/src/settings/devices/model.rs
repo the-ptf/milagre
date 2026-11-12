@@ -182,13 +182,12 @@ impl DevicesStore {
                 disk: Some(DiskResources {
                     total: 994.0 * DISK_GB,
                     available: 214.0 * DISK_GB,
-                    milagre: Some(38.4 * DISK_GB),
+                    milagre: Some(36.5 * DISK_GB),
                     parts: vec![
                         disk_part(PartKind::Worktrees, 21.4, 9),
                         disk_part(PartKind::Chats, 6.2, 0),
                         disk_part(PartKind::Checkpoints, 4.1, 0),
                         disk_part(PartKind::Agents, 2.8, 0),
-                        disk_part(PartKind::Speech, 1.9, 0),
                         disk_part(PartKind::Browser, 1.4, 0),
                         disk_part(PartKind::Designs, 0.6, 0),
                     ],

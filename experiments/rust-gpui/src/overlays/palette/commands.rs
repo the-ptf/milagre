@@ -57,7 +57,6 @@ pub enum Flag {
     NotifyWhenWaiting,
     DockBadge,
     AttentionButton,
-    FloatingInbox,
     KeepAwake,
 }
 
@@ -112,7 +111,6 @@ impl Flag {
             Self::NotifyWhenWaiting => store.notify_on_attention,
             Self::DockBadge => store.show_dock_badge,
             Self::AttentionButton => store.show_attention_inbox,
-            Self::FloatingInbox => store.floating_inbox,
             Self::KeepAwake => store.keep_awake,
         }
     }
@@ -125,7 +123,6 @@ impl Flag {
             Self::NotifyWhenWaiting => store.notify_on_attention = value,
             Self::DockBadge => store.show_dock_badge = value,
             Self::AttentionButton => store.show_attention_inbox = value,
-            Self::FloatingInbox => store.floating_inbox = value,
             Self::KeepAwake => store.keep_awake = value,
         }
     }
@@ -467,7 +464,6 @@ pub fn quick_settings(store: &SettingsStore) -> Vec<Command> {
         (Flag::NotifyWhenWaiting, "Notify when waiting", "notifications approval questions"),
         (Flag::DockBadge, "Dock badge", "unread count"),
         (Flag::AttentionButton, "Attention button", "other projects waiting approval questions"),
-        (Flag::FloatingInbox, "Floating inbox", "experimental notification bar"),
         (Flag::KeepAwake, "Keep the computer awake", "sleep reachable lock screen saver"),
     ] {
         for (value, word, extra) in [(true, "On", "enable"), (false, "Off", "disable")] {

@@ -9,31 +9,9 @@ pub fn render_church(highlighted: Option<&str>, cx: &App) -> impl IntoElement {
     let store = cx.global::<SettingsStore>().clone();
     let hl_shared = highlighted.map(|s| SharedString::from(s.to_owned()));
 
-    let mut beta_group = SettingsGroup::new()
+    let beta_group = SettingsGroup::new()
         .title("Beta")
         .highlighted_row(hl_shared)
-        .row(
-            CheckboxRow::new("church-floating-inbox", "Floating inbox", store.floating_inbox)
-                .description("A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat.")
-                .highlighted(highlighted)
-                .on_change(|next, _, cx| {
-                    cx.update_global::<SettingsStore, _>(|s, _| s.floating_inbox = next);
-                }),
-        );
-
-    if store.floating_inbox {
-        beta_group = beta_group.row(
-            CheckboxRow::new("church-floating-inbox-ticker", "Show Chat activity", store.floating_inbox_ticker)
-                .description("Each running Chat shows its latest step beside its dot.")
-                .indented(true)
-                .highlighted(highlighted)
-                .on_change(|next, _, cx| {
-                    cx.update_global::<SettingsStore, _>(|s, _| s.floating_inbox_ticker = next);
-                }),
-        );
-    }
-
-    beta_group = beta_group
         .row(
             CheckboxRow::new("church-ultracode-fatality", "Ultracode Fatality", store.ultracode_fatality)
                 .description("Turning Ultracode on darkens the window, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.")

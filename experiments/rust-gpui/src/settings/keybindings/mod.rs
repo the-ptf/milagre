@@ -1,5 +1,5 @@
-//! Settings › Keybindings (WP-41, `KeybindingsSettings.tsx`; G-09). Voice (G-07) is not ported: the desktop's Voice page
-//! holds only dictation, which Victor left out of the port (PORT-MAP), so its sidebar entry stays the WP-41 stand-in.
+//! Settings › Keybindings (WP-41, `KeybindingsSettings.tsx`; G-09). Voice (G-07) is not in the port (PORT-MAP), so
+//! Settings has no Voice section and the catalogue no dictation, Canvas or grid shortcut.
 //!
 //! - `logic.rs`: ownership of rules, key capture, edits, search and the `when` checks (pure).
 //! - `model.rs`: [`KeybindingsStore`], each computer's keybindings.json as its host answers.
