@@ -1,0 +1,30 @@
+[package]
+name = "milagre-profile-owner"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Rust owner of an isolated Milagre data directory: Node's lock, socket and read commands (checkpoint 1)"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "profile-owner"
+path = "src/main.rs"
+
+[dependencies]
+milagre-owner-store = { path = "../rust-owner" }
+milagre-owner-wire = { path = "../rust-owner-wire" }
+milagre-registry = { path = "../rust-registry" }
+serde_json = { version = "1", features = ["preserve_order"] }
+libc = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+milagre-daemon-client = { path = "../rust-daemon-client", features = ["installed-owner"] }
+futures = "0.3"
+tempfile = "3"
+sha2 = "0.10"
+hex = "0.4"
+
+[workspace]
