@@ -20,6 +20,30 @@ GPUI `9a50ea52` added live reducers and a manually connected mounted transcript,
 
 ## Current safety gate (2026-11-11)
 
+Image checkpoint `9c5909e7` is accepted for existing-Chat sends and saved queues in the
+isolated Claude runtime. The owner stores validated content and passes typed bytes to
+the provider; the pure planner preserves actual Node image-token order and code masking.
+Root passes 226 owner tests, 159 Claude tests, 87 default runtime tests and sixteen
+production Node-client scenarios. Strict Clippy/fmt, all-feature compilation and fresh
+prompt-image oracle checks pass. Independent review closes the empty-ID queue hydration
+P2. Limits remain deliberately stricter than Node: ten images, 1 MiB decoded aggregate,
+1 MiB fixture request/expanded frame, and the existing 4 KiB test wire frame. New-Chat
+image sends and real-provider validation remain open; no application UI or production
+authority is enabled. See the runtime's image checkpoint for evidence and test-environment
+failures retained alongside the corrected acceptance runs.
+
+The user rejected the repeated 40% to 55% range as a useful progress metric. Do not infer
+a new percentage from these test counts. The next milestone is one restartable Rust
+backend completing open, send, stream, permission, save, stop, relaunch and continue,
+without Milagre's Node daemon. Existing actor and Claude-session code already cover the
+core operations. Current implementation priority is a persistent explicitly owned data
+root, captured real Claude launch/account configuration, actual bundled instructions and
+truthful single-project bootstrap. Keep a fresh isolated wire receipt per launch; stable
+production-profile adoption is separate. Fake-process restart tests establish composition,
+then a real-provider run must validate the same path. Optional review polish is deferred
+unless it blocks this milestone. Production cutover, broader retained services, phone
+compatibility and upgrade/rollback remain required; Tauri and GPUI stay independent.
+
 Background-retention checkpoint `caee6436` preserves a Claude fixture process across TLDR
 changes while its native mapper represents active children or tasks. Once that work settles,
 an atomic idle close resumes a fresh process with its captured native id. Unknown activity

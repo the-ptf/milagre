@@ -6,6 +6,51 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+Image checkpoint `9c5909e7` is accepted within the isolated existing-Chat Claude scope.
+Direct and queued sends preserve Node metadata, native image ordering and content bytes.
+Only owner-selected queued entries can read saved content, through bounded no-follow
+descriptors with type, single-link and digest checks. New-Chat, steering, restore and
+other-provider images remain gated. Invalid/missing queued images hold the queue rather
+than silently dropping an attachment. The fixture's 1 MiB expanded-frame preflight runs
+before content/message writes and session replacement; its 4 KiB wire limit stays intact.
+
+Root passes 226 owner tests (two optional ignored), 159 Claude tests (one live ignored),
+87 default runtime tests and sixteen production Node-client scenarios. The new image
+scenario records two turns, four saved image records and a drained queue. Strict Clippy/fmt,
+runtime all-feature compilation, fresh actual Node prompt-image checks and targeted JS
+lint/format pass. Independent review closes the empty-client-ID hydration P2. Existing
+Read-tool image fixtures remain unchanged. Initial failures are retained: Node 26 changed
+an existing SQLite boolean-binding oracle result; explicit Node 24.13.0 passes. Root's
+initial incorrect runtime NODE_PATH caused module resolution failure; the corrected run
+passes. Two lint-only storage fixes followed. Evidence: `/tmp/milagre-images-root-*` and
+[CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md#image-input-checkpoint).
+
+The installed ordinary shell remains SHA-256 `5ff830b95e9887e8d88838a2b3ad377c69866d3c64f8a270a844ffbf300f5114`
+with a valid strict signature. The GPUI-pinned app-fixture remains `51e90342bf427d7160ff658f7e5c73e50ed7d9b4dad8148b80cc7688bc36a15d`;
+neither was rebuilt or installed for this private provider checkpoint. Historical Hix1TF
+WebKit evidence was reread, not rerun; it does not prove image UI or real-provider behavior.
+Production Node ownership and the heartbeat remain. Local commit hooks reported missing
+lefthook; acceptance is the explicit checks above, not a claimed hook pass.
+
+### Priority change: one runnable Node-free Chat workflow
+
+The user said the hours spent at the repeated 40% to 55% estimate were unacceptable.
+Track end-to-end milestones and concrete blockers instead of reusing that range. The
+next implementation composes existing code into one restartable single-project runtime:
+
+1. Persistent marked data root using existing Isolation create/open, seeded only once;
+   fresh wire profile/socket receipt on each launch, no production-profile adoption.
+2. Reusable Claude provider lifecycle with explicit executable/account environment and
+   real bundled instructions, native session persistence and normal cleanup deadlines.
+3. Truthful bootstrap and one workflow: open, send, stream, approve, finish, stop,
+   relaunch the same data root, read the saved Chat and resume its native session.
+
+Collaboration subagents own provider composition and the runtime entrypoint separately.
+Root owns integration and acceptance. Process-restart tests use the same core with a fixed
+child; real CLI validation remains a distinct required check. No production restart,
+credential discovery, phone change or frontend replacement follows from this direction.
+Further optional fixture polish is deferred unless it blocks the end-to-end milestone.
+
 Background-retention checkpoint `caee6436` is accepted in the isolated Claude fixture.
 Four turns reuse the same native fake process while children or tasks remain active;
 after settlement, the fifth resumes the native id in a new process with TLDR off.
