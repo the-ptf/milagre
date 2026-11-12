@@ -1203,3 +1203,40 @@ fn the_new_chat_tray_reads_the_daemon_and_sends_where_it_says(cx: &mut TestAppCo
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// Appearance follows Electron's (`milagre-settings`: dark, Catppuccin Macchiato) until it is changed in the Preview,
+/// which then keeps its own on later launches.
+#[gpui::test]
+fn appearance_follows_electron_until_changed_here(cx: &mut TestAppContext) {
+    use gpui::BorrowAppContext as _;
+    use milagre_gpui_spike::settings::SettingsStore;
+    use milagre_gpui_spike::settings::appearance::ThemePreference;
+    let folder = data_folder("appearance-seed");
+    std::fs::create_dir_all(&folder).unwrap();
+    let electron = folder.join("electron.json");
+    let settings = json!({"theme":"dark","colorTheme":"catppuccin-macchiato","appearance":{"chatSize":"larger"}}).to_string();
+    std::fs::write(&electron, json!({"milagre-settings": settings}).to_string()).unwrap();
+    let path = folder.join(crate::prefs::FILE);
+    let read = |cx: &mut TestAppContext| {
+        cx.read(|cx| {
+            let a = &cx.global::<SettingsStore>().appearance;
+            (a.theme, a.color_theme.clone(), a.options.chat_size.clone())
+        })
+    };
+    cx.update(|cx| {
+        cx.set_global(SettingsStore::default());
+        crate::prefs::install_with(path.clone(), &electron, false, cx);
+    });
+    assert_eq!(read(cx), (ThemePreference::Dark, "catppuccin-macchiato".into(), "larger".into()), "Electron's theme");
+    // Changed here: the Preview's own from now on, Electron's no longer applied over it.
+    cx.update(|cx| cx.update_global::<SettingsStore, _>(|store, _| store.appearance.choose_theme("milagre-blue")));
+    cx.run_until_parked();
+    let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["appearance"]["own"], json!(true));
+    cx.update(|cx| {
+        cx.set_global(SettingsStore::default());
+        crate::prefs::install_with(path.clone(), &electron, true, cx);
+    });
+    assert_eq!(read(cx).1, "milagre-blue", "the Preview's own pick stays");
+    let _ = std::fs::remove_dir_all(&folder);
+}

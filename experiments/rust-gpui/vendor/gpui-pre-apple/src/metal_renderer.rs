@@ -11,7 +11,7 @@ use gpui::{
 use image::RgbaImage;
 use objc2::{Message, rc::Retained, runtime::ProtocolObject};
 use objc2_core_foundation::{CFRetained, CGSize};
-use objc2_core_graphics::{CGColorSpace, kCGColorSpaceDisplayP3};
+use objc2_core_graphics::{CGColorSpace, kCGColorSpaceDisplayP3, kCGColorSpaceSRGB};
 use objc2_core_video::{
     CVMetalTexture, CVMetalTextureCache, CVMetalTextureGetTexture, CVPixelBufferGetHeight,
     CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType, CVPixelBufferGetWidth,
@@ -210,6 +210,14 @@ impl MetalRenderer {
                 layer.setColorspace(Some(&display_p3_color_space));
             } else {
                 log::error!("unable to create the Display P3 color space");
+            }
+        } else {
+            // Milagre patch: tag the layer sRGB, so the theme's sRGB colours are colour-managed to the display as
+            // Chromium does. Untagged, a wide-gamut (P3) screen showed the raw values, more saturated than the desktop.
+            // SAFETY: The constant is extern, from Core Graphics
+            let srgb_name = unsafe { kCGColorSpaceSRGB };
+            if let Some(srgb) = CGColorSpace::with_name(Some(srgb_name)) {
+                layer.setColorspace(Some(&srgb));
             }
         }
         // Support direct-to-display rendering if the window is not transparent

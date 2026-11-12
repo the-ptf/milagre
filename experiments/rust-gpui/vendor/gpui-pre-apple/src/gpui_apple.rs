@@ -26,7 +26,7 @@ pub use backdrop::{
 };
 pub use dispatcher::{AppleActivity, AppleDispatcher};
 #[cfg(feature = "font-kit")]
-pub use text_system::AppleTextSystem;
+pub use text_system::{AppleTextSystem, set_bold_alias};
 
 #[inline]
 pub fn main_thread_marker() -> Option<MainThreadMarker> {

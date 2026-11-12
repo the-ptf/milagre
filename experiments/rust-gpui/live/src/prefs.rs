@@ -5,7 +5,10 @@
 //! names): on the first launch without it, it is seeded once from Electron's own `preferences.json`
 //! (`milagre-settings`, read only, never written) and saved. So are the other renderer preferences this window honours
 //! (`window`: Settings › General's editor and Keep awake, Settings › Chat's reasoning and tool calls), seeded the same
-//! way. A read-only window (`--snapshot`) reads the file and never writes it.
+//! way. Appearance (light or dark, the colour theme and the Appearance options) follows Electron's (`theme`,
+//! `colorTheme`, `appearance` in `milagre-settings`) on every launch until it is changed in this window
+//! (`appearance.own`), so the Preview opens in the same theme as Milagre.app. A read-only window (`--snapshot`) reads
+//! the file and never writes it.
 
 use std::path::{Path, PathBuf};
 
@@ -22,13 +25,14 @@ pub fn default_path() -> PathBuf {
     crate::setup::preview_base().join(FILE)
 }
 
-fn to_json(store: &SettingsStore) -> Value {
+fn to_json(store: &SettingsStore, own: bool) -> Value {
     let state = &store.appearance;
     let o = &state.options;
     json!({
         "notifications": crate::notify::to_json(&crate::notify::from_store(store)),
         "window": window_json(store),
         "appearance": {
+            "own": own,
             "theme": state.theme.as_str(),
             "colorTheme": state.color_theme,
             "uiFont": o.ui_font,
@@ -113,6 +117,11 @@ pub fn install_with(path: PathBuf, electron: &Path, read_only: bool, cx: &mut Ap
     if let Some(value) = &file {
         cx.update_global::<SettingsStore, _>(|store, _| apply_json(&mut store.appearance, value));
     }
+    // Not changed here yet: Electron's Appearance, so both windows show the same theme.
+    let mut own = file.as_ref().is_some_and(|f| f["appearance"]["own"] == true);
+    if !own && let Some(appearance) = electron_appearance(electron) {
+        cx.update_global::<SettingsStore, _>(|store, _| apply_json(&mut store.appearance, &appearance));
+    }
     let notifications = file.as_ref().and_then(crate::notify::from_json);
     let seeded = notifications.is_none();
     let notifications = notifications.or_else(|| {
@@ -138,7 +147,7 @@ pub fn install_with(path: PathBuf, electron: &Path, read_only: bool, cx: &mut Ap
     if read_only {
         return;
     }
-    let mut saved = to_json(cx.global::<SettingsStore>());
+    let mut saved = to_json(cx.global::<SettingsStore>(), own);
     if seeded || window_seeded {
         // Seeded once: kept in this window's file from now on.
         match write(&path, &saved) {
@@ -147,7 +156,9 @@ pub fn install_with(path: PathBuf, electron: &Path, read_only: bool, cx: &mut Ap
         }
     }
     cx.observe_global::<SettingsStore>(move |cx| {
-        let now = to_json(cx.global::<SettingsStore>());
+        // A change to Appearance made here: this window's own from now on.
+        own = own || to_json(cx.global::<SettingsStore>(), own)["appearance"] != saved["appearance"];
+        let now = to_json(cx.global::<SettingsStore>(), own);
         if now != saved {
             match write(&path, &now) {
                 Ok(()) => saved = now,
@@ -156,6 +167,19 @@ pub fn install_with(path: PathBuf, electron: &Path, read_only: bool, cx: &mut Ap
         }
     })
     .detach();
+}
+
+/// Electron's Appearance (`milagre-settings`: `theme`, `colorTheme` and `appearance`) as this file's `appearance`.
+pub fn electron_appearance(electron: &Path) -> Option<Value> {
+    let file: Value = serde_json::from_slice(&std::fs::read(electron).ok()?).ok()?;
+    let settings: Value = serde_json::from_str(file.get("milagre-settings")?.as_str()?).ok()?;
+    let mut appearance = settings["appearance"].as_object().cloned().unwrap_or_default();
+    for key in ["theme", "colorTheme"] {
+        if let Some(value) = settings.get(key) {
+            appearance.insert(key.to_owned(), value.clone());
+        }
+    }
+    Some(json!({ "appearance": appearance }))
 }
 
 /// [`install_with`] seeding from Electron's own `preferences.json`.

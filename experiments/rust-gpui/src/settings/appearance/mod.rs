@@ -95,7 +95,9 @@ pub fn init(cx: &mut App) {
         });
     }
     let state = cx.global::<SettingsStore>().appearance.clone();
-    if seeded_colours {
+    // A stored choice (the Preview's preferences, or Electron's it follows) re-themes the window now: marking it applied
+    // would leave the startup theme on screen until the next change.
+    if seeded_colours || state != AppearanceState::default() {
         model::apply(&state, cx);
     } else {
         model::mark_applied(&state, cx);

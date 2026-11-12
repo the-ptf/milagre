@@ -175,7 +175,7 @@ impl PlatformTextSystem for AppleTextSystem {
                 &candidate_properties,
                 &font_kit::properties::Properties {
                     style: fontkit_style(font.style),
-                    weight: fontkit_weight(font.weight),
+                    weight: fontkit_weight(bold_alias(&font.family, font.weight)),
                     stretch: Default::default(),
                 },
             )?;
@@ -243,6 +243,22 @@ impl PlatformTextSystem for AppleTextSystem {
         let luminance = 0.2126 * rgba.r + 0.7152 * rgba.g + 0.0722 * rgba.b;
         let level = ((4.0 * luminance) + 0.5).floor() as i32;
         level.clamp(0, 4) as u8
+    }
+}
+
+/// Milagre patch: the weight Bold (700) draws at in the families [`set_bold_alias`] names.
+static BOLD_ALIAS: parking_lot::RwLock<Option<(FontWeight, Vec<SharedString>)>> = parking_lot::RwLock::new(None);
+
+/// Milagre patch: in `families`, a request for Bold (700) draws `weight` instead. The desktop app draws markdown's
+/// `strong` at 600 and never 700, while gpui-component's text views ask for Bold; code fonts are left out.
+pub fn set_bold_alias(weight: FontWeight, families: Vec<SharedString>) {
+    *BOLD_ALIAS.write() = Some((weight, families));
+}
+
+fn bold_alias(family: &SharedString, weight: FontWeight) -> FontWeight {
+    match &*BOLD_ALIAS.read() {
+        Some((alias, families)) if weight == FontWeight::BOLD && families.contains(family) => *alias,
+        _ => weight,
     }
 }
 
@@ -526,6 +542,11 @@ impl AppleTextSystemState {
                 cx.set_should_smooth_fonts(true);
                 cx.set_gray_fill_color(luminance, 1.0);
             } else {
+                // Milagre patch: no smoothing at all, as Chromium's `-webkit-font-smoothing: antialiased` asks
+                // CoreGraphics (`CGContextSetShouldSmoothFonts(false)`). A bitmap context smooths by default, and that
+                // thickens every stroke even in black: text drew about a fifth heavier than the desktop's.
+                cx.set_allows_font_smoothing(false);
+                cx.set_should_smooth_fonts(false);
                 cx.set_gray_fill_color(0.0, 1.0);
             }
             self.fonts[params.font_id.0]

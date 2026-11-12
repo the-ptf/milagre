@@ -44,15 +44,19 @@ pass, all on the GPU. The headless renderer (`MetalHeadlessRenderer`, snapshots)
 snapshots show the blur too; GPUI's test platform draws nothing.
 
 To regenerate the diff: `diff -ruN ~/.cargo/registry/src/*/gpui-pre-apple-0.3.12 vendor/gpui-pre-apple` (ignore the
-missing `Cargo.lock` and `.cargo-ok`). To upgrade GPUI: copy the new gpui-pre-apple, reapply the four changes above and the two text patches below,
+missing `Cargo.lock` and `.cargo-ok`). To upgrade GPUI: copy the new gpui-pre-apple, reapply the four changes above and the text and colour patches below,
 bump the version in `[patch.crates-io]`'s target together with gpui-pre.
 
 ## gpui-pre-apple 0.3.12: text drawn like the desktop's Chromium
 
-Two small changes in `src/text_system.rs`, each marked `Milagre patch`, so text matches the Electron app's
-(`-webkit-font-smoothing: antialiased`, `font-weight: 500` on the system font):
+Small changes in `src/text_system.rs` and `src/metal_renderer.rs`, each marked `Milagre patch`, so text and colour
+match the Electron app's (`-webkit-font-smoothing: antialiased`, `font-weight: 500` on the system font, colour-managed
+sRGB):
 
 | Change                       | Why                                                                                                                                                                                                                                                                       |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `glyph_dilation_for_color` returns 0 (`MILAGRE_FONT_SMOOTHING = false`) | Upstream turns on CoreGraphics font smoothing, which dilates strokes by the text colour's luminance: light text on the dark theme drew up to four levels heavier, a weight above the desktop's. Chromium's `antialiased` draws plain grayscale coverage, no dilation. |
 | `font_id` snaps each face's weight to the nearest hundred before `find_best_match` | font-kit maps Core Text's weight trait piecewise, so SF Pro's Medium (0.23) reads as 530; CSS matching for 500 then looks below 500 first and took Regular. Every 500 label in the app drew Regular; Chromium draws it Medium.                                       |
+| `rasterize_glyph` turns CoreGraphics smoothing off when there is no dilation (`set_allows_font_smoothing(false)`, `set_should_smooth_fonts(false)`) | A bitmap context smooths by default, which thickens strokes even in black: measured on the same 14px line against Chromium, a fifth more fully covered pixels (stroke 3.90 vs 3.21 device px); after, 3.24 vs 3.21. |
+| `configure_layer` tags the layer sRGB when Display P3 is off | Untagged, the drawable's values went to a wide-gamut screen as they are, more saturated than Chromium's colour-managed sRGB. |
+| `set_bold_alias` (exported) and `font_id` | gpui-component's markdown asks for Bold (700) for `**strong**`; the desktop draws it at 600 and never uses 700. The app names the UI families whose 700 resolves to 600 (`theme::typography::BOLD_AS_SEMIBOLD`); code fonts keep theirs. |

@@ -38,8 +38,15 @@ pub fn mono() -> &'static str {
     super::live::chosen_mono().unwrap_or_else(|| MONO_FAMILY.get().copied().unwrap_or(MONO))
 }
 
-/// Checks once that the platform text system resolves [`MONO`]; called from `app::init`.
+/// The UI families whose Bold (700) draws Semibold (600): the desktop never draws 700 (DESIGN.md "Type"), while
+/// gpui-component's markdown asks for Bold for `**strong**`, which the desktop draws at 600 (`.markdown strong`). The
+/// code fonts keep their Bold (the Terminal's).
+pub const BOLD_AS_SEMIBOLD: [&str; 4] = [SANS, ".AppleSystemUIFont", "Inter", "Geist"];
+
+/// Checks once that the platform text system resolves [`MONO`] and sets the UI fonts' Bold; called from `app::init`.
 pub fn init_fonts(cx: &App) {
+    #[cfg(target_os = "macos")]
+    gpui_apple::set_bold_alias(gpui::FontWeight::SEMIBOLD, BOLD_AS_SEMIBOLD.iter().map(|f| gpui::SharedString::from(*f)).collect());
     // `resolve_font` falls back to the default stack when a family fails; only a direct hit maps back to it.
     let text = cx.text_system();
     let resolved = text.get_font_for_id(text.resolve_font(&font(MONO)));
