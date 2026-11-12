@@ -2,20 +2,30 @@
 use std::{
     io::{self, Read, Write},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc,
     },
     thread,
     time::Duration,
 };
 
-static SIGNALLED: AtomicBool = AtomicBool::new(false);
+/// Stop signals received so far (SIGTERM, SIGINT, SIGHUP). Each new one asks the server to stop again, so a stop that
+/// failed (a save, a drain) is retried by the next signal.
+static SIGNALS: AtomicUsize = AtomicUsize::new(0);
 
 extern "C" fn on_signal(_: libc::c_int) {
-    SIGNALLED.store(true, Ordering::Release);
+    SIGNALS.fetch_add(1, Ordering::AcqRel);
 }
 
 fn main() {
+    // Before anything is taken: a stop signal at any point from here on is a clean stop, never the default kill that
+    // would leave the data dir's lock behind.
+    // SAFETY: the handler only touches an atomic, which is async-signal-safe.
+    unsafe {
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::signal(signal, on_signal as *const () as libc::sighandler_t);
+        }
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let options = match milagre_profile_owner::parse_args(&args) {
         Ok(Some(options)) => options,
@@ -37,11 +47,6 @@ fn main() {
     };
     println!("{}", owner.ready_line());
     let _ = io::stdout().flush();
-    // SAFETY: the handler only stores to an atomic, which is async-signal-safe.
-    unsafe {
-        libc::signal(libc::SIGTERM, on_signal as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGINT, on_signal as *const () as libc::sighandler_t);
-    }
     let stopping = Arc::downgrade(&owner.server);
     thread::spawn(move || {
         // Input is ignored; the end of it stops the owner.
@@ -54,10 +59,11 @@ fn main() {
             }
         }
     });
-    let mut asked = false;
+    let mut handled = 0;
     while !owner.server.is_stopped() {
-        if SIGNALLED.load(Ordering::Acquire) && !asked {
-            asked = true;
+        let received = SIGNALS.load(Ordering::Acquire);
+        if received != handled {
+            handled = received;
             if let Err(error) = owner.server.shutdown() {
                 eprintln!("{error}");
             }

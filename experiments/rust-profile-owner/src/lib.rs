@@ -122,17 +122,32 @@ impl Owner {
     }
 
     /// After the server stopped: waits for its socket to go, then releases D's lock.
+    ///
+    /// The lock is released once the server stopped even if waiting for its socket or its last request threads timed
+    /// out: the owner's work (Project and repository locks) ended with the stop and no command is admitted any more; a
+    /// socket file left behind is a stale endpoint the next owner removes under its own lock. Only a server that never
+    /// stopped keeps the lock, and the error says so: this process then still owns D until it exits, after which the
+    /// lock names a dead process (Node takes that over; this owner refuses it until an operator removes it).
     pub fn finish(self) -> Result<(), String> {
-        Server::finish(self.server).map_err(|error| error.to_string())?;
+        let server = Arc::downgrade(&self.server);
+        let finished = Server::finish(self.server).map_err(|error| error.to_string());
+        if let Err(error) = &finished {
+            if server.upgrade().is_some_and(|server| !server.is_stopped()) {
+                return Err(format!(
+                    "{error}; the owner didn't stop, so the data directory's runtime.lock stays held by this process"
+                ));
+            }
+        }
         let guard = self
             .data_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
-        match guard {
+        let released = match guard {
             Some(mut guard) => guard.release().map_err(|error| error.to_string()),
             None => Ok(()),
-        }
+        };
+        finished.and(released)
     }
 }
 
@@ -223,7 +238,7 @@ pub fn start(options: &Options) -> Result<Owner, String> {
         }
     };
     let started = (|| {
-        let endpoint = DataDirEndpoint::claim(&data_dir, &token, &options.app_version)
+        let endpoint = DataDirEndpoint::claim(&options.data_dir, &token, &options.app_version)
             .map_err(|error| error.to_string())?;
         let profile = Profile::new(isolation, data_dir.clone(), chats_home, data_lock.clone())?;
         Server::bind_data_dir(endpoint, Arc::new(profile), Config::default())

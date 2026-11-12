@@ -331,3 +331,66 @@ fn a_registry_entry_linked_outside_the_copy_is_left_out_and_never_read() {
         serde_json::json!([{"path": inside, "name": "inside", "openedAt": "2026-11-01T00:00:00.000Z", "origin": "github.com/example/inside"}])
     );
 }
+
+#[test]
+fn the_socket_is_nodes_derivation_for_the_spelling_given() {
+    // macOS folders are case-insensitive: Node's fs.realpathSync keeps the given case, realpath(3) doesn't.
+    let copy = copy();
+    let spelled = copy.root.join("PROFILE");
+    if !spelled.is_dir() {
+        return; // A case-sensitive file system: only one spelling exists.
+    }
+    let script = format!(
+        "console.log(require({}).socketPath(process.argv[1]))",
+        serde_json::json!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../apps/daemon/src/paths.cjs"
+        ))
+    );
+    let node = Command::new("node")
+        .args(["-e", &script])
+        .arg(&spelled)
+        .env_remove("ELECTRON_RUN_AS_NODE")
+        .output()
+        .unwrap();
+    assert!(node.status.success());
+    let expected = String::from_utf8(node.stdout).unwrap().trim().to_owned();
+    assert_ne!(PathBuf::from(&expected), client_socket(&copy.data));
+    let mut child = command(
+        &spelled,
+        &copy.root.join("chats"),
+        &copy.root.join("worktrees"),
+    )
+    .spawn()
+    .unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let ready: Value = serde_json::from_str(&line).unwrap();
+    stop(child);
+    assert_eq!(ready["socketPath"], expected);
+}
+
+#[test]
+fn hangup_terminate_and_interrupt_stop_it_cleanly() {
+    for signal in [libc::SIGHUP, libc::SIGTERM, libc::SIGINT] {
+        let copy = copy();
+        let (mut child, ready) = start(&copy);
+        unsafe { libc::kill(child.id() as libc::pid_t, signal) };
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "signal {signal} didn't stop it");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(status.success(), "signal {signal}: {status:?}");
+        assert!(
+            !copy.data.join("runtime.lock").exists(),
+            "signal {signal} left the lock"
+        );
+        assert!(std::fs::symlink_metadata(ready["socketPath"].as_str().unwrap()).is_err());
+    }
+}

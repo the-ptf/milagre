@@ -13,7 +13,7 @@ mod protocol;
 mod server;
 pub mod state_patch;
 
-pub use data_dir::{socket_path_for, DataDirEndpoint};
+pub use data_dir::{node_realpath, socket_path_for, DataDirEndpoint};
 pub use diagnostics::{DisconnectDiagnostics, DisconnectReason};
 pub use profile::{IsolatedProfile, ProfileLease};
 pub use protocol::{RpcError, RpcResult, MAX_FRAME_BYTES, MAX_PENDING, VERSION};

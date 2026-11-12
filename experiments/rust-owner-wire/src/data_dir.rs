@@ -15,13 +15,57 @@ use std::{
     fs, io,
     io::Read,
     os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 const OWNER_RECORD_LIMIT: u64 = 64 * 1024;
 
-/// The socket path the Node daemon derives for `data_dir` (`apps/daemon/src/paths.cjs` socketPath). The directory must
-/// exist: the digest is over its real path. Creates nothing.
+/// `path.resolve` for an absolute path: `.` and `..` folded, no trailing slash, the file system untouched.
+fn resolve(path: &Path) -> PathBuf {
+    let mut out = PathBuf::from("/");
+    for part in path.components() {
+        match part {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::Normal(name) => out.push(name),
+            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+        }
+    }
+    out
+}
+
+/// Node's `fs.realpathSync` (the JavaScript one paths.cjs calls, not `.native`): every symbolic link on the path
+/// resolved, every other part kept as spelled. On a case-insensitive volume `realpath(3)` returns the case on disk
+/// instead, so the two derive different sockets for a path spelled in another case; this one is Node's.
+pub fn node_realpath(path: &Path) -> io::Result<PathBuf> {
+    let mut current = resolve(path);
+    let mut links = 0;
+    'walk: loop {
+        let mut walked = PathBuf::from("/");
+        let parts: Vec<_> = current.components().skip(1).collect();
+        for (index, part) in parts.iter().enumerate() {
+            walked.push(part);
+            if fs::symlink_metadata(&walked)?.file_type().is_symlink() {
+                links += 1;
+                if links > 40 {
+                    return Err(io::Error::from_raw_os_error(libc::ELOOP));
+                }
+                let target = fs::read_link(&walked)?;
+                let mut next = walked.parent().unwrap_or(Path::new("/")).join(target);
+                for rest in &parts[index + 1..] {
+                    next.push(rest);
+                }
+                current = resolve(&next);
+                continue 'walk;
+            }
+        }
+        return Ok(current);
+    }
+}
+
+/// The socket path the Node daemon derives for `data_dir` (`apps/daemon/src/paths.cjs` socketPath: the SHA-256 of
+/// `fs.realpathSync(dataDir)`, see [`node_realpath`]). The directory must exist. Creates nothing.
 pub fn socket_path_for(data_dir: &Path) -> Result<PathBuf, RpcError> {
     if !data_dir.is_absolute() {
         return Err(RpcError::new(
@@ -29,7 +73,7 @@ pub fn socket_path_for(data_dir: &Path) -> Result<PathBuf, RpcError> {
             "Pass an absolute --data-dir",
         ));
     }
-    let real = fs::canonicalize(data_dir)?;
+    let real = node_realpath(data_dir)?;
     let digest = hex::encode(Sha256::digest(real.as_os_str().as_encoded_bytes()));
     Ok(socket_directory().join(format!("{}.sock", &digest[..24])))
 }
@@ -185,6 +229,26 @@ mod tests {
         std::os::unix::fs::symlink(&real, &alias).unwrap();
         assert_eq!(socket_path_for(&alias).unwrap(), expected);
         assert!(socket_path_for(Path::new("relative")).is_err());
+        // Links resolve (relative ones and `..` after them too); the rest keeps its spelling, as Node's does.
+        std::fs::create_dir(real.join("Inner")).unwrap();
+        std::os::unix::fs::symlink("Inner/../Inner", real.join("rel")).unwrap();
+        assert_eq!(
+            node_realpath(&real.join("rel/./")).unwrap(),
+            real.join("Inner")
+        );
+        assert_eq!(
+            node_realpath(&real.join("Inner/x/..")).unwrap(),
+            real.join("Inner")
+        );
+        if real.join("INNER").is_dir() {
+            assert_eq!(
+                node_realpath(&real.join("INNER")).unwrap(),
+                real.join("INNER")
+            );
+        }
+        std::os::unix::fs::symlink("loop", real.join("loop")).unwrap();
+        assert!(node_realpath(&real.join("loop")).is_err());
+        assert!(node_realpath(&real.join("missing")).is_err());
     }
 
     #[test]
