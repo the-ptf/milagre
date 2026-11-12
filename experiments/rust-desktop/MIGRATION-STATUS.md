@@ -47,13 +47,33 @@ HTML observes source, helper readiness, opaque sandbox, geometry and pixels; it
 does not inspect the cross-origin iframe DOM. PNG feedback/export, content deletion,
 comments authoring and all unported service errors remain outside this checkpoint.
 
-The morning delivery target is a separate normal `Milagre Rust Preview.app` and
-an independent GPUI preview, each with explicit account and stable dedicated data.
-Packaging is in progress. Neither replaces the production owner or adopts existing
-production data. The ordinary installed Rust shell and app-fixture pin remain
-unchanged; heartbeat stays active. Routines durable CRUD is the next parallel lane;
-execution, phone connectivity, account/login adoption and full upgrade/rollback
-remain required. No migration-complete claim or percentage inferred from tests.
+The separate normal `~/Applications/Milagre Rust Preview.app` is installed and
+strictly signature-verified. A first real startup turn completed. A later installed
+real turn reached Claude but failed at the selected account's five-hour quota,
+reset 2026-11-12 07:00 UTC (02:00 Toronto); that failure is retained and not counted
+as a pass. The normal no-args staged and installed lifecycle checks now pass saved
+reads and native AppKit Quit with actual daemon/profile/socket/shell cleanup and
+data retained. Root found/fixed Tao's native termination bypass before accepting
+that path. Exact hashes, original failures and two passing reports are in
+[PREVIEW.md](PREVIEW.md). No fresh model completion is claimed for those no-send checks.
+
+GPUI reports real-data launcher `58bc79d5d`, fixed-child acceptance and preview
+packaging in progress; its real-provider turn is not yet verified. Both frontends
+remain independent and use their own dedicated roots. Neither replaces production
+or imports existing production data. The ordinary installed Rust shell and
+app-fixture pin remain unchanged.
+
+Routines durable CRUD library `bf9812a3` passes root's full 82-test feature suite
+(one optional ignored), independent review and actual Node result/file-byte
+comparisons. Test subprocesses now share the copied-writer lifecycle mutex to
+prevent inherited fork descriptors from racing cleanup; the initial failed run is
+retained. Agent default 71/feature 82 and ten full feature repeats pass. Runtime
+paused-storage composition and shared-client terminal capability are in progress;
+automatic routine execution remains absent. Phone connectivity, account/login
+adoption, broader services and full upgrade/rollback remain required. No
+migration-complete claim or percentage inferred from tests. Overnight continuation
+heartbeat `b4c9aa19` runs every 30 minutes until 08:19 Toronto, with real quota retry
+forbidden before its stated reset. No production host replacement or push.
 
 ### Earlier real Chat checkpoint (4e0ecb47c)
 

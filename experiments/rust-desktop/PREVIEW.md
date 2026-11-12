@@ -86,3 +86,59 @@ skills path, then create and validate its dedicated root locally. Do not copy
 credentials or reuse this Mac's absolute launch/account paths. Opening existing
 production Projects, paired phones and production account migration remain
 separate acceptance gates.
+
+## Installed normal lifecycle check
+
+`installed-preview-check.cjs` starts only the explicitly named normal Preview with
+no CLI arguments and background window policy. It verifies the fixed child receipt,
+reads the dedicated Project/Chat twice without sending, and asks AppKit to terminate
+that exact retained PID only after verifying its bundle URL. It requires the later
+shell exit 0, empty stderr, the actual previously observed socket and temporary
+profile/shell roots gone, and the Project/data retained. The immediate AppKit boolean
+is informational: the cleanup-owning delegate cancels that immediate exit and routes
+the request through the existing asynchronous owned Quit.
+
+```sh
+NODE_PATH=/explicit/build-dependencies/node_modules \
+  node experiments/rust-desktop/installed-preview-check.cjs \
+  "$HOME/Applications/Milagre Rust Preview.app" \
+  "$HOME/Library/Application Support/Milagre Rust Preview/data"
+```
+
+The external Node process is a verifier, not the backend. Reports retain the exact
+binary/observer hashes, receipt, observed saved-message IDs/hash and cleanup results
+in a new private temporary directory. This does not assert rendered pixels or a new
+real-provider turn. Native content evidence remains separate in CHAT-DESKTOP.md.
+
+The initial installed real-provider turn reached Claude but failed at the selected
+account's five-hour quota (reset 2026-11-12 07:00 UTC, 02:00 Toronto). Its failed
+report remains `/private/tmp/milagre-installed-preview-check-Wh51wA/report.json`.
+A separate early read/Quit check raced AppKit registration; a later check exposed
+Tao's native termination bypassing `ExitRequested`, exiting 0 before owned cleanup
+(`/private/tmp/milagre-installed-preview-check-qy2yVZ/report.json`). The dedicated
+Chat binary now intercepts `applicationShouldTerminate:` and routes it through owned
+Quit; actual normal-package lifecycle acceptance now passes both staged and installed copies. The ordinary
+installed Rust/Electron applications were not changed by this fix.
+
+
+Accepted lifecycle reports (2026-11-12 04:23 to 04:24 UTC):
+
+- Staged: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-aovtZv/report.json`.
+- Installed: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-xTsJlZ/report.json`.
+
+Both normal no-args launches read the identical four saved IDs, send nothing, exit
+0 without signals or stderr, and remove the actual socket/profile/shell roots
+before exit observation. The dedicated Project and saved data remain. The two
+last messages include the honestly retained rate-limit failure; these checks are
+not new real-model completions. The earlier startup turn in this same root
+completed before the quota was reached.
+
+Installed shell SHA-256:
+`47a0a31e05f7ec1737decc6c39d6a06448b23e4b450792b3ad0cb0dd6d702ee3`.
+The unchanged combined runtime SHA-256:
+`749214a258355d7f736c99ce61d1c2b17ec81d9004a2917d010ad6779662534c`.
+The shell-only refresh report and retained prior bundle are under
+`/private/tmp/milagre-preview-native-quit-package-ilq4rk9s/`. Source tests pass
+49 with one optional ignored; strict normal-feature Clippy/format checks pass.
+The normal build has no synthetic reduced motion or smoke commands. Native
+real-content evidence was captured by the separate smoke build as documented.

@@ -11,6 +11,9 @@ mod evidence;
 #[path = "../fixture_launch.rs"]
 #[allow(dead_code)]
 mod fixture_launch;
+#[cfg(target_os = "macos")]
+#[path = "../native_quit.rs"]
+mod native_quit;
 #[path = "../navigation.rs"]
 mod navigation;
 #[path = "../preview_launch.rs"]
@@ -250,6 +253,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny).build()?;
                 navigation::install(&window).map_err(std::io::Error::other)?;
                 shortcuts::install(app.handle()).map_err(std::io::Error::other)?;
+                #[cfg(target_os = "macos")]
+                {
+                    let handle = app.handle().clone();
+                    native_quit::install(move || request_quit(&handle, 0)).map_err(std::io::Error::other)?;
+                }
                 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
                 let quit = MenuItem::with_id(app, "chat-quit", "Quit Milagre Rust Chat", true, Some("CmdOrCtrl+Q"))?;
                 app.set_menu(Menu::with_items(app, &[&Submenu::with_items(app,"Milagre Rust Chat",true,&[&quit])?, &Submenu::with_items(app,"Edit",true,&[&PredefinedMenuItem::undo(app,None)?,&PredefinedMenuItem::redo(app,None)?,&PredefinedMenuItem::cut(app,None)?,&PredefinedMenuItem::copy(app,None)?,&PredefinedMenuItem::paste(app,None)?,&PredefinedMenuItem::select_all(app,None)?])?])?)?;
@@ -291,6 +299,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         if let tauri::RunEvent::Exit = event {
+            #[cfg(target_os = "macos")]
+            native_quit::uninstall();
             shortcuts::uninstall_fixture();
             let context = app.state::<Arc<fixture_launch::LaunchContext>>();
             if context.clean() {

@@ -31,8 +31,10 @@ Current integration adds one shared persistent content owner, seven dedicated
 terminal routes and four private Git read routes. Shared client `90922b6c` exposes
 owned launch and typed real Chat actions behind a default-disabled feature.
 Native real-provider content creation, editor save and reload are verified with
-synthetic reduced motion only in the smoke build. Normal Preview packaging is in
-progress for the morning; it is not production profile adoption or full migration.
+synthetic reduced motion only in the smoke build. The normal separate Preview is installed and passes no-args saved reads and native
+Quit/cleanup. Its latest real send reached the selected account quota; the earlier
+startup turn completed. A fresh installed turn waits until the 02:00 Toronto reset.
+This is not production profile adoption or full migration.
 The detailed current checkpoint supersedes historical foundation counts below.
 
 
