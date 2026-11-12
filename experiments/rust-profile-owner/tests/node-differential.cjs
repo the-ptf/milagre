@@ -117,6 +117,8 @@ async function setup() {
     });
   git("init", "-q", "-b", "main", layout.beta);
   git("-C", layout.beta, "commit", "-q", "--allow-empty", "-m", "init");
+  // project:known and project:recent carry each Git Project's origin.
+  git("-C", layout.beta, "remote", "add", "origin", "git@github.com:Example/Beta.git");
   const { saveProjectState } = require(path.join(repo, "packages/core/src/project-store.cjs"));
   await saveProjectState(layout.alpha, seedAlpha(layout.alpha));
   await saveProjectState(layout.beta, seedBeta(layout.beta));
@@ -349,6 +351,12 @@ async function main() {
       "project:snapshot",
       "state:read",
     ]);
+    // The recording covers what it is meant to: a Git Project's origin, a hidden Project, a step detail in a sidecar.
+    const beta = (list) => list.find((project) => project.path === layout.beta);
+    assert.equal(beta(base[0].result).origin, "github.com/example/beta");
+    assert.equal(beta(base[1].result).hidden, true);
+    assert.equal(beta(base[1].result).origin, "github.com/example/beta");
+    assert.ok(base.find((item) => item.method === "chat:message" && item.result?.steps)?.result.steps[0].detail.length > 1024);
     if (process.env.PROFILE_OWNER_DUMP) fs.writeFileSync(process.env.PROFILE_OWNER_DUMP, JSON.stringify(cases, null, 2));
     assert.equal(cases.length, base.length);
     for (let index = 0; index < base.length; index++) {

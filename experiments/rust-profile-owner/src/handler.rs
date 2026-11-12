@@ -123,6 +123,7 @@ pub struct Profile {
     epoch: String,
     data_lock: DataLock,
     core: Mutex<Core>,
+    origins: crate::origin::Origins,
     /// Drives the registry's bounded Git identity probes.
     runtime: tokio::runtime::Runtime,
 }
@@ -151,6 +152,7 @@ impl Profile {
             .build()
             .map_err(|error| error.to_string())?;
         Ok(Self {
+            origins: Default::default(),
             runtime,
             isolation,
             chats_home,
@@ -227,7 +229,7 @@ impl Profile {
             .collect()
     }
 
-    /// `project:known`: the registry's Projects, the Chats home left out, newest opened first.
+    /// `project:known`: the registry's Projects with their origins, the Chats home left out, newest opened first.
     fn known(&self) -> RpcResult {
         let snapshot = self.registry.snapshot().map_err(failed)?;
         let mut known: Vec<Value> = Vec::new();
@@ -267,10 +269,27 @@ impl Profile {
         }
         // toSorted is stable; ISO timestamps compare the same by bytes as by localeCompare.
         known.sort_by(|a, b| js_text(&b["openedAt"]).cmp(&js_text(&a["openedAt"])));
-        Ok(Value::Array(known))
+        Ok(self.with_origins(known))
     }
 
-    /// `project:recent`: the recent list with `hidden` marks, the Chats home left out.
+    /// withOrigins: `{ ...project, origin }` for each Project with a Git origin.
+    fn with_origins(&self, list: Vec<Value>) -> Value {
+        Value::Array(
+            list.into_iter()
+                .map(|mut project| {
+                    if let Some(origin) = project["path"]
+                        .as_str()
+                        .and_then(|path| self.origins.of(path))
+                    {
+                        project["origin"] = json!(origin);
+                    }
+                    project
+                })
+                .collect(),
+        )
+    }
+
+    /// `project:recent`: the recent list with `hidden` marks and origins, the Chats home left out.
     fn recent_projects(&self) -> RpcResult {
         let hidden = self.hidden_paths();
         let mut list = Vec::new();
@@ -284,7 +303,7 @@ impl Profile {
             }
             list.push(entry);
         }
-        Ok(Value::Array(list))
+        Ok(self.with_origins(list))
     }
 
     /// The Project's identity and Worktrees as Node's discoverWorktrees finds them (registry `identify`: Git's Worktree
