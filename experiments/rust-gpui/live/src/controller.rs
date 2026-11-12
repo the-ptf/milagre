@@ -379,6 +379,8 @@ pub struct LiveController {
     pr_dismissed: HashMap<String, Vec<String>>,
     /// The PR tab was showing at the last look (the pills follow it).
     pr_shown: bool,
+    /// A snapshot opened its Chat with a PR already.
+    pr_snapshot_opened: bool,
     /// Milagre's daemon: the accounts writes and the usage-limit card ([`crate::accounts`]).
     accounts: Option<Entity<crate::accounts::LiveAccounts>>,
     _subscriptions: Vec<Subscription>,
@@ -683,6 +685,7 @@ impl LiveController {
                 pr_tab: None,
                 pr_dismissed: HashMap::new(),
                 pr_shown: false,
+                pr_snapshot_opened: false,
                 accounts: None,
                 _subscriptions: subscriptions,
                 _tasks: vec![pump, follow, run, tapped],
@@ -934,7 +937,39 @@ impl LiveController {
             let sidebar = self.workspace.read(cx).sidebar.clone();
             sidebar.update(cx, |s, cx| s.reload(cx));
         }
+        // Evidence snapshots (`MILAGRE_GPUI_LIVE_PANEL=PR`): the newest Chat with a PR opens on its PR tab.
+        if !self.pr_snapshot_opened && std::env::var("MILAGRE_GPUI_LIVE_PANEL").as_deref() == Ok("PR") {
+            self.open_newest_with_pr(cx);
+        }
         self.refresh_panels(cx);
+    }
+
+    /// Opens the newest Chat whose PR poll names a PR, on its PR tab (snapshots).
+    fn open_newest_with_pr(&mut self, cx: &mut Context<Self>) {
+        let prs = &self.prs;
+        let found = self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            applied
+                .projects
+                .iter()
+                .filter_map(|open| Some((open, open.state.as_ref()?, prs.get(open.project.path.as_ref())?)))
+                .flat_map(|(open, state, prs)| {
+                    state.sessions.values().filter(|chat| !chat.archived).filter_map(move |chat| {
+                        let folder = state.worktree_of(chat)?.path.to_string();
+                        crate::panels::panel_pull_request(prs, &folder, chat, None)?;
+                        let at = chat.summary.as_ref().and_then(|s| s.last_at).unwrap_or(0);
+                        Some((at, open.project.scope().chat_key(chat.id)))
+                    })
+                })
+                .max_by_key(|(at, _)| *at)
+                .map(|(_, key)| key)
+        });
+        if let Some(key) = found {
+            self.pr_snapshot_opened = true;
+            self.pr_tab = Some(key.clone());
+            self.pending_open = Some(key);
+            self.on_store_changed(cx);
+        }
     }
 
     /// Milagre's daemon: every loaded Project's PR poll, for the sidebar's PR chips (Electron's sidebar reads each).

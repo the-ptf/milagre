@@ -293,7 +293,9 @@ fn run_setup_window(base: PathBuf, snapshot: Option<PathBuf>) -> anyhow::Result<
 /// `--snapshot PNG`: waits for the first frames, saves the window (never activated) and quits through the normal path.
 fn snapshot_then_quit(window: gpui::AnyWindowHandle, path: PathBuf, cx: &mut App) {
     cx.spawn(async move |cx| {
-        cx.background_executor().timer(Duration::from_millis(2000)).await;
+        // `MILAGRE_GPUI_SNAPSHOT_DELAY_MS`: longer for reads that take a while (a PR read from GitHub).
+        let delay = std::env::var("MILAGRE_GPUI_SNAPSHOT_DELAY_MS").ok().and_then(|ms| ms.parse().ok()).unwrap_or(2000);
+        cx.background_executor().timer(Duration::from_millis(delay)).await;
         let saved = window.update(cx, |_, window, _| milagre_gpui_spike::snapshot::save_window_png(window, &path));
         match saved {
             Ok(Ok((w, h))) => eprintln!("live: snapshot {} ({w}x{h} px)", path.display()),
