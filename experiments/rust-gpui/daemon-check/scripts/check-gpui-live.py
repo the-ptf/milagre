@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-66a7795e/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-66a7795e/,
+target/daemon-client-1ed6ff33/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-1ed6ff33/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,18 +37,19 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
-# 66a7795e = dd499372 plus `InstalledOwner::adopt_or_start` / `DaemonLaunch` (start the installed Milagre.app's daemon
+# 1ed6ff33 = 66a7795e plus `InstalledProject::computers_vault_status` and `unlock_computers` (Electron's sealed
+# computer-vault key opened from the login Keychain, `computers:unlock`). 66a7795e = dd499372 plus `InstalledOwner::adopt_or_start` / `DaemonLaunch` (start the installed Milagre.app's daemon
 # in Node mode when none runs, 40e7b51f) and the two-step `daemon:status [{commands:true}]` handshake (project:open,
 # daemon:snapshot and computers:* reachable). dd499372 = 3363d5b4 plus `InstalledProject::call`; 3363d5b4 = 5341ec75
 # plus `load_view`, `Notifications::discard` and `InstalledProject::models`; 5341ec75 is f946e184 plus the
 # off-by-default `installed-owner` feature. The owned path is unchanged, so the runtimes agreed for f946e184 still apply.
-CLIENT_COMMIT = "66a7795e20f6cdea732d8ab25eacb3a12bdde518"
-CLIENT_TREE = "45035f916269c29ecea124f86fdd4188778ab50d"
+CLIENT_COMMIT = "1ed6ff33bb95f2281d7b2ca82e0c7a0a8eabacc7"
+CLIENT_TREE = "a0fcd0c95423504df21db2422ad7075b8fc72bf4"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-66a7795e"
+EXPORT = GPUI / "target/daemon-client-1ed6ff33"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-66a7795e"
+FAKE_CRATE = CRATE / "target/fake-claude-1ed6ff33"
 # The agreed dedicated runtimes, newest first: 30bdfd09 (backend's signed runtime for client f946e184: typed Git
 # reads and local PR diffs), 6054d7d6 (backend's signed runtime for client 1b180e46: Chat metadata
 # patch for rename, Done and Reopen), 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client

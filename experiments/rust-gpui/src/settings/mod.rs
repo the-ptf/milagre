@@ -47,7 +47,7 @@ pub use store::SettingsStore;
 
 use crate::data::{ComputerState, Data, LOCAL, Polled, poll_once};
 use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_WINDOW, TEXT_12, TextStepExt};
-use crate::ui::{EmptyState, IconButton, IconButtonSize, IconName, Input, ScrollArea};
+use crate::ui::{EmptyState, Icon, IconButton, IconButtonSize, IconName, IconSize, Input, ScrollArea};
 use group::page_header;
 
 actions!(milagre_settings, [ToggleSettings, FindInSettings]);
@@ -695,8 +695,13 @@ fn render_preview_accounts(cx: &App) -> AnyElement {
         }
     }
     for provider in providers {
+        // With the data layer's writes, each row is Electron's radio: a ready account becomes the computer default.
+        let writes = cx.has_global::<crate::workspace::preview::PreviewAccountWrites>();
         let rows = accounts.iter().filter(|a| a.provider.as_ref() == provider).enumerate().map(|(ix, account)| {
+            let pick = writes && account.ready && !account.selected;
+            let write = crate::workspace::preview::AccountWrite::SetDefault { provider: account.provider.clone(), id: account.id.clone() };
             div()
+                .id(SharedString::from(format!("preview-account-{provider}-{ix}")))
                 .debug_selector({
                     let id = format!("preview-account-{provider}-{ix}");
                     move || id.clone()
@@ -707,8 +712,22 @@ fn render_preview_accounts(cx: &App) -> AnyElement {
                 .px(px(12.0))
                 .py(px(8.0))
                 .when(ix > 0, |el| el.border_t_1().border_color(theme.line))
+                .when(writes, |el| {
+                    el.child(
+                        Icon::new(if account.selected { IconName::CheckmarkCircle02 } else { IconName::Circle })
+                            .size(IconSize::S18)
+                            .color(if account.selected { theme.ink } else { theme.ink3 }),
+                    )
+                })
+                .when(pick, |el| {
+                    el.cursor_pointer().hover(move |style| style.bg(theme.hover)).on_click(move |_, _, cx| {
+                        crate::workspace::preview::account_write(write.clone(), cx);
+                    })
+                })
                 .child(div().flex_1().min_w_0().truncate().text_color(theme.ink).child(account.label.clone()))
-                .when(account.selected, |el| el.child(div().flex_none().text_step(TEXT_12).text_color(theme.ink2).child("In use")))
+                .when(account.selected, |el| {
+                    el.child(div().flex_none().text_step(TEXT_12).text_color(theme.ink2).child(if writes { "Default" } else { "In use" }))
+                })
                 .child(div().flex_none().text_step(TEXT_12).text_color(theme.ink3).child(account.detail.clone()))
         });
         body = body.child(
@@ -726,7 +745,13 @@ fn render_preview_accounts(cx: &App) -> AnyElement {
         );
     }
     body.child(
-        div().text_step(TEXT_12).text_color(theme.ink3).child("Read from Milagre's daemon. Add, switch and sign in from Milagre for now."),
+        div().text_step(TEXT_12).text_color(theme.ink3).child(
+            if cx.has_global::<crate::workspace::preview::PreviewAccountWrites>() {
+                "From Milagre's daemon. Pick the computer default here; add and sign in from Milagre for now."
+            } else {
+                "Read from Milagre's daemon. Add, switch and sign in from Milagre for now."
+            },
+        ),
     )
     .into_any_element()
 }

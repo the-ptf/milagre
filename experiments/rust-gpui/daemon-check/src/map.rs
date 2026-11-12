@@ -261,6 +261,17 @@ pub fn chat(value: &Value, path: &str) -> Result<Chat> {
     })?;
     chat.queue_held = o.flag("queueHeld")?;
     chat.plan = o.child("plan")?.map(plan).transpose()?;
+    chat.limit_turn = o.child("limitTurn")?.map(|t| t.opt_u64("sourceMessageId")).transpose()?.flatten();
+    chat.limit_resume = o
+        .child("limitResume")?
+        .map(|r| -> Result<_> {
+            Ok(milagre_gpui_spike::data::LimitResume {
+                at: r.str("at")?,
+                source_message_id: r.opt_u64("sourceMessageId")?.unwrap_or(0),
+                send_id: r.str("sendId")?,
+            })
+        })
+        .transpose()?;
     Ok(chat)
 }
 

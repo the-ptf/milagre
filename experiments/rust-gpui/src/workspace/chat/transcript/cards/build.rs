@@ -39,7 +39,19 @@ fn viewed(step: &ChatStep) -> Option<ImageRef> {
 
 /// The cards a usage limit leaves under its reply; the Chat's last message gets the actions (`interactive`).
 pub fn limit_card(limit: UsageLimit, now: i64) -> LimitCard {
-    LimitCard { limit, now, choices: Vec::new(), pending_at: None, interactive: false, result: None }
+    LimitCard {
+        limit,
+        now,
+        choices: Vec::new(),
+        pending_at: None,
+        interactive: false,
+        result: None,
+        resume: true,
+        live: false,
+        busy: false,
+        error: None,
+        message: None,
+    }
 }
 
 /// `MessageSection` for one message.

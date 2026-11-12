@@ -93,15 +93,20 @@ fn the_sidebar_shows_the_daemons_cached_usage_and_the_limit_card(cx: &mut TestAp
     assert_eq!(m.items().last().map(String::as_str), Some("limit claude resets 2099-01-01T13:00:00.000Z"));
     // Its item index: the question, the reply, then the card.
     m.until("the card is drawn", |m| m.vcx.debug_bounds("usage-limit-2").is_some());
-    assert!(m.vcx.debug_bounds("limit-add").is_none() && m.vcx.debug_bounds("limit-resume").is_none(), "no action is offered");
+    // The Chat's last message, nothing running: the card offers what Electron's does. This Project has no other
+    // account (`accounts:scope` lists none), so "Add account"; no "Continue at" without the Chat's `limitTurn`.
+    m.until("the card's actions", |m| m.vcx.debug_bounds("limit-add").is_some());
+    assert!(m.vcx.debug_bounds("limit-resume").is_none(), "no Continue at without limitTurn");
 
-    // Hovering a row opens the card: the account, when it was read, each window with its numbers; no picker, no refresh.
+    // Hovering a row opens the card: the account, when it was read, each window with its numbers (one account: no picker).
     let row = m.vcx.debug_bounds("usage-row-Claude").expect("the Claude row").center();
     m.vcx.simulate_mouse_move(row, None, Modifiers::none());
     m.vcx.executor().advance_clock(Duration::from_millis(400));
     m.until("the usage card", |m| m.vcx.debug_bounds("usage-card-Claude").is_some());
     assert!(m.vcx.debug_bounds("usage-card-account").is_some());
-    assert!(m.vcx.debug_bounds("usage-card-refresh").is_none(), "refresh (usage:read) is Electron's");
+    // The refresh button reads the provider's CLI (`usage:read`), as Electron's does: drawn, not pressed here (the
+    // switcher's test presses it).
+    assert!(m.vcx.debug_bounds("usage-card-refresh").is_some(), "the refresh button");
 
     // Settings › Usage: every account's cached plan usage, read-only (no default switch, no refresh).
     use milagre_gpui_spike::settings::SettingsSectionId;

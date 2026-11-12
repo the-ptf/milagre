@@ -115,9 +115,22 @@ struct State {
     usage: milagre_gpui_spike::data::UsageSnapshot,
     /// Paired computers, only while the computer vault is unlocked ([`crate::computers`]).
     computers: Option<milagre_gpui_spike::data::ComputersSnapshot>,
+    /// Paired computers' Projects, states and runs, read through `computers:invoke` ([`crate::computers::Remote`]).
+    remote: std::collections::HashMap<String, crate::computers::Remote>,
+    /// The computers' own request-only connection (Electron's `computers-lane.cjs`): `computers:invoke` holds its
+    /// request until the computer answers, so it never takes the window's request slots.
+    lane: Option<(Client, std::sync::Arc<InstalledProject>)>,
+    /// Each loaded Project's last `pull-requests:snapshot`, for the sidebar's PR chips and hover cards.
+    prs: std::collections::HashMap<String, serde_json::Value>,
 }
 
+/// How the computer vault is unlocked: the shared client's `InstalledProject::unlock_computers` (Electron's sealed key
+/// from the login Keychain), or a test's stand-in for that Keychain read.
+pub type Unlocker = std::sync::Arc<dyn Fn() -> std::result::Result<milagre_daemon_client::ComputerUnlock, (String, String)> + Send + Sync>;
+
 pub struct Daemon {
+    /// A stand-in for the Keychain unlock (tests); `None` is the real one.
+    unlocker: Mutex<Option<Unlocker>>,
     /// `None`: the installed Milagre (`~/Library/Application Support/Milagre`); tests pass a throwaway data folder.
     profile: Option<PathBuf>,
     read_only: bool,
@@ -143,7 +156,98 @@ impl Daemon {
     /// Adopts, and starts the daemon with `start` when none runs (never in read-only mode).
     pub fn starting(profile: Option<PathBuf>, read_only: bool, start: Start) -> Arc<Self> {
         let start = if read_only { Start::Never } else { start };
-        Arc::new(Self { profile, read_only, start, state: Mutex::new(State::default()) })
+        Arc::new(Self { unlocker: Mutex::new(None), profile, read_only, start, state: Mutex::new(State::default()) })
+    }
+
+    /// Tests: unlock with `unlocker` instead of the login Keychain.
+    pub fn set_unlocker(&self, unlocker: Unlocker) {
+        *self.unlocker.lock().unwrap_or_else(|p| p.into_inner()) = Some(unlocker);
+    }
+
+    /// `computers:vault-status` (the client's typed read) on a short request-only connection of `project`.
+    pub async fn vault_status(&self, project: &str) -> Result<serde_json::Value> {
+        let (client, installed) = self.request_only(project).await?;
+        let status = installed.computers_vault_status(&client).await.context("computers:vault-status");
+        client.disconnect();
+        status
+    }
+
+    /// Unlocks the computer vault where Electron does (launch, every adoption, before `computers:add`, on
+    /// `computers:set-enabled(true)`): only when `computers:vault-status` says it is locked, and never in read-only
+    /// mode. `VAULT_KEY_MISSING` never writes a key; `KEYCHAIN_UNAVAILABLE` means the Keychain read was refused.
+    pub async fn unlock_computers(&self, project: &str) -> Result<crate::computers::Unlock> {
+        use crate::computers::Unlock;
+        let (client, installed) = self.request_only(project).await?;
+        let result = async {
+            let status = installed.computers_vault_status(&client).await.context("computers:vault-status")?;
+            if status["unlocked"] == true || status["configuredFile"] == true {
+                return Ok(Unlock::Done(milagre_daemon_client::ComputerUnlock::AlreadyUnlocked));
+            }
+            if self.read_only {
+                return Ok(Unlock::Locked);
+            }
+            let seam = self.unlocker.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            let outcome = match seam {
+                Some(unlock) => unlock(),
+                None => installed.unlock_computers(&client).await.map_err(|error| match &error {
+                    Error::Launch { code, message } => ((*code).to_owned(), message.clone()),
+                    other => (String::new(), other.to_string()),
+                }),
+            };
+            Ok(match outcome {
+                Ok(done) => Unlock::Done(done),
+                Err((code, message)) => Unlock::Failed { code, message },
+            })
+        }
+        .await;
+        client.disconnect();
+        result
+    }
+
+    /// `computers:invoke [id, method, args]` on the computers' own lane connection, opened on first use (and again
+    /// after it fails).
+    pub async fn invoke(&self, id: &str, method: &str, args: serde_json::Value) -> Result<serde_json::Value> {
+        let lane = self.lock().lane.clone();
+        let (client, installed) = match lane {
+            Some(lane) => lane,
+            None => {
+                let project = self.primary().map(|(p, _)| p).or_else(|| self.known().first().map(|k| k.path.clone()));
+                let project = project.ok_or_else(|| anyhow!("no Project to open the computers' connection on"))?;
+                let (client, installed) = self.request_only(&project).await?;
+                let lane = (client, std::sync::Arc::new(installed));
+                self.lock().lane = Some(lane.clone());
+                lane
+            }
+        };
+        let answer = installed.call(&client, "computers:invoke", serde_json::json!([id, method, args])).await;
+        if matches!(answer, Err(Error::Disconnected)) {
+            self.lock().lane = None;
+        }
+        answer.with_context(|| format!("computers:invoke {id} {method}"))
+    }
+
+    /// A computers write Electron's window makes (`computers:add`, `computers:set-enabled`, …) on a write connection.
+    pub async fn computers_write(&self, method: &str, args: serde_json::Value) -> Result<serde_json::Value> {
+        let project = self.primary().map(|(p, _)| p).ok_or_else(|| anyhow!("not connected to Milagre's daemon"))?;
+        let writer = self.writer(&project).await?;
+        writer.call(method, args).await
+    }
+
+    /// A paired computer's last read ([`crate::computers::read_remote`]).
+    pub fn remote(&self, id: &str) -> Option<crate::computers::Remote> {
+        self.lock().remote.get(id).cloned()
+    }
+
+    pub fn set_remote(&self, id: &str, remote: Option<crate::computers::Remote>) {
+        let mut state = self.lock();
+        match remote {
+            Some(remote) => {
+                state.remote.insert(id.to_owned(), remote);
+            }
+            None => {
+                state.remote.remove(id);
+            }
+        }
     }
 
     /// Milagre.app is missing, so no daemon can be started from here.
@@ -193,6 +297,15 @@ impl Daemon {
         self.lock().computers = computers;
     }
 
+    /// A Project's last `pull-requests:snapshot` answer (`Null` before the first).
+    pub fn prs(&self, project: &str) -> serde_json::Value {
+        self.lock().prs.get(project).cloned().unwrap_or_default()
+    }
+
+    pub fn set_prs(&self, project: &str, prs: serde_json::Value) {
+        self.lock().prs.insert(project.to_owned(), prs);
+    }
+
     /// The live connection's Project and Client.
     pub fn primary(&self) -> Option<(String, Client)> {
         self.lock().primary.clone()
@@ -208,7 +321,13 @@ impl Daemon {
             (_, None) => InstalledOwner::adopt().await.context("adopt Milagre's daemon")?,
         };
         let owner = Arc::new(owner);
-        self.lock().owner = Some(owner.clone());
+        let mut state = self.lock();
+        state.owner = Some(owner.clone());
+        // A connection to an earlier daemon is gone with it.
+        if let Some((client, _)) = state.lane.take() {
+            client.disconnect();
+        }
+        drop(state);
         Ok(owner)
     }
 
@@ -266,6 +385,21 @@ impl Daemon {
         let result = installed.call(&client, method, args).await.with_context(|| format!("{method} for {project}"));
         client.disconnect();
         result
+    }
+
+    /// Several of [`READS`] in order on one short request-only connection of `project` (a PR's files' patches), each
+    /// answer kept apart. Refused whole if any is not one of the reads.
+    pub async fn read_many(&self, project: &str, calls: Vec<(&'static str, serde_json::Value)>) -> Result<Vec<Result<serde_json::Value>>> {
+        if let Some((method, _)) = calls.iter().find(|(method, _)| !READS.contains(method)) {
+            return Err(anyhow!("{method} is not one of the Preview's reads"));
+        }
+        let (client, installed) = self.request_only(project).await?;
+        let mut answers = Vec::with_capacity(calls.len());
+        for (method, args) in calls {
+            answers.push(installed.call(&client, method, args).await.with_context(|| format!("{method} for {project}")));
+        }
+        client.disconnect();
+        Ok(answers)
     }
 
     /// A request-only connection of `project` with the Project loaded (`load_view`, never `project:open`), closed
@@ -355,6 +489,9 @@ impl Daemon {
         if let Some((_, client)) = self.lock().primary.take() {
             client.disconnect();
         }
+        if let Some((client, _)) = self.lock().lane.take() {
+            client.disconnect();
+        }
     }
 }
 
@@ -367,8 +504,24 @@ pub const READS: &[&str] = &[
     "usage:cached",
     "usage:accounts:cached",
     "canvas:links",
-    "computers:vault-status",
     "computers:list",
+    // The PR panel's reads (`bridge.pr`): `pr:detail` and the labels and reviewers run `gh`; the diffs are local Git.
+    "pr:detail",
+    "pr:diff-files",
+    "pr:diff-file",
+    "pr:labels",
+    "pr:reviewer-candidates",
+    // The usage card's picker and the usage-limit card: a scope's accounts, and whether "Continue at" is offered.
+    "accounts:scope",
+    "limits:resume-at-reset:read",
+    // Settings ([`crate::settings`]): the host-kept settings Electron's Settings reads.
+    "app:version",
+    "context:settings:read",
+    "done:settings:read",
+    "linked:remote-enabled:read",
+    "device-notes:read",
+    "app-update:auto:read",
+    "keybindings:read",
 ];
 
 /// The Project whose state is largest in a snapshot body (serialized size).

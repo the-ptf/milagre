@@ -362,9 +362,25 @@ pub struct LiveController {
     events: Vec<String>,
     /// The last computer-vault read, and the refusal last logged.
     vault: Option<crate::computers::Vault>,
+    /// The next computers read unlocks first (launch, every adoption); what the last unlock did.
+    unlock_next: bool,
+    unlocked: Option<crate::computers::Unlock>,
+    /// Paired computers whose Chats changed since their last read, and whether a read is waiting to run.
+    remote_dirty: HashSet<String>,
+    remote_reading: bool,
     computers_refused: Option<String>,
     /// The Preview's own notifications ([`crate::notify`]), on Milagre's daemon in a writable window.
     notifier: Option<Rc<crate::notify::Notifier>>,
+    /// Milagre's daemon: the PR panel's driver ([`crate::pr`]), the PR picked for a Chat (the sidebar's chip), the Chat
+    /// whose PR tab opens once it shows, and each Chat's blockers already sent (`updateBlockerDismissals`).
+    live_pr: Option<Entity<crate::pr::LivePr>>,
+    pr_picks: HashMap<String, u32>,
+    pr_tab: Option<String>,
+    pr_dismissed: HashMap<String, Vec<String>>,
+    /// The PR tab was showing at the last look (the pills follow it).
+    pr_shown: bool,
+    /// Milagre's daemon: the accounts writes and the usage-limit card ([`crate::accounts`]).
+    accounts: Option<Entity<crate::accounts::LiveAccounts>>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -399,7 +415,30 @@ impl LiveController {
         let writes = (daemon.clone(), store.clone());
         let usage_daemon = daemon.clone();
         let controller = Self::wire(workspace, backend, store, Stream::Daemon { daemon, first: notifications }, None, wiring, window, cx);
-        crate::sidebar_writes::attach(workspace, writes.0, writes.1, &controller, cx);
+        crate::sidebar_writes::attach(workspace, writes.0.clone(), writes.1, &controller, cx);
+        // The PR panel and the account switcher on the daemon ([`crate::pr`], [`crate::accounts`]).
+        let panel = workspace.read(cx).panel.clone();
+        let window_handle = controller.read(cx).window;
+        let live_pr = cx.new(|cx| crate::pr::LivePr::new(writes.0.clone(), panel.clone(), window_handle, cx));
+        let accounts = crate::accounts::LiveAccounts::attach(writes.0.clone(), workspace.clone(), cx);
+        controller.update(cx, |c, cx| {
+            c._subscriptions.push(cx.observe(&live_pr, |this, _, cx| this.refresh_panels(cx)));
+            c._subscriptions.push(cx.observe(&accounts, |this, _, cx| this.refresh_limit_cards(cx)));
+            // A tab switch shows or hides the review and Merge pills.
+            c._subscriptions.push(cx.observe(&panel, |this, panel, cx| {
+                let shown = panel.read(cx).is_open() && panel.read(cx).active() == milagre_gpui_spike::workspace::panel::PanelTab::Pr;
+                if this.pr_shown != shown {
+                    this.pr_shown = shown;
+                    this.refresh_panels(cx);
+                }
+            }));
+            c.live_pr = Some(live_pr);
+            let scope = c.open.as_ref().map(|open| open.project.clone());
+            accounts.update(cx, |a, cx| a.set_scope(scope, cx));
+            c.accounts = Some(accounts);
+            c.follow_chat(cx);
+            c.refresh_panels(cx);
+        });
         // Plan usage (`usage:cached`, read-only) in the sidebar's rows and card, and the limit card under a stopped reply.
         let sidebar = workspace.read(cx).sidebar.clone();
         crate::usage::attach(&sidebar, usage_daemon, cx);
@@ -498,16 +537,29 @@ impl LiveController {
                 cx.observe(&composer, |this: &mut Self, composer, cx| this.follow_composer(&composer, cx)),
                 cx.subscribe(&transcript, |this: &mut Self, _, decision: &CardDecision, cx| this.decide(decision, cx)),
                 // The PR pill: the blocker's fix, sent as Electron's pill sends it.
-                cx.subscribe(&pills, |this: &mut Self, _, event: &milagre_gpui_spike::workspace::chat::pills::PillEvent, cx| {
-                    if *event == milagre_gpui_spike::workspace::chat::pills::PillEvent::PullRequestAction {
-                        this.run_pr_action(cx);
+                cx.subscribe(&pills, |this: &mut Self, pills, event: &milagre_gpui_spike::workspace::chat::pills::PillEvent, cx| {
+                    use milagre_gpui_spike::workspace::chat::pills::PillEvent;
+                    match event {
+                        // Merge #N opens the PR panel; a blocker's fix is sent to the Chat.
+                        PillEvent::PullRequestAction if pills.read(cx).data().pr_action.as_ref().is_some_and(|a| a.merge) => {
+                            this.open_pr_tab(cx)
+                        }
+                        PillEvent::PullRequestAction => this.run_pr_action(cx),
+                        PillEvent::OpenReview => this.open_pr_tab(cx),
+                        _ => {}
                     }
                 }),
                 // A Project listed by name only was opened: Milagre's daemon loads it.
-                cx.subscribe(&sidebar, |this: &mut Self, _, event: &SidebarEvent, cx| {
-                    if let SidebarEvent::OpenProject(path) = event {
-                        this.load_project(path.to_string(), cx);
+                cx.subscribe(&sidebar, |this: &mut Self, _, event: &SidebarEvent, cx| match event {
+                    SidebarEvent::OpenProject(path) => this.load_project(path.to_string(), cx),
+                    // The row's PR chip: the Chat opens with that PR in its PR panel (`openRowPullRequest`).
+                    SidebarEvent::OpenPullRequest { key, number } => {
+                        this.pr_picks.insert(key.to_string(), *number);
+                        this.pr_tab = Some(key.to_string());
+                        this.follow_chat(cx);
+                        this.refresh_panels(cx);
                     }
+                    _ => {}
                 }),
             ];
             subscriptions.shrink_to_fit();
@@ -620,8 +672,18 @@ impl LiveController {
                 extras_at: HashMap::new(),
                 events: Vec::new(),
                 vault: None,
+                unlock_next: true,
+                unlocked: None,
+                remote_dirty: HashSet::new(),
+                remote_reading: false,
                 computers_refused: None,
                 notifier: None,
+                live_pr: None,
+                pr_picks: HashMap::new(),
+                pr_tab: None,
+                pr_dismissed: HashMap::new(),
+                pr_shown: false,
+                accounts: None,
                 _subscriptions: subscriptions,
                 _tasks: vec![pump, follow, run, tapped],
             };
@@ -629,6 +691,7 @@ impl LiveController {
             this.sync_unloaded(cx);
             this.read_accounts(cx);
             this.read_computers(cx);
+            this.read_all_prs(cx);
             this
         })
     }
@@ -660,7 +723,12 @@ impl LiveController {
         }
         self.on_store_changed(cx);
         self.read_accounts(cx);
+        self.unlock_next = true;
         self.read_computers(cx);
+        self.read_all_prs(cx);
+        if let Some(accounts) = self.accounts.clone() {
+            accounts.update(cx, |a, cx| a.changed(cx));
+        }
         cx.notify();
     }
 
@@ -680,8 +748,47 @@ impl LiveController {
                 if shown {
                     self.read_prs(project.to_owned(), cx);
                 }
+                if let Some(live_pr) = self.live_pr.clone() {
+                    live_pr.update(cx, |pr, cx| pr.changed(project, cx));
+                }
             }
-            "accounts:changed" => self.read_accounts(cx),
+            "accounts:changed" => {
+                self.read_accounts(cx);
+                if let Some(accounts) = self.accounts.clone() {
+                    accounts.update(cx, |a, cx| a.changed(cx));
+                }
+            }
+            // Paired computers: their list changed, one was forgotten, or one of their runtimes sent an event (tagged with
+            // its id, its keys qualified): turn ends and waiting notices notify as this Mac's do, and its Chats are read again.
+            "computers:changed" => self.read_computers(cx),
+            "computers:forgotten" => {
+                if let (Backend::Daemon(daemon), Some(id)) = (&self.backend, payload["computerId"].as_str()) {
+                    daemon.set_remote(id, None);
+                    if let Some(notifier) = &self.notifier {
+                        notifier.forget_computer(id);
+                    }
+                }
+                self.read_computers(cx);
+            }
+            "computers:event" => {
+                let (Some(id), Some(inner)) = (payload["computerId"].as_str(), payload["channel"].as_str()) else { return };
+                if let Some(notifier) = self.notifier.clone()
+                    && matches!(inner, "agent:event" | "notification:waiting")
+                {
+                    let focused = self.window.update(cx, |_, window, _| window.is_window_active()).unwrap_or(false);
+                    notifier.set_view(self.open_key().map(str::to_owned), focused);
+                    let daemon = match &self.backend {
+                        Backend::Daemon(daemon) => Some(daemon.clone()),
+                        Backend::Owned { .. } => None,
+                    };
+                    let computer = id.to_owned();
+                    notifier.event(inner, &payload["payload"], |key| remote_chat_info(daemon.as_deref(), &computer, key));
+                }
+                if matches!(inner, "project:state" | "agent:event") {
+                    self.remote_dirty.insert(id.to_owned());
+                    self.read_remote_soon(cx);
+                }
+            }
             // The sidebar's Links (`canvas:links-changed {links}`).
             "canvas:links-changed" => {
                 if let Some(writes) = cx.try_global::<crate::sidebar_writes::Writes>().map(|w| w.0.clone()) {
@@ -724,6 +831,10 @@ impl LiveController {
         let Some((project, _)) = daemon.primary() else { return };
         let daemon = daemon.clone();
         let job: Job = Box::pin(async move {
+            // Before computers:add, as Electron does: a locked vault answers `{ok: false, code: "keys"}`.
+            if let crate::computers::Unlock::Failed { code, message } = daemon.unlock_computers(&project).await.map_err(|e| format!("{e:#}"))? {
+                return Err(if code == "KEYCHAIN_UNAVAILABLE" { crate::computers::ALLOW_KEYCHAIN.to_owned() } else { message });
+            }
             let writer = daemon.writer(&project).await.map_err(|e| format!("{e:#}"))?;
             writer.call("computers:add", serde_json::json!([link, {}])).await.map_err(|e| format!("Couldn't add the computer: {e:#}"))?;
             Ok(None)
@@ -805,14 +916,48 @@ impl LiveController {
         cx.spawn(async move |this, cx| {
             let Ok(read) = read.await else { return };
             let _ = this.update(cx, |this, cx| match read {
-                Ok(prs) => {
-                    this.prs.insert(project, prs);
-                    this.refresh_panels(cx);
-                }
+                Ok(prs) => this.store_prs(project, prs, cx),
                 Err(error) => this.error(format!("Couldn't read the pull requests: {error:#}")),
             });
         })
         .detach();
+    }
+
+    /// A Project's PR poll: the Details tab, the pills and the sidebar's PR chips follow it.
+    fn store_prs(&mut self, project: String, prs: Value, cx: &mut Context<Self>) {
+        if let Backend::Daemon(daemon) = &self.backend {
+            daemon.set_prs(&project, prs.clone());
+        }
+        let changed = self.prs.get(&project) != Some(&prs);
+        self.prs.insert(project, prs);
+        if changed {
+            let sidebar = self.workspace.read(cx).sidebar.clone();
+            sidebar.update(cx, |s, cx| s.reload(cx));
+        }
+        self.refresh_panels(cx);
+    }
+
+    /// Milagre's daemon: every loaded Project's PR poll, for the sidebar's PR chips (Electron's sidebar reads each).
+    fn read_all_prs(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.backend, Backend::Daemon(_)) {
+            return;
+        }
+        let loaded: Vec<String> = self.store.read(|reducer| {
+            reducer
+                .state()
+                .map(|applied| applied.projects.iter().filter(|o| !o.project.is_chats_home()).map(|o| o.project.path.to_string()).collect())
+                .unwrap_or_default()
+        });
+        for project in loaded {
+            self.read_prs(project, cx);
+        }
+    }
+
+    /// Opens the open Chat's PR tab (the review comments pill, Merge #N).
+    fn open_pr_tab(&mut self, cx: &mut Context<Self>) {
+        let panel = self.workspace.read(cx).panel.clone();
+        panel.update(cx, |panel, cx| panel.activate(milagre_gpui_spike::workspace::panel::PanelTab::Pr, cx));
+        self.refresh_panels(cx);
     }
 
     /// The tapped channels this window received, oldest first (tests).
@@ -826,13 +971,44 @@ impl LiveController {
         let Backend::Daemon(daemon) = &self.backend else { return };
         let Some((project, _)) = daemon.primary() else { return };
         let daemon = daemon.clone();
+        let unlock = std::mem::take(&mut self.unlock_next);
         let read = off_thread({
             let daemon = daemon.clone();
-            move || futures::executor::block_on(crate::computers::read(&daemon, &project))
+            move || {
+                futures::executor::block_on(async {
+                    // At launch and after every adoption: unlock as Electron does, only when the vault says it is locked.
+                    let unlocked = if unlock { Some(daemon.unlock_computers(&project).await) } else { None };
+                    let vault = crate::computers::read(&daemon, &project).await;
+                    let mut remotes = Vec::new();
+                    if let crate::computers::Vault::Unlocked(snapshot) = &vault {
+                        for computer in &snapshot.computers {
+                            if computer.state == milagre_gpui_spike::data::ComputerState::Online {
+                                remotes.push((computer.id.to_string(), crate::computers::read_remote(&daemon, &computer.id).await.ok()));
+                            }
+                        }
+                    }
+                    (unlocked, vault, remotes)
+                })
+            }
         });
         cx.spawn(async move |this, cx| {
-            let Ok(vault) = read.await else { return };
+            let Ok((unlocked, vault, remotes)) = read.await else { return };
             let _ = this.update(cx, |this, cx| {
+                match unlocked {
+                    Some(Ok(outcome)) => {
+                        if let Some(notice) = outcome.notice() {
+                            eprintln!("live: computers: {notice}");
+                            let sidebar = this.workspace.read(cx).sidebar.clone();
+                            sidebar.update(cx, |s, cx| s.set_notice(Some(notice.into()), cx));
+                        }
+                        this.unlocked = Some(outcome);
+                    }
+                    Some(Err(error)) => this.error(format!("Couldn't unlock the paired computers: {error:#}")),
+                    None => {}
+                }
+                for (id, remote) in remotes {
+                    daemon.set_remote(&id, remote);
+                }
                 let shown = match &vault {
                     crate::computers::Vault::Unlocked(snapshot) => Some(snapshot.clone()),
                     crate::computers::Vault::Locked => None,
@@ -854,9 +1030,75 @@ impl LiveController {
                     }
                 }
                 this.vault = Some(vault);
+                let sidebar = this.workspace.read(cx).sidebar.clone();
+                sidebar.update(cx, |s, cx| s.reload(cx));
             });
         })
         .detach();
+    }
+
+    /// Reads the paired computers whose Chats changed, a second after the first change (their events come in bursts).
+    fn read_remote_soon(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        if self.remote_reading {
+            return;
+        }
+        self.remote_reading = true;
+        let daemon = daemon.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(1)).await;
+            let Ok(ids) = this.update(cx, |this, _| std::mem::take(&mut this.remote_dirty)) else { return };
+            let work = off_thread({
+                let daemon = daemon.clone();
+                move || {
+                    futures::executor::block_on(async {
+                        let mut out = Vec::new();
+                        for id in ids {
+                            out.push((id.clone(), crate::computers::read_remote(&daemon, &id).await.ok()));
+                        }
+                        out
+                    })
+                }
+            });
+            let Ok(read) = work.await else { return };
+            let _ = this.update(cx, |this, cx| {
+                this.remote_reading = false;
+                for (id, remote) in read {
+                    if remote.is_some() {
+                        daemon.set_remote(&id, remote);
+                    }
+                }
+                let sidebar = this.workspace.read(cx).sidebar.clone();
+                sidebar.update(cx, |s, cx| s.reload(cx));
+                if !this.remote_dirty.is_empty() {
+                    this.read_remote_soon(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// What the last unlock did (tests).
+    pub fn unlocked(&self) -> Option<&crate::computers::Unlock> {
+        self.unlocked.as_ref()
+    }
+
+    /// `computers:set-enabled [on]` as Electron's Settings sends it, unlocking first when turning them on.
+    pub fn set_computers_enabled(&mut self, on: bool, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        if daemon.read_only() {
+            return self.refuse("computers:set-enabled".into());
+        }
+        let Some((project, _)) = daemon.primary() else { return };
+        let daemon = daemon.clone();
+        let job: Job = Box::pin(async move {
+            if on {
+                daemon.unlock_computers(&project).await.map_err(|e| format!("{e:#}"))?;
+            }
+            daemon.computers_write("computers:set-enabled", serde_json::json!([on])).await.map_err(|e| format!("{e:#}"))?;
+            Ok(None)
+        });
+        self.spawn_job(job, cx);
     }
 
     /// What the last computer-vault read found (tests).
@@ -1046,7 +1288,16 @@ impl LiveController {
         if switched && matches!(self.backend, Backend::Daemon(_)) {
             self.follow_model(new_chat, at.as_ref(), cx);
         }
-        let key = if new_chat { None } else { key.filter(|_| at.is_some()) };
+        // A paired computer's Chat: shown (its transcript read through `computers:invoke`), never written to here.
+        let remote = (at.is_none() && !new_chat)
+            .then(|| {
+                let (scope, id) = key.as_deref()?.rsplit_once('#')?;
+                let id = id.parse().ok()?;
+                scope.contains('|').then(|| ChatRef { project: scope.to_owned(), id })
+            })
+            .flatten()
+            .filter(|remote| self.has_chat(remote));
+        let key = if new_chat { None } else { key.filter(|_| at.is_some() || remote.is_some()) };
         if key.as_deref() == self.open_key() {
             return;
         }
@@ -1055,8 +1306,15 @@ impl LiveController {
         {
             self.read_extras(at.project.clone(), false, cx);
         }
-        self.open = key.zip(at).map(|(key, at)| OpenChat { key, project: at.project, id: at.id, ..OpenChat::default() });
-        if self.open.is_some() {
+        let local = at.is_some();
+        self.open = key.zip(at.or(remote)).map(|(key, at)| OpenChat { key, project: at.project, id: at.id, ..OpenChat::default() });
+        if let Some(accounts) = self.accounts.clone() {
+            let scope = self.open.as_ref().filter(|_| local).map(|open| open.project.clone());
+            accounts.update(cx, |a, cx| a.set_scope(scope, cx));
+        }
+        if self.open.is_some() && !local {
+            self.load(cx);
+        } else if self.open.is_some() {
             self.load(cx);
             match self.backend {
                 Backend::Owned { .. } => self.read_changes(cx),
@@ -1148,7 +1406,15 @@ impl LiveController {
                 }
                 match prs {
                     Ok(prs) => {
+                        if let Backend::Daemon(daemon) = &this.backend {
+                            daemon.set_prs(&project, prs.clone());
+                        }
+                        let changed = this.prs.get(&project) != Some(&prs);
                         this.prs.insert(project.clone(), prs);
+                        if changed {
+                            let sidebar = this.workspace.read(cx).sidebar.clone();
+                            sidebar.update(cx, |s, cx| s.reload(cx));
+                        }
                     }
                     Err(error) => this.error(format!("Couldn't read the pull requests: {error:#}")),
                 }
@@ -1183,26 +1449,48 @@ impl LiveController {
         let Some((key, project, id)) = self.open.as_ref().map(|o| (o.key.clone(), o.project.clone(), o.id)) else { return };
         let empty = Value::Null;
         let prs = self.prs.get(&project).unwrap_or(&empty);
+        let dismissed = self.pr_dismissed.get(&key).cloned().unwrap_or_default();
         let action = self.store.read(|reducer| {
             let applied = reducer.state().ok()?;
             let (open, chat) = crate::panels::find(&applied.projects, &key)?;
-            let folder = open.state.as_ref()?.worktree_of(chat)?.path.to_string();
-            let list = crate::panels::chat_pull_requests(prs, &folder, chat);
-            milagre_gpui_spike::logic::prs::blockers::pull_request_action(&list, &[])
+            let worktree = open.state.as_ref()?.worktree_of(chat)?;
+            let list = crate::panels::chat_pull_requests(prs, worktree.path.as_ref(), chat);
+            let (pr, blocker) = milagre_gpui_spike::logic::prs::blockers::pull_request_action(&list, &dismissed)?;
+            Some((pr, blocker, chat.worktree_id))
         });
-        let Some((pr, blocker)) = action else { return };
+        let Some((pr, blocker, worktree_id)) = action else {
+            return self.error("PR action: the pill's PR has no blocker left to fix: nothing was sent".into());
+        };
         let Some(number) = pr.number else { return };
         if self.backend.read_only() {
             return self.refuse(format!("PR action {} on #{number}", blocker.key()));
         }
         let context = milagre_gpui_spike::logic::prs::action::pull_request_action_context(blocker.key(), f64::from(number), &pr.url);
         let Some(context) = context else { return self.error(format!("PR #{number}'s action isn't valid: nothing was sent")) };
+        // `updateBlockerDismissals`: the pill hides once its fix is asked for, until GitHub says the blocker cleared.
+        let next = milagre_gpui_spike::logic::prs::blockers::update_blocker_dismissals(&dismissed, Some(&pr), Some(blocker));
+        self.pr_dismissed.insert(key.clone(), next);
+        // At once, as Electron's optimistic message: the action card and the running row; the saved message replaces it.
+        let card = milagre_gpui_spike::workspace::chat::transcript::cards::PrActionCard {
+            blocker: context.action,
+            pr: context.pr,
+            url: context.url.clone().into(),
+            state: None,
+        };
+        let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
+        transcript.update(cx, |t, cx| {
+            t.push(milagre_gpui_spike::workspace::chat::transcript::Item::Card(
+                milagre_gpui_spike::workspace::chat::transcript::cards::Card::PrAction(card),
+            ), cx);
+            t.set_running_row(true, cx);
+            t.scroll_to_bottom(cx);
+        });
         self.sent += 1;
         let client_id = format!("gpui-{}-{}-{}", std::process::id(), crate::transcript::now_ms(), self.sent);
         let (provider, model) = self.sink.model.borrow().clone();
         let request = serde_json::json!([{
             "projectPath": project,
-            "worktreeId": 1,
+            "worktreeId": worktree_id,
             "sessionId": id,
             "provider": provider.id(),
             "model": model,
@@ -1215,12 +1503,41 @@ impl LiveController {
         }]);
         let daemon = daemon.clone();
         let job: Job = Box::pin(async move {
-            let writer = daemon.writer(&project).await.map_err(|e| format!("{e:#}"))?;
-            let receipt = writer.call("chat:send", request).await.map_err(|e| format!("PR action: {e:#}"))?;
+            let writer = daemon.writer(&project).await.map_err(|e| format!("Couldn't send the PR action: {e:#}"))?;
+            let mut request = request;
+            // A Chat with no recorded model: its provider's first recommended one, as a composer send does.
+            if request[0]["model"].as_str().is_none_or(str::is_empty) {
+                let model = writer
+                    .recommended_model(provider.id())
+                    .await
+                    .map_err(|e| format!("Couldn't send the PR action: {e:#}"))?
+                    .ok_or_else(|| format!("Couldn't send the PR action: Milagre recommends no {} model", provider.name()))?;
+                request[0]["model"] = Value::String(model);
+            }
+            let receipt = writer.call("chat:send", request).await.map_err(|e| format!("Couldn't send the PR action: {e:#}"))?;
             drop(writer);
             Ok(Some(Done::Sent { id: client_id, receipt, open: None }))
         });
-        self.spawn_job(job, cx);
+        self.refresh_panels(cx);
+        let key_back = key.clone();
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if result.is_err() {
+                    // Not sent: the pill comes back, and the transcript shows what was saved.
+                    this.pr_dismissed.remove(&key_back);
+                    if let Some(open) = this.open.as_mut().filter(|open| open.key == key_back) {
+                        open.loaded = false;
+                        this.load(cx);
+                    }
+                    let transcript = this.workspace.read(cx).chat.read(cx).transcript.clone();
+                    transcript.update(cx, |t, cx| t.set_running_row(false, cx));
+                }
+                this.finished(result, cx);
+                this.refresh_panels(cx);
+            });
+        })
+        .detach();
     }
 
     /// Milagre's daemon: the open Chat's Details and pills from the reducer's state and the last reads.
@@ -1237,24 +1554,59 @@ impl LiveController {
         self.apply_catalog(&project, cx);
         let now = crate::transcript::now_ms();
         let empty = Value::Null;
-        let prs = self.prs.get(&project).unwrap_or(&empty);
-        let built = self.store.read(|reducer| {
+        let prs = self.prs.get(&project).unwrap_or(&empty).clone();
+        let picked = self.pr_picks.get(&key).copied();
+        // The PR the panel shows, in the Chat's Worktree folder.
+        let shown_pr = self.store.read(|reducer| {
             let applied = reducer.state().ok()?;
-            Some((
-                crate::panels::details(&applied.projects, &key, &self.ports, prs, now)?,
-                crate::panels::pills(&applied.projects, &key, prs, now)?,
-            ))
+            let (open, chat) = crate::panels::find(&applied.projects, &key)?;
+            let folder = open.state.as_ref()?.worktree_of(chat)?.path.to_string();
+            let number = crate::panels::panel_pull_request(&prs, &folder, chat, picked);
+            Some((folder, number))
         });
-        let Some((details, pills_data)) = built else { return };
         let (panel, pills) = {
             let w = self.workspace.read(cx);
             (w.panel.clone(), w.chat.read(cx).pills.clone())
         };
+        let built = self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            crate::panels::details(&applied.projects, &key, &self.ports, &prs, now)
+        });
+        let Some(details) = built else { return };
         let changed = panel.read(cx).details().read(cx).key() != key || panel.read(cx).details().read(cx).data() != &details;
         if changed {
             panel.update(cx, |panel, cx| panel.set_live_details(key.clone().into(), details, cx));
         }
-        pills.update(cx, |p, cx| p.set_live(&key, pills_data, cx));
+        let mut review_comments = 0;
+        if let Some(live_pr) = self.live_pr.clone() {
+            match &shown_pr {
+                Some((folder, number)) => {
+                    live_pr.update(cx, |pr, cx| pr.show(&key, &project, folder, *number, cx));
+                    let detail = number.and_then(|n| live_pr.read(cx).detail(n));
+                    review_comments = detail
+                        .filter(|pr| pr.state == milagre_gpui_spike::workspace::panel::pr::model::PullState::Open)
+                        .map_or(0, |pr| milagre_gpui_spike::workspace::panel::pr::model::open_threads(&pr).len() as u32);
+                }
+                None => live_pr.update(cx, |pr, cx| pr.hide(&key, cx)),
+            }
+            if self.pr_tab.as_deref() == Some(key.as_str()) && shown_pr.as_ref().is_some_and(|(_, n)| n.is_some()) {
+                self.pr_tab = None;
+                panel.update(cx, |panel, cx| panel.activate(milagre_gpui_spike::workspace::panel::PanelTab::Pr, cx));
+            }
+        }
+        let pr_shown = {
+            let panel = panel.read(cx);
+            panel.is_open() && panel.active() == milagre_gpui_spike::workspace::panel::PanelTab::Pr
+        };
+        let inputs =
+            crate::panels::PillInputs { dismissed: self.pr_dismissed.get(&key).cloned().unwrap_or_default(), pr_shown, review_comments };
+        let pills_data = self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            crate::panels::pills(&applied.projects, &key, &prs, now, &inputs)
+        });
+        if let Some(pills_data) = pills_data {
+            pills.update(cx, |p, cx| p.set_live(&key, pills_data, cx));
+        }
     }
 
     fn follow_composer(&mut self, composer: &Entity<milagre_gpui_spike::workspace::chat::composer::Composer>, cx: &mut Context<Self>) {
@@ -1300,6 +1652,14 @@ impl LiveController {
     }
 
     fn has_chat(&self, at: &ChatRef) -> bool {
+        // A paired computer's Chat, as last read through `computers:invoke`.
+        if let Backend::Daemon(daemon) = &self.backend
+            && let Some((computer, _)) = at.project.split_once('|')
+        {
+            return daemon.remote(computer).is_some_and(|remote| {
+                remote.states.get(&at.project).is_some_and(|state| state.state.sessions.contains_key(&at.id))
+            });
+        }
         self.store.read(|reducer| {
             reducer.state().ok().is_some_and(|applied| {
                 applied.projects.iter().any(|open| {
@@ -1321,6 +1681,7 @@ impl LiveController {
             let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
             transcript.update(cx, |t, cx| t.set_items(items, cx));
             self.sync_tail(cx);
+            self.refresh_limit_cards(cx);
             return;
         }
         let Some(source) = cx.try_global::<Data>().map(|data| data.0.clone()) else { return };
@@ -1337,6 +1698,7 @@ impl LiveController {
                     let transcript = this.workspace.read(cx).chat.read(cx).transcript.clone();
                     transcript.update(cx, |t, cx| t.set_items(items, cx));
                     this.sync_tail(cx);
+                    this.refresh_limit_cards(cx);
                 }
                 Err(error) => this.error(format!("chat:messages {key}: {error:#}")),
             });
@@ -1385,6 +1747,8 @@ impl LiveController {
         let sidebar = self.workspace.read(cx).sidebar.clone();
         sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
         self.sync_unloaded(cx);
+        // A scheduled continuation, a run starting or ending: what the limit card offers.
+        self.refresh_limit_cards(cx);
         if let Some(key) = self.pending_open.clone()
             && sidebar.read(cx).row_keys().contains(&key)
         {
@@ -1574,7 +1938,78 @@ impl LiveController {
                 });
                 self.spawn_job(job, cx);
             }
+            CardDecision::LimitSwitch { ix, account_id, label } => {
+                let Some(accounts) = self.accounts.clone() else { return };
+                let provider = self.limit_provider(*ix, cx).unwrap_or(Provider::Claude);
+                let (ix, account_id, label) = (*ix, account_id.clone(), label.clone());
+                accounts.update(cx, |a, cx| a.limit_switch(ix, (chat.project, chat.id), provider, account_id, label, cx));
+            }
+            CardDecision::LimitResume { ix, cancel } => {
+                let Some(accounts) = self.accounts.clone() else { return };
+                let (source, send_id) = self.store.read(|reducer| {
+                    let applied = reducer.state().ok();
+                    let chat = applied.as_ref().and_then(|a| crate::panels::find(&a.projects, &open.key)).map(|(_, c)| c.clone());
+                    let resume = chat.as_ref().and_then(|c| c.limit_resume.clone());
+                    (chat.and_then(|c| c.limit_turn), resume.map(|r| r.send_id.to_string()))
+                });
+                let ix = *ix;
+                let cancel = if *cancel { send_id } else { None };
+                let source = source.unwrap_or_default();
+                accounts.update(cx, |a, cx| a.limit_resume(ix, (chat.project, chat.id), cancel, source, cx));
+            }
+            CardDecision::OpenAccounts => crate::accounts::open_settings(&self.workspace, self.window, cx),
         }
+    }
+
+    /// The provider of the usage-limit card at item `ix`.
+    fn limit_provider(&self, ix: usize, cx: &App) -> Option<Provider> {
+        let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
+        match transcript.read(cx).items().get(ix) {
+            Some(Item::Card(milagre_gpui_spike::workspace::chat::transcript::cards::Card::Limit(card))) => Some(card.limit.provider),
+            _ => None,
+        }
+    }
+
+    /// What the open Chat's usage-limit cards may offer (`ChatComposer.tsx`): the `limitTurn` reply's card (else the
+    /// last message's), while nothing is sending, with the Project's other accounts and "Continue at" when supported.
+    fn limit_info(&self, cx: &App) -> crate::transcript::LimitInfo {
+        let Some(open) = &self.open else { return Default::default() };
+        let Some(accounts) = self.accounts.as_ref().map(|a| a.read(cx)) else { return Default::default() };
+        let chat = self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            let running = applied.runs.get(&open.key).is_some();
+            crate::panels::find(&applied.projects, &open.key).map(|(_, chat)| (chat.clone(), running))
+        });
+        let Some((chat, running)) = chat else { return Default::default() };
+        let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
+        let last = transcript.read(cx).items().iter().rev().find_map(|item| match item {
+            Item::Card(milagre_gpui_spike::workspace::chat::transcript::cards::Card::Limit(card)) => card.message,
+            _ => None,
+        });
+        let limit = transcript.read(cx).items().iter().find_map(|item| match item {
+            Item::Card(milagre_gpui_spike::workspace::chat::transcript::cards::Card::Limit(card)) => Some(card.limit.clone()),
+            _ => None,
+        });
+        let interactive = if running { None } else { chat.limit_turn.or(last) };
+        let choices = limit.map(|limit| crate::accounts::choices(accounts.groups(), &limit, crate::transcript::now_ms())).unwrap_or_default();
+        let resume = (accounts.resume_supported() && chat.queued.is_empty()).then_some(chat.limit_turn).flatten();
+        crate::transcript::LimitInfo {
+            interactive,
+            choices,
+            pending: chat.limit_resume.as_ref().map(|r| (r.source_message_id, r.at.to_string())),
+            resume,
+            live: true,
+        }
+    }
+
+    /// Lays the latest [`Self::limit_info`] over the open Chat's limit cards.
+    fn refresh_limit_cards(&mut self, cx: &mut Context<Self>) {
+        if self.accounts.is_none() {
+            return;
+        }
+        let info = self.limit_info(cx);
+        let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
+        transcript.update(cx, |t, cx| t.update_limit_cards(|_, card| crate::transcript::apply_limit(card, &info), cx));
     }
 
     fn spawn_job(&mut self, job: Job, cx: &mut Context<Self>) {
@@ -1622,6 +2057,11 @@ impl LiveController {
                             return None;
                         }
                     },
+                    // Another computer's Chat is read here; its writes go through Milagre for now.
+                    Target::Existing(chat) if chat.project.contains('|') => {
+                        self.error("Sending to another computer's Chat isn't in this preview yet: open it in Milagre".into());
+                        return None;
+                    }
                     Target::Existing(chat) => (chat.project, SendTarget::Existing(chat.id)),
                     Target::None => {
                         self.error("No Chat of this runtime is open: nothing was sent".into());
@@ -1734,8 +2174,17 @@ pub fn shown_items(items: &[Item]) -> Vec<String> {
 
 /// The live stream's channels the controller follows besides the reducer: Details' ports, the PR poll and the
 /// accounts change (Electron's renderer listens to the same), and what the notifier needs.
-pub const TAPPED: &[&str] =
-    &["agent:ports", "pull-requests:changed", "accounts:changed", "canvas:links-changed", "agent:event", "notification:waiting"];
+pub const TAPPED: &[&str] = &[
+    "agent:ports",
+    "pull-requests:changed",
+    "accounts:changed",
+    "canvas:links-changed",
+    "agent:event",
+    "notification:waiting",
+    "computers:changed",
+    "computers:event",
+    "computers:forgotten",
+];
 
 /// [`LiveStore::pump`] that also hands the [`TAPPED`] channels' events to `tap` before the reducer applies them.
 async fn pump_tapped(store: &LiveStore, notifications: &mut Notifications, tap: &UnboundedSender<(String, Value)>) -> crate::SyncError {
@@ -1755,6 +2204,20 @@ async fn pump_tapped(store: &LiveStore, notifications: &mut Notifications, tap: 
 
 /// What the notifier shows for a Chat: its title (named, generated, its first line, else its Project's name) and
 /// whether its Project is hidden from the sidebar.
+/// A paired computer's Chat for a notification: its title from the last read of that computer, else its Project's
+/// name, else the computer's.
+fn remote_chat_info(daemon: Option<&Daemon>, computer: &str, key: &str) -> crate::notify::ChatInfo {
+    let title = daemon.and_then(|daemon| {
+        let remote = daemon.remote(computer)?;
+        let (scope, id) = key.rsplit_once('#')?;
+        let id: u64 = id.parse().ok()?;
+        let state = remote.states.get(scope)?;
+        let chat = state.state.sessions.get(&id)?;
+        chat.title.clone().or_else(|| chat.generated_title.clone()).or_else(|| chat.summary.as_ref().and_then(|s| s.title_line.clone()))
+    });
+    crate::notify::ChatInfo { title: title.map(|t| t.to_string()).unwrap_or_default(), hidden: false }
+}
+
 fn chat_info(store: &LiveStore, key: &str, cx: &App) -> crate::notify::ChatInfo {
     let project = key.rsplit_once('#').map_or(key, |(path, _)| path).to_owned();
     let title = store.read(|reducer| {

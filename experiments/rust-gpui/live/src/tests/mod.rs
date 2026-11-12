@@ -6,6 +6,8 @@ mod daemon;
 mod fake_daemon;
 mod git;
 mod owned;
+mod pr_accounts;
+mod remote_computers;
 mod sidebar_writes;
 mod usage;
 

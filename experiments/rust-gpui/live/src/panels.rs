@@ -223,13 +223,31 @@ pub fn details(projects: &[OpenProject], key: &str, ports: &Value, prs: &Value, 
     Some(details)
 }
 
-/// The pill row for `key`: the PR blocker's fix, the Chat's plan (Tasks) and its subagents. Ports are in Details.
-pub fn pills(projects: &[OpenProject], key: &str, prs: &Value, now: i64) -> Option<PillsData> {
+/// What the PR pills need besides the state (`App.tsx`): the blockers already sent to the Chat (`dismissed`), whether
+/// the PR panel is showing (the review and Merge pills hide then) and the shown PR's open review threads.
+#[derive(Clone, Debug, Default)]
+pub struct PillInputs {
+    pub dismissed: Vec<String>,
+    pub pr_shown: bool,
+    pub review_comments: u32,
+}
+
+/// The PR the panel shows for a Chat (`App.tsx`): one picked (the sidebar's chip), else the first of its row's PRs,
+/// else its Worktree's branch PR.
+pub fn panel_pull_request(prs: &Value, folder: &str, chat: &Chat, picked: Option<u32>) -> Option<u32> {
+    picked.or_else(|| {
+        let list = chat_pull_requests(prs, folder, chat);
+        milagre_gpui_spike::logic::prs::blockers::row_pull_requests(&list).into_iter().find_map(|pr| pr.number)
+    })
+}
+
+/// The pill row for `key`: the PR blocker's fix (or Merge #N when the branch PR is ready, `!pr_shown`), the review
+/// comments pill, the Chat's plan (Tasks) and its subagents. Ports are in Details.
+pub fn pills(projects: &[OpenProject], key: &str, prs: &Value, now: i64, inputs: &PillInputs) -> Option<PillsData> {
     let (open, chat) = find(projects, key)?;
     let folder = open.state.as_ref()?.worktree_of(chat).map(|w| w.path.to_string());
-    let list = folder.map(|folder| chat_pull_requests(prs, &folder, chat)).unwrap_or_default();
-    // No dismissals are kept in this window yet: a pill shows until the PR's blocker clears.
-    let pr_action = pull_request_action(&list, &[]).map(|(_, blocker)| PrAction {
+    let list = folder.as_deref().map(|folder| chat_pull_requests(prs, folder, chat)).unwrap_or_default();
+    let blocker = pull_request_action(&list, &inputs.dismissed).map(|(_, blocker)| PrAction {
         label: blocker.action_label().into(),
         tone: match blocker.tone() {
             BlockerTone::Orange => milagre_gpui_spike::ui::PillTone::Orange,
@@ -237,6 +255,12 @@ pub fn pills(projects: &[OpenProject], key: &str, prs: &Value, now: i64) -> Opti
         },
         merge: false,
     });
+    // `Merge #N`: no blocker, the branch PR open and ready to merge, the panel not showing.
+    let branch = folder.as_deref().and_then(|folder| pull_request(&prs["worktrees"][folder]));
+    let merge = branch.filter(|pr| !inputs.pr_shown && pr.state == PrState::Open && pr.ready_to_merge).and_then(|pr| {
+        Some(PrAction { label: format!("Merge #{}", pr.number?), tone: milagre_gpui_spike::ui::PillTone::Green, merge: true })
+    });
+    let pr_action = blocker.or(merge);
     let subagents = chat
         .subagents
         .iter()
@@ -275,7 +299,8 @@ pub fn pills(projects: &[OpenProject], key: &str, prs: &Value, now: i64) -> Opti
             archived: agent.archived,
         })
         .collect();
-    Some(PillsData { plan: chat.plan.clone(), ports: Vec::new(), pr_action, review_comments: 0, subagents, now })
+    let review_comments = if inputs.pr_shown { 0 } else { inputs.review_comments };
+    Some(PillsData { plan: chat.plan.clone(), ports: Vec::new(), pr_action, review_comments, subagents, now })
 }
 
 /// `accounts:list`'s answer as Settings › Accounts' read-only rows: each installed provider's accounts, the one the
@@ -308,6 +333,8 @@ pub fn accounts(list: &Value) -> Vec<milagre_gpui_spike::workspace::preview::Pre
                 label: label.to_owned().into(),
                 detail: detail.into(),
                 selected: group["selectedId"].as_str() == Some(id),
+                id: id.to_owned().into(),
+                ready: account["state"] == "ready",
             });
         }
     }

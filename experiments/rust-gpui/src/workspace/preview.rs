@@ -55,6 +55,51 @@ pub struct PreviewAccount {
     pub detail: SharedString,
     /// The account the computer uses for that provider.
     pub selected: bool,
+    /// Its id, for `accounts:select`.
+    pub id: SharedString,
+    /// Signed in: only a ready account can be made the default (Electron's radio is disabled otherwise).
+    pub ready: bool,
+}
+
+/// An accounts write the data layer backs ([`PreviewAccountWrites`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AccountWrite {
+    /// Settings › Accounts' radio: the computer default for a provider (`accounts:select [provider, id]`).
+    SetDefault { provider: SharedString, id: SharedString },
+    /// The usage card's account picker: the Project on screen's account (`accounts:assign [scope, provider, id]`),
+    /// `None` for "Use computer default".
+    Assign { provider: crate::data::Provider, account_id: Option<String> },
+    /// The usage card's refresh (`usage:read [scope]`, which reads the provider's CLI).
+    RefreshUsage,
+}
+
+/// Set by a data layer that makes the accounts writes: Settings › Accounts' radios, the usage card's picker and
+/// refresh, and the usage-limit card's actions come on. Without it they stay off in preview mode.
+#[derive(Clone)]
+pub struct PreviewAccountWrites(pub AccountWriter);
+
+/// What runs an [`AccountWrite`].
+pub type AccountWriter = std::rc::Rc<dyn Fn(AccountWrite, &mut App)>;
+
+impl Global for PreviewAccountWrites {}
+
+/// The Project on screen's accounts (`accounts:scope`), per provider: the usage card's picker lists them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PreviewProjectAccounts(pub Vec<crate::settings::accounts::model::ProjectProvider>);
+
+impl Global for PreviewProjectAccounts {}
+
+/// A usage read the card's refresh asked for is on its way (the button spins).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PreviewUsageReading;
+
+impl Global for PreviewUsageReading {}
+
+/// Runs an accounts write through the data layer, when it backs them.
+pub fn account_write(write: AccountWrite, cx: &mut App) -> bool {
+    let Some(writes) = cx.try_global::<PreviewAccountWrites>().cloned() else { return false };
+    (writes.0)(write, cx);
+    true
 }
 
 /// The accounts a data layer read; without it, Settings › Accounts says it is not available.

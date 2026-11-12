@@ -116,6 +116,11 @@ impl Workspace {
             SidebarEvent::NewChat => this.show_new_chat(window, cx),
             // The live data layer loads it (its controller subscribes); the fixture has no unloaded Projects.
             SidebarEvent::OpenProject(_) => {}
+            // The fixture opens its PR tab; the live data layer (its controller subscribes) picks the PR first.
+            SidebarEvent::OpenPullRequest { .. } if !preview::is_on(cx) => {
+                this.panel.update(cx, |panel, cx| panel.activate(crate::workspace::panel::PanelTab::Pr, cx));
+            }
+            SidebarEvent::OpenPullRequest { .. } => {}
         });
         // A Subchat picked in the Details panel opens although the sidebar has no row for it.
         let details = panel.read(cx).details().clone();

@@ -103,7 +103,19 @@ pub fn limit_card(context: &ChatContext, now: i64) -> Option<LimitCard> {
         },
         _ => return None,
     };
-    Some(LimitCard { limit, now, choices: Vec::new(), pending_at: None, interactive: false, result: None })
+    Some(LimitCard {
+        limit,
+        now,
+        choices: Vec::new(),
+        pending_at: None,
+        interactive: false,
+        result: None,
+        resume: false,
+        live: false,
+        busy: false,
+        error: None,
+        message: None,
+    })
 }
 
 /// One `usage:cached` read for `scope` (a Project's path; `None` reads the computer's default accounts), on a short
@@ -120,7 +132,7 @@ pub async fn read_accounts_cached(daemon: &Daemon, project: &str) -> anyhow::Res
 }
 
 /// Runs `work` on a thread of its own and answers on any executor.
-fn off_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> futures::channel::oneshot::Receiver<T> {
+pub(crate) fn off_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> futures::channel::oneshot::Receiver<T> {
     let (sender, receiver) = futures::channel::oneshot::channel();
     std::thread::Builder::new()
         .name("milagre-live-usage".into())

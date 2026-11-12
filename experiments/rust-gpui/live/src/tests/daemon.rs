@@ -138,7 +138,7 @@ fn adopt_fails_then_follows_a_restarted_daemon() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
-fn mount_daemon(cx: &mut TestAppContext, session: DaemonSession) -> Mounted<'_> {
+pub(super) fn mount_daemon(cx: &mut TestAppContext, session: DaemonSession) -> Mounted<'_> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     // A preferences file nobody wrote: the window starts on the defaults, as on a first launch.
@@ -155,7 +155,7 @@ fn mount_daemon_with_prefs(cx: &mut TestAppContext, session: DaemonSession, pref
 }
 
 /// [`mount_daemon_with_prefs`] with Electron's preferences file and a recording notification poster.
-fn mount_daemon_full(
+pub(super) fn mount_daemon_full(
     cx: &mut TestAppContext,
     session: DaemonSession,
     prefs: PathBuf,
@@ -184,13 +184,13 @@ fn mount_daemon_full(
 }
 
 impl Mounted<'_> {
-    fn row_keys(&mut self) -> Vec<String> {
+    pub(super) fn row_keys(&mut self) -> Vec<String> {
         let sidebar = self.workspace.read_with(self.vcx, |w, _| w.sidebar.clone());
         sidebar.read_with(self.vcx, |s, _| s.row_keys())
     }
 
     /// Opens a Chat as a click on its row does (the window follows its sidebar when it draws; here at once).
-    fn open(&mut self, key: &str) {
+    pub(super) fn open(&mut self, key: &str) {
         self.workspace.update(self.vcx, |w, cx| w.open_chat_key(key, cx));
         let (sidebar, chat) = self.workspace.read_with(self.vcx, |w, _| (w.sidebar.clone(), w.chat.clone()));
         let row = sidebar.read_with(self.vcx, |s, _| s.selected_row().cloned()).expect("the row");
@@ -204,7 +204,7 @@ impl Mounted<'_> {
         sidebar.read_with(self.vcx, |s, _| s.unloaded_projects().iter().map(|p| (p.name.to_string(), p.loading)).collect())
     }
 
-    fn open_key(&mut self) -> Option<String> {
+    pub(super) fn open_key(&mut self) -> Option<String> {
         self.controller.read_with(self.vcx, |c, _| c.open_key().map(str::to_owned))
     }
 
@@ -216,12 +216,12 @@ impl Mounted<'_> {
         })
     }
 
-    fn wait_for(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
+    pub(super) fn wait_for(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
         self.until(what, |m| done(m));
     }
 }
 
-fn sent(fake: &FakeDaemon) -> Vec<Value> {
+pub(super) fn sent(fake: &FakeDaemon) -> Vec<Value> {
     fake.log().into_iter().filter(|(method, _)| method == "chat:send").map(|(_, args)| args[0].clone()).collect()
 }
 
@@ -459,7 +459,10 @@ fn a_read_only_window_writes_nothing(cx: &mut TestAppContext) {
         "usage:accounts:cached",
         "canvas:links",
     ];
-    assert!(methods.iter().all(|m| allowed.contains(&m.as_str())), "read-only reached the daemon with: {methods:?}");
+    assert!(
+        methods.iter().all(|m| allowed.contains(&m.as_str()) || crate::daemon::READS.contains(&m.as_str()) || m == "computers:vault-status"),
+        "read-only reached the daemon with: {methods:?}"
+    );
     println!("GPUI_DAEMON_READ_ONLY methods={methods:?} refused={:?}", m.controller.read_with(m.vcx, |c, _| c.refused().to_vec()));
     drop(m);
     drop(fake);
@@ -729,7 +732,10 @@ fn details_pills_and_a_model_switch(cx: &mut TestAppContext) {
     m.vcx.run_until_parked();
     assert!(m.vcx.debug_bounds("settings-unavailable").is_none(), "Appearance is this window's own");
     m.vcx.update(|window, cx| settings.update(cx, |s, cx| s.close(window, cx)));
-    assert!(!fake.methods().iter().any(|m| m.starts_with("accounts:") && m != "accounts:list"), "Accounts only read");
+    assert!(
+        !fake.methods().iter().any(|m| m.starts_with("accounts:") && m != "accounts:list" && m != "accounts:scope"),
+        "Accounts only read"
+    );
 
     let errors = m.controller.read_with(m.vcx, |c, _| c.errors().to_vec());
     assert!(errors.is_empty(), "{errors:?}");
@@ -886,13 +892,13 @@ fn a_window_starts_the_daemon_when_none_runs() {
 
 /// What a recording poster saw.
 #[derive(Default)]
-struct Seen {
-    posts: Vec<crate::notify::Post>,
-    badges: Vec<Option<usize>>,
+pub(super) struct Seen {
+    pub(super) posts: Vec<crate::notify::Post>,
+    pub(super) badges: Vec<Option<usize>>,
     played: Vec<String>,
 }
 
-struct Recorder(std::rc::Rc<std::cell::RefCell<Seen>>);
+pub(super) struct Recorder(pub(super) std::rc::Rc<std::cell::RefCell<Seen>>);
 
 impl crate::notify::Poster for Recorder {
     fn post(&self, post: &crate::notify::Post) {
@@ -1031,12 +1037,16 @@ fn notifications_and_live_events(cx: &mut TestAppContext) {
         fake.log().into_iter().filter(|(m, _)| m == "pull-requests:snapshot").map(|(_, a)| a).skip(prs_before).collect();
     assert_eq!(reads, [json!([ALPHA])], "only the Project this window shows");
 
-    // Paired computers: shown only with the daemon's computer vault unlocked. The shared client's `call()` does not send
-    // `computers:vault-status` (not a renderer command), so it is refused before a request and they stay hidden.
+    // Paired computers: shown only with the daemon's computer vault unlocked (the client's typed
+    // `computers:vault-status`). This fake has no vault: it stays locked, there is no key to unlock it with, and
+    // nothing else about computers is asked (`remote_computers` covers the unlock).
     m.wait_for("the vault read", |m| m.controller.read_with(m.vcx, |c, _| c.vault().is_some()));
     let vault = m.controller.read_with(m.vcx, |c, _| c.vault().cloned()).unwrap();
-    assert!(matches!(&vault, crate::computers::Vault::Refused(why) if why.contains("renderer:computers:vault-status")), "{vault:?}");
-    assert!(!fake.methods().iter().any(|m| m.starts_with("computers:")), "nothing about computers reached the daemon");
+    assert_eq!(vault, crate::computers::Vault::Locked);
+    assert!(
+        fake.methods().iter().filter(|m| m.starts_with("computers:")).all(|m| m == "computers:vault-status"),
+        "only the vault's status about computers reached the daemon"
+    );
     assert!(m.vcx.update(|_, cx| !cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>()));
     // A pairing link opened on this computer: with the computers hidden, the sidebar says to pair in Milagre.
     let sidebar = m.workspace.read_with(m.vcx, |w, _| w.sidebar.clone());

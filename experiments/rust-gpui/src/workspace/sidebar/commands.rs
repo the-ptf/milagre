@@ -131,6 +131,11 @@ impl Sidebar {
         self.rows.iter().find(|row| row.key.as_ref() == key).map(|row| row.title.to_string())
     }
 
+    /// The rows as listed (tests and data layers).
+    pub fn rows(&self) -> &[super::row::ChatRow] {
+        &self.rows
+    }
+
     pub fn row_keys(&self) -> Vec<String> {
         self.rows.iter().map(|row| row.key.to_string()).collect()
     }

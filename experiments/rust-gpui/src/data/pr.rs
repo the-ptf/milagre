@@ -19,20 +19,31 @@ pub struct PullRequestSnapshot {
 }
 
 impl PullRequestSnapshot {
-    /// The PRs a Chat names, in its summary's order: the snapshot's read of each ref in `folder`, or just its
-    /// number from the URL when the host has not read it yet.
+    /// The Chat's PRs (`chatPullRequests`): the ones its summary names, in its order (the snapshot's read of each ref
+    /// in `folder`, or just its number from the URL when the host has not read it yet), with the Worktree branch's PR
+    /// included once (the fresher copy of a PR the Chat named too).
     pub fn chat_pull_requests(&self, folder: &str, refs: &[SharedString]) -> Vec<PullRequest> {
         let read = self.chats.get(folder);
-        refs.iter()
-            .filter_map(|reference| match read.and_then(|prs| prs.get(reference)) {
-                Some(found) => found.clone(),
-                None => pull_request_number(reference).map(|number| PullRequest {
-                    number: Some(number),
-                    url: reference.to_string(),
-                    ..PullRequest::default()
-                }),
-            })
-            .collect()
+        let branch = self.worktrees.get(folder).cloned().flatten();
+        let mut prs: Vec<PullRequest> = Vec::new();
+        let named = refs.iter().filter_map(|reference| match read.and_then(|prs| prs.get(reference)) {
+            Some(found) => found.clone(),
+            None => pull_request_number(reference).map(|number| PullRequest {
+                number: Some(number),
+                url: reference.to_string(),
+                ..PullRequest::default()
+            }),
+        });
+        for pr in named.chain(branch.clone()) {
+            let pr = match &branch {
+                Some(branch) if !branch.url.is_empty() && branch.url == pr.url => branch.clone(),
+                _ => pr,
+            };
+            if !prs.iter().any(|other| other.url == pr.url && (!pr.url.is_empty() || other.number == pr.number)) {
+                prs.push(pr);
+            }
+        }
+        prs
     }
 }
 

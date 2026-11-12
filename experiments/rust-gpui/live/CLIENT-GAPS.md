@@ -174,3 +174,39 @@ running on quit), and the main-process duties Electron had are the Preview's own
 - `editor:list`, `editor:open`, `project:reveal`, `settings:notify-when-waiting`, `settings:notification-chime`,
   `settings:notification-schedule`, `notification:state`: Electron-only (not daemon methods), done natively instead.
 - `daemon:stop`: advertised by the daemon, refused by `call()` (never sent).
+
+## Round 5 (2026-11-12): PR panel, PR chip, account switcher and computers, on client `1ed6ff33`
+
+Re-pinned to `1ed6ff33b` (`66a7795e2` plus `InstalledProject::computers_vault_status` and `unlock_computers`). Every
+write below was exercised on the fake daemon only (`live/src/tests/pr_accounts.rs`, `remote_computers.rs`); against
+the real daemon the Preview made reads only (`pr:detail`, `pr:diff-files`, `pr:diff-file`, `pr:labels`,
+`pr:reviewer-candidates`, `pull-requests:snapshot`, `accounts:scope`, `limits:resume-at-reset:read`,
+`computers:vault-status`, `computers:list`).
+
+| Item | Status | Commands |
+| --- | --- | --- |
+| PR panel | works | `pr:detail [{cwd, number}]` (cwd: the Chat's Worktree folder), every 30 s while the window is active, after every write and on `pull-requests:changed`; files `pr:diff-files [{cwd, base, head}]` + `pr:diff-file [{cwd, base, head, path, oldPath}]` (≤200, again only when the head moved); `pr:labels`, `pr:reviewer-candidates [{cwd}]` once per folder |
+| PR writes | works (fake only) | `pr:merge [{cwd, number, method, admin}]`, `{…, auto: true}`, `{…, disableAuto: true}`; `pr:ready [{cwd, number}]` / `{…, draft: true}`; `pr:request-reviewers`, `pr:set-labels`, `pr:reply`, `pr:comment`, `pr:resolve-thread`, `pr:delete-comment`, `pr:submit-review`; `{ok: false, message}` takes the change back with the message |
+| Review comments pill, Merge #N pill | works | open the PR tab (no send), hidden while it shows; count = open threads of the shown PR |
+| PR blocker pill ("Update branch" …) | fixed | sent with the Chat's own `worktreeId` (was always 1) and a recommended model when the Chat has none (was an empty model); the action card ("Update branch" · "Pull request #N") and the running row show at once, the pill hides (`updateBlockerDismissals`), a refusal brings it back and says why; saved `pr-action` messages render as the card, not the prompt |
+| Sidebar PR chip | works | `pull-requests:snapshot` for every loaded Project feeds the rows (the branch PR included, `chatPullRequests`); a click opens the Chat on its PR tab with that PR; the hover card's PR rows open the PR on GitHub |
+| Usage card picker / refresh | works (writes fake only) | `accounts:scope [projectPath]`, `accounts:assign [projectPath, provider, id \| null]`, `usage:read [projectPath]` |
+| Settings › Accounts default | works (fake only) | `accounts:select [provider, id]` (ready accounts only, Electron's radio) |
+| Usage-limit card | works (fake only) | choices = `limitChoices` over `accounts:scope`; `chat:limit-switch [projectPath, sessionId, provider, accountId]`; "Continue at" when `limits:resume-at-reset:read` answers and the reply is the Chat's `limitTurn`: `chat:limit-resume [projectPath, sessionId, sourceMessageId]`, Cancel `chat:limit-resume:cancel [projectPath, sessionId, sendId]`; Add / Manage accounts open Settings › Accounts |
+| Computers vault | works | typed `computers_vault_status`; `unlock_computers` only when locked (launch, every adoption, before `computers:add`, on `computers:set-enabled(true)`), never in read-only mode; `KEYCHAIN_UNAVAILABLE` → "Allow Keychain access to use your paired computers." |
+| Remote Chats | read-only | `computers:invoke [id, project:recent \| state:read \| chat:runs \| chat:messages, args]` on one request-only lane connection; rows and transcripts show, sends to them are refused here |
+| `computers:event` / `computers:forgotten` | works | remote turn ends and waiting notices notify; forgotten drops the computer's rows and notifier state |
+
+Remaining gaps:
+
+- Remote Chats are read, not written: sending, approvals and sidebar writes on another computer's Chat go through
+  `computers:invoke` with the remote method, which the Preview does not route yet. Remote state is read again on
+  `computers:event` (debounced) and `computers:changed`, not applied event by event.
+- No GPUI UI for `computers:set-enabled` / `computers:add` beyond the `milagre://` pairing link (the base's computer
+  pages are read-only in preview); `LiveController::set_computers_enabled` exists for when it has one.
+- PR panel: the Worktree's uncommitted files ("N files not in the PR yet") are not counted (the daemon's Changes are
+  the Project's checkout); `pr:image` (private images in descriptions) is not fetched; the PR the panel shows is
+  picked from the chip or the row's first PR, with no panel menu to switch between a Chat's several PRs.
+- The PR chip has no tooltip of its own (Electron's `title`); the row's hover card lists the PRs instead.
+- `unlock_computers` has not run against the real Keychain item from the Preview (the real vault was already
+  unlocked by Electron, so the status read short-circuits it).

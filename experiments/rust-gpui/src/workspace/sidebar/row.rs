@@ -74,6 +74,8 @@ pub enum RowEvent {
     Hover(Option<Bounds<Pixels>>),
     /// The hover action: "Done".
     ToggleDone,
+    /// The PR chip (`PullRequestChip`): open the Chat with this PR in its PR panel.
+    OpenPullRequest(u32),
 }
 
 /// What one row shows: the view model the sidebar builds from a listed Chat and its scope.
@@ -105,6 +107,8 @@ pub struct ChatRow {
     pub computer: Option<SharedString>,
     /// The PR at the right edge: its number, or "+n" for several.
     pub prs: Option<SharedString>,
+    /// The first PR's number, which the chip opens.
+    pub pr_number: Option<u32>,
     /// How long ago the Chat last moved ("2d"), for an idle row's right edge.
     pub recency: Option<SharedString>,
     /// Marked Done (only the Done list's rows are).
@@ -130,6 +134,7 @@ impl Default for ChatRow {
             extra: SharedString::default(),
             computer: None,
             prs: None,
+            pr_number: None,
             recency: None,
             done: false,
             ran: None,
@@ -184,6 +189,7 @@ impl ChatRow {
             extra.push(key.to_string());
         }
         let mut prs_label = None;
+        let mut pr_number = None;
         if show.pull_requests {
             let folder = scope.state.worktree_of(chat).map(|worktree| worktree.path.clone()).unwrap_or_default();
             let refs = chat.summary.as_ref().map(|summary| summary.pull_requests.clone()).unwrap_or_default();
@@ -191,6 +197,7 @@ impl ChatRow {
             // One PR chip, then the rest as a count (`ROW_PR_LIMIT`).
             if let Some(number) = prs.first().and_then(|pr| pr.number) {
                 parts.push(format!("#{number}"));
+                pr_number = Some(number);
             }
             if prs.len() > 1 {
                 parts.push(format!("+{}", prs.len() - 1));
@@ -245,6 +252,7 @@ impl ChatRow {
             extra: extra.join(" · ").into(),
             computer,
             prs: prs_label.map(Into::into),
+            pr_number,
             recency: recency.map(Into::into),
             done: chat.is_done(),
             ran: listed.first_at.zip(listed.last_at).map(|(first, last)| ran_label(last - first).into()),
@@ -479,8 +487,17 @@ impl Render for ChatRowView {
                     })),
             )
             .children(row.prs.clone().map(|prs| {
+                let number = row.pr_number;
                 div()
+                    .id(("chat-row-prs", ix))
                     .debug_selector(move || format!("chat-row-prs-{ix}"))
+                    .when_some(number, |el, number| {
+                        // A plain click opens the PR in the Chat's PR panel (`openRowPullRequest`), not the row's click.
+                        el.cursor_pointer().on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            cx.emit(RowEvent::OpenPullRequest(number));
+                        }))
+                    })
                     .flex()
                     .flex_none()
                     .items_center()

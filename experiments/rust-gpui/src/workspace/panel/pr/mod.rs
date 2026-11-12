@@ -128,6 +128,8 @@ pub struct PrView {
     _confirm_timer: Option<Task<()>>,
     busy: Option<&'static str>,
     write_error: Option<String>,
+    /// A deferred write on its way ([`PrBridge::deferred`]): its PR and the detail before it, put back if it fails.
+    undo: Option<(u32, PullRequestDetail)>,
     texts: HashMap<String, Entity<TextViewState>>,
     /// The diff view, made on the first pick, and the PR and file it was opened on (if it is open).
     diff: Option<Entity<DiffView>>,
@@ -178,6 +180,7 @@ impl PrView {
             _confirm_timer: None,
             busy: None,
             write_error: None,
+            undo: None,
             texts: HashMap::new(),
             diff: None,
             diff_open: None,
@@ -199,6 +202,7 @@ impl PrView {
         self._confirm_timer = None;
         self.write_error = None;
         self.busy = None;
+        self.undo = None;
         self.review = ReviewForm::default();
         if self.number != number || self.detail.is_none() {
             self.number = number;
@@ -207,9 +211,57 @@ impl PrView {
         cx.notify();
     }
 
+    /// Another seam to GitHub (a daemon-backed bridge in place of the fixture's): the PR is read again through it.
+    pub fn set_bridge(&mut self, bridge: Rc<dyn PrBridge>, cx: &mut Context<Self>) {
+        self.bridge = bridge;
+        self.undo = None;
+        self.busy = None;
+        self.load(cx);
+        cx.notify();
+    }
+
+    /// The bridge has a newer read of the PR (a poll, the answer after a write): the detail is replaced in place,
+    /// keeping the tab, folds, picked file and open diff. A failed read keeps the PR on screen when there is one.
+    /// Nothing changes while a deferred write is on its way.
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
+        if self.undo.is_some() {
+            return;
+        }
+        let Some(number) = self.number else { return };
+        if self.bridge.loading(number) {
+            if self.detail.as_ref().is_none_or(|pr| pr.number != number) {
+                self.detail = None;
+                self.read_error = None;
+                cx.notify();
+            }
+            return;
+        }
+        match self.bridge.detail(number) {
+            Ok(detail) => {
+                let first = self.detail.is_none();
+                self.detail = Some(detail);
+                self.read_error = None;
+                if first {
+                    self.diff_open = None;
+                }
+            }
+            Err(message) if self.detail.is_none() => self.read_error = Some(message),
+            Err(_) => {}
+        }
+        self.rebuild_texts(cx);
+        self.rebuild_diff(cx);
+        self.sync_diff_threads(cx);
+        cx.notify();
+    }
+
     fn load(&mut self, cx: &mut Context<Self>) {
         self.diff_open = None;
         self.texts.clear();
+        if self.number.is_some_and(|number| self.bridge.loading(number)) {
+            self.detail = None;
+            self.read_error = None;
+            return;
+        }
         match self.number.map(|number| self.bridge.detail(number)) {
             Some(Ok(detail)) => {
                 self.detail = Some(detail);
@@ -245,6 +297,11 @@ impl PrView {
 
     pub fn renders(&self) -> usize {
         self.renders
+    }
+
+    /// The Chat whose PR this is.
+    pub fn chat(&self) -> &str {
+        &self.chat
     }
 
     pub fn detail(&self) -> Option<&PullRequestDetail> {
@@ -404,10 +461,22 @@ impl PrView {
     /// bridge refuses.
     pub fn write(&mut self, label: &'static str, write: Write, cx: &mut Context<Self>) -> bool {
         let (Some(pr), Some(number)) = (self.detail.clone(), self.number) else { return false };
+        if self.undo.is_some() {
+            return false;
+        }
         self.write_error = None;
         self.busy = Some(label);
         self.detail = Some(apply(&pr, &write));
         let result = self.bridge.write(number, &write);
+        if self.bridge.deferred() && result.is_ok() {
+            // Sent: the change and the busy label stay until `write_done`.
+            self.undo = Some((number, pr));
+            self.rebuild_texts(cx);
+            self.rebuild_diff(cx);
+            self.sync_diff_threads(cx);
+            cx.notify();
+            return true;
+        }
         self.busy = None;
         let ok = match result {
             Ok(()) => true,
@@ -440,6 +509,29 @@ impl PrView {
         self.disarm(cx);
         let method = self.method();
         self.write("merge", Write::Merge { method, admin, auto: None }, cx);
+    }
+
+    /// A deferred write to PR `number` was answered: `Err` takes its change back and says why under the header. The
+    /// data layer reads the PR again after either (Electron reads it after every write).
+    pub fn write_done(&mut self, number: u32, result: Result<(), String>, cx: &mut Context<Self>) {
+        let Some((pending, before)) = self.undo.take() else { return };
+        if pending != number || self.number != Some(number) {
+            return;
+        }
+        self.busy = None;
+        if let Err(message) = result {
+            self.detail = Some(before);
+            self.write_error = Some(message);
+        }
+        self.rebuild_texts(cx);
+        self.rebuild_diff(cx);
+        self.sync_diff_threads(cx);
+        cx.notify();
+    }
+
+    /// Whether a deferred write is on its way.
+    pub fn writing(&self) -> bool {
+        self.undo.is_some()
     }
 
     pub fn disarm(&mut self, cx: &mut Context<Self>) {

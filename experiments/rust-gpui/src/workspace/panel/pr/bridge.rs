@@ -1,8 +1,9 @@
 //! The PR panel's seam to GitHub: what the desktop's `bridge.pr` answers (`pr:detail`, `pr:merge`, `pr:ready`,
 //! `pr:labels`, `pr:request-reviewers`, `pr:reply`, `pr:resolve-thread`, `pr:submit-review`) as a trait the panel
 //! reads and writes through. [`super::fixture::FixtureBridge`] implements it now; a daemon-backed one replaces it
-//! (the calls are synchronous here because fixtures answer at once; the daemon's are futures the view awaits the way
-//! `data/source.rs` shows).
+//! (the calls are synchronous here because fixtures answer at once). A daemon-backed bridge reads ahead and answers
+//! from what it holds: [`PrBridge::loading`] while a read is on its way, then `PrView::reload`; its writes are
+//! [`PrBridge::deferred`], finished by `PrView::write_done`.
 //!
 //! A write is a [`Write`]; [`apply`] is the change it makes to a detail, which the view shows at once (the desktop's
 //! optimistic `write(label, run, optimistic)`) and keeps while the bridge answers.
@@ -70,6 +71,16 @@ pub trait PrBridge {
     fn repo_labels(&self) -> Vec<RepoLabel>;
     /// `pr:diff-file`: the PR's patch for a file.
     fn file_patch(&self, number: u32, file: &PrFile) -> Option<DiffFileResult>;
+    /// The PR is still being read (a daemon's answer is on its way): the panel shows "Loading the PR…" instead of
+    /// asking [`PrBridge::detail`]. The fixture answers at once.
+    fn loading(&self, _number: u32) -> bool {
+        false
+    }
+    /// Writes answer later (a daemon): [`PrBridge::write`] only starts one and its `Ok` means "sent"; the data layer
+    /// then calls `PrView::write_done` with the answer, and the view keeps its change (and the busy label) until then.
+    fn deferred(&self) -> bool {
+        false
+    }
 }
 
 /// What `write` does to a detail, the way GitHub would show it afterwards.

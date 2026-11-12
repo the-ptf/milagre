@@ -34,6 +34,8 @@ pub struct CardPr {
     pub state: PrState,
     pub ready: bool,
     pub blocked: bool,
+    /// Its page on GitHub: a click opens it in the browser and closes the card.
+    pub url: String,
 }
 
 /// What the card says about a Chat.
@@ -76,6 +78,7 @@ impl CardModel {
                 blocked: !crate::logic::prs::blockers::pull_request_blockers(Some(&pr)).is_empty(),
                 ready: pr.ready_to_merge,
                 state: pr.state,
+                url: pr.url,
                 title: pr.title,
             })
             .collect();
@@ -155,6 +158,7 @@ pub fn render(
                 model.prs.iter().enumerate().map(|(ix, pr)| {
                     let tone = pr_tone(pr, &theme);
                     let hover = theme.hover;
+                    let url = pr.url.clone();
                     div()
                         .id(("hover-card-pr", ix))
                         .debug_selector(move || format!("hover-card-pr-{ix}"))
@@ -167,6 +171,7 @@ pub fn render(
                         .rounded(RADIUS_INLINE)
                         .cursor_pointer()
                         .hover(move |style| style.bg(hover))
+                        .when(!url.is_empty(), |el| el.on_click(move |_, _, cx| cx.open_url(&url)))
                         .child(
                             div()
                                 .flex()

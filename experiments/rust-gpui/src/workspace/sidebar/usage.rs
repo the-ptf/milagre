@@ -259,8 +259,18 @@ impl CardModel {
     }
 }
 
+/// The usage card's account picker: whether its choices are open, and what opens or closes them.
+pub struct Picker {
+    pub open: bool,
+    pub toggle: PickerToggle,
+}
+
+/// Opens (`true`) or closes the usage card's account picker.
+pub type PickerToggle = Rc<dyn Fn(bool, &mut App)>;
+
 /// The card beside the sidebar (`UsageCard`): its bottom edge level with the row's, `left` the sidebar's right edge
 /// plus a gap, kept inside the window.
+#[allow(clippy::too_many_arguments)]
 pub fn card(
     provider: Provider,
     usage: &UsageSnapshot,
@@ -268,14 +278,27 @@ pub fn card(
     sidebar_right: f32,
     window: &Window,
     cx: &App,
+    picker: Picker,
     on_hover: impl Fn(bool, &mut Window, &mut App) + 'static,
 ) -> Option<AnyElement> {
     let theme = *cx.theme();
     let provider_usage = usage.providers.iter().find(|p| p.provider == provider)?;
-    // Preview with live usage: the fixture's account store is not this computer's, so no picker; the refresh button is
-    // off too (a read of the provider's CLI is Electron's to run).
+    // Preview with live usage: the fixture's account store is not this computer's. The picker lists the Project on
+    // screen's accounts and the refresh button reads again only when the data layer backs those writes
+    // (`PreviewAccountWrites`); otherwise both are off.
     let live = crate::workspace::preview::usage_is_live(cx);
-    let model = CardModel::build(provider_usage, if live { None } else { cx.try_global::<AccountsStore>() }, now_ms());
+    let writes = cx.has_global::<crate::workspace::preview::PreviewAccountWrites>();
+    let mut model = CardModel::build(provider_usage, if live { None } else { cx.try_global::<AccountsStore>() }, now_ms());
+    let group = live
+        .then(|| cx.try_global::<crate::workspace::preview::PreviewProjectAccounts>())
+        .flatten()
+        .and_then(|accounts| accounts.0.iter().find(|group| group.provider == provider).cloned())
+        .filter(|group| writes && group.accounts.iter().filter(|entry| !entry.account.missing).count() >= 2);
+    if live {
+        model.picker = group.is_some();
+    }
+    let reading = cx.has_global::<crate::workspace::preview::PreviewUsageReading>();
+    let Picker { open: picker_open, toggle: on_picker } = picker;
     let viewport = window.viewport_size();
     let left = (sidebar_right + CARD_GAP).min(f32::from(viewport.width) - CARD_WIDTH - VIEWPORT_MARGIN);
     let bottom = bounds.bottom().min(viewport.height - px(VIEWPORT_MARGIN));
@@ -293,6 +316,7 @@ pub fn card(
                 .min_w_0()
                 .child(
                     div()
+                        .id("usage-card-account")
                         .debug_selector(|| "usage-card-account".into())
                         .flex()
                         .items_center()
@@ -300,13 +324,71 @@ pub fn card(
                         .text_step(TEXT_15)
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(div().min_w_0().truncate().child(model.account.clone()))
-                        .when(model.picker, |el| el.child(Icon::new(IconName::ArrowDown01).size(IconSize::S12).color(theme.ink3))),
+                        .when(model.picker, |el| el.child(Icon::new(IconName::ArrowDown01).size(IconSize::S12).color(theme.ink3)))
+                        .when(group.is_some(), |el| {
+                            let toggle = on_picker.clone();
+                            el.cursor_pointer().on_click(move |_, _, cx| toggle(!picker_open, cx))
+                        }),
                 )
                 .child(div().text_step(TEXT_12).text_color(theme.ink3).child(model.updated.clone())),
         )
         .when(!live, |el| {
             el.child(IconButton::new("usage-card-refresh", IconName::Refresh).size(IconButtonSize::S28).glyph(IconSize::S16))
+        })
+        .when(live && writes, |el| {
+            el.child(
+                div().when(reading, |el| el.opacity(0.4)).child(
+                    IconButton::new("usage-card-refresh", IconName::Refresh)
+                        .size(IconButtonSize::S28)
+                        .glyph(IconSize::S16)
+                        .on_click(move |_, _, cx| {
+                            if !cx.has_global::<crate::workspace::preview::PreviewUsageReading>() {
+                                crate::workspace::preview::account_write(crate::workspace::preview::AccountWrite::RefreshUsage, cx);
+                            }
+                        }),
+                ),
+            )
         });
+    // The picker's choices (`projectAccountOptions`): "Use computer default", then each saved account.
+    let picker = group.filter(|_| picker_open).map(|group| {
+        let current = group.account_id.clone().unwrap_or_default();
+        div().flex().flex_col().gap(px(2.0)).px(px(8.0)).pb(px(8.0)).children(group.choices().into_iter().enumerate().map(|(n, choice)| {
+            let selected = choice.value == current;
+            let (value, disabled) = (choice.value.clone(), choice.disabled);
+            let close = on_picker.clone();
+            div()
+                .id(("usage-card-pick", n))
+                .debug_selector(move || format!("usage-card-pick-{n}"))
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .px(px(8.0))
+                .py(px(4.0))
+                .rounded(RADIUS_CONTROL)
+                .text_step(TEXT_13)
+                .when(disabled, |el| el.opacity(0.4))
+                .when(!disabled, |el| {
+                    el.cursor_pointer().hover(move |style| style.bg(theme.hover)).on_click(move |_, _, cx| {
+                        close(false, cx);
+                        if !selected {
+                            let account_id = (!value.is_empty()).then(|| value.clone());
+                            crate::workspace::preview::account_write(
+                                crate::workspace::preview::AccountWrite::Assign { provider, account_id },
+                                cx,
+                            );
+                        }
+                    })
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().truncate().text_color(theme.ink).child(choice.label.clone()))
+                        .children(choice.description.clone().map(|d| div().truncate().text_step(TEXT_12).text_color(theme.ink3).child(d))),
+                )
+                .when(selected, |el| el.child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.ink)))
+        }))
+    });
     let windows = (!model.windows.is_empty()).then(|| {
         div().flex().flex_col().gap(px(12.0)).px(px(16.0)).pt(px(12.0)).pb(px(16.0)).border_t_1().border_color(theme.line).children(
             model.windows.iter().map(|w| {
@@ -370,6 +452,7 @@ pub fn card(
                     .shadow(theme.shadow_raised())
                     .on_hover(move |hovered, window, cx| on_hover(*hovered, window, cx))
                     .child(header)
+                    .children(picker)
                     .when_some(model.message.clone(), |el, message| {
                         el.child(
                             div()
@@ -426,6 +509,7 @@ impl super::Sidebar {
                 cx.background_executor().timer(CLOSE_DELAY).await;
                 let _ = this.update(cx, |this, cx| {
                     this.usage_card = None;
+                    this.usage_picker = false;
                     cx.notify();
                 });
             }));
@@ -457,7 +541,15 @@ impl super::Sidebar {
         let bounds = *self.usage_bounds.borrow().get(&provider)?;
         let right = if self.collapsed { super::rail::RAIL_WIDTH } else { super::SIDEBAR_WIDTH };
         let sidebar = cx.entity();
-        card(provider, &self.data.usage, bounds, right, window, cx, move |on, _, cx| {
+        let picker_sidebar = sidebar.clone();
+        let on_picker: PickerToggle = Rc::new(move |open, cx| {
+            picker_sidebar.update(cx, |this, cx| {
+                this.usage_picker = open;
+                cx.notify();
+            })
+        });
+        let picker = Picker { open: self.usage_picker, toggle: on_picker };
+        card(provider, &self.data.usage, bounds, right, window, cx, picker, move |on, _, cx| {
             sidebar.update(cx, |this, cx| this.usage_card_pointer(on, cx))
         })
     }

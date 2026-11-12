@@ -145,6 +145,8 @@ pub struct Sidebar {
     rail_task: Option<gpui::Task<()>>,
     /// The provider whose usage card is open, where each usage row was painted, and the open or close timer.
     usage_card: Option<crate::data::Provider>,
+    /// The open usage card's account picker is open.
+    usage_picker: bool,
     usage_bounds: usage::RowBounds,
     usage_task: Option<gpui::Task<()>>,
     /// Snapshot seed (never in tests): a state to open on the first frame, from `MILAGRE_GPUI_SIDEBAR_DEMO`.
@@ -168,6 +170,8 @@ pub enum SidebarEvent {
     NewChat,
     /// A Project shown by name only was opened (its path): the data layer loads it.
     OpenProject(gpui::SharedString),
+    /// A row's PR chip: the Chat (its key) opened with that PR in its PR panel.
+    OpenPullRequest { key: gpui::SharedString, number: u32 },
 }
 
 impl gpui::EventEmitter<SidebarEvent> for Sidebar {}
@@ -222,6 +226,7 @@ impl Sidebar {
             rail_card: None,
             rail_task: None,
             usage_card: None,
+            usage_picker: false,
             usage_bounds: Rc::default(),
             usage_task: None,
             demo: if cfg!(test) { None } else { std::env::var("MILAGRE_GPUI_SIDEBAR_DEMO").ok() },
@@ -648,6 +653,13 @@ impl Sidebar {
                     RowEvent::ContextMenu(at) => this.open_menu(ix, *at, window, cx),
                     RowEvent::Hover(bounds) => this.hover_row(ix, *bounds, cx),
                     RowEvent::ToggleDone => this.toggle_done_row(ix, cx),
+                    RowEvent::OpenPullRequest(number) => {
+                        window.focus(&this.focus, cx);
+                        this.select(ix, cx);
+                        if let Some(key) = this.rows.get(ix).map(|row| row.key.clone()) {
+                            cx.emit(SidebarEvent::OpenPullRequest { key, number: *number });
+                        }
+                    }
                 });
                 self.row_views.insert(ix, (view.clone(), events));
                 view

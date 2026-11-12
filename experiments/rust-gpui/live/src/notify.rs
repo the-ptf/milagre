@@ -328,6 +328,20 @@ impl Notifier {
         }
     }
 
+    /// A paired computer was forgotten (`computers:forgotten`): its Chats' activity and announced requests go, and
+    /// the badge with them.
+    pub fn forget_computer(&self, id: &str) {
+        let prefix = format!("{id}|");
+        {
+            let mut state = self.state.borrow_mut();
+            state.chats.retain(|key, _| !key.starts_with(&prefix));
+            state.order.retain(|key| !key.starts_with(&prefix));
+            state.shown.retain(|(key, _)| !key.starts_with(&prefix));
+            state.unread.retain(|key| !key.starts_with(&prefix));
+        }
+        self.badge();
+    }
+
     pub fn play(&self, chime: &str) {
         self.poster.play(chime);
     }

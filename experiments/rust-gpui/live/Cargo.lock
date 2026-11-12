@@ -4329,8 +4329,14 @@ dependencies = [
 name = "milagre-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "base64",
+ "cbc",
  "libc",
+ "pbkdf2",
+ "security-framework",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "tempfile",
 ]
@@ -6916,6 +6922,17 @@ checksum = "d52aa42f8fdf0fed91e5ce7f23d8138441002fa31dca008acf47e6fd4721f741"
 dependencies = [
  "nodrop",
  "stable_deref_trait",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
 ]
 
 [[package]]

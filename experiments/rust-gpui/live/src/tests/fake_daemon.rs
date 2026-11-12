@@ -76,10 +76,43 @@ const METHODS: &[&str] = &[
     "worktree:unlink-issue",
     "project:set-hidden",
     "project:recent",
+    // The PR panel (`pr:*`), the account switcher and the usage-limit card.
+    "pr:detail",
+    "pr:diff-files",
+    "pr:diff-file",
+    "pr:labels",
+    "pr:reviewer-candidates",
+    "pr:merge",
+    "pr:ready",
+    "pr:request-reviewers",
+    "pr:set-labels",
+    "pr:reply",
+    "pr:comment",
+    "pr:resolve-thread",
+    "pr:delete-comment",
+    "pr:submit-review",
+    "accounts:scope",
+    "accounts:assign",
+    "accounts:select",
+    "usage:read",
+    "limits:resume-at-reset:read",
+    "chat:limit-switch",
+    "chat:limit-resume",
+    "chat:limit-resume:cancel",
 ];
 
 /// The desktop's own commands, listed only to a client asking `daemon:status [{commands: true}]`.
-const DESKTOP: &[&str] = &["project:open", "daemon:snapshot"];
+const DESKTOP: &[&str] = &[
+    "project:open",
+    "daemon:snapshot",
+    // `computer-management-v1`: listed only to `{commands: true}` (or `{computerManagement: true}`).
+    "computers:vault-status",
+    "computers:unlock",
+    "computers:list",
+    "computers:add",
+    "computers:set-enabled",
+    "computers:invoke",
+];
 
 /// A Chat: id, title, messages as (role, body).
 pub type ChatSpec<'a> = (u64, &'a str, Vec<(&'a str, &'a str)>);
@@ -133,6 +166,15 @@ pub struct World {
     next_link: u64,
     /// `linked:grant`s: Chat key and Link id.
     pub grants: Vec<(String, String)>,
+    /// `pr:detail`'s PRs by number (`{ok: false}` for others); every PR write is refused with `pr_refuse` when set.
+    pub pr_details: BTreeMap<u64, Value>,
+    pub pr_refuse: Option<String>,
+    /// `accounts:scope`'s answer (any scope).
+    pub scope_accounts: Value,
+    /// `computers:vault-status` and `computers:list`; `remote` answers `computers:invoke` by `"<id> <method>"`.
+    pub vault: Value,
+    pub computers: Value,
+    pub remote: BTreeMap<String, Value>,
     /// Pending turns by Chat key: what finishes them.
     pending: BTreeMap<String, Pending>,
     terminals: BTreeMap<String, String>,
@@ -284,7 +326,19 @@ impl World {
 
     fn send(&mut self, request: &Value) -> Result<Value, String> {
         let path = request["projectPath"].as_str().ok_or("projectPath")?.to_owned();
-        let body = request["body"].as_str().ok_or("body")?.to_owned();
+        let mut body = request["body"].as_str().ok_or("body")?.to_owned();
+        // A PR pill: the daemon checks the action and writes the message (and the prompt) itself (`sendAsUser`).
+        let mut context = Value::Null;
+        if let Some(action) = request.get("prAction") {
+            let checked = milagre_gpui_spike::logic::prs::action::pull_request_action_context(
+                action["action"].as_str().unwrap_or_default(),
+                action["pr"].as_f64().unwrap_or_default(),
+                action["url"].as_str().unwrap_or_default(),
+            )
+            .ok_or("That pull request action isn't valid.")?;
+            body = milagre_gpui_spike::logic::prs::action::pull_request_action_body(&checked);
+            context = json!({"kind": "pr-action", "action": action["action"], "pr": action["pr"], "url": action["url"]});
+        }
         let model = request["model"].as_str().ok_or("model")?.to_owned();
         let provider = request["provider"].as_str().ok_or("provider")?.to_owned();
         let project = self.projects.get_mut(&path).ok_or("Open this project in Milagre first.")?;
@@ -302,7 +356,10 @@ impl World {
             }
         };
         self.next_message += 1;
-        let message = json!({"id":self.next_message,"session_id":id,"body":body,"role":"user","model":model,"images":[],"clientMessageId":request["clientMessageId"]});
+        let mut message = json!({"id":self.next_message,"session_id":id,"body":body,"role":"user","model":model,"images":[],"clientMessageId":request["clientMessageId"]});
+        if !context.is_null() {
+            message["context"] = context;
+        }
         let project = self.projects.get_mut(&path).unwrap();
         project.messages.entry(id).or_default().push(message);
         self.summarize(&path, id);
@@ -516,6 +573,62 @@ impl World {
                     {"id":"work","provider":"claude","label":"Work","state":"signed-out"}]},
                 {"provider":"kiro","selectedId":"default","installed":false,"accounts":[]}]}),
             "chat:runs" => json!({"runs":self.runs,"seq":self.runs_seq}),
+            "pr:detail" => match self.pr_details.get(&arg["number"].as_u64().unwrap_or(0)) {
+                Some(pr) => json!({"ok": true, "pr": pr}),
+                None => json!({"ok": false, "message": "No pull request found."}),
+            },
+            "pr:diff-files" => json!({"isRepo": true, "base": arg["base"], "files": [
+                {"path": "src/a.rs", "status": "modified", "added": 10, "removed": 2},
+                {"path": "src/b.rs", "status": "added", "added": 2, "removed": 1}]}),
+            "pr:diff-file" => json!({"patch": format!("@@ -1 +1,2 @@\n-old {}\n+new\n+line\n", arg["path"].as_str().unwrap_or_default())}),
+            "pr:labels" => json!({"ok": true, "labels": [{"name": "perf", "color": "00ff00", "description": "Faster"}, {"name": "bug", "color": "ff0000", "description": ""}]}),
+            "pr:reviewer-candidates" => json!({"ok": true, "logins": ["reviewer", "other"]}),
+            "pr:merge" | "pr:ready" | "pr:request-reviewers" | "pr:set-labels" | "pr:reply" | "pr:comment" | "pr:resolve-thread"
+            | "pr:delete-comment" | "pr:submit-review" => match &self.pr_refuse {
+                Some(message) => json!({"ok": false, "message": message}),
+                None => {
+                    let number = arg["number"].as_u64().unwrap_or(0);
+                    if let Some(pr) = self.pr_details.get_mut(&number) {
+                        match method {
+                            "pr:merge" if arg["auto"] == true => pr["autoMerge"] = json!({"method": arg["method"]}),
+                            "pr:merge" if arg["disableAuto"] == true => pr["autoMerge"] = Value::Null,
+                            "pr:merge" => pr["state"] = json!("MERGED"),
+                            "pr:ready" => pr["isDraft"] = json!(arg["draft"] == true),
+                            _ => {}
+                        }
+                    }
+                    json!({"ok": true})
+                }
+            },
+            "accounts:scope" => self.scope_accounts.clone(),
+            "accounts:assign" => {
+                let (provider, id) = (args[1].as_str().ok_or("provider")?, args[2].clone());
+                for group in self.scope_accounts["providers"].as_array_mut().into_iter().flatten() {
+                    if group["provider"] == provider {
+                        group["accountId"] = id.clone();
+                        group["effectiveId"] = if id.is_null() { group["defaultId"].clone() } else { id.clone() };
+                    }
+                }
+                self.emit("accounts:changed", json!({}));
+                self.scope_accounts.clone()
+            }
+            "accounts:select" => json!({"providers":[
+                {"provider":"claude","selectedId":args[1],"installed":true,"accounts":[
+                    {"id":"default","provider":"claude","label":"Connected CLI account","state":"ready","email":"me@example.com"},
+                    {"id":"work","provider":"claude","label":"Work","state":"ready","email":"work@example.com"}]}]}),
+            "usage:read" => if self.usage.is_null() { json!({"providers":[]}) } else { self.usage.clone() },
+            "limits:resume-at-reset:read" => json!({"resumeAtReset": true}),
+            "chat:limit-switch" => json!({"continued": true, "label": "work@example.com"}),
+            "chat:limit-resume" | "chat:limit-resume:cancel" => json!(true),
+            "computers:vault-status" => self.vault.clone(),
+            "computers:list" => self.computers.clone(),
+            "computers:set-enabled" => json!({"ok": true}),
+            "computers:add" if self.vault["unlocked"] != true => json!({"ok": false, "code": "keys"}),
+            "computers:add" => json!({"ok": true}),
+            "computers:invoke" => {
+                let key = format!("{} {}", arg.as_str().ok_or("id")?, args[1].as_str().ok_or("method")?);
+                self.remote.get(&key).cloned().ok_or_else(|| format!("The computer doesn't answer {key}"))?
+            }
             "chat:messages" => {
                 let (path, id) = (arg.as_str().ok_or("scope")?, args[1].as_u64().ok_or("chat")?);
                 let messages = self.projects.get(path).and_then(|p| p.messages.get(&id)).cloned().unwrap_or_default();

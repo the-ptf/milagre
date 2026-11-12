@@ -249,6 +249,18 @@ pub struct Chat {
     pub queue_held: bool,
     /// `plan`: the Chat's task list and phase history (the Tasks pill), set by the agent's tasks and phase tools.
     pub plan: Option<crate::logic::plan::ChatPlan>,
+    /// `limitTurn.sourceMessageId`: the reply a plan's usage limit stopped, which "Continue at" may schedule.
+    pub limit_turn: Option<u64>,
+    /// `limitResume`: a continuation scheduled for when the limit resets.
+    pub limit_resume: Option<LimitResume>,
+}
+
+/// `LimitResume`: when a stopped reply continues, and the send that will do it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LimitResume {
+    pub at: SharedString,
+    pub source_message_id: u64,
+    pub send_id: SharedString,
 }
 
 impl Chat {
@@ -286,6 +298,8 @@ impl Chat {
             queued: Vec::new(),
             queue_held: false,
             plan: None,
+            limit_turn: None,
+            limit_resume: None,
         }
     }
 

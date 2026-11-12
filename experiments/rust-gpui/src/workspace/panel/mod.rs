@@ -325,7 +325,8 @@ impl Panel {
     pub fn visible_tabs(&self) -> Vec<PanelTab> {
         if self.live {
             let details = self.live_details.then_some(PanelTab::Details);
-            return details.into_iter().chain(self.live_changes.is_some().then_some(PanelTab::Changes)).collect();
+            let pr = (self.live_details && self.content.pr.is_some()).then_some(PanelTab::Pr);
+            return details.into_iter().chain(pr).chain(self.live_changes.is_some().then_some(PanelTab::Changes)).collect();
         }
         PanelTab::SHOWN.into_iter().filter(|tab| self.content.has(*tab)).collect()
     }
@@ -339,7 +340,8 @@ impl Panel {
         let first = self.live_changes.is_none();
         self.live = true;
         self.live_changes = Some(chat.clone());
-        self.content = fixture::ChatContent { changes: data.clone(), designs: false, artifacts: false, pr: None, simulator: false };
+        let pr = self.content.pr.filter(|_| self.live_details);
+        self.content = fixture::ChatContent { changes: data.clone(), designs: false, artifacts: false, pr, simulator: false };
         if !self.live_details {
             let moved = self.chat != chat;
             self.chat = chat.clone();
@@ -364,6 +366,10 @@ impl Panel {
     /// its Details tab (and Changes once fed) and no fixture tab. Read again by the data layer as its state changes.
     pub fn set_live_details(&mut self, chat: SharedString, data: details::data::DetailsData, cx: &mut Context<Self>) {
         let switched = !self.live_details || self.chat != chat;
+        if self.chat != chat {
+            // Another Chat's PR is not this one's: the data layer sets it (`set_live_pr`).
+            self.content.pr = None;
+        }
         self.live = true;
         self.live_details = true;
         self.chat = chat.clone();
@@ -376,6 +382,32 @@ impl Panel {
         } else {
             cx.notify();
         }
+    }
+
+    /// A data layer's PR for `chat` (the one its Details show): `number` is the PR the tab reads through the PR view's
+    /// bridge (`PrView::set_bridge`), `None` when the Chat has none (the tab goes, and the panel falls back to
+    /// Details). `local_files` is what the Worktree has that the PR does not yet. Ignored for another Chat.
+    pub fn set_live_pr(&mut self, chat: SharedString, number: Option<u32>, local_files: usize, cx: &mut Context<Self>) {
+        if !self.live_details || self.chat != chat {
+            return;
+        }
+        let had = self.content.pr;
+        self.content.pr = number;
+        let same = self.pr.read(cx).number() == number && self.pr.read(cx).chat() == chat.as_ref();
+        if !same {
+            self.pr.update(cx, |pr, cx| pr.set_chat(chat, number, local_files, cx));
+        }
+        if number.is_none() && self.state().tab == PanelTab::Pr {
+            self.state_mut().tab = PanelTab::Details;
+        }
+        if had != number {
+            cx.notify();
+        }
+    }
+
+    /// The PR tab's view.
+    pub fn pr(&self) -> &Entity<PrView> {
+        &self.pr
     }
 
     /// Whether a data layer feeds the panel (`set_live_changes`).

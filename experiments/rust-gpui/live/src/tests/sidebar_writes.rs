@@ -288,7 +288,7 @@ fn a_read_only_window_refuses_the_sidebar_writes(cx: &mut TestAppContext) {
     m.vcx.run_until_parked();
     let methods = fake.methods();
     // Adoption, the snapshot, transcripts and the Preview's other reads (`Daemon::read`): never a sidebar write.
-    let allowed = ["daemon:status", "project:known", "daemon:snapshot", "daemon:snapshot-page", "chat:messages"];
+    let allowed = ["daemon:status", "project:known", "daemon:snapshot", "daemon:snapshot-page", "chat:messages", "computers:vault-status"];
     assert!(
         methods.iter().all(|m| allowed.contains(&m.as_str()) || crate::daemon::READS.contains(&m.as_str())),
         "read-only reached the daemon with: {methods:?}"

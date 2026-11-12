@@ -93,7 +93,11 @@ impl DataSource for LiveSource {
 
     fn recent_projects(&self, computer: ComputerId) -> DataFuture<Vec<Project>> {
         if computer.as_ref() != LOCAL {
-            return ready(Ok(Vec::new()));
+            // A paired computer's Projects, as last read through `computers:invoke` ([`crate::computers`]).
+            return match &self.reads {
+                Reads::Daemon(daemon) => ready(Ok(daemon.remote(&computer).map(|r| r.projects).unwrap_or_default())),
+                Reads::Owned(_) => ready(Ok(Vec::new())),
+            };
         }
         ready(self.projects().map(|projects| projects.into_iter().map(|open| open.project).collect()))
     }
@@ -125,6 +129,11 @@ impl DataSource for LiveSource {
 
     fn read_state(&self, scope: ScopeKey) -> DataFuture<StateRead> {
         if scope.computer() != LOCAL {
+            if let Reads::Daemon(daemon) = &self.reads
+                && let Some(state) = daemon.remote(scope.computer()).and_then(|r| r.states.get(scope.as_str()).cloned())
+            {
+                return ready(Ok(state));
+            }
             return not_available("computers:invoke");
         }
         ready(self.project(scope.as_str()).and_then(|open| {
@@ -135,7 +144,10 @@ impl DataSource for LiveSource {
 
     fn chat_runs(&self, computer: ComputerId) -> DataFuture<ChatRuns> {
         if computer.as_ref() != LOCAL {
-            return ready(Ok(ChatRuns::default()));
+            return match &self.reads {
+                Reads::Daemon(daemon) => ready(Ok(daemon.remote(&computer).map(|r| r.runs).unwrap_or_default())),
+                Reads::Owned(_) => ready(Ok(ChatRuns::default())),
+            };
         }
         ready(self.store.read(|reducer| reducer.shown().map(|applied| applied.runs.clone())).map_err(Into::into))
     }
@@ -145,7 +157,21 @@ impl DataSource for LiveSource {
             Reads::Owned(adapter) => adapter.chat_messages(scope, chat, page),
             Reads::Daemon(daemon) => {
                 if scope.computer() != LOCAL {
-                    return not_available("computers:invoke");
+                    // A paired computer's transcript: `computers:invoke [id, "chat:messages", [scope, id, page]]` on the
+                    // computers' own connection.
+                    let daemon = daemon.clone();
+                    return Box::pin(async move {
+                        let id = scope.computer().to_owned();
+                        let bare = crate::computers::bare(&id, scope.as_str()).to_owned();
+                        let mut options = serde_json::Map::new();
+                        options.insert("turns".into(), serde_json::json!(page.turns));
+                        options.insert("limit".into(), serde_json::json!(page.limit));
+                        if let Some(before) = page.before {
+                            options.insert("before".into(), serde_json::json!(before));
+                        }
+                        let body = daemon.invoke(&id, "chat:messages", serde_json::json!([bare, chat, options])).await?;
+                        crate::map::message_page(&body)
+                    });
                 }
                 let daemon = daemon.clone();
                 Box::pin(async move {
@@ -156,8 +182,12 @@ impl DataSource for LiveSource {
         }
     }
 
-    fn pull_requests(&self, _scope: ScopeKey) -> DataFuture<PullRequestSnapshot> {
-        not_available("pull-requests:snapshot")
+    fn pull_requests(&self, scope: ScopeKey) -> DataFuture<PullRequestSnapshot> {
+        match &self.reads {
+            // The last `pull-requests:snapshot` the controller read for this Project (the sidebar's PR chips).
+            Reads::Daemon(daemon) if scope.computer() == LOCAL => ready(Ok(crate::pr::snapshot(&daemon.prs(scope.as_str())))),
+            _ => not_available("pull-requests:snapshot"),
+        }
     }
 
     fn cached_usage(&self, computer: ComputerId) -> DataFuture<UsageSnapshot> {

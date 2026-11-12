@@ -77,6 +77,25 @@ impl Transcript {
         }
     }
 
+    /// Changes every usage-limit card (a data layer's new accounts, a scheduled continuation, an action's answer);
+    /// `change` says whether it changed one, and only those are measured again.
+    pub fn update_limit_cards(&mut self, change: impl Fn(usize, &mut LimitCard) -> bool, cx: &mut Context<Self>) {
+        let mut changed = Vec::new();
+        for (ix, item) in self.items.iter_mut().enumerate() {
+            if let super::Item::Card(Card::Limit(card)) = item
+                && change(ix, card)
+            {
+                changed.push(ix);
+            }
+        }
+        for ix in &changed {
+            self.list.splice(*ix..*ix + 1, 1);
+        }
+        if !changed.is_empty() {
+            cx.notify();
+        }
+    }
+
     /// The card at `ix`, cloned for a handler to change and put back with [`Transcript::set_card`].
     pub(super) fn card_at(&self, ix: usize) -> Option<Card> {
         match self.items.get(ix) {

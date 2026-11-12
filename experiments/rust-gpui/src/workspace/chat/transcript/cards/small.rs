@@ -210,6 +210,16 @@ pub struct LimitCard {
     /// The Chat's last message with no turn running: the card may offer its actions.
     pub interactive: bool,
     pub result: Option<SharedString>,
+    /// "Continue at <time>" is offered (Electron: resume at reset supported, this is the stopped reply, nothing queued).
+    pub resume: bool,
+    /// A data layer answers the card ([`super::super::CardDecision::LimitSwitch`], `LimitResume`): a click emits and
+    /// waits instead of changing the card here.
+    pub live: bool,
+    /// A live action is on its way.
+    pub busy: bool,
+    pub error: Option<SharedString>,
+    /// The reply it sits under (a data layer's message id), which decides whether it is the interactive one.
+    pub message: Option<u64>,
 }
 
 impl Transcript {
@@ -235,6 +245,16 @@ impl Transcript {
             let pending = card.pending_at.is_some();
             let toggle = cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 if let Some(super::Card::Limit(mut card)) = this.card_at(ix) {
+                    if card.live {
+                        if card.busy {
+                            return;
+                        }
+                        card.busy = true;
+                        card.error = None;
+                        this.set_card(ix, super::Card::Limit(card), cx);
+                        cx.emit(super::super::CardDecision::LimitResume { ix, cancel: pending });
+                        return;
+                    }
                     card.pending_at = if card.pending_at.is_some() {
                         None
                     } else {
@@ -249,7 +269,7 @@ impl Transcript {
                     .items_center()
                     .gap_2()
                     .when(pending, |el| el.child(div().text_step(TEXT_12).text_color(theme.ink2).child(label.clone())))
-                    .when(card.interactive, |el| {
+                    .when(card.interactive && card.resume, |el| {
                         el.child(
                             Button::new(
                                 ElementId::from((SharedString::from("limit-resume"), ix)),
@@ -271,15 +291,28 @@ impl Transcript {
                     div().child(
                         Button::new(ElementId::from((SharedString::from("limit-add"), ix)), "Add account")
                             .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::S28),
+                            .size(ButtonSize::S28)
+                            .selector("limit-add")
+                            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(super::super::CardDecision::OpenAccounts))),
                     ),
                 );
             } else {
                 let mut list = div().flex().flex_col().gap_1();
                 for (n, choice) in card.choices.iter().enumerate() {
                     let label = choice.label.clone();
+                    let id = choice.id.clone();
                     let click = cx.listener(move |this, _: &ClickEvent, _window, cx| {
                         if let Some(super::Card::Limit(mut card)) = this.card_at(ix) {
+                            if card.live {
+                                if card.busy {
+                                    return;
+                                }
+                                card.busy = true;
+                                card.error = None;
+                                this.set_card(ix, super::Card::Limit(card), cx);
+                                cx.emit(super::super::CardDecision::LimitSwitch { ix, account_id: id.clone(), label: label.clone() });
+                                return;
+                            }
                             card.result = Some(switched_text(true, &label).into());
                             this.set_card(ix, super::Card::Limit(card), cx);
                         }
@@ -322,11 +355,18 @@ impl Transcript {
                         div().child(
                             Button::new(ElementId::from((SharedString::from("limit-manage"), ix)), "Manage accounts")
                                 .variant(ButtonVariant::Quiet)
-                                .size(ButtonSize::S24),
+                                .size(ButtonSize::S24)
+                                .selector("limit-manage")
+                                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(super::super::CardDecision::OpenAccounts))),
                         ),
                     );
                 }
             }
+        }
+        if let Some(error) = &card.error {
+            shell = shell.child(
+                div().debug_selector(move || format!("limit-error-{ix}")).text_step(TEXT_12).text_color(theme.red_ink).child(error.clone()),
+            );
         }
         div().mt(px(12.0)).max_w(px(CARD_MAX_WIDTH)).child(shell).into_any_element()
     }
