@@ -50,6 +50,13 @@ in a build without it exits with an error. No gpui-pre patch: 0.3.12 already shi
 Needs Xcode's command line tools (for `bindgen`'s libclang). It does **not** need the Metal Toolchain (`runtime_shaders`).
 `node tools/gen-icons.mjs` (run by hand when icons change) needs the repository's `node_modules`.
 
+## No-dividers experiment
+
+`theme::HAIRLINE` (`src/theme/metrics.rs`) is the width of every hairline between the sidebar, the Chat column and the
+side panel, under the panel's tab strip, and between Details sections. It is `px(0.0)` now: nothing draws, and the
+Details sections are 12px apart (`SECTION_GAP`) instead. Set it back to `px(1.0)` to bring the lines back. The sidebar's
+own usage-block dividers are not covered by it.
+
 ## Package and install (macOS)
 
 ```sh

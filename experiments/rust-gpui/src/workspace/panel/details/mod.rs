@@ -1,5 +1,5 @@
 //! The Details tab of the side panel, modelled on Claude desktop's details sidebar: sections with a muted heading,
-//! then rows (a 16px icon, a label, a muted trailing value) with a hairline between sections. It is new; the React
+//! then rows (a 16px icon, a label, a muted trailing value) with a hairline between sections (`HAIRLINE`; a 12px gap while it is 0). It is new; the React
 //! desktop has no such panel.
 //!
 //! - Environment: the computer and how it is connected, the repo, the Worktree's branch and its path (click copies
@@ -31,7 +31,7 @@ use self::family::Family;
 use crate::data::DataSource;
 use crate::settings::SettingsStore;
 use crate::settings::store::EditorChoice;
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, HAIRLINE};
 use crate::ui::ScrollArea;
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 
@@ -39,6 +39,8 @@ use crate::workspace::chat::pills::bookmark::FamilyChat;
 /// fit the Changes panel's default width).
 pub(crate) const ROW_HEIGHT: f32 = 32.0;
 pub(crate) const PAD_X: f32 = 16.0;
+/// The vertical gap between two sections (the room a heading's rule used to leave).
+pub(crate) const SECTION_GAP: f32 = 12.0;
 pub(crate) const BRANCH_CHARS: usize = 34;
 pub(crate) const PATH_CHARS: usize = 26;
 /// How long "Copied" stays in place of the path's buttons.
@@ -334,14 +336,23 @@ impl Render for DetailsView {
         let mut body: Vec<gpui::AnyElement> = Vec::new();
         for (ix, section) in sections.into_iter().enumerate() {
             if ix > 0 {
-                body.push(div().flex_none().h(px(1.0)).w_full().bg(theme.line).into_any_element());
+                body.push(separator(&theme));
             }
             body.push(section);
         }
-        div()
-            .size_full()
-            .bg(theme.canvas)
-            .child(ScrollArea::new("details-scroll", &self.scroll).child(div().flex().flex_col().w_full().pb(px(12.0)).children(body)))
+        div().size_full().bg(theme.canvas).child(
+            ScrollArea::new("details-scroll", &self.scroll)
+                .child(div().flex().flex_col().w_full().pt(px(SECTION_GAP)).pb(px(12.0)).children(body)),
+        )
+    }
+}
+
+/// Between two sections: a `HAIRLINE` rule with room under it, or with no hairline a plain gap of `SECTION_GAP`.
+fn separator(theme: &crate::theme::Theme) -> gpui::AnyElement {
+    if HAIRLINE > px(0.0) {
+        div().flex_none().w_full().h(HAIRLINE).mb(px(SECTION_GAP)).bg(theme.line).into_any_element()
+    } else {
+        div().flex_none().w_full().h(px(SECTION_GAP)).into_any_element()
     }
 }
 

@@ -16,7 +16,7 @@ const CONTEXT_BAR: f32 = 248.0;
 const INDENT: f32 = 16.0;
 
 fn heading(theme: &Theme, text: &'static str) -> AnyElement {
-    div().flex_none().px(px(PAD_X)).pt(px(12.0)).pb(px(4.0)).child(SectionLabel::new(text)).text_color(theme.ink3).into_any_element()
+    div().flex_none().px(px(PAD_X)).pb(px(4.0)).child(SectionLabel::new(text)).text_color(theme.ink3).into_any_element()
 }
 
 /// A collapsible section's heading: the muted label and a chevron, the whole row toggles.
@@ -36,7 +36,6 @@ fn toggle_heading(
         .gap(px(4.0))
         .w_full()
         .px(px(PAD_X))
-        .pt(px(12.0))
         .pb(px(4.0))
         .text_color(theme.ink3)
         .cursor_pointer()

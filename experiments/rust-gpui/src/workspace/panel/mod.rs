@@ -41,7 +41,7 @@ use self::details::DetailsView;
 use self::fixture::ChatContent;
 use self::pr::{PrEvent, PrView};
 use self::simulator::{SimulatorEvent, SimulatorView};
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, HAIRLINE};
 use crate::ui::{IconName, Tab};
 use crate::workspace::chrome;
 use crate::workspace::sidebar::SidebarSeed;
@@ -463,7 +463,7 @@ impl Render for Panel {
             .size_full()
             .bg(theme.canvas)
             .child(header)
-            .child(div().flex_none().h(px(1.0)).bg(theme.line))
+            .when(HAIRLINE > px(0.0), |el| el.child(div().flex_none().h(HAIRLINE).bg(theme.line)))
             .child(div().id("panel-body").flex_1().min_h_0().children(body))
     }
 }

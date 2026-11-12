@@ -31,6 +31,11 @@ pub const ROW_TWO_LINE: Pixels = px(48.0);
 /// Height of every column header (sidebar header with the traffic lights, Chat header, panel tab strip).
 pub const HEADER_HEIGHT: Pixels = px(44.0);
 
+/// The width of every hairline between columns and under headers (and the Details panel's section dividers).
+/// The no-dividers experiment sets it to 0: nothing draws and the Details sections get a vertical gap instead.
+/// Set it back to `px(1.0)` to bring every hairline back.
+pub const HAIRLINE: Pixels = px(0.0);
+
 /// A project tile's corner radius for its size (DESIGN.md "Radius": `projectAvatarRadius`):
 /// 16 → 4, 20 and 24 → 6, 32 and 40 → 10, 72 → 20.
 pub fn project_avatar_radius(size: f32) -> Pixels {
