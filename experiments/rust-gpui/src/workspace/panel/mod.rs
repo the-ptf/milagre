@@ -10,6 +10,7 @@
 //!   transcript animation re-renders none of them.
 
 pub mod artifacts;
+pub mod browser;
 pub mod changes;
 pub mod designs;
 pub mod details;
@@ -35,6 +36,7 @@ use gpui::{
 use gpui_component::resizable::ResizableState;
 
 use self::artifacts::ArtifactsView;
+use self::browser::BrowserView;
 use self::changes::ChangesView;
 use self::designs::DesignsView;
 use self::details::DetailsView;
@@ -60,6 +62,8 @@ pub enum PanelTab {
     Details,
     /// Shown only while the Chat has a simulator attached, after the others (not in `ALL`).
     Simulator,
+    /// The Browser spike (`browser/`), shown only with `MILAGRE_GPUI_BROWSER_SPIKE=1` (not in `ALL`).
+    Browser,
 }
 
 impl PanelTab {
@@ -67,8 +71,8 @@ impl PanelTab {
     pub const ALL: [PanelTab; 4] = [PanelTab::Changes, PanelTab::Designs, PanelTab::Artifact, PanelTab::Pr];
 
     /// Every tab the strip can show, in order.
-    pub const SHOWN: [PanelTab; 6] =
-        [PanelTab::Details, PanelTab::Pr, PanelTab::Designs, PanelTab::Artifact, PanelTab::Changes, PanelTab::Simulator];
+    pub const SHOWN: [PanelTab; 7] =
+        [PanelTab::Details, PanelTab::Pr, PanelTab::Designs, PanelTab::Artifact, PanelTab::Changes, PanelTab::Simulator, PanelTab::Browser];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -78,6 +82,7 @@ impl PanelTab {
             PanelTab::Pr => "PR",
             PanelTab::Details => "Details",
             PanelTab::Simulator => "Simulator",
+            PanelTab::Browser => "Browser",
         }
     }
 
@@ -90,6 +95,7 @@ impl PanelTab {
             PanelTab::Pr => IconName::GitPullRequest,
             PanelTab::Details => IconName::LeftToRightListBullet,
             PanelTab::Simulator => IconName::Smartphone,
+            PanelTab::Browser => IconName::Globe02,
         }
     }
 }
@@ -136,6 +142,7 @@ pub struct Panel {
     pr: Entity<PrView>,
     details: Entity<DetailsView>,
     simulator: Entity<SimulatorView>,
+    browser: Entity<BrowserView>,
     /// Room the tab strip leaves at its right end for the window's panel toggle, set by the shell.
     header_trailing: gpui::Pixels,
     /// Every `render`, for the tests that check what a change elsewhere re-renders.
@@ -190,6 +197,7 @@ impl Panel {
             details: cx.new(DetailsView::new),
             designs: cx.new(DesignsView::new),
             simulator,
+            browser: cx.new(BrowserView::new),
             header_trailing: px(0.0),
             renders: 0,
         };
@@ -259,6 +267,9 @@ impl Panel {
         }
         if let Some(tab) = std::env::var("MILAGRE_GPUI_PANEL_TAB").ok().and_then(|n| PanelTab::SHOWN.into_iter().find(|t| t.label() == n)) {
             self.state_mut().tab = tab;
+            if tab == PanelTab::Browser && self.content.has(tab) {
+                self.browser.update(cx, |browser, cx| browser.ensure_started(cx));
+            }
         }
         if std::env::var_os("MILAGRE_GPUI_PANEL_CLOSED").is_some() {
             self.state_mut().open = false;
@@ -332,6 +343,7 @@ impl Panel {
             PanelTab::Pr => Some(self.pr.clone().into()),
             PanelTab::Details => Some(self.details.clone().into()),
             PanelTab::Simulator => Some(self.simulator.clone().into()),
+            PanelTab::Browser => Some(self.browser.clone().into()),
         }
     }
 
@@ -399,6 +411,9 @@ impl Panel {
     pub fn activate(&mut self, tab: PanelTab, cx: &mut Context<Self>) {
         if !self.content.has(tab) {
             return;
+        }
+        if tab == PanelTab::Browser {
+            self.browser.update(cx, |browser, cx| browser.ensure_started(cx));
         }
         let ix = self.visible_tabs().iter().position(|t| *t == tab).unwrap_or(0);
         // Applied while the list paints next frame: scrolls the least needed to show the tab fully.

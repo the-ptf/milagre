@@ -28,6 +28,7 @@ impl ChatContent {
             PanelTab::Pr => self.pr.is_some(),
             PanelTab::Details => true,
             PanelTab::Simulator => self.simulator,
+            PanelTab::Browser => super::browser::spike_enabled(),
         }
     }
 }
