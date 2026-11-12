@@ -68,3 +68,46 @@ Earlier observe/send runs `QoBrKl` and `7T5NjQ` proved saved rendering and a rea
 Root validation: 100 runtime tests, strict all-target feature Clippy and formatting; default shell 41 tests with one installed-host test ignored, scripted fixture 37 with one ignored, and 15 JS helper tests. The implementation agent passes 34 dedicated-bin tests with one installed-host test ignored, dedicated-bin strict Clippy and lint. Source review closes the custom-profile exclusion and unread-state findings. Logs are `/tmp/milagre-chat-unread-root-*`, `/tmp/milagre-chat-desktop-root-*` and `/tmp/milagre-chat-desktop-{tests,clippy,lint,build}.log`.
 
 This is a working dedicated Chat path, not full app parity or production adoption. Each current run still records 36 distinct unsupported/unavailable method names covering other services, including content, usage, terminal, Git, routines and integrations. They are not successful empty stubs. No real Design/Artifact authoring, other-provider or phone claim follows from this checkpoint. The ordinary installed `Milagre Rust.app` remains current and signed on its existing Node route; this development binary is not installed. No production host restart, mobile change or push occurred.
+
+## Real content and morning Preview checkpoint
+
+The dedicated Chat binary now installs the existing native Artifact preview
+protocol and bridge. Asset-bearing pages require canonical current Chat membership
+through the Rust owner; assetless pages and exact inline-only replies require a
+fresh Project read and have no Chat asset authority. Main navigation revokes old
+URLs. This reuses the production React UI; no provider request is rewritten.
+
+The full fresh native run made one Send and two exact Allow once clicks, created
+HTML and Design through real Claude MCP, edited the Design once to version 2, and
+reloaded both with no send/permission/save replay. All four 1440x900 PNGs are
+nonblank and were inspected. Evidence:
+`/private/tmp/milagre-native-chat-observer-Ywg8gx/verified.json`, captures under
+`/private/tmp/milagre-chat-evidence-qbXE6W/`. The original observer failed on the
+human-readable Artifact Show label after both native phases passed. Its failed
+observer remains; corrected exact-label assertions revalidated the saved evidence
+without another send. Cleanup observed during revalidation is explicitly later
+verification. A separate actual daemon restart retained the exact four IDs,
+HTML and edited Design. Runtime integration passes 114 tests, native PTY core 44;
+Chat shell 50 tests (one optional ignored), ordinary shell 41 (one ignored), and
+strict combined Clippy/lint/format checks pass.
+
+Post-signing native capture binaries were shell
+`f6ba15bf1b036fb92b0f35ddf868c93e4bb6052201c4e5b27301bcf18cb3ef0a`
+and runtime `344cf4ce79c5ff294036a140906ab2b22d35d8d0475b4f0d8250215be53e7d3c`.
+The later Finder-launch helper is checked separately; these identify the native
+workflow binaries, not a claim that all later packaging is identical.
+
+Earlier failed evidence is retained. Missing preview registration, assetless
+renderer metadata and a watchdog started before setup were corrected. Smoke-only
+reduced motion prevents hidden WebKit from waiting forever on animation-frame
+callbacks. Normal builds keep ordinary motion. A `resumeContent:true` plan can
+inspect/edit already created test content without another Send; it is recorded
+separately and never counted as fresh creation evidence. Native HTML checks cover
+source, helper readiness, opaque sandbox, geometry and pixels, not cross-origin
+iframe DOM text. Required services still return explicit errors where unported;
+this is not full UI/service parity or production cutover.
+
+Normal `Milagre Rust Preview.app` packaging uses explicit bundled Finder config
+and stable private data, not the smoke/fixture binary. See [PREVIEW.md](PREVIEW.md)
+for setup order and platform/account requirements. The existing installed
+`Milagre Rust.app` and production host are retained.

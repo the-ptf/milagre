@@ -46,16 +46,26 @@ pub fn plan() -> Result<Option<Value>, String> {
     Ok(Some(value))
 }
 fn validate(value: &Value) -> Result<(), String> {
-    let fields = ["mode", "sessionId", "body", "expectedText", "permission"];
+    let fields = [
+        "mode",
+        "sessionId",
+        "body",
+        "expectedText",
+        "permission",
+        "content",
+        "resumeContent",
+    ];
     if value
         .as_object()
         .is_none_or(|v| v.keys().any(|k| !fields.contains(&k.as_str())))
         || value["sessionId"] != 1
-        || !matches!(value["mode"].as_str(), Some("observe" | "send"))
+        || !matches!(value["mode"].as_str(), Some("observe" | "send" | "content"))
     {
-        return Err("Smoke plan requires mode observe/send and existing sessionId 1".into());
+        return Err(
+            "Smoke plan requires mode observe/send/content and existing sessionId 1".into(),
+        );
     }
-    if value["mode"] == "send"
+    if matches!(value["mode"].as_str(), Some("send" | "content"))
         && value["body"]
             .as_str()
             .is_none_or(|s| s.is_empty() || s.len() > 16 * 1024 || s.contains('\0'))
@@ -87,6 +97,58 @@ fn validate(value: &Value) -> Result<(), String> {
             return Err("Permission plan requires exact Write path and explicit allow/deny".into());
         }
     }
+    if value["mode"] == "content" {
+        if value
+            .get("resumeContent")
+            .is_some_and(|value| !value.is_boolean())
+        {
+            return Err("resumeContent must be an explicit boolean".into());
+        }
+        let content = &value["content"];
+        let exact = |v: &Value, keys: &[&str]| {
+            v.as_object()
+                .is_some_and(|o| o.len() == keys.len() && keys.iter().all(|k| o.contains_key(*k)))
+        };
+        let text = |v: &Value| {
+            v.as_str()
+                .is_some_and(|s| !s.is_empty() && s.len() <= 1024 && !s.contains('\0'))
+        };
+        let id = |v: &Value| {
+            v.as_str().is_some_and(|s| {
+                !s.is_empty()
+                    && s.len() <= 96
+                    && s.bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            })
+        };
+        let node = content["design"]["nodeId"].as_str().is_some_and(|s| {
+            !s.is_empty()
+                && s.len() <= 96
+                && s.as_bytes()[0].is_ascii_alphabetic()
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        });
+        if value.get("permission").is_some()
+            || !exact(content, &["html", "design"])
+            || !exact(&content["html"], &["id", "marker"])
+            || !exact(
+                &content["design"],
+                &["id", "nodeId", "beforeText", "afterText"],
+            )
+            || !id(&content["html"]["id"])
+            || !id(&content["design"]["id"])
+            || content["html"]["id"] == content["design"]["id"]
+            || !node
+            || !text(&content["html"]["marker"])
+            || !text(&content["design"]["beforeText"])
+            || !text(&content["design"]["afterText"])
+            || content["design"]["beforeText"] == content["design"]["afterText"]
+        {
+            return Err("Content requires distinct exact HTML/Design IDs, a marker and one explicit text-layer edit; no generic permission override".into());
+        }
+    } else if value.get("content").is_some() || value.get("resumeContent").is_some() {
+        return Err("Content actions require explicit content mode".into());
+    }
     Ok(())
 }
 pub struct Smoke {
@@ -96,6 +158,7 @@ pub struct Smoke {
     phase: AtomicU8,
     store: AtomicU8,
     submitted: AtomicBool,
+    html_captured: AtomicU8,
     finished: AtomicBool,
     report: Mutex<Value>,
 }
@@ -129,6 +192,7 @@ impl Smoke {
             phase: AtomicU8::new(0),
             store: AtomicU8::new(0),
             submitted: AtomicBool::new(false),
+            html_captured: AtomicU8::new(0),
             finished: AtomicBool::new(false),
             report: Mutex::new(report),
         };
@@ -153,6 +217,21 @@ impl Smoke {
             .store(if persistent { 2 } else { 1 }, Ordering::Release);
         self.report.lock().unwrap()["isPersistent"] = json!(persistent);
         let _ = self.write();
+    }
+    pub fn progress(&self, value: &Value) -> Result<Value, Value> {
+        let label = value["label"]
+            .as_str()
+            .filter(|s| !s.is_empty() && s.len() <= 256)
+            .ok_or_else(|| json!({"code":"INVALID_SMOKE_PROGRESS"}))?;
+        if value["phase"] != self.phase.load(Ordering::Acquire)
+            || self.finished.load(Ordering::Acquire)
+        {
+            return Err(json!({"code":"STALE_SMOKE_PROGRESS"}));
+        }
+        self.report.lock().unwrap()["progress"] = json!({"phase":value["phase"],"label":label});
+        self.write()
+            .map_err(|error| json!({"code":"SMOKE_PROGRESS_IO","message":error}))?;
+        Ok(Value::Null)
     }
     pub fn context(&self, project: &Path) -> Result<Value, Value> {
         if self.store.load(Ordering::Acquire) != 1 {
@@ -179,8 +258,60 @@ pub async fn result(app: tauri::AppHandle, value: String) -> Result<Value, Strin
     let smoke = app.try_state::<Smoke>().ok_or("No explicit smoke plan")?;
     let mut stage: Value = serde_json::from_str(&value).map_err(|e| e.to_string())?;
     let phase = smoke.phase.load(Ordering::Acquire);
-    if stage["phase"] != phase || smoke.submitted.swap(true, Ordering::AcqRel) {
+    if stage["phase"] != phase || smoke.finished.load(Ordering::Acquire) {
+        return Err("Stale smoke result".into());
+    }
+    if stage.get("checkpoint").is_some() {
+        if stage["checkpoint"] != "html"
+            || smoke.plan["mode"] != "content"
+            || smoke.submitted.load(Ordering::Acquire)
+            || smoke.html_captured.fetch_or(1 << phase, Ordering::AcqRel) & (1 << phase) != 0
+        {
+            return Err("Unknown or duplicate content checkpoint".into());
+        }
+        let window = app
+            .get_webview_window("main")
+            .ok_or("Main window unavailable")?;
+        let png = crate::snapshot::png(&window).await?;
+        if png.bytes.len() > 32 * 1024 * 1024 {
+            return Err("PNG exceeds 32 MiB".into());
+        }
+        let file = if phase == 0 {
+            "html-before-reload.png"
+        } else {
+            "html-after-reload.png"
+        };
+        crate::evidence::write(smoke.root.join(file), &png.bytes)?;
+        let capture =
+            json!({"file":file,"width":png.width,"height":png.height,"bytes":png.bytes.len()});
+        {
+            let mut report = smoke.report.lock().map_err(|_| "Smoke lock poisoned")?;
+            if report.get("contentCaptures").is_none() {
+                report["contentCaptures"] = json!([]);
+            }
+            report["contentCaptures"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"phase":phase,"capture":capture}));
+        }
+        smoke.write()?;
+        return Ok(json!({"captured":true,"capture":capture}));
+    }
+    if smoke.submitted.swap(true, Ordering::AcqRel) {
         return Err("Duplicate or stale smoke result".into());
+    }
+    smoke.report.lock().map_err(|_| "Smoke lock poisoned")?["pendingStage"] = stage.clone();
+    smoke.write()?;
+    if smoke.plan["mode"] == "content"
+        && !smoke.report.lock().map_err(|_| "Smoke lock poisoned")?["contentCaptures"]
+            .as_array()
+            .is_some_and(|v| v.iter().any(|capture| capture["phase"] == phase))
+    {
+        stage["passed"] = json!(false);
+        stage["missingHtmlCapture"] = json!(true);
+        if stage.get("error").is_none() {
+            stage["error"] = json!("Missing successful native HTML capture");
+        }
     }
     let window = app
         .get_webview_window("main")
@@ -245,5 +376,43 @@ mod tests {
         assert!(validate(&json!({"mode":"observe","sessionId":1,"permission":{"tool":"Write","path":"/tmp/x","decision":"allow"}})).is_err());
         assert!(validate(&json!({"mode":"send","sessionId":1,"body":"send","permission":{"tool":"Write","path":"/tmp/x","decision":"allow"}})).is_ok());
         assert!(validate(&json!({"mode":"send","sessionId":1,"body":"send","permission":{"tool":"Write","path":"/tmp/x","decision":"allow-for-chat"}})).is_err());
+    }
+    #[test]
+    fn content_plan_bounds_exact_creation_and_one_changed_text_layer() {
+        let plan = json!({"mode":"content","sessionId":1,"body":"Create the requested page and screen","content":{
+            "html":{"id":"live-page","marker":"HTML marker"},
+            "design":{"id":"live-screen","nodeId":"heading","beforeText":"Original","afterText":"Edited"}
+        }});
+        assert!(validate(&plan).is_ok());
+        for (pointer, replacement) in [
+            ("/mode", json!("send")),
+            ("/sessionId", json!(2)),
+            ("/body", json!("")),
+            ("/content/html/id", json!("../page")),
+            ("/content/html/id", json!("live-screen")),
+            ("/content/html/marker", json!("")),
+            ("/content/html/marker", json!("x".repeat(1025))),
+            ("/content/design/nodeId", json!("heading\"] button")),
+            ("/content/design/beforeText", json!("Edited")),
+            ("/content/design/afterText", json!("edited\0text")),
+        ] {
+            let mut invalid = plan.clone();
+            *invalid.pointer_mut(pointer).unwrap() = replacement;
+            assert!(validate(&invalid).is_err(), "accepted {pointer}");
+        }
+        for (field, value) in [
+            (
+                "permission",
+                json!({"tool":"Write","path":"/tmp/file","decision":"allow"}),
+            ),
+            ("allowAll", json!(true)),
+        ] {
+            let mut invalid = plan.clone();
+            invalid[field] = value;
+            assert!(validate(&invalid).is_err());
+        }
+        let mut invalid = plan;
+        invalid["content"]["design"]["from"] = json!("preexisting-copy");
+        assert!(validate(&invalid).is_err());
     }
 }

@@ -6,6 +6,57 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+The shared client checkpoint `90922b6c` is accepted: default-disabled owned Chat
+launch, reads and typed connection-bound actions, independent of GPUI/Tauri. Root
+ran a real selected-account Claude turn through this public API: stream, completion,
+exactly two saved messages, matching send status and Complete cleanup with data
+retained. Default 56 tests/four compile-fail doctests and all-feature 63/five pass;
+the old five-child fixture check and new four-child dedicated check pass.
+GPUI has the API, tested binary pin and public example and is wiring its preview.
+
+Configured Rust content, terminal and Git integration now passes root 114 runtime
+tests, 44 native-terminal tests, and strict feature checks. The real Node wire client
+is only a verifier: it drives actual Rust-owned PTYs and explicitly creates a test
+Git repo through that terminal, then verifies Changes, diff and history. Blocking
+terminal reads do not hold the actor. Shutdown retains the Project lock until
+successful native child reap, completed waiter callback, joined I/O and kill cleanup.
+Independent review closed premature completion and post-spawn error ownership P2s;
+deterministic mutants reproduce both. Unknown cleanup still retains ownership.
+
+Real native content now passes through the unchanged production React controls:
+one composer Send, two exact Allow once MCP cards, HTML and Design creation,
+Design edit/save from version 1 to 2, four nonblank native captures and reload
+without resend/resave. The fresh test's first observer rejected the human-readable
+permission label despite both native stages passing. The corrected exact-label
+assertions revalidated the original saved evidence without replay; the original
+failure remains. Evidence: `/private/tmp/milagre-native-chat-observer-Ywg8gx/verified.json`
+and `/private/tmp/milagre-chat-evidence-qbXE6W/`. Cleanup checks in that revalidation
+were later observations, not measurements immediately after exit. An independent
+actual daemon restart returns the identical four message IDs, HTML and edited
+Design (`milagre-native-content-full-nzmdde58/native-state-readback.json`).
+
+The normal combined runtime SHA-256 is
+`846ee97abc1d8ab38d2ea53c3e510fba726c305e1b58f7256fe07cd9805113f2`.
+Root desktop tests pass 46 (one optional ignored) before the later Finder-launch
+helper tests; default shell tests pass 41 (one ignored). Strict combined Clippy
+also covers feature-on fixture compilation. The earlier hidden-WebKit failures,
+missing preview registration, assetless-source refusal and absent watchdog are
+retained and corrected. Smoke builds request synthetic reduced motion because
+hidden WebKit pauses animation frames; normal builds do not override it. Native
+HTML observes source, helper readiness, opaque sandbox, geometry and pixels; it
+does not inspect the cross-origin iframe DOM. PNG feedback/export, content deletion,
+comments authoring and all unported service errors remain outside this checkpoint.
+
+The morning delivery target is a separate normal `Milagre Rust Preview.app` and
+an independent GPUI preview, each with explicit account and stable dedicated data.
+Packaging is in progress. Neither replaces the production owner or adopts existing
+production data. The ordinary installed Rust shell and app-fixture pin remain
+unchanged; heartbeat stays active. Routines durable CRUD is the next parallel lane;
+execution, phone connectivity, account/login adoption and full upgrade/rollback
+remain required. No migration-complete claim or percentage inferred from tests.
+
+### Earlier real Chat checkpoint (4e0ecb47c)
+
 The separate native `milagre-rust-chat` now starts its exact fixed-sibling configured Rust backend, checks the child/peer and persistent-root identities, and uses the production React renderer without Node fallback. Its launcher preserves custom `MILAGRE_DATA_DIR` exclusion before clearing the child's environment. It never deletes the persistent Project, and successful Quit waits for the owned daemon before removing private shell storage. The default installed route and production host are unchanged.
 
 Actual native Allow and Deny runs pass: `dXjCEY` and `QYYFNl` under `/private/tmp/milagre-native-chat-observer-*/observer.json`, with captures in `milagre-chat-evidence-cQyaBg` and `nRzEuO`. Each makes one actual production composer Send and one permission-button click, receives real Claude streaming/resolution/completion, saves two messages (6 to 8, then 8 to 10), reloads with unchanged message IDs/native ID/epoch and performs no resend. Root verified exact allowed-file bytes, denied-file absence, both process exits, socket/owner-lock cleanup, retained data and actual PNGs. Each shell exit is 0 with empty stderr and nonpersistent WebKit. Independent review accepts launcher, unread-state patch and Allow evidence; root separately validated Deny.

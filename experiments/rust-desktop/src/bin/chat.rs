@@ -2,6 +2,9 @@
 #[cfg(feature = "chat-native-smoke")]
 #[path = "../chat_smoke.rs"]
 mod chat_smoke;
+#[path = "../content.rs"]
+#[allow(dead_code)]
+mod content;
 #[cfg(feature = "chat-native-smoke")]
 #[path = "../evidence.rs"]
 mod evidence;
@@ -10,6 +13,8 @@ mod evidence;
 mod fixture_launch;
 #[path = "../navigation.rs"]
 mod navigation;
+#[path = "../preview_launch.rs"]
+mod preview_launch;
 #[path = "../shortcuts.rs"]
 mod shortcuts;
 #[cfg(feature = "chat-native-smoke")]
@@ -23,8 +28,36 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 struct Quit(AtomicBool);
+
+/// Only a typed cleanup-in-progress reply is retryable. Each attempt keeps the
+/// same retained child/context; after Stop acknowledgement it only waits for exit.
+/// Admit retries for 12s. The existing attempt has two bounded 10s waits, so the
+/// entire task takes at most 32s, without abandoning an in-flight cleanup call.
+fn settle_quit(
+    mut attempt: impl FnMut() -> Result<(), Value>,
+    mut elapsed: impl FnMut() -> Duration,
+    mut wait: impl FnMut(Duration),
+) -> Result<(), Value> {
+    let limit = Duration::from_secs(12);
+    loop {
+        match attempt() {
+            Err(error) if error["code"] == "QUIT_PENDING" => {
+                let remaining = limit.saturating_sub(elapsed());
+                if remaining.is_zero() {
+                    return Err(error);
+                }
+                wait(remaining.min(Duration::from_millis(200)));
+                if elapsed() >= limit {
+                    return Err(error);
+                }
+            }
+            outcome => return outcome,
+        }
+    }
+}
 
 #[tauri::command]
 async fn daemon(
@@ -62,6 +95,9 @@ async fn smoke_result(app: tauri::AppHandle, value: String) -> Result<Value, Str
 }
 #[tauri::command]
 async fn native_call(app: tauri::AppHandle, method: String, args: Value) -> Result<Value, Value> {
+    if let Some(result) = content::invoke_chat(&app, &method, &args).await {
+        return result;
+    }
     match method.as_str() {
         "app:launch-arguments" => Ok(json!([
             "--milagre-window-controls=leading",
@@ -91,6 +127,8 @@ async fn native_call(app: tauri::AppHandle, method: String, args: Value) -> Resu
         "chat-desktop:smoke-context" => app
             .state::<chat_smoke::Smoke>()
             .context(app.state::<Arc<fixture_launch::LaunchContext>>().project()),
+        #[cfg(feature = "chat-native-smoke")]
+        "chat-desktop:smoke-progress" => app.state::<chat_smoke::Smoke>().progress(&args[0]),
         "window:start-drag" => {
             app.get_webview_window("main")
                 .ok_or(json!({"code":"WINDOW_UNAVAILABLE"}))?
@@ -138,7 +176,15 @@ fn request_quit(app: &tauri::AppHandle, code: i32) {
         .inner()
         .clone();
     tauri::async_runtime::spawn(async move {
-        let result = tauri::async_runtime::spawn_blocking(move || context.request_quit()).await;
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let started = Instant::now();
+            settle_quit(
+                || context.request_quit(),
+                || started.elapsed(),
+                std::thread::sleep,
+            )
+        })
+        .await;
         app.state::<Quit>().0.store(false, Ordering::Release);
         match result {
             Ok(Ok(())) => app.exit(code),
@@ -159,18 +205,22 @@ fn request_quit(app: &tauri::AppHandle, code: i32) {
         }
     });
 }
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "chat-native-smoke")]
     let smoke_plan = chat_smoke::plan().map_err(std::io::Error::other)?;
-    let context =
-        fixture_launch::LaunchContext::spawn_chat(&std::env::args().skip(1).collect::<Vec<_>>())
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let explicit = std::env::args().skip(1).collect::<Vec<_>>();
+    let arguments = preview_launch::arguments(&explicit, &std::env::current_exe()?)?;
+    let context = fixture_launch::LaunchContext::spawn_chat(&arguments)
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     let owned = context.clone();
     let background = std::env::var("MILAGRE_BACKGROUND").as_deref() == Ok("1");
     println!("{}", json!({"chatDesktop":context.smoke_identity()}));
-    let app = tauri::Builder::default().manage(context.clone()).manage(Quit(AtomicBool::new(false)))
+    let app = content::install_chat_artifacts(tauri::Builder::default(), context.project().to_string_lossy().into_owned()).manage(context.clone()).manage(Quit(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![daemon,native_call,preferences_read,preferences_write,smoke_result])
         .on_page_load(|webview, payload| {
+            if webview.label() == "main" && payload.url().scheme() == "tauri" && payload.url().host_str() == Some("localhost")
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Started) { content::clear_previews(webview.app_handle()); }
             #[cfg(feature = "chat-native-smoke")]
             if webview.label() == "main" && payload.url().scheme() == "tauri" && payload.url().host_str() == Some("localhost")
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
@@ -184,11 +234,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .setup(move |app| {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), Box<dyn std::error::Error>> {
                 #[cfg(feature = "chat-native-smoke")]
-                if let Some(plan) = smoke_plan { app.manage(chat_smoke::Smoke::new(&owned, plan).map_err(std::io::Error::other)?); }
+                if let Some(plan) = smoke_plan {
+                    app.manage(chat_smoke::Smoke::new(&owned, plan).map_err(std::io::Error::other)?);
+                    chat_smoke::watchdog(app.handle().clone());
+                }
                 app.manage(transport::start_chat(app.handle().clone(), owned.clone()));
                 if background { app.set_activation_policy(tauri::ActivationPolicy::Accessory); }
-                let window = tauri::WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?
-                    .initialization_script(include_str!("../../renderer/fixture-network-policy.js"))
+                let window_builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?
+                    .initialization_script(include_str!("../../renderer/fixture-network-policy.js"));
+                #[cfg(feature = "chat-native-smoke")]
+                let window_builder = window_builder.initialization_script(include_str!("../../renderer/fixture-reduced-motion.js"));
+                let window = window_builder
                     .incognito(true)
                     .on_navigation(|url| url.scheme() == "tauri" && url.host_str() == Some("localhost"))
                     .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny).build()?;
@@ -226,8 +282,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(error.into());
         }
     };
-    #[cfg(feature = "chat-native-smoke")]
-    chat_smoke::watchdog(app.handle().clone());
     app.run(|app, event| {
         if let tauri::RunEvent::ExitRequested { ref api, .. } = event {
             let context = app.state::<Arc<fixture_launch::LaunchContext>>();
@@ -252,4 +306,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod quit_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn pending_retries_until_exact_cleanup_succeeds() {
+        let now = Cell::new(Duration::ZERO);
+        let attempts = Cell::new(0);
+        let result = settle_quit(
+            || {
+                attempts.set(attempts.get() + 1);
+                if attempts.get() < 3 {
+                    Err(json!({"code":"QUIT_PENDING"}))
+                } else {
+                    Ok(())
+                }
+            },
+            || now.get(),
+            |delay| now.set(now.get() + delay),
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(attempts.get(), 3);
+        assert_eq!(now.get(), Duration::from_millis(400));
+    }
+
+    #[test]
+    fn other_errors_and_cleanup_deadline_are_not_retried_forever() {
+        for error in [
+            json!({"code":"SAVE_FAILED","message":"original cause"}),
+            json!({"message":"QUIT_PENDING"}),
+        ] {
+            assert_eq!(
+                settle_quit(
+                    || Err(error.clone()),
+                    || Duration::ZERO,
+                    |_| panic!("permanent failure must not wait")
+                ),
+                Err(error)
+            );
+        }
+        let now = Cell::new(Duration::ZERO);
+        let attempts = Cell::new(0);
+        let pending = json!({"code":"QUIT_PENDING","message":"captured worker remains"});
+        let result = settle_quit(
+            || {
+                attempts.set(attempts.get() + 1);
+                Err(pending.clone())
+            },
+            || now.get(),
+            |delay| now.set(now.get() + delay),
+        );
+        assert_eq!(result, Err(pending));
+        assert_eq!(now.get(), Duration::from_secs(12));
+        assert_eq!(attempts.get(), 60);
+    }
 }

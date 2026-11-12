@@ -316,6 +316,7 @@ enum LaunchKind {
 }
 impl LaunchKind {
     #[cfg(feature = "chat-desktop")]
+    #[allow(dead_code)] // Shared module also compiles in the fixture binary with this feature.
     fn chat(args: &[String]) -> Result<Self> {
         let mut protected = Vec::new();
         if let Some(home) = std::env::var_os("HOME") {
@@ -331,6 +332,7 @@ impl LaunchKind {
         Self::chat_with_protected(args, &protected)
     }
     #[cfg(feature = "chat-desktop")]
+    #[allow(dead_code)] // Used by the dedicated Chat entrypoint, not the fixture entrypoint.
     fn chat_with_protected(args: &[String], protected: &[PathBuf]) -> Result<Self> {
         let (mode, root) = match args {
             [mode, root] if mode == "open" => (mode, root),
@@ -413,6 +415,7 @@ impl LaunchContext {
         Self::spawn(&executable)
     }
     #[cfg(feature = "chat-desktop")]
+    #[allow(dead_code)] // Used by the dedicated Chat entrypoint, not the fixture entrypoint.
     pub fn spawn_chat(args: &[String]) -> Result<Arc<Self>> {
         let executable = std::env::current_exe()
             .map_err(io)?
@@ -531,6 +534,7 @@ impl LaunchContext {
         &self.endpoint.project
     }
     #[cfg(any(feature = "fixture-native-smoke", feature = "chat-desktop"))]
+    #[allow(dead_code)] // The fixture binary can carry chat-desktop without a native smoke.
     pub fn smoke_identity(&self) -> Value {
         let mut value = json!({"shellPid":std::process::id(),"daemonPid":self.endpoint.pid,"shellRoot":self.storage.path(),"profile":self.endpoint.pins[0].0,"project":self.endpoint.project});
         if let Some(root) = &self.data_root {

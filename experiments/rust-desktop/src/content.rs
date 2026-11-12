@@ -290,6 +290,55 @@ pub async fn invoke_fixture(app: &tauri::AppHandle, method: &str, args: &Value) 
     }
     invoke(app, method, args)
 }
+/// Dedicated runtime previews require a fresh owner membership read. Draft Design
+/// HTML remains renderer supplied, while its Chat authority comes from the owner.
+#[cfg(feature = "chat-desktop")]
+#[allow(dead_code)]
+pub async fn invoke_chat(app: &tauri::AppHandle, method: &str, args: &Value) -> Option<Reply> {
+    if method == "artifact-preview:register" {
+        let project = app.state::<ContentState>().fixture_project.clone()?;
+        let generation = match app.state::<ContentState>().previews.lock() {
+            Ok(state) => state.generation,
+            Err(_) => return Some(Err(failure("Preview store unavailable"))),
+        };
+        let chat = &args[1]["chatId"];
+        // pageFiles omits source for assetless pages; HtmlReply supplies only
+        // {inline:true}. Neither shape can request assets from any Chat.
+        let unbound = args[1].is_null()
+            || args[1].as_object().is_some_and(|source| {
+                source.len() == 1 && source.get("inline") == Some(&Value::Bool(true))
+            });
+        if !dedicated_chat(&project, chat) && !unbound {
+            return Some(Err(failure("Choose a Chat in this dedicated Project")));
+        }
+        let (method, arguments) = if unbound {
+            ("project:read", json!([project]))
+        } else {
+            ("artifact:list", json!([{"chatId":chat}]))
+        };
+        if let Err(error) = app
+            .state::<crate::transport::Transport>()
+            .call(method.into(), arguments)
+            .await
+        {
+            clear_previews(app);
+            return Some(Err(error));
+        }
+        return Some(register(app, args, Some(generation)));
+    }
+    invoke(app, method, args)
+}
+#[cfg(feature = "chat-desktop")]
+#[allow(dead_code)]
+fn dedicated_chat(project: &str, chat: &Value) -> bool {
+    chat.as_str()
+        .and_then(|chat| chat.strip_prefix(&format!("{project}#")))
+        .is_some_and(|id| {
+            id.parse::<u64>().is_ok_and(|value| {
+                value > 0 && value <= 9_007_199_254_740_991 && value.to_string() == id
+            })
+        })
+}
 #[cfg(feature = "fixture-content-smoke")]
 #[allow(dead_code)] // Native probe belongs to the separate fixture bin.
 pub async fn inspect_fixture_preview(app: tauri::AppHandle, url: &str) -> Reply {
@@ -610,6 +659,17 @@ pub fn install_fixture_artifacts(
         fixture_project: Some(project),
     }))
 }
+#[cfg(feature = "chat-desktop")]
+#[allow(dead_code)]
+pub fn install_chat_artifacts(
+    builder: tauri::Builder<tauri::Wry>,
+    project: String,
+) -> tauri::Builder<tauri::Wry> {
+    artifact_protocol(builder.manage(ContentState {
+        previews: Mutex::default(),
+        fixture_project: Some(project),
+    }))
+}
 pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     install_artifacts(builder).register_asynchronous_uri_scheme_protocol(
         "milagre-media",
@@ -622,6 +682,27 @@ pub fn install(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "chat-desktop")]
+    #[test]
+    fn dedicated_preview_scope_accepts_canonical_chat_ids_only() {
+        for id in [1, 3, 1024, 9_007_199_254_740_991u64] {
+            assert!(dedicated_chat(
+                "/owned/project",
+                &json!(format!("/owned/project#{id}"))
+            ));
+        }
+        for chat in [
+            "/foreign#1",
+            "/owned/project#0",
+            "/owned/project#01",
+            "/owned/project#-1",
+            "/owned/project#1.0",
+            "/owned/project#9007199254740992",
+            "/owned/project#1#2",
+        ] {
+            assert!(!dedicated_chat("/owned/project", &json!(chat)));
+        }
+    }
     #[test]
     fn fixture_policy_is_offline_and_chat_binding_is_exact() {
         assert!(!FIXTURE_POLICY.contains("https:"));

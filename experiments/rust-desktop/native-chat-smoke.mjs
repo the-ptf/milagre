@@ -19,7 +19,8 @@ const [dataRoot, planPath] = await Promise.all(
   }),
 );
 const plan = JSON.parse(await readFile(planPath, "utf8"));
-assert.ok(["observe", "send"].includes(plan.mode));
+assert.ok(["observe", "send", "content"].includes(plan.mode));
+const sending = plan.mode === "send" || (plan.mode === "content" && !plan.resumeContent);
 const source = dirname(fileURLToPath(import.meta.url));
 const root = await mkdtemp(join(await realpath("/tmp"), "milagre-native-chat-observer-"));
 await chmod(root, 0o700);
@@ -105,6 +106,10 @@ try {
   assert.equal(await realpath(receipt.chatDesktop.dataRoot), dataRoot);
   const report = JSON.parse(await readFile(join(receipt.evidenceRoot, "report.json"), "utf8"));
   summary.report = report;
+  if (report.passed !== true) {
+    const failed = report.stages?.find((stage) => !stage.passed) ?? report.pendingStage;
+    throw Error(failed?.error ?? report.timeout ?? `Native smoke incomplete at ${report.progress?.label ?? "unknown stage"}`);
+  }
   assert.deepEqual(summary.exit, { code: 0, signal: null });
   assert.equal(stderr, "", "Shell stderr");
   assert.equal(report.passed, true, JSON.stringify(report.stages?.find((s) => !s.passed) ?? report.timeout));
@@ -118,33 +123,114 @@ try {
   assert.equal(typeof first.nativeId, "string");
   assert.ok(first.nativeId.length > 0);
   assert.equal(reloaded.epoch, first.epoch, "Renderer reload should retain the daemon epoch");
-  assert.equal(first.sendCalls, plan.mode === "send" ? 1 : 0);
-  assert.equal(first.sendClicks, plan.mode === "send" ? 1 : 0);
+  assert.equal(first.sendCalls, sending ? 1 : 0);
+  assert.equal(first.sendClicks, sending ? 1 : 0);
   assert.equal(reloaded.sendCalls, 0);
   assert.equal(reloaded.sendClicks, 0);
-  if (plan.mode === "send") {
+  if (sending) {
     assert.equal(first.after.total, first.before.total + 2);
     assert.equal(first.events.filter((event) => event.type === "turn-completed").length, 1);
     assert.ok(first.events.some((event) => event.type === "text-delta"));
-    assert.equal(first.permissionClicks, plan.permission ? 1 : 0);
+    if (plan.mode !== "content") assert.equal(first.permissionClicks, plan.permission ? 1 : 0);
+  }
+  if (plan.mode === "content") {
+    if (plan.resumeContent) assert.equal(first.content.resumedExisting, true);
+    else assert.equal(first.content.absentBeforeSend, true);
+    assert.equal(first.content.saveClicks, 1);
+    assert.equal(first.content.applyCalls, 1);
+    assert.equal(reloaded.content.saveClicks, 0);
+    assert.equal(reloaded.content.applyCalls, 0);
+    assert.equal(reloaded.permissionClicks, 0);
+    assert.deepEqual(reloaded.content.permissions, []);
+    assert.deepEqual(reloaded.content.html, first.content.html, "HTML source or version changed at reload");
+    assert.deepEqual(reloaded.content.designBefore, first.content.designSaved, "Reload did not read the saved Design edit");
+    assert.deepEqual(reloaded.content.designSaved, first.content.designSaved, "Reload saved or changed the Design");
+    assert.equal(first.content.designBefore.text, plan.content.design.beforeText);
+    assert.equal(first.content.designSaved.version, first.content.designBefore.version + 1);
+    assert.notEqual(first.content.designSaved.sha256, first.content.designBefore.sha256);
+    assert.equal(first.permissionClicks, first.content.permissions.length);
+    assert.ok(first.content.permissions.length <= 2);
+    const permissions = new Set();
+    for (const permission of first.content.permissions) {
+      assert.ok(!permissions.has(permission.tool), "Repeated content approval");
+      permissions.add(permission.tool);
+      assert.equal(permission.decision, "allow");
+      assert.equal(permission.button, "Allow once");
+      assert.equal(permission.detailVisible, true);
+      assert.ok(first.events.some((event) => event.type === "permission-resolved" && event.requestId === permission.requestId));
+      if (["mcp__milagre__artifact_show", "Artifact Show"].includes(permission.tool)) {
+        assert.equal(permission.input.id, plan.content.html.id);
+        assert.ok(permission.input.html.includes(plan.content.html.marker));
+        assert.ok(!permission.input.tabs && !permission.input.assets?.length);
+      } else {
+        assert.ok(["mcp__milagre__design_show", "Design Show"].includes(permission.tool));
+        assert.equal(permission.input.id, plan.content.design.id);
+        assert.ok(!permission.input.from && !permission.input.operations);
+        const nodes = permission.input.document.nodes.filter((node) => node.id === plan.content.design.nodeId);
+        assert.equal(nodes.length, 1);
+        assert.equal(nodes[0].type, "text");
+        assert.equal(nodes[0].text, plan.content.design.beforeText);
+      }
+    }
+    for (const stage of report.stages) {
+      assert.equal(stage.content.html.id, plan.content.html.id);
+      assert.equal(stage.content.html.sourceMarker, plan.content.html.marker);
+      assert.match(stage.content.html.sha256, /^[a-f0-9]{64}$/);
+      assert.equal(stage.content.designSaved.id, plan.content.design.id);
+      assert.equal(stage.content.designSaved.nodeId, plan.content.design.nodeId);
+      assert.equal(stage.content.designSaved.text, plan.content.design.afterText);
+      assert.match(stage.content.designSaved.sha256, /^[a-f0-9]{64}$/);
+      assert.equal(stage.content.htmlPreview.ready, true);
+      assert.equal(stage.content.htmlPreview.parentReadDenied, true);
+      assert.ok(stage.content.htmlPreview.width > 0 && stage.content.htmlPreview.height > 0);
+      assert.equal(stage.content.designPreview.canvasPainted, true);
+      assert.equal(stage.content.designPreview.editorVisible, true);
+      assert.equal(stage.content.designPreview.inspectorText, plan.content.design.afterText);
+      assert.ok(stage.content.designPreview.width > 0 && stage.content.designPreview.height > 0);
+      for (const [id, tool] of [
+        [plan.content.html.id, "artifact_show"],
+        [plan.content.design.id, "design_show"],
+      ])
+        assert.ok(
+          stage.content.toolSteps.some((step) => step.artifact.id === id && step.tool === tool && step.status === "done"),
+          "Missing saved content-tool provenance",
+        );
+    }
+    assert.deepEqual(reloaded.content.toolSteps, first.content.toolSteps);
+    assert.equal(report.contentCaptures.length, 2);
+    summary.contentScope = first.content.opaqueFrameLimit;
   }
   if (plan.expectedText) for (const stage of report.stages) assert.equal(stage.visibleText, plan.expectedText);
   summary.captures = [];
+  const captures = [];
   for (const [phase, stage] of report.stages.entries()) {
     assert.equal(stage.phase, phase);
     assert.equal(stage.passed, true);
     assert.ok(!stage.rendererErrors.some((error) => error.method === "chat:patch"), "Opening a Chat failed to save its read status");
     assert.equal(stage.capture.file, phase === 0 ? "before-reload.png" : "after-reload.png");
-    const bytes = await readFile(join(receipt.evidenceRoot, stage.capture.file));
+    captures.push(stage.capture);
+    if (plan.mode === "content") {
+      assert.ok(
+        !stage.rendererErrors.some((error) => ["artifact:apply", "artifact:get", "artifact:list", "artifact-preview:register"].includes(error.method)),
+        "Content operation failed",
+      );
+      const checkpoint = report.contentCaptures[phase];
+      assert.equal(checkpoint.phase, phase);
+      assert.equal(checkpoint.capture.file, phase === 0 ? "html-before-reload.png" : "html-after-reload.png");
+      captures.push(checkpoint.capture);
+    }
+  }
+  for (const capture of captures) {
+    const bytes = await readFile(join(receipt.evidenceRoot, capture.file));
     const png = PNG.sync.read(bytes);
-    assert.equal(bytes.length, stage.capture.bytes);
-    assert.equal(png.width, stage.capture.width);
-    assert.equal(png.height, stage.capture.height);
+    assert.equal(bytes.length, capture.bytes);
+    assert.equal(png.width, capture.width);
+    assert.equal(png.height, capture.height);
     assert.ok(png.width >= 980 && png.height >= 680);
     const colors = new Set();
     for (let i = 0; i < png.data.length && colors.size < 64; i += 64) colors.add(png.data.readUInt32BE(i));
     assert.ok(colors.size >= 16, "Native capture is blank or nearly uniform");
-    summary.captures.push({ file: stage.capture.file, sha256: createHash("sha256").update(bytes).digest("hex"), colors: colors.size });
+    summary.captures.push({ file: capture.file, sha256: createHash("sha256").update(bytes).digest("hex"), colors: colors.size });
   }
   summary.cleanup = [];
   for (const delay of [0, 250, 1000]) {

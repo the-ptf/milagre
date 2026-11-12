@@ -10,7 +10,14 @@ The user explicitly wants to choose between Tauri and GPUI at the end. Keep both
 
 ## Completion estimate and shared frontend integration (2026-11-11)
 
-Current planning estimate: **40% to 55% of the retained backend engineering** toward a verified Node-free release. This is an uncertainty range based on service coverage and remaining integration/acceptance work, not a measured percentage of code, tests or elapsed effort. The denominator includes retained service ports, one-owner composition, real-provider and phone compatibility, existing-data adoption, packaging, upgrade and rollback. It excludes the separate GPUI rewrite, the intentionally retained React UI and user-permitted omissions. **Production owner cutover is 0%: the installed app still uses Node.**
+The earlier **40% to 55%** engineering range is historical and is not a measured
+remaining-work estimate or a deadline forecast. Track accepted workflows instead.
+Real Rust Claude Chat, permissions and restart/resume work; the shared public
+client now also passes a real selected-account turn. Root's combined runtime passes
+114 tests with real PTY/Git wire checks, and the real native content creation/edit/
+reload evidence passes corrected read-only revalidation. Details and remaining
+scope are in [MIGRATION-STATUS.md](MIGRATION-STATUS.md). The installed production
+owner still uses Node. Full service/adoption/phone/upgrade checks remain required.
 
 The latest app fixture has real Rust Chat storage/turns, one shared Designs/Artifacts owner and 86 passing combined runtime tests. Native scripted Chat send/list/reload/reopen has passed. Two fresh native content runs pass Artifact rendering, Design edit/save, reload and preview revocation. Follow-up `7bb09e43` independently requires the content scenario, retained reply geometry, zero observed main-document errors and only expected CSP probes; both new Hix1TF runs pass with cleanup. Startup/iframe/resource errors and clipping/occlusion remain outside that automated health observation. Earlier failing evidence is retained; real providers and broader content authoring remain unverified. Remaining services include routine durable storage/execution (pure cron helpers pass at `2e28e486`; private state/claims pass at `4ff6175e` with 841 actual Node observations), delegation/negotiation, linked-host operations, local MCP configuration/server lifecycle, parts of settings/discovery, login/OAuth and OS credential adoption. Remote protocol foundations still need actual transport/execution integration and phone interoperability. Earlier checkpoint counts below are historical and do not supersede this scope.
 
@@ -19,6 +26,15 @@ Shared client `9aa5deb3` adds a separate async `ScriptedActions` capability boun
 GPUI `9a50ea52` added live reducers and a manually connected mounted transcript, but source review found snapshot admission bypassing its limits. `801f9fee` repairs that P2 before state replacement and adds differential Node run traces. Independent local review closes that P2. Follow-ups through `8305226a` adopt ScriptedActions: saved evidence records 12 actual fixture tests, live run/text/terminal changes, interrupt/cancel and a six-item mounted transcript through the documented manual entity-swap seam. It does not prove composer-driven sends, visible streaming or automatic base-app binding. GPUI reports 23 ordinary tests and a 576-test base; those counts were not rerun by root. Its earlier 5/56 package estimate is historical. Shared-client adoption by Tauri, production authority, approvals/questions and full Designs/Artifacts authoring remain required.
 
 ## Current safety gate (2026-11-11)
+
+Current integration adds one shared persistent content owner, seven dedicated
+terminal routes and four private Git read routes. Shared client `90922b6c` exposes
+owned launch and typed real Chat actions behind a default-disabled feature.
+Native real-provider content creation, editor save and reload are verified with
+synthetic reduced motion only in the smoke build. Normal Preview packaging is in
+progress for the morning; it is not production profile adoption or full migration.
+The detailed current checkpoint supersedes historical foundation counts below.
+
 
 The off-default `milagre-rust-chat` window now drives the unchanged production React UI against its exact owned `chat-runtime` child, with no Node fallback. Actual native WebKit runs pass composer send, streamed Claude text, visible Allow once and Deny buttons, saved messages and reload without replay. Allowed file bytes match; the denied file remains absent. Configured bootstrap supplies real Project/Canvas/account-scope reads. A native-discovered `chat:patch` error is fixed for the persisted unread-boolean subset; other patches refuse. Root passes 100 runtime tests, default/fixture desktop tests and strict checks; current screenshots show the read-status banner gone. [CHAT-DESKTOP.md](CHAT-DESKTOP.md) records hashes, evidence and limits. Thirty-six other unavailable method names remain visible in diagnostics, so this is one working Chat workflow, not full retained-service parity. Installed routing, production ownership, phone and GPUI pins remain unchanged.
 
