@@ -104,10 +104,21 @@ pub struct SelectionSnapshot {
     pub generation: u64,
     pub readiness: Readiness,
 }
+#[derive(Clone)]
+struct Failure {
+    error: ServiceError,
+    /// Only account-configuration trouble can recover: a later read re-pins the
+    /// files and re-proves the viewer login. Owner, root, executable and close
+    /// failures never recover.
+    recoverable: bool,
+}
 struct State {
+    /// Counts permanent changes only (close, owner/root/executable loss). A
+    /// recoverable account refusal keeps the generation, so the issued reader
+    /// stays bound to the same owner.
     generation: u64,
     readiness: Readiness,
-    failure: Option<ServiceError>,
+    failure: Option<Failure>,
 }
 struct Inner {
     context: CapturedContext,
@@ -115,18 +126,37 @@ struct Inner {
     home: RootPin,
     config: RootPin,
     program: FilePin,
-    files: [Option<AccountFile>; 2],
+    files: Mutex<[Option<AccountFile>; 2]>,
     state: Mutex<State>,
 }
 impl Inner {
     fn fail(&self, error: ServiceError) -> ServiceError {
         if let Ok(mut state) = self.state.lock() {
-            if state.failure.is_none() {
+            if state.failure.as_ref().is_none_or(|f| f.recoverable) {
                 state.generation += 1;
                 state.readiness = Readiness::Revoked;
-                state.failure = Some(error.clone());
+                state.failure = Some(Failure {
+                    error,
+                    recoverable: false,
+                });
             }
-            return state.failure.clone().unwrap();
+            return state.failure.clone().unwrap().error;
+        }
+        ServiceError::authority("GitHub selection state is unavailable")
+    }
+    fn fail_recoverable(&self, error: ServiceError) -> ServiceError {
+        if let Ok(mut state) = self.state.lock() {
+            if state.failure.is_none() && state.readiness != Readiness::Closed {
+                state.readiness = Readiness::Revoked;
+                state.failure = Some(Failure {
+                    error,
+                    recoverable: true,
+                });
+            }
+            return state.failure.clone().map_or_else(
+                || ServiceError::authority("The GitHub selection was closed"),
+                |f| f.error,
+            );
         }
         ServiceError::authority("GitHub selection state is unavailable")
     }
@@ -136,33 +166,31 @@ impl Inner {
                 .state
                 .lock()
                 .map_err(|_| ServiceError::authority("GitHub selection state is unavailable"))?;
-            if let Some(error) = &state.failure {
-                return Err(error.clone());
+            if let Some(failure) = &state.failure {
+                return Err(failure.error.clone());
             }
             if state.generation != generation || state.readiness == Readiness::Closed {
                 return Err(ServiceError::authority("The GitHub selection was closed"));
             }
         }
-        let validate = || -> Result<(), ServiceError> {
-            (self.context.check)().map_err(ServiceError::authority)?;
-            for root in [&self.project, &self.home, &self.config] {
-                root.check().map_err(ServiceError::authority)?;
-            }
-            if program_pin(&self.context.program).map_err(ServiceError::authority)? != self.program
-            {
-                return Err(ServiceError::authority("The selected GitHub CLI changed"));
-            }
-            for (index, name) in ["hosts.yml", "config.yml"].iter().enumerate() {
-                if file_pin(&self.context.config_directory.join(name))? != self.files[index] {
-                    return Err(ServiceError::authority(
-                        "The selected GitHub account configuration changed",
-                    ));
-                }
-            }
-            Ok(())
-        };
-        if let Err(error) = validate() {
+        if let Err(error) = self.validate_permanent() {
             return Err(self.fail(error));
+        }
+        let pins = self
+            .files
+            .lock()
+            .map_err(|_| ServiceError::authority("GitHub selection state is unavailable"))?
+            .clone();
+        for (index, name) in ["hosts.yml", "config.yml"].iter().enumerate() {
+            let current = match file_pin(&self.context.config_directory.join(name)) {
+                Ok(current) => current,
+                Err(error) => return Err(self.fail_recoverable(error)),
+            };
+            if current != pins[index] {
+                return Err(self.fail_recoverable(ServiceError::authority(
+                    "The selected GitHub account configuration changed",
+                )));
+            }
         }
         let state = self
             .state
@@ -172,10 +200,71 @@ impl Inner {
             || state.failure.is_some()
             || state.readiness == Readiness::Closed
         {
-            return Err(state
-                .failure
-                .clone()
-                .unwrap_or_else(|| ServiceError::authority("The GitHub selection was closed")));
+            return Err(state.failure.clone().map_or_else(
+                || ServiceError::authority("The GitHub selection was closed"),
+                |f| f.error,
+            ));
+        }
+        Ok(())
+    }
+    /// Owner, root, executable: loss of any of these ends the selection for good.
+    fn validate_permanent(&self) -> Result<(), ServiceError> {
+        (self.context.check)().map_err(ServiceError::authority)?;
+        for root in [&self.project, &self.home, &self.config] {
+            root.check().map_err(ServiceError::authority)?;
+        }
+        if program_pin(&self.context.program).map_err(ServiceError::authority)? != self.program {
+            return Err(ServiceError::authority("The selected GitHub CLI changed"));
+        }
+        Ok(())
+    }
+    /// Before the first page of a read, never in the middle of one: adopt the
+    /// account files as they are now (a `gh auth login` rewrites them) and clear
+    /// a recoverable account refusal. Every page of the read still has to show
+    /// the selected viewer login before anything is accepted. Permanent failures
+    /// and a closed selection stay refused.
+    fn recover(&self, generation: u64) -> Result<(), ServiceError> {
+        {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| ServiceError::authority("GitHub selection state is unavailable"))?;
+            if let Some(failure) = state.failure.as_ref().filter(|f| !f.recoverable) {
+                return Err(failure.error.clone());
+            }
+            if state.generation != generation || state.readiness == Readiness::Closed {
+                return Err(ServiceError::authority("The GitHub selection was closed"));
+            }
+        }
+        if let Err(error) = self.validate_permanent() {
+            return Err(self.fail(error));
+        }
+        let mut fresh = [None, None];
+        for (index, name) in ["hosts.yml", "config.yml"].iter().enumerate() {
+            fresh[index] = match file_pin(&self.context.config_directory.join(name)) {
+                Ok(pin) => pin,
+                Err(error) => return Err(self.fail_recoverable(error)),
+            };
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ServiceError::authority("GitHub selection state is unavailable"))?;
+        if state.generation != generation
+            || state.readiness == Readiness::Closed
+            || state.failure.as_ref().is_some_and(|f| !f.recoverable)
+        {
+            return Err(state.failure.clone().map_or_else(
+                || ServiceError::authority("The GitHub selection was closed"),
+                |f| f.error,
+            ));
+        }
+        *self
+            .files
+            .lock()
+            .map_err(|_| ServiceError::authority("GitHub selection state is unavailable"))? = fresh;
+        if state.failure.take().is_some() && state.readiness == Readiness::Revoked {
+            state.readiness = Readiness::Unknown;
         }
         Ok(())
     }
@@ -216,7 +305,7 @@ impl GithubSelectionOwner {
                 home,
                 config,
                 program,
-                files,
+                files: Mutex::new(files),
                 state: Mutex::new(State {
                     generation: 0,
                     readiness: Readiness::Unknown,
@@ -274,12 +363,24 @@ impl ReadGrant {
             .ok_or_else(|| ServiceError::authority("GitHub selection owner is gone"))?
             .check(self.generation)
     }
-    pub(crate) fn deny_account(&self, message: impl Into<String>) -> ServiceError {
-        let error = ServiceError::account(message);
+    /// First step of every read job: see `Inner::recover`.
+    pub(crate) fn begin_read(&self) -> Result<(), ServiceError> {
         self.inner
             .upgrade()
-            .map(|inner| inner.fail(error.clone()))
-            .unwrap_or(error)
+            .ok_or_else(|| ServiceError::authority("GitHub selection owner is gone"))?
+            .recover(self.generation)
+    }
+    /// gh itself says it is not logged in. That is a normal answer (Node shows it
+    /// as a result), not a revocation: nothing was accepted, and the next read
+    /// proves the viewer again.
+    pub(crate) fn unready(&self) {
+        if let Some(inner) = self.inner.upgrade() {
+            if let Ok(mut state) = inner.state.lock() {
+                if state.failure.is_none() && state.readiness == Readiness::Ready {
+                    state.readiness = Readiness::Unknown;
+                }
+            }
+        }
     }
     pub(crate) fn observed(&self, data: &Value) -> Result<(), ServiceError> {
         let inner = self
@@ -289,7 +390,7 @@ impl ReadGrant {
         inner.check(self.generation)?;
         let actual = data["viewer"]["login"].as_str().filter(|s| segment(s, 100));
         if actual.is_none_or(|actual| !actual.eq_ignore_ascii_case(&inner.context.account_login)) {
-            return Err(inner.fail(ServiceError::account(
+            return Err(inner.fail_recoverable(ServiceError::account(
                 "GitHub answered with a different or unavailable selected account",
             )));
         }
@@ -301,10 +402,10 @@ impl ReadGrant {
             || state.failure.is_some()
             || state.readiness == Readiness::Closed
         {
-            return Err(state
-                .failure
-                .clone()
-                .unwrap_or_else(|| ServiceError::authority("GitHub selection was closed")));
+            return Err(state.failure.clone().map_or_else(
+                || ServiceError::authority("GitHub selection was closed"),
+                |f| f.error,
+            ));
         }
         state.readiness = Readiness::Ready;
         Ok(())
