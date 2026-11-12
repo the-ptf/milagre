@@ -6,6 +6,17 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 04:30 Toronto, installed hashes still match the accepted preference shell and
+`6054d7d6` runtime. Root rechecked the retained native-Quit observer (zero sends)
+and real-turn/reopen report (exactly one send); both remain passed. Production
+process start times are unchanged. GPUI received the stable-pin update and needs
+no repin. A collaboration subagent is porting fixture-only quiet completion
+title/archive behavior and auditing exact turn-bound unread provenance. This is
+unfinished: current unread alone cannot prove the terminal marked it, and must
+not authorize clearing a later user mark. Model-generated acted-run naming has no
+captured naming-service authority yet and remains deferred. Public scheduling
+and normal installed binaries are unchanged on this beat.
+
 At 04:10 Toronto, durable Tauri preference checkpoint `dca7cdbc` is accepted and
 installed as a shell-only Preview refresh. Independent review closed both staging
 identity/cleanup findings; 59 shell tests pass (one optional ignored), strict
