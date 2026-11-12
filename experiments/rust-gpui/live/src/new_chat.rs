@@ -23,7 +23,7 @@ pub fn from_state(projects: &[OpenProject], project: Option<&str>) -> NewChatOpt
     let listed: Vec<NewChatProject> = projects
         .iter()
         .filter(|open| !open.project.is_chats_home())
-        .map(|open| NewChatProject { path: open.project.path.clone(), name: open.project.name.clone() })
+        .map(|open| NewChatProject { path: open.project.path.clone(), name: open.project.name.clone(), image: open.project.image.clone() })
         .collect();
     let at = project.and_then(|p| listed.iter().find(|o| o.path.as_ref() == p || o.name.as_ref() == p)).or(listed.first());
     let worktrees = at

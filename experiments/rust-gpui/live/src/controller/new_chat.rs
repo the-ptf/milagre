@@ -41,7 +41,10 @@ impl LiveController {
                 reads.fresh.clear();
             }
         }
-        let projects = self.store.read(|reducer| reducer.shown().map(|applied| applied.projects.clone()).unwrap_or_default());
+        let mut projects = self.store.read(|reducer| reducer.shown().map(|applied| applied.projects.clone()).unwrap_or_default());
+        for open in &mut projects {
+            open.project.image = daemon.image(&open.project.path);
+        }
         // The Project the composer settles on (its own pick when listed, else the one asked for, else the first): its
         // lists are set all at once, so a redraw never sees another Project's.
         let listed = live::from_state(&projects, None);

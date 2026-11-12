@@ -29,6 +29,10 @@ futures = "0.3"
 libc = "0.2"
 # The remote Terminal's output channel (the base crate's terminal seam). Already in the tree.
 async-channel = "2"
+# Project pictures (`images.rs`): `project:image`'s data URLs, and a check that a picture decodes before it replaces
+# the letter tile. Both already in the tree (gpui's own image decoding; base64 through its dependencies).
+base64 = "0.22"
+image = { version = "0.25", default-features = false }
 
 # The Preview's own notifications, dock badge and Electron check (`notify.rs`). Already in the tree (gpui's platform).
 [target.'cfg(target_os = "macos")'.dependencies]

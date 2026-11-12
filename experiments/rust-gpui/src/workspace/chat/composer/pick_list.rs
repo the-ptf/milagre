@@ -19,6 +19,8 @@ type Pick = Rc<dyn Fn(&mut Window, &mut App)>;
 
 pub enum Lead {
     Icon(IconName, Option<Rgba>),
+    /// A Project's 16px tile (`ProjectAvatar size={16}` in `NewChatHeading`'s picker): its picture, else its letter.
+    Project(SharedString, Option<std::sync::Arc<gpui::Image>>),
 }
 
 pub struct Row {
@@ -50,6 +52,12 @@ impl Row {
 
     pub fn icon(mut self, icon: IconName, color: Option<Rgba>) -> Self {
         self.lead = Some(Lead::Icon(icon, color));
+        self
+    }
+
+    /// A Project's tile in place of the icon.
+    pub fn project(mut self, name: impl Into<SharedString>, image: Option<std::sync::Arc<gpui::Image>>) -> Self {
+        self.lead = Some(Lead::Project(name.into(), image));
         self
     }
 
@@ -164,16 +172,11 @@ impl RenderOnce for PickList {
                     })
                     .when(!enabled, |el| el.opacity(0.4))
                     .when_some(row.lead, |el, lead| {
-                        let Lead::Icon(icon, color) = lead;
-                        el.child(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .items_center()
-                                .justify_center()
-                                .size(px(20.0))
-                                .child(Icon::new(icon).size(IconSize::S14).color(color.unwrap_or(theme.ink2))),
-                        )
+                        let mark = match lead {
+                            Lead::Icon(icon, color) => Icon::new(icon).size(IconSize::S14).color(color.unwrap_or(theme.ink2)).into_any_element(),
+                            Lead::Project(name, image) => crate::ui::ProjectAvatar::new(&name).size(16.0).image(image).into_any_element(),
+                        };
+                        el.child(div().flex().flex_none().items_center().justify_center().size(px(20.0)).child(mark))
                     })
                     .child(div().flex().flex_col().flex_1().min_w_0().child(div().truncate().child(row.title)).when_some(
                         row.subtitle,

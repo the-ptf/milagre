@@ -181,6 +181,9 @@ struct State {
     lane: Option<(Client, std::sync::Arc<InstalledProject>)>,
     /// Each loaded Project's last `pull-requests:snapshot`, for the sidebar's PR chips and hover cards.
     prs: std::collections::HashMap<String, serde_json::Value>,
+    /// Each Project's picture (`project:image`, [`crate::images`]), read once per run: present once asked, `None`
+    /// while the read runs and when there is no picture.
+    images: std::collections::HashMap<String, Option<Arc<gpui::Image>>>,
 }
 
 /// How the computer vault is unlocked: the shared client's `InstalledProject::unlock_computers` (Electron's sealed key
@@ -376,6 +379,25 @@ impl Daemon {
 
     pub fn set_prs(&self, project: &str, prs: serde_json::Value) {
         self.lock().prs.insert(project.to_owned(), prs);
+    }
+
+    /// A Project's picture, once read ([`crate::images`]).
+    pub fn image(&self, project: &str) -> Option<Arc<gpui::Image>> {
+        self.lock().images.get(project).cloned().flatten()
+    }
+
+    /// Marks `project`'s picture as asked for; `false` when it already was (it is read once per run).
+    pub fn ask_image(&self, project: &str) -> bool {
+        let mut state = self.lock();
+        if state.images.contains_key(project) {
+            return false;
+        }
+        state.images.insert(project.to_owned(), None);
+        true
+    }
+
+    pub fn set_image(&self, project: &str, image: Option<Arc<gpui::Image>>) {
+        self.lock().images.insert(project.to_owned(), image);
     }
 
     /// The live connection's Project and Client.
@@ -578,6 +600,8 @@ pub const READS: &[&str] = &[
     "agent:models",
     "agent:ports",
     "pull-requests:snapshot",
+    // A Project's picture (`lib/project-images.ts`): its icon file or GitHub avatar URL ([`crate::images`]).
+    "project:image",
     "accounts:list",
     "usage:cached",
     "usage:accounts:cached",

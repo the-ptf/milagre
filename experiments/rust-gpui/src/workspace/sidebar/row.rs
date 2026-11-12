@@ -87,6 +87,8 @@ pub struct ChatRow {
     pub initial: SharedString,
     /// The tile's identity colour; `None` draws the neutral tile.
     pub tile: Option<Rgba>,
+    /// The Project's picture (`project:image`), drawn in the tile and the mark instead of the letter.
+    pub image: Option<std::sync::Arc<gpui::Image>>,
     pub title: SharedString,
     /// "project · #PR · +n · computer" (the desktop's one line; the Chat column reads the Project from it).
     pub detail: SharedString,
@@ -125,6 +127,7 @@ impl Default for ChatRow {
             key: SharedString::default(),
             initial: SharedString::default(),
             tile: None,
+            image: None,
             title: SharedString::default(),
             detail: SharedString::default(),
             offline: None,
@@ -247,6 +250,7 @@ impl ChatRow {
             key: listed.key.clone().into(),
             initial: initial.into(),
             tile: project.tile,
+            image: if project.is_chats_home() { None } else { project.image.clone() },
             title,
             detail: parts.join(" · ").into(),
             offline,
@@ -733,6 +737,18 @@ pub(super) fn project_mark_as(row: &ChatRow, theme: &Theme, look: MarkLook) -> g
     };
     let (grey_fill, grey_ink) = (theme.hover2, theme.ink4);
     let letter = row.initial.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_default();
+    if let Some(image) = row.image.clone() {
+        // The picture in the mark's square and rounding, on its fill; greyed with the row.
+        let grey = look != MarkLook::Colour;
+        return div()
+            .flex_none()
+            .size(px(MARK_SIZE))
+            .rounded(px(MARK_RADIUS))
+            .bg(if grey { grey_fill } else { fill })
+            .child(crate::ui::project_image(image, MARK_SIZE, px(MARK_RADIUS)))
+            .when(grey, |el| el.opacity(0.6))
+            .into_any_element();
+    }
     let mark = div()
         .flex()
         .flex_none()
@@ -760,7 +776,7 @@ pub(super) fn project_tile(row: &ChatRow, theme: &Theme) -> ProjectAvatar {
         Some(color) => (color, hex("#ffffff")),
         None => (theme.field, theme.ink2),
     };
-    ProjectAvatar::new(&row.initial).size(TILE_SIZE).colors(fill, ink)
+    ProjectAvatar::new(&row.initial).size(TILE_SIZE).colors(fill, ink).image(row.image.clone())
 }
 
 pub fn dot_mark(color: Rgba) -> gpui::Div {

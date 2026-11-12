@@ -46,6 +46,7 @@ const METHODS: &[&str] = &[
     "chat:send-status",
     "agent:models",
     "agent:ports",
+    "project:image",
     "pull-requests:snapshot",
     "accounts:list",
     "usage:cached",
@@ -184,6 +185,8 @@ pub struct World {
     pub remote: BTreeMap<String, Value>,
     /// Settings' host-kept values and keybindings ([`super::fake_settings`]); `Null` until first asked.
     pub settings: Value,
+    /// `project:image`'s answers by Project path (a `data:` URL); `null` for the others.
+    pub images: BTreeMap<String, Value>,
     /// Pending turns by Chat key: what finishes them.
     pending: BTreeMap<String, Pending>,
     terminals: BTreeMap<String, String>,
@@ -543,6 +546,7 @@ impl World {
                 let name = self.projects.get(path).ok_or("Open this project in Milagre first.")?.name.clone();
                 json!({"path":path,"name":name,"state":self.state(path),"version":1,"epoch":"fake"})
             }
+            "project:image" => self.images.get(arg.as_str().ok_or("path")?).cloned().unwrap_or(Value::Null),
             "agent:models" => {
                 let path = arg.as_str().ok_or("path")?;
                 if !self.projects.get(path).is_some_and(|p| p.loaded) {

@@ -72,6 +72,8 @@ impl Isolation {
 pub struct NewChatProject {
     pub path: SharedString,
     pub name: SharedString,
+    /// The Project's picture (`project:image`), drawn in its tile; `None` draws the letter.
+    pub image: Option<std::sync::Arc<gpui::Image>>,
 }
 
 /// A computer the new Chat can run on (Run on): its name, the Project's folder there, and whether it is online.
@@ -135,7 +137,7 @@ impl NewChatOptions {
     /// The fixture's lists.
     pub fn fixture() -> Self {
         Self {
-            projects: PROJECTS.iter().map(|name| NewChatProject { path: (*name).into(), name: (*name).into() }).collect(),
+            projects: PROJECTS.iter().map(|name| NewChatProject { path: (*name).into(), name: (*name).into(), image: None }).collect(),
             computers: COMPUTERS
                 .iter()
                 .map(|(name, folder, online)| NewChatComputer { name: (*name).into(), folder: (*folder).into(), online: *online })
@@ -544,7 +546,7 @@ fn project_rows(composer: &Entity<Composer>, state: &NewChat, options: &NewChatO
                     }
                 }),
             )
-            .icon(IconName::Folder01, None)
+            .project(project.name.clone(), project.image.clone())
             .checked(state.project == path)
         })
         .collect()

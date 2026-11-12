@@ -130,6 +130,7 @@ pub fn open_project(body: &Value) -> Result<OpenProject> {
         opened_at: o.opt_str("openedAt")?,
         computer: LOCAL.into(),
         tile: None,
+        image: None,
     };
     let state = o.get("state").map(|state| scope_state(state, "project.state")).transpose()?;
     Ok(OpenProject { project, state, stamp: stamp(o.get("version"), o.get("epoch"), "project")? })

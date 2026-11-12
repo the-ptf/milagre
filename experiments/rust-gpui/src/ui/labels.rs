@@ -1,6 +1,8 @@
 //! [`SectionLabel`] and [`ProjectAvatar`].
 
-use gpui::{App, FontWeight, IntoElement, RenderOnce, Rgba, SharedString, Window, div, prelude::*, px};
+use std::sync::Arc;
+
+use gpui::{App, FontWeight, Image, ImageSource, IntoElement, ObjectFit, RenderOnce, Rgba, SharedString, Window, div, img, prelude::*, px};
 
 use crate::theme::{ActiveTheme, TEXT_10, TEXT_11, TEXT_12, TEXT_15, TextStepExt, project_avatar_radius};
 
@@ -38,18 +40,32 @@ impl RenderOnce for SectionLabel {
 /// A Project's tile (DESIGN.md "Radius": project tiles, the desktop's `ProjectAvatar`): a rounded square
 /// with the Project's initial at 600. Sizes 16, 20 and 24 letter at 10px, 40 at 15px; the radius follows
 /// `projectAvatarRadius`. DESIGN.md's tile is an ink fill with an on-ink initial; `.colors(..)` gives a
-/// Project its own fill (an identity colour, the stand-in for its image).
+/// Project its own fill (an identity colour, the stand-in for its image). `.image(..)` draws the Project's picture
+/// instead of the letter, contained in the same rounded square on the same fill (`WorkspaceIcon`).
 #[derive(IntoElement)]
 pub struct ProjectAvatar {
     initial: char,
     size: f32,
     colors: Option<(Rgba, Rgba)>,
+    image: Option<Arc<Image>>,
+}
+
+/// A Project's picture in a tile of `size` with the tile's rounding: contained, on the tile's fill. GPUI clips an
+/// image to its own corners, not its parent's, so the picture carries the radius itself.
+pub fn project_image(image: Arc<Image>, size: f32, radius: gpui::Pixels) -> impl IntoElement {
+    img(ImageSource::Image(image)).size(px(size)).rounded(radius).object_fit(ObjectFit::Contain)
 }
 
 impl ProjectAvatar {
     pub fn new(name: &str) -> Self {
         let initial = name.chars().find(|c| c.is_alphanumeric()).map_or('?', |c| c.to_ascii_uppercase());
-        Self { initial, size: 20.0, colors: None }
+        Self { initial, size: 20.0, colors: None, image: None }
+    }
+
+    /// The Project's picture (`project:image`), or `None` for the letter.
+    pub fn image(mut self, image: Option<Arc<Image>>) -> Self {
+        self.image = image;
+        self
     }
 
     /// 16, 20, 24 or 40.
@@ -69,6 +85,7 @@ impl RenderOnce for ProjectAvatar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.theme();
         let (fill, ink) = self.colors.unwrap_or((theme.ink, theme.on_ink));
+        let radius = project_avatar_radius(self.size);
         div()
             .flex()
             .flex_none()
@@ -76,11 +93,14 @@ impl RenderOnce for ProjectAvatar {
             .justify_center()
             .overflow_hidden()
             .size(px(self.size))
-            .rounded(project_avatar_radius(self.size))
+            .rounded(radius)
             .bg(fill)
             .text_color(ink)
             .text_step(if self.size >= 32.0 { TEXT_15 } else { TEXT_10 })
             .font_weight(FontWeight::SEMIBOLD)
-            .child(SharedString::from(self.initial.to_string()))
+            .map(|el| match self.image {
+                Some(image) => el.child(project_image(image, self.size, radius)),
+                None => el.child(SharedString::from(self.initial.to_string())),
+            })
     }
 }

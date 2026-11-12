@@ -80,7 +80,7 @@ pub use focus::{RING_OFFSET, RING_WIDTH, RovingAxis, focus_ring, inset_ring, ite
 pub use glass::Glass;
 pub use icon::{Icon, IconName, IconSize};
 pub use inline_error::{ErrorVariant, InlineError};
-pub use labels::{ProjectAvatar, SectionLabel};
+pub use labels::{ProjectAvatar, SectionLabel, project_image};
 pub use notice::Notice;
 pub use picker::{PickerPanel, PickerRow};
 pub use popover::{Dismiss, MenuList, MenuRow, Popover};

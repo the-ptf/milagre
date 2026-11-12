@@ -34,6 +34,7 @@ pub(crate) fn chat_row(key: &str, title: &str) -> ChatRow {
         key: key.to_string().into(),
         initial: title.chars().next().map_or(String::new(), |c| c.to_uppercase().to_string()).into(),
         tile: None,
+        image: None,
         title: title.to_string().into(),
         detail: "happiergym".into(),
         offline: None,

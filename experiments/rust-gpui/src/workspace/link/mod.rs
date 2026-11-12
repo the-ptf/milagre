@@ -85,6 +85,7 @@ impl LinkWorkspace {
             key: self.link.chat_key(chat.id).into(),
             initial: self.link.name.chars().next().map(String::from).unwrap_or_default().into(),
             tile: None,
+            image: None,
             title: chat.title.into(),
             detail: self.link.name.into(),
             offline: None,

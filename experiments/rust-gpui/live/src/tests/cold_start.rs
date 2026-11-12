@@ -1,5 +1,5 @@
 //! The window on a daemon that was not running when it opened, or had loaded nothing yet (Milagre.app closed, the
-//! Preview started its daemon).
+//! Preview started its daemon), and the Projects' pictures.
 //!
 //! - `a_cold_start_lands_on_the_chats_not_onboarding`: the window opens with no daemon; the daemon comes up later with
 //!   Projects it has not loaded. Onboarding never shows (not before the sync, not after); the most recently opened
@@ -9,6 +9,8 @@
 //!   snapshot (the case that opened onboarding): no onboarding, the first Project loads and its newest Chat opens.
 //! - `an_empty_daemon_shows_add_project`: a daemon with no Project at all: the sidebar says to add one (Add Project),
 //!   no Project is loaded, nothing loops.
+//! - `project_pictures_replace_the_letter`: `project:image` once per loaded Project; a picture lands in that
+//!   Project's rows and in the new-Chat picker; a Project without one keeps its letter.
 
 use std::time::Duration;
 
@@ -23,6 +25,9 @@ use crate::daemon::{self, Daemon};
 
 const ALPHA: &str = "/fake-node/alpha";
 const BETA: &str = "/fake-node/beta";
+
+/// A 1×1 PNG.
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
 
 /// Two Projects, both known and loaded as `loaded` says; alpha is the most recently opened.
 fn world(loaded: bool) -> World {
@@ -116,6 +121,54 @@ fn an_empty_daemon_shows_add_project(cx: &mut TestAppContext) {
     assert_eq!(notice.as_deref(), Some(daemon::NO_PROJECTS), "the sidebar says to add a Project");
     assert!(m.row_keys().is_empty());
     assert!(loads(&fake).is_empty(), "nothing to load");
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[gpui::test]
+fn project_pictures_replace_the_letter(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("pictures");
+    let mut world = world(true);
+    world.images.insert(ALPHA.to_owned(), json!(format!("data:image/png;base64,{PNG}")));
+    let fake = FakeDaemon::start(&data, world);
+    let daemon = Daemon::new(Some(data.clone()), false);
+    let session = DaemonSession::start(daemon.clone());
+    let mut m = mount_daemon(cx, session);
+    let sidebar = m.workspace.read_with(m.vcx, |w, _| w.sidebar.clone());
+    m.wait_for("alpha's picture in its rows", |m| {
+        sidebar.read_with(m.vcx, |s, _| s.rows().iter().any(|row| row.key.starts_with(ALPHA) && row.image.is_some()))
+    });
+    let rows: Vec<(String, bool)> =
+        sidebar.read_with(m.vcx, |s, _| s.rows().iter().map(|row| (row.key.to_string(), row.image.is_some())).collect());
+    for (key, has) in &rows {
+        assert_eq!(*has, key.starts_with(ALPHA), "{key}: only alpha has a picture: {rows:?}");
+    }
+    let image = sidebar.read_with(m.vcx, |s, _| s.rows().iter().find_map(|row| row.image.clone())).unwrap();
+    assert_eq!(image.format, gpui::ImageFormat::Png);
+
+    // The new-Chat picker draws it too.
+    m.vcx.update(|window, cx| m.workspace.update(cx, |w, cx| w.show_new_chat(window, cx)));
+    m.vcx.run_until_parked();
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    m.wait_for("the picker's Projects", |m| composer.read_with(m.vcx, |c, cx| c.new_chat_options(cx).projects.len() == 2));
+    let pictures: Vec<(String, bool)> = composer.read_with(m.vcx, |c, cx| {
+        c.new_chat_options(cx).projects.iter().map(|p| (p.path.to_string(), p.image.is_some())).collect()
+    });
+    assert_eq!(pictures, [(ALPHA.to_owned(), true), (BETA.to_owned(), false)]);
+
+    // Read once per Project per run, even across another sync.
+    daemon.resync();
+    m.wait_for("a second sync", |m| m.controller.read_with(m.vcx, |c, _| c.syncs() >= 1));
+    std::thread::sleep(Duration::from_millis(200));
+    m.vcx.run_until_parked();
+    let mut asked: Vec<String> =
+        fake.log().into_iter().filter(|(method, _)| method == "project:image").map(|(_, args)| args.to_string()).collect();
+    asked.sort();
+    assert_eq!(asked, [json!([ALPHA]).to_string(), json!([BETA]).to_string()], "once per loaded Project");
+    println!("GPUI_PROJECT_PICTURES rows={rows:?} picker={pictures:?}");
     m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);
     drop(fake);

@@ -503,6 +503,7 @@ fn new_scope(spec: &ProjectSpec) -> FixtureScope {
         opened_at: Some("2026-11-11T09:00:00.000Z".into()),
         computer: spec.computer.into(),
         tile: spec.tile,
+        image: None,
     };
     // Worktree 1 is the Project folder itself.
     let main = Worktree { base: None, ..Worktree::new(1, 1, spec.path, "main") };

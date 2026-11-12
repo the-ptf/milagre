@@ -64,6 +64,11 @@ impl LiveSource {
                 open.project.hidden = hidden.contains(&open.project.path);
             }
         }
+        if let Reads::Daemon(daemon) = &self.reads {
+            for open in &mut projects {
+                open.project.image = daemon.image(&open.project.path);
+            }
+        }
         Ok(projects)
     }
 

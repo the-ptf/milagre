@@ -723,6 +723,7 @@ impl LiveController {
             this.read_accounts(cx);
             this.read_computers(cx);
             this.read_all_prs(cx);
+            this.read_project_images(cx);
             this
         })
     }
@@ -758,6 +759,7 @@ impl LiveController {
         self.unlock_next = true;
         self.read_computers(cx);
         self.read_all_prs(cx);
+        self.read_project_images(cx);
         if let Some(accounts) = self.accounts.clone() {
             accounts.update(cx, |a, cx| a.changed(cx));
         }
@@ -980,6 +982,52 @@ impl LiveController {
             self.pr_tab = Some(key.clone());
             self.pending_open = Some(key);
             self.on_store_changed(cx);
+        }
+    }
+
+    /// Milagre's daemon: every loaded Project's picture (`project:image`, [`crate::images`]), read once per run as
+    /// Electron's `useProjectImages` does; when one arrives the sidebar and the new-Chat picker draw it instead of the
+    /// letter. A Project with no picture, or one that fails to read or decode, keeps the letter.
+    fn read_project_images(&mut self, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let daemon = daemon.clone();
+        let loaded: Vec<String> = self.store.read(|reducer| {
+            reducer
+                .shown()
+                .map(|applied| applied.projects.iter().filter(|o| !o.project.is_chats_home()).map(|o| o.project.path.to_string()).collect())
+                .unwrap_or_default()
+        });
+        for project in loaded {
+            if !daemon.ask_image(&project) {
+                continue;
+            }
+            let daemon = daemon.clone();
+            cx.spawn(async move |this, cx| {
+                let path = project.clone();
+                let reader = daemon.clone();
+                let read = off_thread(move || {
+                    let answer = futures::executor::block_on(reader.read(&path, "project:image", serde_json::json!([path])))?;
+                    crate::images::resolve(&answer)
+                })
+                .await;
+                let image = match read {
+                    Ok(Ok(image)) => image,
+                    Ok(Err(error)) => {
+                        eprintln!("live: no picture for {project}: {error:#}");
+                        None
+                    }
+                    Err(_) => None,
+                };
+                let Some(image) = image else { return };
+                daemon.set_image(&project, Some(image));
+                let _ = this.update(cx, |this, cx| {
+                    let sidebar = this.workspace.read(cx).sidebar.clone();
+                    sidebar.update(cx, |s, cx| s.reload(cx));
+                    this.follow_new_chat(cx);
+                    cx.notify();
+                });
+            })
+            .detach();
         }
     }
 

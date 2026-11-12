@@ -91,8 +91,8 @@ fn the_new_chat_takes_the_data_layers_lists_and_reads_back_its_choice(cx: &mut T
     let composer = cx.new(Composer::new);
     let options = |base: &str| NewChatOptions {
         projects: vec![
-            NewChatProject { path: "/p/alpha".into(), name: "alpha".into() },
-            NewChatProject { path: "/p/beta".into(), name: "beta".into() },
+            NewChatProject { path: "/p/alpha".into(), name: "alpha".into(), image: None },
+            NewChatProject { path: "/p/beta".into(), name: "beta".into(), image: None },
         ],
         computers: Vec::new(),
         worktrees: vec![

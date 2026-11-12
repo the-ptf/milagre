@@ -143,6 +143,9 @@ pub struct Project {
     /// Not on the wire: a stand-in for the Project's image (`project:image`) until images are read. `None` draws
     /// the neutral tile.
     pub tile: Option<Rgba>,
+    /// Not on the wire: the Project's picture (`project:image`: its icon file, favicon or GitHub avatar), decoded,
+    /// once a data layer has read it. `None` draws the letter tile.
+    pub image: Option<std::sync::Arc<gpui::Image>>,
 }
 
 impl Project {
@@ -158,6 +161,7 @@ impl Project {
             opened_at: None,
             computer: LOCAL.into(),
             tile: None,
+            image: None,
         }
     }
 
