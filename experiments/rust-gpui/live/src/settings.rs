@@ -301,6 +301,8 @@ pub struct LiveSettings {
     /// The host-kept values as last agreed; `None` until the first read answers.
     host: Option<Host>,
     reading: bool,
+    /// A read waits for the daemon's first sync (no Project known yet).
+    waiting: bool,
     /// Settings › Worktrees' default as last agreed (`None` before the first read), and the idle worktrees as the host
     /// listed them (the removal sends back what the list saw).
     main_sync: Option<bool>,
@@ -358,6 +360,15 @@ impl LiveSettings {
         cx.observe_global::<KeybindingsStore>(|this, cx| this.keys_changed(cx)).detach();
         cx.observe_global::<DevicesStore>(|this, cx| this.devices_changed(cx)).detach();
         let settings = workspace.read(cx).settings.clone();
+        // Snapshot aid: `MILAGRE_GPUI_SETTINGS=<section>` opened Settings before these sections were listed, so it fell
+        // back to Appearance; open the section asked for now that it is.
+        if let Some(section) = std::env::var("MILAGRE_GPUI_SETTINGS")
+            .ok()
+            .and_then(|name| S::parse(&name))
+            .filter(|section| SECTIONS.contains(section))
+        {
+            settings.update(cx, |s, cx| s.select_section(milagre_gpui_spike::settings::SelectedSection::Section(section), cx));
+        }
         cx.observe(&settings, |this, settings, cx| {
             let open = settings.read(cx).is_open();
             if open && !this.settings_open {
@@ -371,6 +382,7 @@ impl LiveSettings {
             workspace: workspace.downgrade(),
             host: None,
             reading: false,
+            waiting: false,
             main_sync: None,
             idle: Vec::new(),
             toast: None,
@@ -387,7 +399,24 @@ impl LiveSettings {
             reads: 0,
         };
         this.follow_display(cx);
-        this.read(cx);
+        // A read-only snapshot opened on Settings (`--snapshot` with `MILAGRE_GPUI_SETTINGS`) draws once, so it is read
+        // before the first frame.
+        let snapshot = this.daemon.read_only() && std::env::var_os("MILAGRE_GPUI_SETTINGS").is_some();
+        match this.project().filter(|_| snapshot) {
+            Some(project) => {
+                let mut calls: Vec<(&'static str, Value)> = READS.iter().map(|m| (*m, json!([]))).collect();
+                calls.push(("keybindings:read", json!([])));
+                let daemon = this.daemon.clone();
+                let answers = futures::executor::block_on(off_thread(move || {
+                    futures::executor::block_on(daemon.read_many(&project, calls)).map_err(|e| format!("{e:#}"))
+                }))
+                .unwrap_or_else(|_| Err("The read thread ended.".into()));
+                this.reading = true;
+                this.read_seq = Some(0);
+                this.settle_read(answers, cx);
+            }
+            None => this.read(cx),
+        }
         this
     }
 
@@ -403,7 +432,21 @@ impl LiveSettings {
             self.read_again = true;
             return;
         }
-        let Some(project) = self.project() else { return };
+        let Some(project) = self.project() else {
+            // The daemon's Projects are not known yet (the first sync): ask again shortly.
+            if !self.waiting {
+                self.waiting = true;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(std::time::Duration::from_millis(250)).await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.waiting = false;
+                        this.read(cx);
+                    });
+                })
+                .detach();
+            }
+            return;
+        };
         self.reading = true;
         self.read_seq = (self.writing == 0).then_some(self.write_seq);
         let daemon = self.daemon.clone();
@@ -427,6 +470,7 @@ impl LiveSettings {
         let answers = match answers {
             Ok(answers) => answers,
             Err(error) => {
+                eprintln!("live: couldn't read Settings: {error}");
                 self.errors.push(format!("read: {error}"));
                 return;
             }
@@ -455,6 +499,7 @@ impl LiveSettings {
                 }
                 Ok(value) => host.apply(method, &value),
                 Err(error) => {
+                    eprintln!("live: couldn't read {method}: {error:#}");
                     self.errors.push(format!("{method}: {error:#}"));
                     if method == "keybindings:read" {
                         keys = Some(Err(format!("Couldn't read the keybindings: {error:#}")));

@@ -210,3 +210,32 @@ Remaining gaps:
 - The PR chip has no tooltip of its own (Electron's `title`); the row's hover card lists the PRs instead.
 - `unlock_computers` has not run against the real Keychain item from the Preview (the real vault was already
   unlocked by Electron, so the status read short-circuits it).
+
+## Settings sections (2026-11-12)
+
+Listed sections draw their full pages ([`PreviewSettings`]); rows this window cannot honour are hidden and out of
+search (`live/src/settings.rs` `HIDDEN`). Daemon reads go on one request-only connection when the window opens and
+each time Settings opens; each change is written at once with Electron's command and arguments (`settings.rs` has the
+full table). Every write is tested on the fake daemon only.
+
+| Section | Backed by | Status |
+| --- | --- | --- |
+| General | `done:settings:*`; Keep awake `app:set-keep-awake` + this window's `preferences.json`; editor in `preferences.json` (Open in editor uses it) | listed; Chat order, Chat list, Plan usage hidden (the sidebar does not follow them) |
+| Appearance | this window's `preferences.json` | listed (unchanged) |
+| Chat | `context:settings:*` (followUps); Reasoning and Tool calls in `preferences.json`, the transcript follows them | listed |
+| Notifications | this window's notifier | listed (unchanged) |
+| Keybindings | `keybindings:read`, `keybindings:set-command`, `keybindings:reset`; Open keybindings.json opens the file natively | listed, this computer only (paired computers' are not read) |
+| Models | `context:settings:*` (Auto compact, thresholds) | listed; New chats, Replies, Context size, Show Compact hidden (the composer and sends fix them) |
+| Accounts, Usage | `accounts:*`, `usage:*` (the PR agent's) | listed (unchanged) |
+| Skills | `skills:list`, `skills:read` reachable | hidden: the page's fixture model has no data hook yet |
+| MCP | `mcp:*`, `local-mcp:*` reachable | hidden: not wired (the answers carry server env, the sheet writes need care) |
+| Browser | Electron's browser partitions (`browser-panel:*` Electron-only) | hidden |
+| Worktrees | `main-sync:default:*`; `storage:worktrees` + `storage:remove-worktree` (the cleanup dialog's `CleanupRemover`) | listed |
+| Integrations | `linear:*`, `babysit:settings:*` reachable | hidden: the page's state is a fixture with no data hook yet |
+| Devices, This Mac | `devices:*`, `phone:*` reachable; computers are the computers agent's | hidden |
+| Projects' pages | `project-git:*`, `files-to-copy:*`, `worktree-setup:*`, `main-sync:*` reachable | hidden |
+| Experimental | `linked:remote-enabled:*`, `device-notes:*` | listed; Ultracode Fatality and New Chat stats hidden; floating inbox Electron-only |
+| About | `app:version`, `app-update:auto:*` | listed; Release channel and Updates hidden (`update:*` Electron-only) |
+| Speech model / Voice | `app:dictation-*` Electron-only | not in the port |
+
+No client gap blocks the hidden ones except Browser and Speech (Electron-only); the rest need GPUI-side wiring.
