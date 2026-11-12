@@ -36,11 +36,11 @@ fn middle_truncation_keeps_both_ends() {
 }
 
 #[gpui::test]
-fn the_tab_is_registered_with_an_info_icon(cx: &mut TestAppContext) {
+fn the_tab_is_registered_as_rail_with_a_list_icon(cx: &mut TestAppContext) {
     let (panel, _cx) = mount(cx);
     assert!(panel.read_with(&*_cx, |p, _| p.visible_tabs().contains(&PanelTab::Details)));
-    assert_eq!(PanelTab::Details.label(), "Details");
-    assert_eq!(PanelTab::Details.icon(), crate::ui::IconName::InformationCircle);
+    assert_eq!(PanelTab::Details.label(), "Rail");
+    assert_eq!(PanelTab::Details.icon(), crate::ui::IconName::LeftToRightListBullet);
     assert_eq!(panel.read_with(&*_cx, |p, _| p.active()), PanelTab::Details);
 }
 

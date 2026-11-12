@@ -76,7 +76,7 @@ impl PanelTab {
             PanelTab::Designs => "Designs",
             PanelTab::Artifact => "Artifact",
             PanelTab::Pr => "PR",
-            PanelTab::Details => "Details",
+            PanelTab::Details => "Rail",
             PanelTab::Simulator => "Simulator",
         }
     }
@@ -88,7 +88,7 @@ impl PanelTab {
             PanelTab::Designs => IconName::PaintBoard,
             PanelTab::Artifact => IconName::File01,
             PanelTab::Pr => IconName::GitPullRequest,
-            PanelTab::Details => IconName::InformationCircle,
+            PanelTab::Details => IconName::LeftToRightListBullet,
             PanelTab::Simulator => IconName::Smartphone,
         }
     }
