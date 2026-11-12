@@ -18,6 +18,7 @@ use std::rc::Rc;
 use gpui::{App, ClickEvent, ElementId, FocusHandle, FontWeight, IntoElement, RenderOnce, SharedString, Window, div, prelude::*, px};
 
 use super::focus::{RovingAxis, focus_ring, item_focus, roving_keys};
+use super::press::Press;
 use super::{Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, CONTROL_SM, RADIUS_CONTROL, TEXT_12, TextStepExt};
 use crate::workspace::chrome::NoDrag;
@@ -107,9 +108,16 @@ impl RenderOnce for Tab {
         let color = if self.active { theme.ink } else { theme.ink2 };
         let (hover, ink) = (theme.hover, theme.ink);
         let enabled = !self.disabled;
+        // React: a pressed tab is `hover-2` (no scale), at once.
+        let press = (enabled && !self.active).then(|| Press::with(self.id.clone(), 1.0, std::time::Duration::ZERO, window, cx));
+        let pressed = press.as_ref().is_some_and(Press::engaged);
         div()
             .id(self.id)
             .debug_selector(move || selector.to_string())
+            .map(|el| match &press {
+                Some(press) => press.wire(el),
+                None => el,
+            })
             .track_focus(&handle)
             .relative()
             .flex()
@@ -125,8 +133,8 @@ impl RenderOnce for Tab {
             .text_color(color)
             .when(enabled, |el| el.cursor_pointer())
             .when(!enabled, |el| el.opacity(0.4))
-            .when(self.active, |el| el.bg(theme.hover2))
-            .when(!self.active && enabled, |el| el.hover(move |style| style.bg(hover).text_color(ink)))
+            .when(self.active || pressed, |el| el.bg(theme.hover2))
+            .when(!self.active && enabled && !pressed, |el| el.hover(move |style| style.bg(hover).text_color(ink)))
             .no_drag()
             .when_some(self.on_click.filter(|_| enabled), |el, handler| {
                 let click_focus = handle.clone();

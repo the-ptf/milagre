@@ -20,6 +20,7 @@ use gpui::{AnyElement, App, IntoElement, Pixels, SharedString, Window, div, prel
 
 use super::keys::shortcut_hint;
 use crate::theme::{ActiveTheme, Theme};
+use crate::ui::press::Press;
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize, Tooltip};
 use crate::workspace::chrome::{NoDrag, TOP_ROW_CENTRE};
 
@@ -210,26 +211,45 @@ pub fn corner(items: &[CornerItem], card_right: f32, on_toggle: CornerHandler) -
         .into_any_element()
 }
 
-/// A glyph in a 32px click area with no fill at rest, pressed or hovered: the glyph turns ink on hover.
-fn bare_button(id: &'static str, icon: IconName, on_click: impl Fn(&mut Window, &mut App) + 'static) -> impl IntoElement {
-    const GROUP: &str = "corner-toggle";
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .group(GROUP)
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(CORNER_BUTTON))
-        .cursor_pointer()
-        .on_click(move |_, window, cx| on_click(window, cx))
-        .child(BareGlyph(icon))
+type BareClick = Box<dyn Fn(&mut Window, &mut App)>;
+
+/// A glyph in a 32px click area with no fill at rest, pressed or hovered: the glyph turns ink on hover, and presses to
+/// 0.97 (the desktop's SidebarNav buttons press with no fill either).
+#[derive(IntoElement)]
+struct BareButton {
+    id: &'static str,
+    icon: IconName,
+    on_click: BareClick,
 }
 
-/// The bare button's glyph: `ink-3`, `ink` while the button is hovered.
+fn bare_button(id: &'static str, icon: IconName, on_click: impl Fn(&mut Window, &mut App) + 'static) -> BareButton {
+    BareButton { id, icon, on_click: Box::new(on_click) }
+}
+
+impl RenderOnce for BareButton {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        const GROUP: &str = "corner-toggle";
+        let (id, on_click) = (self.id, self.on_click);
+        let press = Press::new(id, window, cx);
+        let glyph = press.factor();
+        press
+            .wire(div().id(id))
+            .debug_selector(move || id.into())
+            .group(GROUP)
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(CORNER_BUTTON))
+            .cursor_pointer()
+            .on_click(move |_, window, cx| on_click(window, cx))
+            .child(BareGlyph(self.icon, glyph))
+    }
+}
+
+/// The bare button's glyph: `ink-3`, `ink` while the button is hovered; `scale` is the press.
 #[derive(IntoElement)]
-struct BareGlyph(IconName);
+struct BareGlyph(IconName, f32);
 
 impl RenderOnce for BareGlyph {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
@@ -238,7 +258,7 @@ impl RenderOnce for BareGlyph {
         gpui::svg()
             .path(self.0.path(IconSize::S16))
             .flex_none()
-            .size(px(IconSize::S16.px()))
+            .size(px(IconSize::S16.px() * self.1))
             .text_color(theme.ink3)
             .group_hover("corner-toggle", move |style| style.text_color(ink))
     }

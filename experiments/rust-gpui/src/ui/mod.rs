@@ -38,6 +38,7 @@ pub mod markdown;
 mod notice;
 mod picker;
 mod popover;
+pub mod press;
 mod progress_bar;
 mod provider_logo;
 mod radio;
@@ -62,6 +63,8 @@ mod tooltip;
 mod glass_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod press_tests;
 #[cfg(test)]
 mod primitives_tests;
 #[cfg(test)]

@@ -34,6 +34,7 @@ use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::marks::{ChatMark, MarkIcon, Tone, chat_mark_presentation};
 use crate::logic::prs::blockers::row_pull_requests;
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_10, TEXT_12, TextStep, TextStepExt, Theme, hex, sidebar_step};
+use crate::ui::press::{Press, ROW_DURATION, ROW_SCALE};
 use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, Spinner};
 
 /// Horizontal inset of each row inside the sidebar.
@@ -386,7 +387,7 @@ impl ChatRowView {
 }
 
 impl Render for ChatRowView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders.set(self.renders.get() + 1);
         // An offline computer's row is greyscale (its computer keeps the desktop's orange "offline") and half strength.
         let offline = row_offline(&self.row);
@@ -478,6 +479,10 @@ impl Render for ChatRowView {
                     .child(prs)
             }));
 
+        // `active:scale-[0.98]` over 150 ms: the fill shrinks, the row's view alone renders (`ui::press`).
+        let press = Press::with(("chat-row", ix), ROW_SCALE, ROW_DURATION, window, cx);
+        let engaged = press.engaged();
+        let face = engaged.then(|| press.face(Some(if selected { theme.hover2 } else { hover }.into()), RADIUS_CONTROL));
         // Outer box: the 8px side inset and half a gap above and below, so the rounded fill stops short of the edges.
         div().relative().w_full().h(px(ROW_PITCH)).px(px(ROW_INSET)).py(px(ROW_GAP / 2.0)).child(
             div()
@@ -491,9 +496,10 @@ impl Render for ChatRowView {
                 .gap(px(LINE_GAP))
                 .rounded(RADIUS_CONTROL)
                 .cursor_pointer()
-                .when(selected, |el| el.bg(theme.hover2))
-                .when(!selected && self.show_hover, |el| el.bg(hover))
-                .when(!selected, |el| el.hover(move |style| style.bg(hover)))
+                .map(|el| press.wire(el))
+                .when(selected && !engaged, |el| el.bg(theme.hover2))
+                .when(!selected && self.show_hover && !engaged, |el| el.bg(hover))
+                .when(!selected && !engaged, |el| el.hover(move |style| style.bg(hover)))
                 .when(self.dragging || offline, |el| el.opacity(OFFLINE_OPACITY))
                 .when(self.draggable, |el| {
                     let drag = super::drag::ChatDrag { key: row.key.to_string(), pinned: self.pinned };
@@ -514,6 +520,7 @@ impl Render for ChatRowView {
                     }
                     cx.emit(RowEvent::Hover(hovered.then(|| this.bounds.get())));
                 }))
+                .children(face)
                 .child({
                     let cell = self.bounds.clone();
                     canvas(move |bounds, _, _| cell.set(bounds), |_, _, _, _| ()).absolute().size_full()

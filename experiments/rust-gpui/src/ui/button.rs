@@ -7,14 +7,15 @@
 //!
 //! One primary style: an ink fill with an `on-ink` label; accent and green never fill a button. Labels are
 //! 500 weight. Disabled is 40% and inert. Focusable, with the accent focus ring on keyboard focus (`focus.rs`;
-//! Enter and Space press it). Not built: the 0.97 press scale (GPUI has no transform on
-//! divs) and the colour transitions.
+//! Enter and Space press it). The 0.97 press scale (primary, danger, pill, and every icon
+//! button) is `press.rs`; the colour transitions are not built.
 
 use std::rc::Rc;
 
 use gpui::{App, ClickEvent, ElementId, FontWeight, Hsla, IntoElement, RenderOnce, SharedString, Window, div, prelude::*, px, svg};
 
 use super::focus::{focus_ring, item_focus};
+use super::press::Press;
 use super::{Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, CONTROL_MD, CONTROL_SM, CONTROL_XS, RADIUS_CONTROL, TEXT_12, TEXT_13, TextStep, TextStepExt, Theme};
 
@@ -147,9 +148,22 @@ impl RenderOnce for Button {
         let enabled = !self.disabled;
         let handle = item_focus(&self.id, window, cx);
         let ring_radius = if self.pill { height / 2.0 } else { RADIUS_CONTROL };
+        // React: only the filled variants and pills press to 0.97; the others darken on hover only.
+        let scales = enabled && (self.pill || matches!(self.variant, ButtonVariant::Primary | ButtonVariant::Danger));
+        let press = scales.then(|| Press::new(self.id.clone(), window, cx));
+        let engaged = press.as_ref().is_some_and(Press::engaged);
+        let secondary = self.variant == ButtonVariant::Secondary;
+        let face = press
+            .as_ref()
+            .filter(|_| engaged)
+            .map(|press| press.face(hover_fill.or(fill), ring_radius).when(secondary, |el| el.shadow(theme.shadow_btn())));
         div()
             .id(self.id)
             .debug_selector(move || selector.to_string())
+            .map(|el| match &press {
+                Some(press) => press.wire(el),
+                None => el,
+            })
             .when(enabled, |el| el.track_focus(&handle))
             .relative()
             .flex()
@@ -165,14 +179,14 @@ impl RenderOnce for Button {
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap()
             .text_color(label)
-            .when_some(fill, |el, fill| el.bg(fill))
-            .when(self.variant == ButtonVariant::Secondary, |el| el.shadow(theme.shadow_btn()))
+            .when(!engaged, |el| el.when_some(fill, |el, fill| el.bg(fill)).when(secondary, |el| el.shadow(theme.shadow_btn())))
             .when(enabled, |el| {
                 el.cursor_pointer().hover(move |style| {
                     let style = if fade { style.opacity(0.9) } else { style };
+                    // While pressed the face carries the hover fill (the outer box stays full size).
                     let style = match hover_fill {
-                        Some(fill) => style.bg(fill),
-                        None => style,
+                        Some(fill) if !engaged => style.bg(fill),
+                        _ => style,
                     };
                     match hover_label {
                         Some(label) => style.text_color(label),
@@ -182,6 +196,7 @@ impl RenderOnce for Button {
             })
             .when(self.disabled, |el| el.opacity(0.4))
             .when_some(self.on_click.filter(|_| enabled), |el, handler| el.on_click(move |event, window, cx| handler(event, window, cx)))
+            .children(face)
             .when_some(self.icon, |el, icon| el.child(Icon::new(icon).size(IconSize::S14).color(label)))
             .child(self.label)
             .child(focus_ring(&handle, ring_radius))
@@ -284,9 +299,20 @@ impl RenderOnce for IconButton {
         let enabled = !self.disabled;
         let hover = theme.hover;
         let ring_radius = if self.pill { box_size / 2.0 } else { RADIUS_CONTROL };
+        let press = enabled.then(|| Press::new(self.id.clone(), window, cx));
+        let engaged = press.as_ref().is_some_and(Press::engaged);
+        let scale = press.as_ref().map_or(1.0, Press::factor);
+        let face = press
+            .as_ref()
+            .filter(|_| engaged)
+            .map(|press| press.face(Some(if self.pressed { theme.hover2 } else { theme.hover }.into()), ring_radius));
         div()
             .id(self.id)
             .debug_selector(move || selector.clone())
+            .map(|el| match &press {
+                Some(press) => press.wire(el),
+                None => el,
+            })
             .when(enabled, |el| el.track_focus(&handle))
             .relative()
             .flex()
@@ -296,18 +322,19 @@ impl RenderOnce for IconButton {
             .size(box_size)
             .when(self.pill, |el| el.rounded_full())
             .when(!self.pill, |el| el.rounded(RADIUS_CONTROL))
-            .when(self.pressed, |el| el.bg(theme.hover2))
-            .when(enabled && !self.pressed, |el| el.cursor_pointer().hover(move |style| style.bg(hover)))
+            .when(self.pressed && !engaged, |el| el.bg(theme.hover2))
+            .when(enabled && !self.pressed, |el| el.cursor_pointer().when(!engaged, |el| el.hover(move |style| style.bg(hover))))
             .when(enabled && self.pressed, |el| el.cursor_pointer())
             .when(self.disabled, |el| el.opacity(0.4))
             .when_some(self.on_click.filter(|_| enabled), |el, handler| el.on_click(move |event, window, cx| handler(event, window, cx)))
             .group(GROUP)
+            .children(face)
             // The glyph turns ink while the button is hovered (an `Icon` cannot follow its parent's hover).
             .child(
                 svg()
                     .path(self.icon.path(glyph_size))
                     .flex_none()
-                    .size(px(glyph_size.px()))
+                    .size(px(glyph_size.px() * scale))
                     .text_color(glyph)
                     .when(enabled, |el| el.group_hover(GROUP, move |style| style.text_color(ink))),
             )

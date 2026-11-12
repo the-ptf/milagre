@@ -393,10 +393,7 @@ pub(super) fn row_shell(
         .font_weight(FontWeight::MEDIUM)
         .text_color(tone)
         .when(enabled, |el| {
-            el.cursor_pointer()
-                .hover(move |style| style.bg(hover2))
-                .active(move |style| style.bg(hover2))
-                .focus_visible(move |style| style.bg(hover2).shadow(inset_ring(accent)))
+            el.cursor_pointer().hover(move |style| style.bg(hover2)).focus_visible(move |style| style.bg(hover2).shadow(inset_ring(accent)))
         })
         .when(!enabled, |el| el.opacity(0.4))
 }

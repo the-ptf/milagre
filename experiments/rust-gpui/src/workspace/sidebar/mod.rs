@@ -564,7 +564,7 @@ impl Sidebar {
 
 impl Sidebar {
     /// The collapsed rail's icons for the list rows `range`.
-    fn render_rail(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn render_rail(&mut self, range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         range
             .filter_map(|ix| {
                 let row = self.rows.get(ix)?.clone();
@@ -577,7 +577,7 @@ impl Sidebar {
                         .w_full()
                         .h(px(rail::ITEM_SIZE + 1.0))
                         .child(
-                            rail::icon(ix, &row, &item, cx)
+                            rail::icon(ix, &row, &item, window, cx)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     window.focus(&this.focus, cx);
                                     this.rail_card = None;

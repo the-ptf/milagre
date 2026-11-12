@@ -401,3 +401,35 @@ fn every_done_chat_is_in_the_done_section_and_none_in_the_list() {
     let first: Vec<_> = lists.done.iter().take(2).map(|row| row.chat.display_title(&[]).to_string()).collect();
     assert_eq!(first, ["Ship the Lighthouse budget", "What's a good name for a CLI?"], "most recently marked first");
 }
+
+/// Pressing a row (`active:scale-[0.98]`): GPUI refreshes the window on the mouse down of any element with a click or
+/// drag handler (it tracks the pending click), which rebuilds every cached view once, in `div.rs`, press or no press.
+/// The press adds nothing to that: each row view renders once for the mouse down and once for the mouse up, the
+/// pressed row's own notification folding into the same frame. (`ui/press_tests.rs` shows a press alone rebuilds
+/// no other view.)
+#[gpui::test]
+fn pressing_a_row_renders_each_row_once_per_event(cx: &mut TestAppContext) {
+    let (sidebar, cx) = mount(cx);
+    let row = cx.debug_bounds("chat-row-4").expect("row 4 is drawn");
+    // Focus the sidebar first (a mouse down on it would otherwise be a focus change), and be in mouse mode.
+    let handle = sidebar.read_with(cx, |s, _| s.focus_handle().clone());
+    cx.update(|window, cx| window.focus(&handle, cx));
+    cx.simulate_mouse_move(row.center(), None, Modifiers::none());
+    cx.run_until_parked();
+    let alive = sidebar.read_with(cx, |s, _| s.row_views_alive());
+    let before = sidebar.read_with(cx, |s, _| s.rows_built());
+    cx.simulate_event(gpui::MouseDownEvent {
+        position: row.center(),
+        button: gpui::MouseButton::Left,
+        modifiers: Modifiers::none(),
+        click_count: 1,
+        first_mouse: false,
+    });
+    cx.run_until_parked();
+    let after = sidebar.read_with(cx, |s, _| s.rows_built());
+    assert_eq!(after - before, alive, "the mouse down rendered each live row once, the pressed one included");
+    cx.simulate_event(gpui::MouseUpEvent { position: row.center(), button: gpui::MouseButton::Left, modifiers: Modifiers::none(), click_count: 1 });
+    cx.run_until_parked();
+    let released = sidebar.read_with(cx, |s, _| s.rows_built());
+    assert!(released - after <= alive + 1, "the mouse up rendered each row once, and at most the selection's changes more");
+}

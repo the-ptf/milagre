@@ -17,6 +17,7 @@ use gpui::{
 };
 
 use super::glass::GLASS_BLUR;
+use super::press::Press;
 use super::{Glass, Icon, IconName, IconSize};
 use crate::theme::{ActiveTheme, CONTROL_SM, TEXT_12, TextStepExt, Theme};
 
@@ -185,7 +186,7 @@ impl StatusPill {
 }
 
 impl RenderOnce for StatusPill {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = *cx.theme();
         let (text, ring) = self.tone.colors(&theme);
         let selector = self.id.to_string();
@@ -196,9 +197,18 @@ impl RenderOnce for StatusPill {
         let group: SharedString = format!("{selector}-glass").into();
         let count = self.count_text();
         let leading = self.leading;
+        // The composer's pills press to 0.97. The glass and its ring are one blurred quad that cannot shrink, so the
+        // hover tint is what presses: it shrinks and the ring stays.
+        let press = enabled.then(|| Press::new(self.id.clone(), window, cx));
+        let engaged = press.as_ref().is_some_and(Press::engaged);
+        let face = press.as_ref().filter(|_| engaged).map(|press| press.face(Some(hover.into()), px(f32::MAX)));
         div()
             .id(self.id)
             .debug_selector(move || selector.clone())
+            .map(|el| match &press {
+                Some(press) => press.wire(el),
+                None => el,
+            })
             .flex()
             .flex_none()
             .items_center()
@@ -218,10 +228,11 @@ impl RenderOnce for StatusPill {
                         .left_0()
                         .size_full()
                         .rounded_full()
-                        .when(enabled, |el| el.group_hover(group, move |style| style.bg(hover))),
+                        .when(enabled && !engaged, |el| el.group_hover(group, move |style| style.bg(hover))),
                 )
             })
-            .when(self.bare && enabled, |el| el.hover(move |style| style.bg(hover)))
+            .when(self.bare && enabled && !engaged, |el| el.hover(move |style| style.bg(hover)))
+            .children(face)
             .when(enabled, |el| el.cursor_pointer())
             .when_some(self.tooltip, |el, label| el.tooltip(super::Tooltip::text(label)))
             .when(!enabled, |el| el.opacity(0.4))

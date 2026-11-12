@@ -64,11 +64,15 @@ pub fn items(rows: &[ChatRow], names: impl Fn(&ChatRow) -> SharedString, selecte
 }
 
 /// An icon's 32px button.
-pub fn icon(ix: usize, row: &ChatRow, item: &RailItem, cx: &gpui::App) -> gpui::Stateful<gpui::Div> {
+pub fn icon(ix: usize, row: &ChatRow, item: &RailItem, window: &mut gpui::Window, cx: &mut gpui::App) -> gpui::Stateful<gpui::Div> {
     let theme = *cx.theme();
     let (hover, current) = (theme.hover, theme.hover2);
-    div()
-        .id(("rail-item", ix))
+    // `active:scale-press` (ScopeRail.tsx): the fill shrinks, the tile stays.
+    let press = crate::ui::press::Press::new(("rail-item", ix), window, cx);
+    let engaged = press.engaged();
+    let face = engaged.then(|| press.face(Some(if item.current { current } else { hover }.into()), crate::theme::RADIUS_CONTROL));
+    press
+        .wire(div().id(("rail-item", ix)))
         .debug_selector(move || format!("rail-item-{ix}"))
         .relative()
         .flex()
@@ -78,8 +82,9 @@ pub fn icon(ix: usize, row: &ChatRow, item: &RailItem, cx: &gpui::App) -> gpui::
         .size(px(ITEM_SIZE))
         .rounded(crate::theme::RADIUS_CONTROL)
         .cursor_pointer()
-        .when(item.current, |el| el.bg(current))
-        .when(!item.current, |el| el.hover(move |style| style.bg(hover)))
+        .when(item.current && !engaged, |el| el.bg(current))
+        .when(!item.current && !engaged, |el| el.hover(move |style| style.bg(hover)))
+        .children(face)
         .child(project_tile(row, &theme).size(24.0))
         .when(item.status == RailStatus::Attention, |el| {
             el.child(
