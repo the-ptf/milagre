@@ -30,6 +30,14 @@ libc = "0.2"
 # The remote Terminal's output channel (the base crate's terminal seam). Already in the tree.
 async-channel = "2"
 
+# The Preview's own notifications, dock badge and Electron check (`notify.rs`). Already in the tree (gpui's platform).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSObject", "NSError", "NSArray"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSDockTile", "NSRunningApplication", "NSResponder"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationSound", "UNNotificationTrigger"] }
+
 [dev-dependencies]
 # Reading the Terminal grid in the staged test (the base crate's emulator).
 alacritty_terminal = { version = "=0.26.0", default-features = false }

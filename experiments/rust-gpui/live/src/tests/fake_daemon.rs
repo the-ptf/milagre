@@ -220,7 +220,7 @@ impl World {
         json!({"projects":projects,"links":[],"runs":{"runs":self.runs,"seq":self.runs_seq},"ports":{},"eventSeq":self.event_seq})
     }
 
-    fn emit(&mut self, channel: &str, payload: Value) {
+    pub fn emit(&mut self, channel: &str, payload: Value) {
         self.event_seq += 1;
         let frame = json!({"v":1,"event":{"channel":channel,"payload":payload,"seq":self.event_seq}}).to_string();
         self.writers.retain(|writer| writeln!(writer.lock().unwrap(), "{frame}").is_ok());
@@ -292,6 +292,8 @@ impl World {
             let request_id = format!("perm-{n}");
             self.pending.insert(key.clone(), Pending::Permission(request_id.clone()));
             self.agent(&key, json!({"type":"permission-request","requestId":request_id,"kind":"command","tool":"Bash","title":"Run printf","command":"printf ok","allowForChat":true}));
+            // The daemon's own notice to desktops (`server.cjs`), what Electron's notifier shows.
+            self.emit("notification:waiting", json!({"chatId":key,"requestId":request_id,"title":"Needs approval","body":"Run printf"}));
         } else if body.contains("[ask]") {
             let request_id = format!("q-{n}");
             self.pending.insert(key.clone(), Pending::Question(request_id.clone()));

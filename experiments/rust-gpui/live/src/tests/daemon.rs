@@ -35,7 +35,7 @@ use gpui_component::Root;
 use milagre_gpui_spike::data::Provider;
 use milagre_gpui_spike::workspace::Workspace;
 use milagre_gpui_spike::workspace::chat::transcript::CardDecision;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::fake_daemon::{FakeDaemon, World, data_folder, socket_for};
 use super::owned::Mounted;
@@ -148,12 +148,26 @@ fn mount_daemon(cx: &mut TestAppContext, session: DaemonSession) -> Mounted<'_> 
 /// Mounts the window through `main`'s own daemon-mode startup ([`install_daemon_app`]): no Settings store exists
 /// before it, as in the app, where only the window's `Workspace` would install one.
 fn mount_daemon_with_prefs(cx: &mut TestAppContext, session: DaemonSession, prefs: PathBuf) -> Mounted<'_> {
+    mount_daemon_full(cx, session, prefs, PathBuf::from("/nonexistent/electron-preferences.json"), None)
+}
+
+/// [`mount_daemon_with_prefs`] with Electron's preferences file and a recording notification poster.
+fn mount_daemon_full(
+    cx: &mut TestAppContext,
+    session: DaemonSession,
+    prefs: PathBuf,
+    electron: PathBuf,
+    poster: Option<Box<dyn crate::notify::Poster>>,
+) -> Mounted<'_> {
+    if let Some(poster) = poster {
+        cx.update(|cx| cx.set_global(crate::notify::PosterOverride(std::cell::RefCell::new(Some(poster)))));
+    }
     let wiring = cx.update(|cx| {
         cx.set_global(milagre_gpui_spike::theme::Theme::dark());
         gpui_component::init(cx);
         milagre_gpui_spike::theme::component_bridge::init(cx);
         assert!(!cx.has_global::<milagre_gpui_spike::settings::SettingsStore>(), "main's startup has no Settings store yet");
-        install_daemon_app(&session, prefs, cx)
+        install_daemon_app(&session, prefs, &electron, cx)
     });
     let (root, vcx) = cx.add_window_view(|window, cx| {
         let workspace = cx.new(|cx| Workspace::new(window, cx));
@@ -861,4 +875,153 @@ fn a_window_starts_the_daemon_when_none_runs() {
     }
     let _ = std::fs::remove_dir_all(&data);
     let _ = std::fs::remove_dir_all(&empty);
+}
+
+/// What a recording poster saw.
+#[derive(Default)]
+struct Seen {
+    posts: Vec<crate::notify::Post>,
+    badges: Vec<Option<usize>>,
+    played: Vec<String>,
+}
+
+struct Recorder(std::rc::Rc<std::cell::RefCell<Seen>>);
+
+impl crate::notify::Poster for Recorder {
+    fn post(&self, post: &crate::notify::Post) {
+        self.0.borrow_mut().posts.push(post.clone());
+    }
+    fn badge(&self, count: Option<usize>) {
+        self.0.borrow_mut().badges.push(count);
+    }
+    fn play(&self, chime: &str) {
+        self.0.borrow_mut().played.push(chime.to_owned());
+    }
+}
+
+/// The main-process duties this window owns on Milagre's daemon: its notifications and the live stream's events.
+///
+/// - Settings › Notifications seeded once from Electron's `preferences.json` (its chime and switches), saved in the
+///   Preview's own file, listed in Settings, and followed when changed (Play plays the chime).
+/// - With the window in the background: a waiting Chat (the daemon's `notification:waiting`) and a finished turn post
+///   one notification each (title, body, chime), the dock badge counts the waiting Chat, and a click on a
+///   notification opens its Chat. With the window focused on that Chat, a finished turn posts nothing.
+/// - `agent:ports`, `pull-requests:changed {projectPath}` and `accounts:changed {}` reach the controller: Details'
+///   ports follow at once, the PR poll and the accounts are read again.
+#[gpui::test]
+fn notifications_and_live_events(cx: &mut TestAppContext) {
+    use milagre_gpui_spike::settings::SettingsStore;
+    cx.executor().allow_parking();
+    let data = data_folder("notify");
+    let electron = data.join("electron-preferences.json");
+    std::fs::write(
+        &electron,
+        serde_json::to_vec(
+            &json!({"milagre-settings": json!({"notifyWhenWaiting": true, "notifyOnCompletion": true, "showDockBadge": true,
+            "notificationChime": "bruh", "notificationSchedule": null}).to_string()}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let before = std::fs::read(&electron).unwrap();
+    let prefs = data.join(crate::prefs::FILE);
+    let fake = FakeDaemon::start(&data, world());
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Seen::default()));
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon_full(cx, session, prefs.clone(), electron.clone(), Some(Box::new(Recorder(seen.clone()))));
+    m.wait_for("the transcript", |m| m.items().len() == 2);
+
+    // Seeded once from Electron's file (never written), saved in the Preview's own.
+    assert_eq!(std::fs::read(&electron).unwrap(), before, "Electron's preferences are only read");
+    let saved: Value = serde_json::from_slice(&std::fs::read(&prefs).expect("seeded and saved")).unwrap();
+    assert_eq!(saved["notifications"]["notificationChime"], "bruh");
+    assert_eq!(m.vcx.update(|_, cx| cx.global::<SettingsStore>().notification_chime.clone()), "bruh");
+    assert!(
+        m.vcx.update(|_, cx| cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewNotifications>()),
+        "Settings lists Notifications"
+    );
+
+    // A finished turn in the Chat on screen while the window is focused: nothing.
+    let open = m.open_key().expect("a Chat open");
+    m.vcx.update(|window, _| window.activate_window());
+    m.vcx.run_until_parked();
+    assert!(m.vcx.update(|window, _| window.is_window_active()), "focused");
+    m.type_and_send("focused");
+    m.wait_for("the reply", |m| m.items().last().is_some_and(|i| i.ends_with("replied to: focused")));
+    assert!(seen.borrow().posts.is_empty(), "nothing for the Chat on screen in a focused window");
+
+    // In the background: a waiting Chat and a finished turn each post one, with the chime; the badge counts it.
+    m.vcx.deactivate_window();
+    m.type_and_send("[approve] go");
+    m.wait_for("the waiting notification", |_| seen.borrow().posts.iter().any(|p| p.waiting));
+    m.wait_for("the badge", |_| seen.borrow().badges.last() == Some(&Some(1)));
+    let waiting = seen.borrow().posts.iter().find(|p| p.waiting).cloned().unwrap();
+    assert_eq!(
+        (waiting.chat.as_str(), waiting.title.as_str(), waiting.body.as_str(), waiting.chime.as_str()),
+        (open.as_str(), "Needs approval", "Run printf", "bruh")
+    );
+    assert!(seen.borrow().played.contains(&"bruh".to_owned()), "the silent notification's chime plays");
+    let other = format!("{ALPHA}#2");
+    let (_, other_id) = other.rsplit_once('#').unwrap();
+    {
+        let mut world = fake.world();
+        // Another Chat's turn ends (sent from Milagre or a phone).
+        world.emit("agent:event", json!({"chatId": other, "event": {"type":"turn-started"}, "seq": 900}));
+        world.emit("agent:event", json!({"chatId": other, "event": {"type":"text-delta","text":"All done here"}, "seq": 901}));
+        world.emit("agent:event", json!({"chatId": other, "event": {"type":"turn-completed"}, "seq": 902}));
+    }
+    m.wait_for("the completion", |_| seen.borrow().posts.iter().any(|p| !p.waiting && p.chat == other));
+    let done = seen.borrow().posts.iter().find(|p| !p.waiting && p.chat == other).cloned().unwrap();
+    assert_eq!((done.title.as_str(), done.body.as_str()), ("Alpha second", "All done here"));
+    assert_eq!(other_id, "2");
+
+    // A click opens that Chat.
+    crate::notify::push_clicked(&other);
+    m.wait_for("the clicked Chat open", |m| m.open_key().as_deref() == Some(other.as_str()));
+
+    // Settings: completion off, saved; the next finished turn posts nothing. Play plays the chime.
+    m.vcx.update(|_, cx| {
+        use gpui::BorrowAppContext as _;
+        cx.update_global::<SettingsStore, _>(|s, _| {
+            s.notify_on_complete = false;
+            s.last_played_chime = Some("vine-boom".into());
+        })
+    });
+    m.vcx.run_until_parked();
+    let saved: Value = serde_json::from_slice(&std::fs::read(&prefs).unwrap()).unwrap();
+    assert_eq!(saved["notifications"]["notifyOnCompletion"], false);
+    assert!(seen.borrow().played.contains(&"vine-boom".to_owned()));
+    let posts = seen.borrow().posts.len();
+    {
+        let mut world = fake.world();
+        world.emit("agent:event", json!({"chatId": other, "event": {"type":"turn-started"}, "seq": 903}));
+        world.emit("agent:event", json!({"chatId": other, "event": {"type":"turn-completed"}, "seq": 904}));
+    }
+    m.wait_for("the event", |m| m.controller.read_with(m.vcx, |c, _| c.events().iter().filter(|e| *e == "agent:event").count() >= 1));
+    std::thread::sleep(Duration::from_millis(100));
+    m.vcx.run_until_parked();
+    assert_eq!(seen.borrow().posts.len(), posts, "completion notifications are off");
+
+    // The live events: ports at once, the PR poll and the accounts read again.
+    let prs_before = fake.methods().iter().filter(|m| *m == "pull-requests:snapshot").count();
+    let accounts_before = fake.methods().iter().filter(|m| *m == "accounts:list").count();
+    {
+        let mut world = fake.world();
+        world.emit("agent:ports", json!({ (other.clone()): [{"port":4321,"pid":77,"command":"node server.js","address":"127.0.0.1"}] }));
+        world.emit("pull-requests:changed", json!({"projectPath": ALPHA}));
+        world.emit("pull-requests:changed", json!({"projectPath": "/somewhere/else"}));
+        world.emit("accounts:changed", json!({}));
+    }
+    let panel = m.workspace.read_with(m.vcx, |w, _| w.panel.clone());
+    m.wait_for("the ports in Details", |m| {
+        panel.read_with(m.vcx, |p, cx| p.details().read(cx).data().ports.iter().any(|p| p.port == 4321))
+    });
+    m.wait_for("the PR poll read again", |_| fake.methods().iter().filter(|m| *m == "pull-requests:snapshot").count() == prs_before + 1);
+    m.wait_for("the accounts read again", |_| fake.methods().iter().filter(|m| *m == "accounts:list").count() > accounts_before);
+    let reads: Vec<Value> =
+        fake.log().into_iter().filter(|(m, _)| m == "pull-requests:snapshot").map(|(_, a)| a).skip(prs_before).collect();
+    assert_eq!(reads, [json!([ALPHA])], "only the Project this window shows");
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
 }

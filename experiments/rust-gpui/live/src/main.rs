@@ -226,7 +226,15 @@ fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>) {
     gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
         milagre_gpui_spike::app::init(cx);
         // Settings › Appearance is this window's own: read back, and saved unless read-only.
-        let mut wiring = install_daemon_app(&session, milagre_gpui_live::prefs::default_path(), cx);
+        let mut wiring =
+            install_daemon_app(&session, milagre_gpui_live::prefs::default_path(), &milagre_gpui_live::notify::electron_preferences(), cx);
+        // The window's frame and the sidebar's collapse, restored and kept in the Preview's own folder (not in
+        // snapshots, which always open at the default size and save nothing).
+        if snapshot.is_none() {
+            cx.set_global(milagre_gpui_spike::workspace::shell::window_state::StateFile(
+                milagre_gpui_live::setup::preview_base().join("window-state.json"),
+            ));
+        }
         wiring.preloaded = preloaded;
         if snapshot.is_some() {
             for _ in 0..200 {

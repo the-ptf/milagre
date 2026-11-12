@@ -258,11 +258,12 @@ pub fn install_daemon_globals(session: &DaemonSession, cx: &mut App) -> Wiring {
 /// The daemon-mode window's startup before it opens, exactly as `main` runs it: Settings' store (the window's
 /// `Workspace` would install it only when it opens, after [`crate::prefs::install`] has read the saved Appearance into
 /// it), this window's own preferences, then [`install_daemon_globals`]. Call after `app::init`.
-pub fn install_daemon_app(session: &DaemonSession, prefs: std::path::PathBuf, cx: &mut App) -> Wiring {
+/// `electron` is Electron's own `preferences.json`, read once to seed Settings › Notifications.
+pub fn install_daemon_app(session: &DaemonSession, prefs: std::path::PathBuf, electron: &std::path::Path, cx: &mut App) -> Wiring {
     if !cx.has_global::<milagre_gpui_spike::settings::SettingsStore>() {
         cx.set_global(milagre_gpui_spike::settings::SettingsStore::default());
     }
-    crate::prefs::install(prefs, session.daemon.read_only(), cx);
+    crate::prefs::install_with(prefs, electron, session.daemon.read_only(), cx);
     install_daemon_globals(session, cx)
 }
 
@@ -355,6 +356,10 @@ pub struct LiveController {
     /// Projects whose reads are in flight, and when each was last read.
     reading_extras: HashSet<String>,
     extras_at: HashMap<String, std::time::Instant>,
+    /// The tapped channels received (tests).
+    events: Vec<String>,
+    /// The Preview's own notifications ([`crate::notify`]), on Milagre's daemon in a writable window.
+    notifier: Option<Rc<crate::notify::Notifier>>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -393,6 +398,12 @@ impl LiveController {
         // Plan usage (`usage:cached`, read-only) in the sidebar's rows and card, and the limit card under a stopped reply.
         let sidebar = workspace.read(cx).sidebar.clone();
         crate::usage::attach(&sidebar, usage_daemon, cx);
+        // This window's own notifications and dock badge (Electron's main process has them); never in read-only mode.
+        if !controller.read(cx).backend.read_only() {
+            let notifier = Rc::new(crate::notify::Notifier::new(crate::notify::poster(cx), crate::notify::Settings::default()));
+            controller.update(cx, |c, cx| c.install_notifier(notifier, cx));
+            cx.set_global(milagre_gpui_spike::workspace::preview::PreviewNotifications);
+        }
         if let Some(error) = error {
             controller.update(cx, |this, cx| this.set_unavailable(Some(error), cx));
         }
@@ -440,6 +451,8 @@ impl LiveController {
         if sidebar.read_with(cx, |s, _| s.selected_row().is_none()) {
             workspace.update(cx, |w, cx| w.show_new_chat(window, cx));
         }
+        // The live stream's events this controller follows besides the reducer's ([`TAPPED`]).
+        let (tap_sender, tap_receiver) = unbounded::<(String, Value)>();
         cx.new(|cx| {
             let mut subscriptions = vec![
                 cx.observe(&chat, |this: &mut Self, _, cx| this.follow_chat(cx)),
@@ -480,12 +493,13 @@ impl LiveController {
                 }
                 Stream::Daemon { daemon, first } => {
                     let store = store.clone();
+                    let tap = tap_sender.clone();
                     cx.spawn(async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
                         let mut notifications = first;
                         let mut wait = Duration::ZERO;
                         loop {
                             if let Some(mut stream) = notifications.take() {
-                                let error = store.pump(&mut stream).await;
+                                let error = pump_tapped(&store, &mut stream, &tap).await;
                                 eprintln!("live: the daemon's stream closed ({error}); syncing again");
                                 if this.update(cx, |this, cx| this.lost(error.to_string(), cx)).is_err() {
                                     return;
@@ -520,6 +534,14 @@ impl LiveController {
             let follow = cx.spawn(async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
                 while versions.next().await.is_some() {
                     if this.update(cx, |this, cx| this.on_store_changed(cx)).is_err() {
+                        break;
+                    }
+                }
+            });
+            let tapped = cx.spawn(async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+                let mut taps = tap_receiver;
+                while let Some((channel, payload)) = taps.next().await {
+                    if this.update(cx, |this, cx| this.on_event(&channel, &payload, cx)).is_err() {
                         break;
                     }
                 }
@@ -563,8 +585,10 @@ impl LiveController {
                 catalog_project: None,
                 reading_extras: HashSet::new(),
                 extras_at: HashMap::new(),
+                events: Vec::new(),
+                notifier: None,
                 _subscriptions: subscriptions,
-                _tasks: vec![pump, follow, run],
+                _tasks: vec![pump, follow, run, tapped],
             };
             this.follow_chat(cx);
             this.sync_unloaded(cx);
@@ -601,6 +625,127 @@ impl LiveController {
         self.on_store_changed(cx);
         self.read_accounts(cx);
         cx.notify();
+    }
+
+    /// Milagre's daemon: one of the live stream's events this controller follows ([`TAPPED`]), as Electron's renderer
+    /// follows them: `agent:ports` carries every Chat's ports (the Details tab shows them at once), `pull-requests:changed
+    /// {projectPath}` says that Project's PR poll changed (read again if this window shows it), `accounts:changed {}`
+    /// that the accounts did (read again). Agent events and waiting notices go to the notifier.
+    pub(crate) fn on_event(&mut self, channel: &str, payload: &Value, cx: &mut Context<Self>) {
+        match channel {
+            "agent:ports" => {
+                self.ports = payload.clone();
+                self.refresh_panels(cx);
+            }
+            "pull-requests:changed" => {
+                let Some(project) = payload["projectPath"].as_str() else { return };
+                let shown = self.prs.contains_key(project) || self.open.as_ref().is_some_and(|open| open.project == project);
+                if shown {
+                    self.read_prs(project.to_owned(), cx);
+                }
+            }
+            "accounts:changed" => self.read_accounts(cx),
+            _ => {}
+        }
+        self.events.push(channel.to_owned());
+        if let Some(notifier) = self.notifier.clone()
+            && matches!(channel, "agent:event" | "notification:waiting")
+        {
+            let focused = self.window.update(cx, |_, window, _| window.is_window_active()).unwrap_or(false);
+            notifier.set_view(self.open_key().map(str::to_owned), focused);
+            let store = self.store.clone();
+            let app: &App = cx;
+            notifier.event(channel, payload, |key| chat_info(&store, key, app));
+        }
+    }
+
+    /// Opens a Chat a notification was clicked for, and brings the window forward.
+    pub fn open_from_notification(&mut self, key: String, cx: &mut Context<Self>) {
+        let _ = self.window.update(cx, |_, window, _| window.activate_window());
+        cx.activate(true);
+        self.pending_open = Some(key);
+        self.on_store_changed(cx);
+    }
+
+    /// The Preview's notifier, once installed (Milagre's daemon, writable windows).
+    pub fn notifier(&self) -> Option<&Rc<crate::notify::Notifier>> {
+        self.notifier.as_ref()
+    }
+
+    /// Installs the notifier: Settings › Notifications feed it, its badge follows the unread Chats, and a clicked
+    /// notification opens its Chat.
+    pub fn install_notifier(&mut self, notifier: Rc<crate::notify::Notifier>, cx: &mut Context<Self>) {
+        use gpui::BorrowAppContext as _;
+        let settings = crate::notify::from_store(cx.global::<milagre_gpui_spike::settings::SettingsStore>());
+        notifier.set_settings(settings);
+        let follow = notifier.clone();
+        self._subscriptions.push(cx.observe_global::<milagre_gpui_spike::settings::SettingsStore>(move |_, cx| {
+            let store = cx.global::<milagre_gpui_spike::settings::SettingsStore>();
+            let (settings, played) = (crate::notify::from_store(store), store.last_played_chime.clone());
+            if follow.settings() != settings {
+                follow.set_settings(settings);
+            }
+            // Settings' Play button and a newly picked chime: played once.
+            if let Some(chime) = played {
+                follow.play(&chime);
+                cx.update_global::<milagre_gpui_spike::settings::SettingsStore, _>(|store, _| store.last_played_chime = None);
+            }
+        }));
+        let clicks = cx.spawn(async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+            loop {
+                cx.background_executor().timer(Duration::from_millis(250)).await;
+                for key in crate::notify::take_clicked() {
+                    if this.update(cx, |this, cx| this.open_from_notification(key, cx)).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        self._tasks.push(clicks);
+        self.notifier = Some(notifier);
+        self.follow_unread(cx);
+    }
+
+    /// The dock badge's unread Chats: the reducer's `unread`, hidden Projects left out.
+    fn follow_unread(&mut self, cx: &mut Context<Self>) {
+        let Some(notifier) = self.notifier.clone() else { return };
+        let unread: HashSet<String> = self.store.read(|reducer| {
+            let Ok(applied) = reducer.state() else { return HashSet::new() };
+            applied
+                .projects
+                .iter()
+                .filter(|open| !crate::sidebar_writes::is_hidden(cx, &open.project.path))
+                .filter_map(|open| Some((open, open.state.as_ref()?)))
+                .flat_map(|(open, state)| {
+                    state.sessions.values().filter(|c| c.unread && !c.archived).map(move |c| open.project.scope().chat_key(c.id))
+                })
+                .collect()
+        });
+        notifier.set_unread(unread);
+    }
+
+    /// Milagre's daemon: one Project's PR poll (`pull-requests:snapshot`), after its `pull-requests:changed`.
+    fn read_prs(&mut self, project: String, cx: &mut Context<Self>) {
+        let Backend::Daemon(daemon) = &self.backend else { return };
+        let (daemon, target) = (daemon.clone(), project.clone());
+        let read =
+            off_thread(move || futures::executor::block_on(daemon.read(&target, "pull-requests:snapshot", serde_json::json!([target]))));
+        cx.spawn(async move |this, cx| {
+            let Ok(read) = read.await else { return };
+            let _ = this.update(cx, |this, cx| match read {
+                Ok(prs) => {
+                    this.prs.insert(project, prs);
+                    this.refresh_panels(cx);
+                }
+                Err(error) => this.error(format!("Couldn't read the pull requests: {error:#}")),
+            });
+        })
+        .detach();
+    }
+
+    /// The tapped channels this window received, oldest first (tests).
+    pub fn events(&self) -> &[String] {
+        &self.events
     }
 
     /// Milagre's daemon: Settings › Accounts, read once per sync (`accounts:list [false]`, no refresh) on the live
@@ -1135,6 +1280,7 @@ impl LiveController {
                 let _ = self.window.update(cx, |_, window, cx| chat.update(cx, |chat, cx| chat.set_chat(&row, window, cx)));
             }
         }
+        self.follow_unread(cx);
         // A Chat that just got its first messages can now be the composer's target.
         self.follow_chat(cx);
         self.sync_tail(cx);
@@ -1167,11 +1313,10 @@ impl LiveController {
                     transcript.update(cx, |t, cx| t.finish_stream(ix, cx));
                 }
                 self.set_running(None, cx);
-                // The saved reply (and its steps) replace the live tail; the turn may have changed the Worktree, its
-                // ports and its PR.
+                // The saved reply (and its steps) replace the live tail; the turn may have changed the Worktree. Its
+                // ports and its PR follow the daemon's `agent:ports` and `pull-requests:changed` events instead.
                 self.load(cx);
                 self.read_changes(cx);
-                self.read_extras(project.clone(), true, cx);
             }
             None => {
                 self.set_running(None, cx);
@@ -1469,4 +1614,43 @@ enum Stream {
 /// The transcript's items as lines (tests and evidence).
 pub fn shown_items(items: &[Item]) -> Vec<String> {
     items.iter().map(crate::transcript::describe).collect()
+}
+
+/// The live stream's channels the controller follows besides the reducer: Details' ports, the PR poll and the
+/// accounts change (Electron's renderer listens to the same), and what the notifier needs.
+pub const TAPPED: &[&str] = &["agent:ports", "pull-requests:changed", "accounts:changed", "agent:event", "notification:waiting"];
+
+/// [`LiveStore::pump`] that also hands the [`TAPPED`] channels' events to `tap` before the reducer applies them.
+async fn pump_tapped(store: &LiveStore, notifications: &mut Notifications, tap: &UnboundedSender<(String, Value)>) -> crate::SyncError {
+    loop {
+        let Some(notice) = notifications.next().await else { return crate::SyncError::Closed(milagre_daemon_client::Error::Disconnected) };
+        if let milagre_daemon_client::Notice::Event { channel, payload, .. } = &notice
+            && TAPPED.contains(&channel.as_str())
+        {
+            let _ = tap.unbounded_send((channel.clone(), payload.clone()));
+        }
+        match store.apply_notice(notice) {
+            Ok(_) | Err(crate::SyncError::StaleEvent { .. } | crate::SyncError::OutOfOrder { .. }) => {}
+            Err(error) => return error,
+        }
+    }
+}
+
+/// What the notifier shows for a Chat: its title (named, generated, its first line, else its Project's name) and
+/// whether its Project is hidden from the sidebar.
+fn chat_info(store: &LiveStore, key: &str, cx: &App) -> crate::notify::ChatInfo {
+    let project = key.rsplit_once('#').map_or(key, |(path, _)| path).to_owned();
+    let title = store.read(|reducer| {
+        let applied = reducer.state().ok()?;
+        let (open, chat) = crate::panels::find(&applied.projects, key)?;
+        let title = chat
+            .title
+            .clone()
+            .or_else(|| chat.generated_title.clone())
+            .or_else(|| chat.summary.as_ref().and_then(|s| s.title_line.clone()))
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| open.project.name.to_string());
+        Some(title)
+    });
+    crate::notify::ChatInfo { title: title.unwrap_or_default(), hidden: crate::sidebar_writes::is_hidden(cx, &project) }
 }
