@@ -143,9 +143,22 @@ def second_writer(app, executable, fake, skills, base):
     _, text2 = wait_line(log2)
     refused = "milagre-gpui-live:" in text2 and "opened" not in text2
     for pid in [p for p in app_pids(executable) if p not in before]:
-        subprocess.run(["osascript", "-e", 'tell application id "com.milagre.gpui-preview" to quit'], capture_output=True)
+        quit_pid(pid)
         wait_gone([pid])
     return {"path": "second launch on a running root", "refused": refused, "message": text2.strip().splitlines()[-1] if text2.strip() else ""}
+
+
+def quit_pid(pid):
+    """A Quit AppleEvent (kAEQuitApplication) addressed to this exact process, never by bundle id: another copy of the
+    app (Victor's installed Preview) shares the bundle id and must not be quit by a check."""
+    script = (
+        'ObjC.import("Foundation");'
+        f'var target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier({pid});'
+        'var ev = $.NSAppleEventDescriptor.appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID('
+        '0x61657674, 0x71756974, target, -1, 0);'
+        'ev.sendEventWithOptionsTimeoutError(0x10, 10, null);'
+    )
+    subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True)
 
 
 def main():
@@ -157,7 +170,7 @@ def main():
     app = args.app.resolve()
     executable = app / "Contents/MacOS/milagre-gpui-preview"
     fake, skills = args.fake.resolve(), args.skills.resolve()
-    quit_event = lambda pid: subprocess.run(["osascript", "-e", 'tell application id "com.milagre.gpui-preview" to quit'], capture_output=True)
+    quit_event = quit_pid
     terminate = lambda pid: subprocess.run(["osascript", "-l", "JavaScript", "-e", f'ObjC.import("AppKit"); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate'], capture_output=True)
     cases = [
         # ⌘Q, the menu's Quit and closing the last window all call `cx.quit()` (shell/keys.rs, app.rs): this sends Quit
