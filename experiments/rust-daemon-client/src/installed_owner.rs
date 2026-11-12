@@ -26,7 +26,7 @@ use std::{
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_LIMIT: u64 = 16 * 1024 * 1024;
 
-fn failure(code: &'static str, message: impl Into<String>) -> Error {
+pub(crate) fn failure(code: &'static str, message: impl Into<String>) -> Error {
     Error::Launch {
         code,
         message: message.into(),
@@ -221,7 +221,7 @@ impl InstalledProject {
     }
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> Result<T> {
     let (reply, wait) = crate::reply::channel();
@@ -268,7 +268,7 @@ fn socket_path(data_dir: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn adopt_blocking(data_dir: &Path) -> Result<InstalledOwner> {
+pub(crate) fn adopt_blocking(data_dir: &Path) -> Result<InstalledOwner> {
     let data_dir = std::fs::canonicalize(data_dir).map_err(|_| {
         failure(
             "PROFILE_UNAVAILABLE",
@@ -284,6 +284,12 @@ fn adopt_blocking(data_dir: &Path) -> Result<InstalledOwner> {
     })?;
     let pid = launcher::peer_pid(&stream)?;
     let status = probe(&mut stream, "daemon:status", json!([]))?;
+    if status["closing"] == true {
+        return Err(failure(
+            "DAEMON_CLOSING",
+            "Milagre's daemon is stopping; try again in a moment",
+        ));
+    }
     if status["protocolVersion"] != 1
         || status["closing"] != false
         || status["pid"].as_u64() != Some(pid as u64)

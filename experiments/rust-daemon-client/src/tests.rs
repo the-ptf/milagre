@@ -987,3 +987,6 @@ mod sidebar_actions;
 
 #[cfg(feature = "installed-owner")]
 mod installed_owner;
+
+#[cfg(feature = "installed-owner")]
+mod daemon_launch;

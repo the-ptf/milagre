@@ -11,6 +11,17 @@ service parity. Routines are out of scope for the Preview in this mode.
   protocol 1, not closing, the same PID and the same `dataDir`. Nothing is launched.
 - Every later connection re-checks the peer PID. A restarted daemon fails with
   `INSTALLED_OWNER_CHANGED`; adopt again.
+- `InstalledOwner::adopt_or_start(&DaemonLaunch)` adopts a running daemon and otherwise starts one
+  the way `apps/daemon/src/bootstrap.cjs` does: `<exe> <cli.cjs> serve --data-dir D --app-version V
+  --cwd /`, own session (setsid), output appended to `daemon.log` (rotated at 10 MiB), waits up to
+  15 s. A live `runtime.lock` owner is waited for, never raced; a dead one doesn't block the start.
+  A running daemon is never stopped or replaced, whatever its version: Electron replaces hosts older
+  than itself, so a native frontend must not fight it.
+- `DaemonLaunch::find_installed_app()` runs the installed Milagre.app's own daemon on that app's
+  executable with `ELECTRON_RUN_AS_NODE=1`: Node only, no window, no Electron UI process, and the
+  version that app expects. `DaemonLaunch::node(..)` is for a bundled Node on a computer without
+  Milagre.app. `ELECTRON_RUN_AS_NODE` and `MILAGRE_BUNDLED_BIN_DIR` are set or cleared explicitly,
+  since a frontend started from a Milagre terminal inherits them.
 - There is no shutdown, stop or restart method. The Node daemon stays the single writer.
 - `known_projects()` reads `project:known`. `project(path)` mints a Project-scoped authority; open
   one Client per Project shown, as with owned runtimes.
@@ -58,3 +69,9 @@ models read returned recommended claude-opus-5-5, gpt-6.1-sol and gemini-4-argon
 Round 3 (2026-11-12): `call` over the preload allowlist; parity test against preload.cjs and a
 fake-daemon test for allowed, refused (`daemon:stop`, `app-update:install`, `desktop:invoke`,
 unadvertised, non-array args) and foreign-Client calls.
+
+Round 4 (2026-11-12): daemon start. 5 tests with a fake daemon started through the real launch path
+(start once then adopt, exact argv, own session, env cleared, live lock waited for, dead lock taken
+over). Real check: `installed_owner_start` started Milagre.app 0.232.0-beta.31's daemon in Node mode
+on a throwaway profile in 0.27 s, detached (parent PID 1), served 14 capabilities; stopped with
+SIGTERM afterwards. The real profile's daemon was not touched.

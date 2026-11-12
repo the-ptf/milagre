@@ -29,3 +29,7 @@ required-features = ["owned-chat"]
 [[example]]
 name = "installed_owner_probe"
 required-features = ["installed-owner"]
+
+[[example]]
+name = "installed_owner_start"
+required-features = ["installed-owner"]
