@@ -24,7 +24,7 @@
 //! - `the_window_waits_for_milagre_and_follows_a_restart`: "Open Milagre first", then the daemon starts, then it
 //!   restarts in another process and the window syncs again on its own.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
@@ -38,7 +38,7 @@ use serde_json::Value;
 
 use super::fake_daemon::{FakeDaemon, World, data_folder, socket_for};
 use super::owned::Mounted;
-use crate::controller::{DaemonSession, LiveController, install_daemon_globals};
+use crate::controller::{DaemonSession, LiveController, install_daemon_app};
 use crate::daemon::{self, Daemon};
 
 const ALPHA: &str = "/fake-node/alpha";
@@ -135,11 +135,24 @@ fn adopt_fails_then_follows_a_restarted_daemon() {
 }
 
 fn mount_daemon(cx: &mut TestAppContext, session: DaemonSession) -> Mounted<'_> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // A preferences file nobody wrote: the window starts on the defaults, as on a first launch.
+    let prefs = std::env::temp_dir().join(format!("gpui-daemon-prefs-{}-{n}.json", std::process::id()));
+    let mounted = mount_daemon_with_prefs(cx, session, prefs.clone());
+    let _ = std::fs::remove_file(&prefs);
+    mounted
+}
+
+/// Mounts the window through `main`'s own daemon-mode startup ([`install_daemon_app`]): no Settings store exists
+/// before it, as in the app, where only the window's `Workspace` would install one.
+fn mount_daemon_with_prefs(cx: &mut TestAppContext, session: DaemonSession, prefs: PathBuf) -> Mounted<'_> {
     let wiring = cx.update(|cx| {
         cx.set_global(milagre_gpui_spike::theme::Theme::dark());
         gpui_component::init(cx);
         milagre_gpui_spike::theme::component_bridge::init(cx);
-        install_daemon_globals(&session, cx)
+        assert!(!cx.has_global::<milagre_gpui_spike::settings::SettingsStore>(), "main's startup has no Settings store yet");
+        install_daemon_app(&session, prefs, cx)
     });
     let (root, vcx) = cx.add_window_view(|window, cx| {
         let workspace = cx.new(|cx| Workspace::new(window, cx));
@@ -737,4 +750,35 @@ fn appearance_preferences_round_trip(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(!other.exists(), "nothing written in read-only mode");
     let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// The daemon-mode startup `main` runs (regression: the installed Preview panicked on launch with "no state of type
+/// SettingsStore" because the saved Appearance was read before the window installed Settings' store). A saved
+/// preferences file is read into the store before the window opens, the window opens and syncs, and a change is saved.
+#[gpui::test]
+fn the_daemon_startup_reads_preferences_before_the_window_opens(cx: &mut TestAppContext) {
+    use milagre_gpui_spike::settings::SettingsStore;
+    use milagre_gpui_spike::settings::appearance::ThemePreference;
+    cx.executor().allow_parking();
+    let data = data_folder("startup");
+    let prefs = data.join(crate::prefs::FILE);
+    std::fs::write(&prefs, r#"{"appearance":{"theme":"light","chatSize":"larger"}}"#).unwrap();
+    let fake = FakeDaemon::start(&data, world());
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon_with_prefs(cx, session, prefs.clone());
+    let theme = m
+        .vcx
+        .update(|_, cx| (cx.global::<SettingsStore>().appearance.theme, cx.global::<SettingsStore>().appearance.options.chat_size.clone()));
+    assert_eq!(theme, (ThemePreference::Light, "larger".to_owned()), "read before the window opened");
+    m.wait_for("the transcript", |m| m.items().len() == 2);
+    m.vcx.update(|_, cx| {
+        use gpui::BorrowAppContext as _;
+        cx.update_global::<SettingsStore, _>(|store, _| store.appearance.theme = ThemePreference::Dark);
+    });
+    m.vcx.run_until_parked();
+    let saved: Value = serde_json::from_slice(&std::fs::read(&prefs).unwrap()).unwrap();
+    assert_eq!(saved["appearance"]["theme"], "dark");
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
 }

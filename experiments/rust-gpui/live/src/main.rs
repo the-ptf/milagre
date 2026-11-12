@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::App;
-use milagre_gpui_live::controller::{DaemonSession, LiveController, install_daemon_globals, install_globals};
+use milagre_gpui_live::controller::{DaemonSession, LiveController, install_daemon_app, install_globals};
 use milagre_gpui_live::daemon::Daemon;
 use milagre_gpui_live::session::{self, Root, Session};
 use milagre_gpui_live::setup::{self, Detected};
@@ -220,8 +220,7 @@ fn run_daemon_app(session: DaemonSession, snapshot: Option<PathBuf>) {
     gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
         milagre_gpui_spike::app::init(cx);
         // Settings › Appearance is this window's own: read back, and saved unless read-only.
-        milagre_gpui_live::prefs::install(milagre_gpui_live::prefs::default_path(), session.daemon.read_only(), cx);
-        let mut wiring = install_daemon_globals(&session, cx);
+        let mut wiring = install_daemon_app(&session, milagre_gpui_live::prefs::default_path(), cx);
         wiring.preloaded = preloaded;
         if snapshot.is_some() {
             for _ in 0..200 {

@@ -253,6 +253,17 @@ pub fn install_daemon_globals(session: &DaemonSession, cx: &mut App) -> Wiring {
     Wiring { commands, receiver, recorded, preloaded: None }
 }
 
+/// The daemon-mode window's startup before it opens, exactly as `main` runs it: Settings' store (the window's
+/// `Workspace` would install it only when it opens, after [`crate::prefs::install`] has read the saved Appearance into
+/// it), this window's own preferences, then [`install_daemon_globals`]. Call after `app::init`.
+pub fn install_daemon_app(session: &DaemonSession, prefs: std::path::PathBuf, cx: &mut App) -> Wiring {
+    if !cx.has_global::<milagre_gpui_spike::settings::SettingsStore>() {
+        cx.set_global(milagre_gpui_spike::settings::SettingsStore::default());
+    }
+    crate::prefs::install(prefs, session.daemon.read_only(), cx);
+    install_daemon_globals(session, cx)
+}
+
 /// The listed Chat (it has messages) last active, to open on launch: of `project`, or of any Project.
 pub fn newest_chat(store: &LiveStore, project: Option<&str>) -> Option<String> {
     store.read(|reducer| {
