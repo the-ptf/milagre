@@ -758,6 +758,12 @@ impl Sidebar {
             "filters-projects" => self.filters_open = Some(Some(Sub::Projects)),
             "filters-computers" => self.filters_open = Some(Some(Sub::Computers)),
             "done-open" => self.done_open = true,
+            // Scrolled to the middle of the Chat list (both edge fades), and the Done list open and scrolled.
+            "scrolled" => self.scroll.scroll_to_item(15, gpui::ScrollStrategy::Top),
+            "done-scrolled" => {
+                self.done_open = true;
+                self.done_scroll.scroll_to_item(3, gpui::ScrollStrategy::Top);
+            }
             // The Done list open with its first row under the pointer: Reopen in place of the run's length.
             "done-hover" => {
                 self.done_open = true;

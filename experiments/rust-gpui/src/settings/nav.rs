@@ -313,7 +313,7 @@ fn render_search_results(
         list = list.child(row);
     }
 
-    ScrollArea::new("settings-search-scroll", scroll).child(list).into_any_element()
+    ScrollArea::new("settings-search-scroll", scroll).fade(theme.canvas).child(list).into_any_element()
 }
 
 fn render_section_list(
@@ -460,5 +460,5 @@ fn render_section_list(
 
     content = content.child(divider).child(footer_group);
 
-    ScrollArea::new("settings-nav-scroll", scroll).child(content)
+    ScrollArea::new("settings-nav-scroll", scroll).fade(theme.canvas).child(content)
 }

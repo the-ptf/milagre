@@ -9,6 +9,7 @@
 //! | `Chip` | `chip.rs` | `Chip` |
 //! | `Tab` | `tabs.rs` | `Tabs` |
 //! | `ScrollArea` | `scroll_area.rs` | `ScrollArea` |
+//! | `ScrollFade` | `scroll_fade.rs` | `.scroll-fade`, `useScrollFade` |
 //! | `Tooltip` (stub) | `tooltip.rs` | `Tooltip` |
 //! | `SpinnerRing` | `spinner_ring.rs` | `SpinnerRing` |
 //! | `Spinner` (a turning ring in a view of its own) | `spinner.rs` | `SpinnerRing` |
@@ -42,6 +43,9 @@ mod provider_logo;
 mod radio;
 mod range_slider;
 mod scroll_area;
+pub mod scroll_fade;
+#[cfg(test)]
+mod scroll_fade_tests;
 mod segmented;
 mod select;
 pub mod selection;

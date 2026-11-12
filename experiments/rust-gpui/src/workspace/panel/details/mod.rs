@@ -342,6 +342,7 @@ impl Render for DetailsView {
         }
         div().size_full().child(
             ScrollArea::new("details-scroll", &self.scroll)
+                .fade(crate::ui::grain::grained(theme.canvas, theme.appearance))
                 .child(div().flex().flex_col().w_full().pt(px(SECTION_GAP)).pb(px(12.0)).children(body)),
         )
     }

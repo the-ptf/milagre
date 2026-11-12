@@ -31,6 +31,19 @@ fn texture(appearance: Appearance) -> &'static str {
     }
 }
 
+/// The texture's mean strength once baked alpha (about 3.5 %) and [`STRENGTH`] are applied.
+const MEAN_SPECK: f32 = 0.035 * STRENGTH;
+
+/// `surface` as it looks with the grain on it, on average: the colour for an edge fade that covers the grain at its
+/// opaque end, so the faded band does not read as a flat patch next to the grained surface around it.
+pub fn grained(surface: gpui::Rgba, appearance: Appearance) -> gpui::Hsla {
+    let speck = match appearance {
+        Appearance::Dark => gpui::Rgba { r: 1.0, g: 1.0, b: 1.0, a: MEAN_SPECK },
+        Appearance::Light => gpui::Rgba { r: 0.0, g: 0.0, b: 0.0, a: MEAN_SPECK },
+    };
+    gpui::Hsla::from(surface).blend(gpui::Hsla::from(speck))
+}
+
 /// Starts decoding both textures (see `preload_logos`); whether both are ready.
 pub fn preload_grain(cx: &mut App) -> bool {
     [LIGHT_SPECKS, DARK_SPECKS].iter().all(|path| cx.fetch_asset::<ImgResourceLoader>(&Resource::Embedded((*path).into())).is_some())

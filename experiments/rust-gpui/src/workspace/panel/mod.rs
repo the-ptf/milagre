@@ -128,6 +128,8 @@ pub struct Panel {
     resizable: Entity<ResizableState>,
     /// Horizontal scroll of the tab list; also used to bring a clicked tab fully into view.
     tabs_scroll: ScrollHandle,
+    /// Edge fades over the tab strip: left once scrolled, right while tabs are cut off.
+    tabs_fade: crate::ui::scroll_fade::ScrollFade,
     changes: Entity<ChangesView>,
     artifacts: Entity<ArtifactsView>,
     designs: Entity<DesignsView>,
@@ -169,6 +171,7 @@ impl Panel {
             SimulatorEvent::Attached(count) => panel.set_simulator_attached(count > 0, cx),
         })
         .detach();
+        let tabs_scroll = ScrollHandle::new();
         let mut panel = Self {
             chat,
             seeded,
@@ -176,7 +179,8 @@ impl Panel {
             states: HashMap::new(),
             width: dock::WIDTH_RULE.default,
             resizable: cx.new(|_| ResizableState::default()),
-            tabs_scroll: ScrollHandle::new(),
+            tabs_fade: crate::ui::scroll_fade::ScrollFade::handle(&tabs_scroll).horizontal(),
+            tabs_scroll,
             changes,
             artifacts: {
                 let panel = cx.entity();
@@ -415,6 +419,7 @@ impl Panel {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = *cx.theme();
         let active = self.active();
         let tabs = self.visible_tabs().into_iter().map(|tab| {
             Tab::new(tab.label(), tab.label())
@@ -439,6 +444,15 @@ impl Panel {
             .overflow_x_scroll()
             .track_scroll(&self.tabs_scroll)
             .children(tabs);
+        // Over the strip, not in it, on the shared surface (the grain shows through the transparent end).
+        let tab_list = div()
+            .relative()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .child(tab_list)
+            .child(self.tabs_fade.overlay(crate::ui::grain::grained(theme.canvas, theme.appearance)));
         chrome::top_row("panel-tabs")
             .debug_selector(|| "panel-header".to_string())
             // The panel's half of the Chat card's gap is before it (`dock.rs`): the tabs keep their 8px from the edge.

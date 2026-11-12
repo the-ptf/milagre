@@ -20,6 +20,11 @@ pub fn ease_in_out(t: f32) -> f32 {
     cubic_bezier(0.77, 0.0, 0.175, 1.0, t)
 }
 
+/// CSS `ease-out`, `cubic-bezier(0, 0, 0.58, 1)`: the scroll edge fades (`.scroll-fade`'s transition).
+pub fn css_ease_out(t: f32) -> f32 {
+    cubic_bezier(0.0, 0.0, 0.58, 1.0, t)
+}
+
 /// How far along `elapsed` is in `duration`, eased; 1 when the duration is zero (motion off).
 pub fn progress(elapsed: Duration, duration: Duration, ease: fn(f32) -> f32) -> f32 {
     if duration.is_zero() {

@@ -32,6 +32,7 @@ use gpui_component::input::InputState;
 
 use super::focus::{RovingAxis, focused_index, item_focus, roving_index};
 use super::popover::row_shell;
+use super::scroll_fade::ScrollFade;
 use super::{Icon, IconName, IconSize, Input, SectionLabel};
 use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_INLINE, TEXT_10, TEXT_11, TEXT_12, TEXT_13, TextStepExt};
 
@@ -269,6 +270,7 @@ impl RenderOnce for PickerPanel {
         let handles: Vec<FocusHandle> = rows.iter().map(|(handle, ..)| handle.clone()).collect();
         let mut next = handles.clone().into_iter();
         let selector = self.id.to_string();
+        let (list_scroll, list_fade) = ScrollFade::kept(&ElementId::from((self.id.clone(), "list")), window, cx);
         div()
             .id(self.id)
             .debug_selector(move || selector.clone())
@@ -318,33 +320,48 @@ impl RenderOnce for PickerPanel {
             })
             .child(
                 div()
-                    .id("picker-list")
+                    .relative()
                     .flex()
                     .flex_col()
-                    .gap(px(1.0))
-                    .max_h(px(256.0))
-                    .overflow_y_scroll()
-                    .children(self.items.into_iter().enumerate().map(move |(ix, item)| {
-                        match item {
-                            Item::Row(mut row) => {
-                                row.handle = next.next();
-                                row.into_any_element()
-                            }
-                            Item::Label(text) => div()
-                                .id(("picker-label", ix))
-                                .flex_none()
-                                .px(px(8.0))
-                                .pt(px(8.0))
-                                .pb(px(4.0))
-                                .child(SectionLabel::new(text).menu())
-                                .into_any_element(),
-                        }
-                    }))
-                    .when(empty, |el| {
-                        el.child(
-                            div().px(px(8.0)).py(px(20.0)).text_center().text_step(TEXT_12).text_color(theme.ink3).child(self.empty_label),
-                        )
-                    }),
+                    .min_h_0()
+                    .child(
+                        div()
+                            .id("picker-list")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .max_h(px(256.0))
+                            .overflow_y_scroll()
+                            .track_scroll(&list_scroll)
+                            .children(self.items.into_iter().enumerate().map(move |(ix, item)| {
+                                match item {
+                                    Item::Row(mut row) => {
+                                        row.handle = next.next();
+                                        row.into_any_element()
+                                    }
+                                    Item::Label(text) => div()
+                                        .id(("picker-label", ix))
+                                        .flex_none()
+                                        .px(px(8.0))
+                                        .pt(px(8.0))
+                                        .pb(px(4.0))
+                                        .child(SectionLabel::new(text).menu())
+                                        .into_any_element(),
+                                }
+                            }))
+                            .when(empty, |el| {
+                                el.child(
+                                    div()
+                                        .px(px(8.0))
+                                        .py(px(20.0))
+                                        .text_center()
+                                        .text_step(TEXT_12)
+                                        .text_color(theme.ink3)
+                                        .child(self.empty_label),
+                                )
+                            }),
+                    )
+                    .child(list_fade.overlay(theme.surface.into())),
             )
     }
 }

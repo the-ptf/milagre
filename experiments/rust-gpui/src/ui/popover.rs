@@ -39,6 +39,7 @@ use gpui_component::Selectable;
 use gpui_component::popover::{Popover as WidgetPopover, PopoverState};
 
 use super::focus::{RovingAxis, focused_index, inset_ring, item_focus, roving_index};
+use super::scroll_fade::ScrollFade;
 use super::{Icon, IconName, IconSize, SectionLabel, ShortcutKeys};
 use crate::platform::webview::set_overlay_open;
 use crate::theme::{ActiveTheme, RADIUS_CARD, RADIUS_INLINE, TEXT_11, TEXT_12, TEXT_13, TextStepExt};
@@ -470,7 +471,9 @@ impl RenderOnce for MenuList {
         let mut next = handles.clone().into_iter();
         let dismiss = self.dismiss;
         let selector = self.id.to_string();
-        div()
+        let (scroll, fade) = ScrollFade::kept(&self.id, window, cx);
+        // The fades sit over the scrolling list, in the popover's surface colour, not in it.
+        let menu = div()
             .id(self.id)
             .debug_selector(move || selector.clone())
             .flex()
@@ -478,6 +481,7 @@ impl RenderOnce for MenuList {
             .gap(px(1.0))
             .max_h(available)
             .overflow_y_scroll()
+            .track_scroll(&scroll)
             .on_key_down(move |event: &KeyDownEvent, window, cx| {
                 let current = focused_index(&key_handles, window);
                 if let Some(to) = roving_index(&event.keystroke.key, current, key_handles.len(), RovingAxis::Vertical) {
@@ -512,6 +516,7 @@ impl RenderOnce for MenuList {
                         .child(SectionLabel::new(text).menu())
                         .into_any_element(),
                 }
-            }))
+            }));
+        div().relative().flex().flex_col().max_h(available).child(menu).child(fade.overlay(theme.surface.into()))
     }
 }

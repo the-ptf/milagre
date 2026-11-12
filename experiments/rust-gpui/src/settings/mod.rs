@@ -420,7 +420,7 @@ impl Render for SettingsModal {
         let main_pane =
             div().debug_selector(|| "settings-main".into()).min_w_0().flex_1().h_full().bg(theme.surface).flex().flex_col().child(
                 div().min_h_0().flex_1().child(
-                    ScrollArea::new("settings-body-scroll", &self.body_scroll).child(
+                    ScrollArea::new("settings-body-scroll", &self.body_scroll).fade(theme.surface).child(
                         div()
                             .w_full()
                             .flex()

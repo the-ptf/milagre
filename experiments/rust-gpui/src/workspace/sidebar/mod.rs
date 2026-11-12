@@ -60,6 +60,8 @@ use crate::data::{Data, Polled, poll_once};
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::lists::order::ChatOrder;
 use crate::theme::ActiveTheme;
+use crate::ui::grain::grained;
+use crate::ui::scroll_fade::ScrollFade;
 use crate::ui::{IconButton, IconButtonSize, IconName, IconSize};
 use crate::workspace::chat::pills::bookmark::FamilyChat;
 use crate::workspace::chrome::{self, NoDrag};
@@ -98,6 +100,9 @@ pub struct Sidebar {
     selected: Option<usize>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    /// The edge fades of the Chat list and the Done list: canvases over them that read the scroll handles as they paint.
+    fade: ScrollFade,
+    done_fade: ScrollFade,
     /// The views of the rows in and near the viewport, by row index, with their click subscriptions.
     row_views: HashMap<usize, (Entity<ChatRowView>, Subscription)>,
     /// The list's rows built in the last frame, as row indices (the pinned rows are always built), to see
@@ -168,6 +173,7 @@ impl Sidebar {
                 (recorder.clone(), Some(recorder))
             }
         };
+        let (scroll, done_scroll) = (UniformListScrollHandle::new(), UniformListScrollHandle::new());
         let mut this = Self {
             data: SidebarData::default(),
             rows: Vec::new(),
@@ -177,10 +183,12 @@ impl Sidebar {
             done_rows: Vec::new(),
             done_open: false,
             picked: None,
-            done_scroll: UniformListScrollHandle::new(),
+            done_scroll: done_scroll.clone(),
             selected: None,
             focus: cx.focus_handle(),
-            scroll: UniformListScrollHandle::new(),
+            fade: ScrollFade::uniform(&scroll),
+            done_fade: ScrollFade::uniform(&done_scroll),
+            scroll,
             row_views: HashMap::new(),
             visible: 0..0,
             rows_built: Rc::new(Cell::new(0)),
@@ -454,6 +462,11 @@ impl Sidebar {
         self.rows_built.get()
     }
 
+    /// The Chat list's and the Done list's edge fades (tests read their strength).
+    pub fn fades(&self) -> (&ScrollFade, &ScrollFade) {
+        (&self.fade, &self.done_fade)
+    }
+
     /// How many row views exist (the visible rows plus a margin), out of `row_count`.
     pub fn row_views_alive(&self) -> usize {
         self.row_views.len()
@@ -683,9 +696,16 @@ impl Render for Sidebar {
                 Rc::new(move |_, cx| sidebar.update(cx, |sidebar, cx| sidebar.toggle_done(cx)))
             },
             list: (self.done_open && self.done > 0).then(|| {
-                uniform_list("done-list", self.done_rows.len(), cx.processor(Self::render_done_rows))
-                    .track_scroll(&self.done_scroll)
-                    .h(px(bottom::DONE_LIST_HEIGHT.min(bottom::DONE_ROW * self.done_rows.len() as f32 + 2.0)))
+                let height = bottom::DONE_LIST_HEIGHT.min(bottom::DONE_ROW * self.done_rows.len() as f32 + 2.0);
+                div()
+                    .relative()
+                    .h(px(height))
+                    .child(
+                        uniform_list("done-list", self.done_rows.len(), cx.processor(Self::render_done_rows))
+                            .track_scroll(&self.done_scroll)
+                            .size_full(),
+                    )
+                    .child(self.done_fade.overlay(grained(theme.canvas, theme.appearance)))
                     .into_any_element()
             }),
         };
@@ -721,10 +741,17 @@ impl Render for Sidebar {
             })
             .when(pinned_empty, |el| el.child(div().flex_none().h(px(LIST_TOP - ROW_GAP / 2.0))))
             .child(
-                uniform_list("chat-list", self.rows.len() - self.pinned, cx.processor(Self::render_rows))
-                    .track_scroll(&self.scroll)
+                div()
+                    .relative()
                     .flex_1()
-                    .min_h_0(),
+                    .min_h_0()
+                    .child(
+                        uniform_list("chat-list", self.rows.len() - self.pinned, cx.processor(Self::render_rows))
+                            .track_scroll(&self.scroll)
+                            .size_full(),
+                    )
+                    // Over the list, under the footer: the surface's colour at each edge that has more to scroll to.
+                    .child(self.fade.overlay(grained(theme.canvas, theme.appearance))),
             )
             .child(bottom::bottom_group(done, usage::rows(&self.data.usage, &self.usage_hooks(cx), &theme), toast, footer, &theme))
             .children(self.overlays(window, cx))
@@ -754,5 +781,7 @@ fn header(on_new_chat: impl Fn(&mut Window, &mut gpui::App) + 'static) -> impl I
 
 #[cfg(test)]
 mod drag_tests;
+#[cfg(test)]
+mod fade_tests;
 #[cfg(test)]
 mod menu_tests;
