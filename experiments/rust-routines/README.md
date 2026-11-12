@@ -115,7 +115,8 @@ claim authority, restart recovery, dispatch or UI integration is implemented by 
 # Durable dedicated-root store
 
 The default-disabled `durable-store` feature now exposes a reusable persistent
-schedule CRUD store, with actual Node result/file-byte comparisons and graceful
+schedule CRUD store and typed claim/completion/recovery records, with actual
+Node result/effect/file-byte comparisons and graceful
 process reopen tests. See [DURABLE-STORE.md](DURABLE-STORE.md) for its API, owner
 checks, post-rename uncertainty and remaining runtime/execution gates. The prior
 private copied writer remains a fixture; it is not the new service's lifetime.

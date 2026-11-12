@@ -11,7 +11,8 @@ mod schedule;
 mod store;
 #[cfg(all(unix, feature = "durable-store"))]
 pub use store::durable::{
-    Command as StoreCommand, Error as StoreError, OwnerCheck, RoutineStore, StoreReply,
+    Command as StoreCommand, Error as StoreError, OwnerCheck, RoutineStore, RunFinishStatus,
+    StoreReply,
 };
 mod zone;
 pub use cron::{every_to_cron, parse_cron, Cron};

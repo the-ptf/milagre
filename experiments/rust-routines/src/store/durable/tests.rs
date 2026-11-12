@@ -1,4 +1,6 @@
 use super::*;
+#[path = "execution_tests.rs"]
+mod execution;
 use std::{
     fs,
     os::unix::fs::{DirBuilderExt, PermissionsExt},
@@ -478,6 +480,8 @@ fn actual_node_crud_outputs_and_saved_file_bytes_match() {
         .as_mut()
         .unwrap()
         .ids
+        .lock()
+        .unwrap()
         .extend(["routine-a".into(), "routine-b".into()]);
     let mut operations = Vec::new();
     let mut observations = Vec::new();
@@ -645,6 +649,8 @@ fn paused_create_matches_real_node_create_then_disable_and_has_no_enabled_disk_i
         .as_mut()
         .unwrap()
         .ids
+        .lock()
+        .unwrap()
         .extend(["paused-a".into(), "paused-b".into()]);
     let input = input("Paused 😀 draft");
     let created = store

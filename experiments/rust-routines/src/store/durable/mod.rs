@@ -1,4 +1,4 @@
-//! Dedicated-root durable schedule CRUD. No timers, claims or routine execution.
+//! Dedicated-root durable schedule transactions. No timers or routine execution.
 //! State preparation is the existing Node-conformant Model; filesystem ownership
 //! adapts the copied writer's descriptor-relative primitives without its temp-only lifetime.
 mod disk;
@@ -65,7 +65,37 @@ fn io(operation: &'static str, source: std::io::Error) -> Error {
     Error::Io { operation, source }
 }
 
-/// Only store CRUD/read operations. No execution method can be selected by name.
+/// Terminal statuses accepted by Node's finishRun. Cancellation policy belongs
+/// to the host; there is no invented "cancelled" routine status.
+/// ```compile_fail
+/// use milagre_routines::RunFinishStatus;
+/// let status = RunFinishStatus::Cancelled;
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunFinishStatus {
+    Acted,
+    Quiet,
+    Failed,
+    SkippedBusy,
+    Ended,
+}
+impl RunFinishStatus {
+    fn wire(self) -> &'static str {
+        match self {
+            Self::Acted => "acted",
+            Self::Quiet => "quiet",
+            Self::Failed => "failed",
+            Self::SkippedBusy => "skipped-busy",
+            Self::Ended => "ended",
+        }
+    }
+}
+
+/// Closed store transaction set. No execution method can be selected by name.
+/// ```compile_fail
+/// use milagre_routines::StoreCommand;
+/// let command = StoreCommand::Call("claimDue".into(), vec![]);
+/// ```
 pub enum Command {
     List,
     Get(String),
@@ -78,6 +108,34 @@ pub enum Command {
         patch: Value,
     },
     Remove(String),
+    ClaimDue {
+        at: i64,
+    },
+    StartRun {
+        id: String,
+        scheduled_for: i64,
+    },
+    FinishRun {
+        run_id: String,
+        status: RunFinishStatus,
+        chat_id: Option<String>,
+        error: Option<String>,
+        summary: Option<String>,
+        title: Option<String>,
+    },
+    RecoverInterrupted,
+    ExpireDue {
+        at: i64,
+    },
+    Complete {
+        id: String,
+        reason: Option<String>,
+    },
+    AttachChat {
+        run_id: String,
+        chat_id: String,
+        worktree_id: Option<String>,
+    },
 }
 impl Command {
     fn wire(self) -> (&'static str, Vec<Value>) {
@@ -88,6 +146,51 @@ impl Command {
             Self::Create(input) | Self::CreatePaused(input) => ("create", vec![input]),
             Self::Update { id, patch } => ("update", vec![json!(id), patch]),
             Self::Remove(id) => ("remove", vec![json!(id)]),
+            Self::ClaimDue { at } => ("claimDue", vec![json!(at)]),
+            Self::StartRun { id, scheduled_for } => {
+                ("startRun", vec![json!(id), json!(scheduled_for)])
+            }
+            Self::FinishRun {
+                run_id,
+                status,
+                chat_id,
+                error,
+                summary,
+                title,
+            } => {
+                let mut outcome = json!({"status":status.wire()});
+                for (key, value) in [
+                    ("summary", summary),
+                    ("error", error),
+                    ("chatId", chat_id),
+                    ("title", title),
+                ] {
+                    if let Some(value) = value {
+                        outcome[key] = json!(value);
+                    }
+                }
+                ("finishRun", vec![json!(run_id), outcome])
+            }
+            Self::RecoverInterrupted => ("recoverInterrupted", vec![]),
+            Self::ExpireDue { at } => ("expireDue", vec![json!(at)]),
+            Self::Complete { id, reason } => {
+                let mut args = vec![json!(id)];
+                if let Some(reason) = reason {
+                    args.push(json!(reason));
+                }
+                ("complete", args)
+            }
+            Self::AttachChat {
+                run_id,
+                chat_id,
+                worktree_id,
+            } => {
+                let mut chat = json!({"chatId":chat_id});
+                if let Some(worktree_id) = worktree_id {
+                    chat["worktreeId"] = json!(worktree_id);
+                }
+                ("attachChat", vec![json!(run_id), chat])
+            }
         }
     }
 }
@@ -109,7 +212,7 @@ struct State {
     owner: OwnerCheck,
     fenced: Option<String>,
     #[cfg(test)]
-    ids: std::collections::VecDeque<String>,
+    ids: Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
 }
 impl State {
     fn fence(&mut self, error: &Error) {
@@ -145,7 +248,24 @@ impl RoutineStore {
             serde_json::from_str::<Value>(seed)
                 .map_err(|error| Error::Invalid(error.to_string()))?;
         }
-        let model = Model::open(seed, now)?;
+        let mut model = Model::open(seed, now)?;
+        #[cfg(test)]
+        let ids: Arc<std::sync::Mutex<std::collections::VecDeque<String>>> = Default::default();
+        #[cfg(test)]
+        {
+            let injected = ids.clone();
+            model.ids.source = Some(Box::new(move || {
+                injected
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or_else(random_id)
+            }));
+        }
+        #[cfg(not(test))]
+        {
+            model.ids.source = Some(Box::new(random_id));
+        }
         check_owner(&owner)?;
         disk.verify()?;
         Ok(Self {
@@ -155,7 +275,7 @@ impl RoutineStore {
                 owner,
                 fenced: None,
                 #[cfg(test)]
-                ids: Default::default(),
+                ids,
             })),
         })
     }
@@ -177,16 +297,7 @@ impl RoutineStore {
             &serde_json::to_string(&arguments).map_err(|e| Error::Invalid(e.to_string()))?,
         )?;
         let arguments = arguments.as_array().ok_or(Error::Ownership)?;
-        if operation == "create" {
-            #[cfg(test)]
-            let id = state.ids.pop_front().unwrap_or_else(random_id);
-            #[cfg(not(test))]
-            let id = random_id();
-            state.model.ids.forced = Some(id);
-        }
-        let prepared = state.model.prepare(operation, arguments, now);
-        state.model.ids.forced = None;
-        let stamp = prepared?;
+        let stamp = state.model.prepare(operation, arguments, now)?;
         if paused_create {
             if let Err(error) = pause_created_candidate(&mut state.model) {
                 state.model.discard(stamp)?;

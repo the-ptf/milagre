@@ -151,13 +151,17 @@ impl Fault {
 struct Ids {
     calls: u64,
     forced: Option<String>,
+    source: Option<Box<dyn FnMut() -> String + Send>>,
 }
 impl Ids {
     fn next(&mut self) -> String {
         self.calls += 1;
         self.forced
             .take()
-            .unwrap_or_else(|| format!("id{}", self.calls))
+            .unwrap_or_else(|| match self.source.as_mut() {
+                Some(source) => source(),
+                None => format!("id{}", self.calls),
+            })
     }
 }
 #[derive(Default)]
