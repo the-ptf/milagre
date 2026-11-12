@@ -52,8 +52,11 @@ service parity. Routines are out of scope for the Preview in this mode.
   Tauri shell read Electron's file once and wrote its own overlay.
 - Changing an existing Chat's provider or model: make `chat_actions` with the new provider/model and
   send. The daemon switches or hands off on that send, as it does for Electron's picker.
-- The Node daemon serves `daemon:snapshot` to `desktop-v1` clients without listing it in `methods`;
-  with this feature, that capability unlocks the snapshot.
+- Handshake: the Node daemon lists the desktop's own commands (`project:open`, `daemon:snapshot`,
+  `computers:*` with `computers:unlock` and `computers:vault-status`) only to a client asking
+  `daemon:status [{commands:true}]`, as Electron's desktop does. When the daemon advertises
+  `desktop-commands-v1`, the client asks a second time and keeps that method list (344 live vs 318).
+  The Rust owner doesn't advertise it and keeps its one-step handshake.
 
 Evidence (2026-11-12): 5 unit tests in `src/tests/installed_owner.rs` (fake daemon on the real
 derived socket path: adopt, wrong data dir, wrong PID, no daemon, provider/model wire shape,
@@ -75,3 +78,10 @@ Round 4 (2026-11-12): daemon start. 5 tests with a fake daemon started through t
 over). Real check: `installed_owner_start` started Milagre.app 0.232.0-beta.31's daemon in Node mode
 on a throwaway profile in 0.27 s, detached (parent PID 1), served 14 capabilities; stopped with
 SIGTERM afterwards. The real profile's daemon was not touched.
+
+
+Round 5 (2026-11-12): two-step handshake. Live read-only check: `computers:list` through `call()`
+returned this computer plus 4 paired computers; `project:open` is now reachable for Add Project;
+`daemon:stop` is advertised but still refused by `call()`. Multi-computer already lives in the
+daemon (`apps/daemon/src/computers.cjs`, capability `computer-management-v1`); what remains for a
+frontend without Electron is supplying the vault key with `computers:unlock`.

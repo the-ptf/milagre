@@ -106,6 +106,15 @@ fn main() {
             .or_else(|| accounts.as_object().map(|o| o.len()))
             .unwrap_or(0);
         println!("renderer call accounts:list: {count} entries");
+        let computers = project
+            .call(&quiet, "computers:list", serde_json::json!([]))
+            .await
+            .expect("computers:list");
+        println!(
+            "renderer call computers:list: this computer {}, {} paired",
+            computers["thisMac"],
+            computers["computers"].as_array().map(Vec::len).unwrap_or(0)
+        );
         let refused = project
             .call(&quiet, "daemon:stop", serde_json::json!([]))
             .await;

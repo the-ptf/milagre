@@ -79,6 +79,21 @@ impl Engine {
         }
         self.capabilities = strings(&value["capabilities"])?;
         self.methods = strings(&value["methods"])?;
+        // The Node daemon lists the desktop's own commands (project:open, daemon:snapshot, computers:*) only to a client
+        // that asks with {commands:true}, as Electron's desktop does. Ask once more, keep its methods, drop the large
+        // command definitions. The Rust owner doesn't advertise desktop-commands-v1 and is unaffected.
+        #[cfg(feature = "installed-owner")]
+        if self.capabilities.contains("desktop-commands-v1") {
+            let full = self.request_unchecked(
+                "daemon:status",
+                json!([{"commands": true}]),
+                Instant::now() + self.options.request_timeout,
+            )?;
+            if full["pid"] != value["pid"] || full["closing"] != false {
+                return Err(protocol("the owner changed during the handshake"));
+            }
+            self.methods = strings(&full["methods"])?;
+        }
         for required in ["snapshot-pages-v1", "result-pages-v1"] {
             if !self.capabilities.contains(required) {
                 return Err(Error::Capability {
@@ -307,10 +322,7 @@ impl Engine {
             .generation
             .checked_add(1)
             .ok_or_else(|| protocol("snapshot generation exhausted"))?;
-        // The Node daemon serves the desktop snapshot to `desktop-v1` clients without listing it
-        // in `methods` (apps/daemon/src/bootstrap.cjs). The Rust owner lists it explicitly.
-        let desktop = cfg!(feature = "installed-owner") && self.capabilities.contains("desktop-v1");
-        if !self.methods.contains("daemon:snapshot") && !desktop {
+        if !self.methods.contains("daemon:snapshot") {
             return Err(Error::Capability {
                 required: "method:daemon:snapshot".into(),
             });

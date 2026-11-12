@@ -6,7 +6,32 @@ use std::path::PathBuf;
 const ACTIONS: &[&str] = &["chat:send", "chat:send-status", "agent:models"];
 
 fn installed_status() -> Value {
-    json!({"pid":PID,"protocolVersion":1,"closing":false,"capabilities":["desktop-v1","snapshot-pages-v1","result-pages-v1"],"methods":METHODS.iter().filter(|m| !m.starts_with("daemon:snapshot")).chain(ACTIONS.iter()).collect::<Vec<_>>()})
+    json!({"pid":PID,"protocolVersion":1,"closing":false,"capabilities":["desktop-v1","desktop-commands-v1","snapshot-pages-v1","result-pages-v1"],"methods":METHODS.iter().filter(|m| !m.starts_with("daemon:")).chain(ACTIONS.iter()).collect::<Vec<_>>()})
+}
+/// The Node daemon's two-step handshake: plain status, then `{commands:true}` listing the desktop's own commands.
+fn installed_handshake(peer: &mut Peer, extra: &[&str]) {
+    let request = peer.request("daemon:status");
+    assert_eq!(request["args"], json!([]));
+    peer.reply(&request, installed_status());
+    let request = peer.request("daemon:status");
+    assert_eq!(request["args"], json!([{"commands": true}]));
+    let mut full = installed_status();
+    full["commandDefinitions"] = json!([{"name": "large"}]);
+    let methods = full["methods"].as_array_mut().unwrap();
+    for method in [
+        "project:open",
+        "daemon:status",
+        "daemon:snapshot",
+        "daemon:snapshot-page",
+        "daemon:result-page",
+        "daemon:stop",
+    ]
+    .iter()
+    .chain(extra)
+    {
+        methods.push(json!(method));
+    }
+    peer.reply(&request, full);
 }
 
 fn installed_pair() -> (crate::InstalledProject, Peer) {
@@ -25,8 +50,7 @@ fn installed_pair() -> (crate::InstalledProject, Peer) {
 fn installed_actions_send_the_chosen_provider_and_model() {
     let (project, mut peer) = installed_pair();
     let worker = thread::spawn(move || {
-        let request = peer.request("daemon:status");
-        peer.reply(&request, installed_status());
+        installed_handshake(&mut peer, &[]);
         let open = peer.request("project:open");
         peer.reply(&open, json!({"path":PROJECT}));
         let send = peer.request("chat:send");
@@ -57,11 +81,10 @@ fn installed_actions_send_the_chosen_provider_and_model() {
 }
 
 #[test]
-fn desktop_capability_unlocks_the_unlisted_node_snapshot() {
+fn the_desktop_commands_status_unlocks_the_node_snapshot() {
     let (project, mut peer) = installed_pair();
     let worker = thread::spawn(move || {
-        let request = peer.request("daemon:status");
-        peer.reply(&request, installed_status());
+        installed_handshake(&mut peer, &[]);
         peer.snapshot(4);
         peer.closed();
     });
@@ -204,8 +227,7 @@ fn a_profile_without_a_running_daemon_is_unavailable() {
 fn load_view_reads_without_open_and_allows_actions() {
     let (project, mut peer) = installed_pair();
     let worker = thread::spawn(move || {
-        let request = peer.request("daemon:status");
-        peer.reply(&request, installed_status());
+        installed_handshake(&mut peer, &[]);
         let read = peer.request("project:read");
         assert_eq!(read["args"], json!([PROJECT, {"state": false}]));
         peer.reply(&read, json!({"path":PROJECT,"name":"fixture","version":3}));
@@ -247,8 +269,7 @@ fn load_view_reads_without_open_and_allows_actions() {
 fn discarded_notifications_never_fill_the_buffer() {
     let (project, mut peer) = installed_pair();
     let worker = thread::spawn(move || {
-        let request = peer.request("daemon:status");
-        peer.reply(&request, installed_status());
+        installed_handshake(&mut peer, &[]);
         for seq in 1..=20 {
             peer.event(seq, json!({"chatId":format!("{PROJECT}#1"),"type":"text"}));
         }
@@ -277,8 +298,7 @@ fn models_refuse_another_projects_client() {
     let (first, mut first_peer) = installed_pair();
     let (second, _second_peer) = installed_pair();
     let worker = thread::spawn(move || {
-        let request = first_peer.request("daemon:status");
-        first_peer.reply(&request, installed_status());
+        installed_handshake(&mut first_peer, &[]);
         first_peer.closed();
     });
     let (client, _, _) = block_on(first.connect(ClientOptions::default())).unwrap();
@@ -334,22 +354,29 @@ fn renderer_commands_match_preload() {
 fn renderer_calls_pass_allowed_commands_and_refuse_the_rest() {
     let (project, mut peer) = installed_pair();
     let worker = thread::spawn(move || {
-        let request = peer.request("daemon:status");
-        let mut status = installed_status();
-        status["methods"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!("done:settings:read"));
-        peer.reply(&request, status);
+        installed_handshake(&mut peer, &["done:settings:read"]);
         let read = peer.request("done:settings:read");
         assert_eq!(read["args"], json!([]));
         peer.reply(&read, json!({"theme":"dark"}));
+        // Listed only with {commands:true}: Add Project reaches the daemon.
+        let open = peer.request("project:open");
+        assert_eq!(open["args"], json!(["/new/folder", {"takeNotice": true}]));
+        peer.reply(&open, json!({"path":"/new/folder"}));
         peer.closed();
     });
     let (client, _, _) = block_on(project.connect(ClientOptions::default())).unwrap();
     assert_eq!(
         block_on(project.call(&client, "done:settings:read", json!([]))).unwrap()["theme"],
         "dark"
+    );
+    assert_eq!(
+        block_on(project.call(
+            &client,
+            "project:open",
+            json!(["/new/folder", {"takeNotice": true}])
+        ))
+        .unwrap()["path"],
+        "/new/folder"
     );
     for (method, required) in [
         ("daemon:stop", "renderer:daemon:stop"),
