@@ -189,6 +189,33 @@ impl InstalledProject {
             .read("agent:models", json!([self.authority.project]))
             .await
     }
+    /// Any command Electron's window may send the daemon ([`crate::renderer_commands`]), for the screens the typed
+    /// capabilities don't cover yet: Settings, Details, the composer pills, PR details, changing a Chat's model.
+    /// Arguments are the preload's, as a JSON array. The daemon checks them and its own Project scope, as it does
+    /// for Electron. Refused without a request: a command outside that set, `app-update:install`, or one the daemon
+    /// doesn't advertise. Paged replies are assembled like every other read.
+    pub async fn call(&self, client: &Client, method: &str, args: Value) -> Result<Value> {
+        if !client.bound_to(&self.authority) {
+            return Err(Error::InvalidScope);
+        }
+        let method =
+            crate::renderer_commands::allowed(method).ok_or_else(|| Error::Capability {
+                required: format!("renderer:{method}"),
+            })?;
+        if !args.is_array() {
+            return Err(Error::InvalidInput {
+                field: "args",
+                message: "Expected a JSON array of command arguments",
+            });
+        }
+        if args.to_string().len() > 4 * 1024 * 1024 {
+            return Err(Error::InvalidInput {
+                field: "args",
+                message: "Encoded command arguments exceed 4 MiB",
+            });
+        }
+        client.read(method, args).await
+    }
     pub fn sidebar_actions(&self, client: &Client) -> Result<crate::SidebarActions> {
         client.owned_sidebar_for(&self.authority)
     }

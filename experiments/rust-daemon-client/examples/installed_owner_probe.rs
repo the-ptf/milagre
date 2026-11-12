@@ -96,6 +96,23 @@ fn main() {
                 .map(|m| m["id"].clone());
             println!("models {provider}: recommended {:?}", recommended);
         }
+        let accounts = project
+            .call(&quiet, "accounts:list", serde_json::json!([]))
+            .await
+            .expect("accounts:list");
+        let count = accounts
+            .as_array()
+            .map(Vec::len)
+            .or_else(|| accounts.as_object().map(|o| o.len()))
+            .unwrap_or(0);
+        println!("renderer call accounts:list: {count} entries");
+        let refused = project
+            .call(&quiet, "daemon:stop", serde_json::json!([]))
+            .await;
+        println!(
+            "renderer call daemon:stop refused locally: {}",
+            refused.is_err()
+        );
         let after: Vec<_> = owner
             .known_projects()
             .await

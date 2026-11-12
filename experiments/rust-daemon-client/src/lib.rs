@@ -16,6 +16,8 @@ mod notify;
 #[cfg(feature = "owned-chat")]
 mod owned_chat;
 mod protocol;
+#[cfg(feature = "installed-owner")]
+mod renderer_commands;
 mod reply;
 
 use serde_json::Value;

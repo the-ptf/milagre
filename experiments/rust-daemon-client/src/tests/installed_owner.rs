@@ -286,3 +286,97 @@ fn models_refuse_another_projects_client() {
     client.disconnect();
     worker.join().unwrap();
 }
+
+#[test]
+fn renderer_commands_match_preload() {
+    let preload =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/electron/preload.cjs");
+    let Ok(preload) = std::fs::read_to_string(&preload) else {
+        eprintln!("preload.cjs not in this checkout; parity not checked");
+        return;
+    };
+    let mut expected = std::collections::BTreeSet::new();
+    for marker in ["invoke(", "send("] {
+        for (index, _) in preload.match_indices(marker) {
+            let before = preload[..index].chars().next_back();
+            if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let rest = preload[index + marker.len()..].trim_start();
+            let Some(rest) = rest.strip_prefix('"') else {
+                continue;
+            };
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == ':' || *c == '-')
+                .collect();
+            if rest[name.len()..].starts_with('"')
+                && name.starts_with(|c: char| c.is_ascii_alphabetic())
+            {
+                expected.insert(name);
+            }
+        }
+    }
+    for action in ["add", "select", "login", "cancel", "remove"] {
+        expected.insert(format!("accounts:{action}"));
+    }
+    let actual: Vec<_> = crate::renderer_commands::RENDERER_COMMANDS.to_vec();
+    let mut sorted = actual.clone();
+    sorted.sort_unstable();
+    assert_eq!(actual, sorted, "binary search needs a sorted list");
+    assert_eq!(
+        actual,
+        expected.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn renderer_calls_pass_allowed_commands_and_refuse_the_rest() {
+    let (project, mut peer) = installed_pair();
+    let worker = thread::spawn(move || {
+        let request = peer.request("daemon:status");
+        let mut status = installed_status();
+        status["methods"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("done:settings:read"));
+        peer.reply(&request, status);
+        let read = peer.request("done:settings:read");
+        assert_eq!(read["args"], json!([]));
+        peer.reply(&read, json!({"theme":"dark"}));
+        peer.closed();
+    });
+    let (client, _, _) = block_on(project.connect(ClientOptions::default())).unwrap();
+    assert_eq!(
+        block_on(project.call(&client, "done:settings:read", json!([]))).unwrap()["theme"],
+        "dark"
+    );
+    for (method, required) in [
+        ("daemon:stop", "renderer:daemon:stop"),
+        ("app-update:install", "renderer:app-update:install"),
+        ("desktop:invoke", "renderer:desktop:invoke"),
+    ] {
+        assert_eq!(
+            block_on(project.call(&client, method, json!([]))),
+            Err(Error::Capability {
+                required: required.into()
+            })
+        );
+    }
+    // In the preload but not advertised by this daemon: refused locally.
+    assert!(matches!(
+        block_on(project.call(&client, "worktree:remove", json!([]))),
+        Err(Error::Capability { .. })
+    ));
+    assert!(matches!(
+        block_on(project.call(&client, "done:settings:read", json!({}))),
+        Err(Error::InvalidInput { field: "args", .. })
+    ));
+    let (other, _other_peer) = installed_pair();
+    assert_eq!(
+        block_on(other.call(&client, "done:settings:read", json!([]))),
+        Err(Error::InvalidScope)
+    );
+    client.disconnect();
+    worker.join().unwrap();
+}
