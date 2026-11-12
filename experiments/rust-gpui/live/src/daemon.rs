@@ -76,7 +76,7 @@ pub const DAEMON_MISSING: &str =
 pub const BUNDLED_FAILED: &str = "This Preview's own daemon didn't start. Download the Preview again, or install Milagre.";
 
 /// What Settings › About says while the Preview runs on its own daemon: what that daemon lacks next to Milagre.app's.
-pub const BUNDLED_NOTE: &str = "Running the daemon bundled with this Preview: Milagre isn't installed. It has no cloudflared: a phone's Cloudflare tunnel and phones' views of this computer's localhost pages download it from GitHub the first time. Paired computers need Milagre's key, so they stay unavailable here.";
+pub const BUNDLED_NOTE: &str = "Running the daemon bundled with this Preview: Milagre isn't installed. It has no cloudflared: a phone's Cloudflare tunnel and phones' views of this computer's localhost pages download it from GitHub the first time.";
 
 /// The daemon bundle a built Preview ships, beside its executable: `Contents/Resources/milagre-daemon`.
 pub const BUNDLE_DIR: &str = "milagre-daemon";
@@ -231,7 +231,9 @@ impl Daemon {
 
     /// Unlocks the computer vault where Electron does (launch, every adoption, before `computers:add`, on
     /// `computers:set-enabled(true)`): only when `computers:vault-status` says it is locked, and never in read-only
-    /// mode. `VAULT_KEY_MISSING` never writes a key; `KEYCHAIN_UNAVAILABLE` means the Keychain read was refused.
+    /// mode. No vault and no key yet (a computer without Milagre.app): the client creates both as Electron does
+    /// (`Created`). `VAULT_KEY_MISSING` (a vault whose key is gone) never writes a key; `KEYCHAIN_UNAVAILABLE` means
+    /// the Keychain read was refused.
     pub async fn unlock_computers(&self, project: &str) -> Result<crate::computers::Unlock> {
         use crate::computers::Unlock;
         let (client, installed) = self.request_only(project).await?;
@@ -244,6 +246,12 @@ impl Daemon {
                 return Ok(Unlock::Locked);
             }
             let seam = self.unlocker.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            // Test builds never reach the login Keychain: since bf698770 the client's unlock reads the "Milagre Safe
+            // Storage" item (and makes one when missing) on a daemon with no vault, which a fake daemon is. A test
+            // with no stand-in leaves the vault locked, as a read-only window does.
+            if cfg!(test) && seam.is_none() {
+                return Ok(Unlock::Locked);
+            }
             let outcome = match seam {
                 Some(unlock) => unlock(),
                 None => installed.unlock_computers(&client).await.map_err(|error| match &error {

@@ -5,7 +5,10 @@
 //!   (launch, every adoption, before `computers:add`, on `computers:set-enabled(true)`) with the client's
 //!   `unlock_computers` (Electron's safeStorage key from the login Keychain, `computers:unlock`), and only when the
 //!   status says it is locked ([`crate::daemon::Daemon::unlock_computers`]). A refused Keychain read
-//!   (`KEYCHAIN_UNAVAILABLE`) shows [`ALLOW_KEYCHAIN`]; `VAULT_KEY_MISSING` never writes a new key.
+//!   (`KEYCHAIN_UNAVAILABLE`) shows [`ALLOW_KEYCHAIN`]; `VAULT_KEY_MISSING` (an existing vault without its key) never
+//!   writes a new key. On a computer that never had Milagre.app (no vault, no key) the client creates the first key
+//!   and its "Milagre Safe Storage" Keychain item as Electron does (`ComputerUnlock::Created`), so pairing works there
+//!   too and a Milagre.app installed later reads the same key.
 //! - Unlocked, `computers:list []` feeds the sidebar's computers and Settings' computers group.
 //! - Each online computer's Projects, their states and its runs ([`Remote`]) are read with `computers:invoke [id,
 //!   method, args]` (`project:recent`, `state:read`, `chat:runs`; a remote transcript with `chat:messages`) on the
@@ -138,6 +141,7 @@ pub async fn read_remote(daemon: &Daemon, id: &str) -> anyhow::Result<Remote> {
             opened_at: project["openedAt"].as_str().map(|o| o.to_owned().into()),
             computer: id.to_owned().into(),
             tile: None,
+            image: None,
         };
         let scope = project.scope();
         if !project.hidden
@@ -175,6 +179,6 @@ mod tests {
         assert_eq!(qualify("tianxu", "/work/a#3"), "tianxu|/work/a#3");
         assert_eq!(qualify("tianxu", "tianxu|/work/a#3"), "tianxu|/work/a#3");
         assert_eq!(Unlock::Failed { code: "KEYCHAIN_UNAVAILABLE".into(), message: "x".into() }.notice().as_deref(), Some(ALLOW_KEYCHAIN));
-        assert_eq!(Unlock::Done(milagre_daemon_client::ComputerUnlock::NoVault).notice(), None);
+        assert_eq!(Unlock::Done(milagre_daemon_client::ComputerUnlock::Created).notice(), None);
     }
 }

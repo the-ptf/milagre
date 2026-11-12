@@ -11,7 +11,8 @@
 # refuses to finish unless node-pty opens a real terminal under that Node.
 #
 # Cache: target/preview-daemon/<commit8>-<version>-node<version>/ in this crate (ignored by Git; delete it to rebuild).
-# A build lands there only when complete (written to a .partial folder, then renamed). About 285 MB each.
+# A build lands there only when complete (written to a .partial folder, then renamed). About 258 MB each (only this
+# Mac's architecture since the client's 901e2fd1; 285 MB before).
 #
 # Node: the first `node` on PATH unless --node; it must be Node 24+, arm64, and self-contained (linking only system
 # libraries, as nodejs.org's and nvm's builds do; Homebrew's links its own dylibs and is refused).

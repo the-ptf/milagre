@@ -15,10 +15,10 @@ path = "src/main.rs"
 
 [dependencies]
 milagre-gpui-spike = { path = ".." }
-# The backend's shared client at a59bbb9d (1ed6ff33's computer-vault unlock plus `DaemonLaunch::bundle`, the Preview's own daemon) with its off-by-default `installed-owner` feature (the installed Milagre's
+# The backend's shared client at bf698770 (1ed6ff33's computer-vault unlock, `DaemonLaunch::bundle` for the Preview's own daemon, and the first vault key created without Electron) with its off-by-default `installed-owner` feature (the installed Milagre's
 # running Node daemon, the Preview's default; it implies `owned-chat`, the owned runtime behind `--owned`/`--root`),
 # exported (never edited) by ../daemon-check/scripts/check-gpui-live.py into the GPUI crate's ignored target/ directory.
-milagre-daemon-client = { path = "../target/daemon-client-a59bbb9d/experiments/rust-daemon-client", features = ["installed-owner"] }
+milagre-daemon-client = { path = "../target/daemon-client-bf698770/experiments/rust-daemon-client", features = ["installed-owner"] }
 gpui = { package = "gpui-pre", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
 gpui-component = "=0.9.1"

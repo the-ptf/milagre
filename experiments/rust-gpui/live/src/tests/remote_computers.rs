@@ -7,6 +7,8 @@
 //!   turn end notifies; `computers:forgotten` drops it. Pairing (`computers:add`) unlocks first.
 //! - `a_refused_keychain_says_so`: `KEYCHAIN_UNAVAILABLE` → "Allow Keychain access …", computers stay hidden.
 //! - `an_unlocked_vault_is_never_unlocked_again`: Electron already unlocked it: no unlock at all.
+//! - `a_first_vault_key_is_created_without_milagre`: no vault and no key (a computer without Milagre.app): the client's
+//!   unlock creates them (`ComputerUnlock::Created`, faked here), no notice, and the computers show.
 
 use std::sync::{Arc, Mutex};
 
@@ -175,6 +177,41 @@ fn an_unlocked_vault_is_never_unlocked_again(cx: &mut TestAppContext) {
         m.controller.read_with(m.vcx, |c, _| c.unlocked().cloned()),
         Some(crate::computers::Unlock::Done(milagre_daemon_client::ComputerUnlock::AlreadyUnlocked))
     ));
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[gpui::test]
+fn a_first_vault_key_is_created_without_milagre(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("computers-created");
+    let mut first = world(false);
+    first.vault = json!({"unlocked": false, "configuredFile": false, "hasVault": false, "needsLegacyImport": false});
+    let fake = FakeDaemon::start(&data, first);
+    let daemon = Daemon::new(Some(data.clone()), false);
+    let created = Arc::new(Mutex::new(0));
+    {
+        // The stand-in for the client creating the key and its Keychain item: never this Mac's Keychain.
+        let (world, created) = (fake.world.clone(), created.clone());
+        daemon.set_unlocker(Arc::new(move || {
+            *created.lock().unwrap() += 1;
+            let mut world = world.lock().unwrap();
+            world.vault["unlocked"] = json!(true);
+            world.vault["hasVault"] = json!(true);
+            Ok(milagre_daemon_client::ComputerUnlock::Created)
+        }));
+    }
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Seen::default()));
+    let mut m = mount(cx, daemon.clone(), seen);
+    m.wait_for("the computers", |m| m.vcx.update(|_, cx| cx.has_global::<milagre_gpui_spike::workspace::preview::PreviewComputers>()));
+    assert_eq!(*created.lock().unwrap(), 1, "created once");
+    let unlocked = m.controller.read_with(m.vcx, |c, _| c.unlocked().cloned());
+    assert_eq!(unlocked, Some(crate::computers::Unlock::Done(milagre_daemon_client::ComputerUnlock::Created)));
+    assert_eq!(unlocked.and_then(|u| u.notice()), None, "nothing to say");
+    let notice = m.workspace.read_with(m.vcx, |w, cx| w.sidebar.read(cx).notice().cloned());
+    assert_eq!(notice, None);
     m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);
     drop(fake);

@@ -1080,8 +1080,9 @@ fn notifications_and_live_events(cx: &mut TestAppContext) {
     assert_eq!(reads, [json!([ALPHA])], "only the Project this window shows");
 
     // Paired computers: shown only with the daemon's computer vault unlocked (the client's typed
-    // `computers:vault-status`). This fake has no vault: it stays locked, there is no key to unlock it with, and
-    // nothing else about computers is asked (`remote_computers` covers the unlock).
+    // `computers:vault-status`). This fake has no vault: it stays locked (a test build never unlocks without a
+    // stand-in, since the client would read the login Keychain to make the first key), and nothing else about
+    // computers is asked (`remote_computers` covers the unlock and the first key).
     m.wait_for("the vault read", |m| m.controller.read_with(m.vcx, |c, _| c.vault().is_some()));
     let vault = m.controller.read_with(m.vcx, |c, _| c.vault().cloned()).unwrap();
     assert_eq!(vault, crate::computers::Vault::Locked);
