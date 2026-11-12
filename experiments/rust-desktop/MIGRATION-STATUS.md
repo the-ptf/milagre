@@ -6,6 +6,23 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At 02:30 Toronto, dedicated Sidebar metadata edits are implemented but not yet
+accepted or installed. Node differential/persistence tests and saved full 129-test
+runtime validation pass. Review of the ordinary edits found no P1/P2, but deeper
+frontend comparison found a post-acceptance send P2: `CHAT_SENT_METADATA_PENDING`
+rejects a send already accepted by the owner, while React restores the composer
+and reports unsent; no frontend consumes details.sent. A subagent is replacing
+that branch with Node-equivalent fulfilled-send semantics plus retained metadata
+persistence diagnostics and deterministic post-accept fault coverage. Direct patch
+save failures must still reject. This fix needs rereview before backend acceptance.
+
+The additive SidebarActions client (rename, Done/reopen, keep, restore) is frozen
+under separate review; root rerun passes 85 feature tests and seven doctests.
+Modern pins remain device-local; no raw patch/pin-sync authority is exposed. No
+SDK/backend/UI adoption or new installed pin is claimed yet. GPUI was informed that
+accepted pins stay unchanged. The earlier one-real-turn acceptance is complete;
+no further real send was spent. Both previews and production remain untouched.
+
 At 02:00 Toronto the installed normal Preview passed the authorized fresh real
 Claude check after quota reset. Exactly one no-tools Ask send streamed and saved
 two messages. A second runtime (different PID/profile) reopened the identical
