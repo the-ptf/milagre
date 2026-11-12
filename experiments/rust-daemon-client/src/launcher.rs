@@ -387,6 +387,50 @@ fn keys(value: &Value, expected: &[&str]) -> bool {
         object.len() == expected.len() && expected.iter().all(|key| object.contains_key(*key))
     })
 }
+/// The connected socket's owner PID, refusing another user's socket. macOS only.
+#[cfg(feature = "installed-owner")]
+pub(crate) fn peer_pid(stream: &UnixStream) -> Result<u32> {
+    #[cfg(target_os = "macos")]
+    {
+        let (mut user, mut group) = (0, 0);
+        if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut user, &mut group) } != 0
+            || user != uid()
+        {
+            return Err(failure(
+                "UNSAFE_SOCKET",
+                "The daemon socket belongs to another user",
+            ));
+        }
+        let mut actual: libc::pid_t = 0;
+        let mut size = std::mem::size_of_val(&actual) as libc::socklen_t;
+        if unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                0,
+                libc::LOCAL_PEERPID,
+                (&mut actual as *mut libc::pid_t).cast(),
+                &mut size,
+            )
+        } != 0
+            || size as usize != std::mem::size_of_val(&actual)
+            || actual <= 0
+        {
+            return Err(failure(
+                "UNSAFE_SOCKET",
+                "Could not verify the daemon's process",
+            ));
+        }
+        Ok(actual as u32)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = stream;
+        Err(failure(
+            "INSTALLED_OWNER_PLATFORM_UNSUPPORTED",
+            "Installed daemon adoption is enabled only on macOS",
+        ))
+    }
+}
 fn peer(stream: &UnixStream, pid: u32) -> Result<()> {
     #[cfg(target_os = "macos")]
     {

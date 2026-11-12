@@ -307,7 +307,10 @@ impl Engine {
             .generation
             .checked_add(1)
             .ok_or_else(|| protocol("snapshot generation exhausted"))?;
-        if !self.methods.contains("daemon:snapshot") {
+        // The Node daemon serves the desktop snapshot to `desktop-v1` clients without listing it
+        // in `methods` (apps/daemon/src/bootstrap.cjs). The Rust owner lists it explicitly.
+        let desktop = cfg!(feature = "installed-owner") && self.capabilities.contains("desktop-v1");
+        if !self.methods.contains("daemon:snapshot") && !desktop {
             return Err(Error::Capability {
                 required: "method:daemon:snapshot".into(),
             });

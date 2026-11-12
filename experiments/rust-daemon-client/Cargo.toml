@@ -8,6 +8,8 @@ description = "Fixture-only local daemon client contracts; production launcher r
 [features]
 default = []
 owned-chat = []
+# Interim: attach to the installed Milagre's running Node daemon (GPUI Preview). Never launches or stops it.
+installed-owner = ["owned-chat"]
 
 [workspace]
 
@@ -23,3 +25,7 @@ futures = "0.3"
 [[example]]
 name = "owned_chat_live"
 required-features = ["owned-chat"]
+
+[[example]]
+name = "installed_owner_probe"
+required-features = ["installed-owner"]

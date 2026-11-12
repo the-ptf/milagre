@@ -984,3 +984,6 @@ mod terminal_actions;
 
 #[cfg(feature = "owned-chat")]
 mod sidebar_actions;
+
+#[cfg(feature = "installed-owner")]
+mod installed_owner;

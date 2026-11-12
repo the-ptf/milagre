@@ -76,6 +76,7 @@ pub type QuestionAnswers = BTreeMap<String, Vec<String>>;
 #[derive(Clone)]
 pub struct ChatActions {
     handle: Weak<Handle>,
+    provider: &'static str,
     model: String,
 }
 impl Client {
@@ -92,8 +93,35 @@ impl Client {
         }
         Ok(ChatActions {
             handle: Arc::downgrade(&self.handle),
+            provider: "claude",
             model: model.to_owned(),
         })
+    }
+    #[cfg(feature = "installed-owner")]
+    pub(crate) fn installed_actions_for(
+        &self,
+        authority: &Arc<Authority>,
+        provider: &str,
+        model: &str,
+    ) -> Result<ChatActions> {
+        let provider = match provider {
+            "claude" => "claude",
+            "codex" => "codex",
+            "antigravity" => "antigravity",
+            "kiro" => "kiro",
+            _ => {
+                return Err(input(
+                    "provider",
+                    "Expected claude, codex, antigravity or kiro",
+                ))
+            }
+        };
+        if model.is_empty() || model.len() > 128 || model.contains('\0') {
+            return Err(input("model", "Expected 1..=128 UTF-8 bytes without NUL"));
+        }
+        let mut actions = self.owned_actions_for(authority, model)?;
+        actions.provider = provider;
+        Ok(actions)
     }
 }
 fn identifier(value: &str, field: &'static str) -> Result<()> {
@@ -157,7 +185,7 @@ impl ChatActions {
                 "Expected 1..=32 lowercase ASCII letters, digits, hyphens or underscores",
             ));
         }
-        let mut request = json!({"projectPath":client.handle.project,"worktreeId":1,"provider":"claude","model":self.model,"body":text,"clientMessageId":client_message_id,"permissionMode":options.permission_mode.wire(),"replies":if options.replies == ReplyStyle::Concise { "concise" } else { "normal" },"tldrEnabled":options.tldr_enabled,"ultracode":options.ultracode,"fastMode":options.fast_mode});
+        let mut request = json!({"projectPath":client.handle.project,"worktreeId":1,"provider":self.provider,"model":self.model,"body":text,"clientMessageId":client_message_id,"permissionMode":options.permission_mode.wire(),"replies":if options.replies == ReplyStyle::Concise { "concise" } else { "normal" },"tldrEnabled":options.tldr_enabled,"ultracode":options.ultracode,"fastMode":options.fast_mode});
         if let SendTarget::Existing(chat) = target {
             ScriptedActions::chat(chat)?;
             request["sessionId"] = json!(chat);
