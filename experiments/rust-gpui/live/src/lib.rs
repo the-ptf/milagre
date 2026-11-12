@@ -26,6 +26,7 @@ pub mod controller;
 pub mod session;
 pub mod setup;
 pub mod sinks;
+pub mod smoke;
 pub mod source;
 pub mod transcript;
 

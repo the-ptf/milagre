@@ -4,6 +4,7 @@
 //! milagre-gpui-live                                   # the Preview: its base folder, set up on first launch
 //! milagre-gpui-live --base DIR                        # the same with another base folder
 //! milagre-gpui-live --root ROOT [--create LAUNCH.json] # an explicit dedicated root (create it from a manifest)
+//!     [--smoke PROMPT]... [--approve] --smoke-report NEW.json   # drive a few turns, write a report, quit
 //! milagre-gpui-live setup --base DIR --claude PATH --config-dir DIR --account-id ID [--account-label L]
 //!                         [--model sonnet] [--skills DIR] [--user NAME] [--path PATH]
 //! ```
@@ -80,10 +81,12 @@ fn run(args: &[String]) -> anyhow::Result<()> {
     }))?;
     let guard = Arc::new(guard);
     eprintln!(
-        "live: {} {} (pid {}, model {}, account {})",
+        "live: {} {} (pid {}, profile {}, socket {}, model {}, account {})",
         if create { "created" } else { "opened" },
         root.display(),
         guard.info().pid,
+        guard.info().profile.display(),
+        guard.info().socket.display(),
         guard.info().model,
         guard.info().account_id
     );
@@ -95,11 +98,16 @@ fn run(args: &[String]) -> anyhow::Result<()> {
             return Err(error);
         }
     };
-    run_app(session, guard);
+    let smoke = flag(args, "--smoke-report").map(|report| milagre_gpui_live::smoke::Smoke {
+        prompts: args.iter().enumerate().filter(|(ix, _)| *ix > 0 && args[ix - 1] == "--smoke").map(|(_, p)| p.clone()).collect(),
+        approve: args.iter().any(|a| a == "--approve"),
+        report: PathBuf::from(report),
+    });
+    run_app(session, guard, smoke);
     Ok(())
 }
 
-fn run_app(session: Session, guard: Arc<milagre_daemon_client::OwnedChatGuard>) {
+fn run_app(session: Session, guard: Arc<milagre_daemon_client::OwnedChatGuard>, smoke: Option<milagre_gpui_live::smoke::Smoke>) {
     let client = session.client.clone();
     gpui_platform::application().with_assets(milagre_gpui_spike::assets::Assets).run(move |cx: &mut App| {
         milagre_gpui_spike::app::init(cx);
@@ -109,6 +117,9 @@ fn run_app(session: Session, guard: Arc<milagre_daemon_client::OwnedChatGuard>) 
         let controller = window
             .update(cx, |_, window, cx| LiveController::attach(&workspace, session, wiring, window, cx))
             .expect("attach the live controller");
+        if let Some(smoke) = smoke {
+            milagre_gpui_live::smoke::start(smoke, window, workspace.clone(), controller.clone(), cx);
+        }
         // Kept for the app's lifetime.
         std::mem::forget(controller);
         cx.on_app_quit(move |_| {
@@ -118,7 +129,10 @@ fn run_app(session: Session, guard: Arc<milagre_daemon_client::OwnedChatGuard>) 
             async {}
         })
         .detach();
-        cx.activate(true);
+        // `MILAGRE_GPUI_NO_ACTIVATE=1` (checks on a Mac someone is using): the window opens behind, never in front.
+        if std::env::var_os("MILAGRE_GPUI_NO_ACTIVATE").is_none() {
+            cx.activate(true);
+        }
     });
 }
 
