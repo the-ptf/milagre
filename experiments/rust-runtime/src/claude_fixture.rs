@@ -1,5 +1,6 @@
-//! Nonblocking owner adapter restricted to the checked-in scripted Claude CLI.
-//! There is no public executable, environment, live profile, role or MCP configuration.
+//! Nonblocking Claude owner adapter. Fixture constructors select checked-in scripts; the
+//! crate-internal configured constructor accepts only a captured owner launch and owned Project.
+//! RPC requests never supply an executable, environment, account directory, role or MCP endpoint.
 use crate::instructions::{self, Bundle, HostNetwork};
 use milagre_claude::{
     ordinary::{node_trace, OrdinaryLaunch, OrdinaryTurn},
@@ -84,6 +85,140 @@ struct OrdinaryFacts {
     bundle: Bundle,
     agents: serde_json::Map<String, Value>,
     host: HostNetwork,
+}
+/// Immutable instruction inputs captured by the standalone owner, never discovered from HOME.
+#[cfg(any(test, feature = "chat-runtime"))]
+pub(crate) struct ClaudeInstructionInputs {
+    facts: OrdinaryFacts,
+    prompt_suggestions: bool,
+}
+#[cfg(any(test, feature = "chat-runtime"))]
+impl ClaudeInstructionInputs {
+    /// Load only the actual bundled TLDR/QA assets under the explicitly selected directory.
+    /// No settings, credentials, install lookup or provider process is read or started here.
+    pub(crate) fn bundled(
+        skills_directory: &Path,
+        host: HostNetwork,
+        prompt_suggestions: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let directory = skills_directory.canonicalize()?;
+        let skills = directory
+            .to_str()
+            .ok_or("The bundled skills path must be UTF-8")?;
+        let tldr = std::fs::read_to_string(directory.join("tldr/default.md"))?;
+        let rules = std::fs::read_to_string(directory.join("qa-fleet/agent.md"))?;
+        let mut files = std::fs::read_dir(directory.join("qa-fleet/personas"))?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()?;
+        files.sort();
+        let mut personas = Vec::new();
+        for file in files {
+            if file.extension().is_some_and(|extension| extension == "md") {
+                let name = file
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or("Invalid QA persona filename")?;
+                personas.push((name.to_owned(), std::fs::read_to_string(file)?));
+            }
+        }
+        let borrowed: Vec<_> = personas
+            .iter()
+            .map(|(name, text)| (name.as_str(), text.as_str()))
+            .collect();
+        let agents = instructions::bundled_agents(&rules, &borrowed)?;
+        if agents.is_empty() {
+            return Err("The bundled QA agent definitions are empty".into());
+        }
+        Ok(Self {
+            facts: OrdinaryFacts {
+                bundle: Bundle::new(skills, &tldr)?,
+                agents,
+                host,
+            },
+            prompt_suggestions,
+        })
+    }
+}
+/// Owner-only launch authority. The selected CLI/configuration and environment are captured once;
+/// request JSON cannot replace them. The caller owns persistent data and performs authentication.
+#[cfg(any(test, feature = "chat-runtime"))]
+pub(crate) struct ClaudeLaunchContext {
+    pub(crate) isolation: Isolation,
+    pub(crate) project: PathBuf,
+    pub(crate) launch: LaunchOptions,
+    pub(crate) ordinary: ClaudeInstructionInputs,
+    /// Opaque owner lease (for example the durable root lock). Each captured worker keeps it
+    /// until its session and retained executor tasks finish, even after the outer owner drops.
+    pub(crate) lifetime: Option<Arc<dyn Send + Sync>>,
+}
+enum LaunchSource {
+    Fixture {
+        profile: Arc<IsolatedProfile>,
+        program: PathBuf,
+        scripts: Vec<PathBuf>,
+        scenario: Scenario,
+    },
+    #[cfg(any(test, feature = "chat-runtime"))]
+    Captured {
+        launch: Box<LaunchOptions>,
+        prompt_suggestions: bool,
+        lifetime: Option<Arc<dyn Send + Sync>>,
+    },
+}
+struct WorkerLaunch {
+    options: LaunchOptions,
+    profile: Option<Arc<IsolatedProfile>>,
+    scenario: Option<Scenario>,
+    prompt_suggestions: Option<bool>,
+    lifetime: Option<Arc<dyn Send + Sync>>,
+}
+impl LaunchSource {
+    fn capture(&self, index: usize) -> WorkerLaunch {
+        match self {
+            #[cfg(any(test, feature = "chat-runtime"))]
+            Self::Captured {
+                launch,
+                prompt_suggestions,
+                lifetime,
+            } => WorkerLaunch {
+                options: (**launch).clone(),
+                profile: None,
+                scenario: None,
+                prompt_suggestions: Some(*prompt_suggestions),
+                lifetime: lifetime.clone(),
+            },
+            Self::Fixture {
+                profile,
+                program,
+                scripts,
+                scenario,
+            } => {
+                let mut launch = LaunchOptions::new(program);
+                launch.env = Some(vec![
+                    ("HOME".into(), profile.path().join("home").into_os_string()),
+                    (
+                        "CLAUDE_CONFIG_DIR".into(),
+                        profile.path().join("home").into_os_string(),
+                    ),
+                    (
+                        "FAKE_CLAUDE_SCRIPT".into(),
+                        scripts[index.min(scripts.len() - 1)]
+                            .clone()
+                            .into_os_string(),
+                    ),
+                ]);
+                launch.no_session_persistence = true;
+                launch.strict_mcp_config = true;
+                WorkerLaunch {
+                    options: launch,
+                    profile: Some(profile.clone()),
+                    scenario: Some(*scenario),
+                    prompt_suggestions: None,
+                    lifetime: None,
+                }
+            }
+        }
+    }
 }
 impl OrdinaryFacts {
     fn from_trace(trace: &Value) -> Result<Self, Box<dyn std::error::Error>> {
@@ -205,7 +340,7 @@ impl Shared {
 pub struct FixtureMonitor {
     content: Option<Arc<crate::claude_content::SharedContent>>,
     shared: Arc<Shared>,
-    _profile: Arc<IsolatedProfile>,
+    _profile: Option<Arc<IsolatedProfile>>,
 }
 impl FixtureMonitor {
     /// Bounded actual MCP PNG replies from the fixed private Design scenario.
@@ -233,6 +368,18 @@ impl FixtureMonitor {
             .shared
             .drained
             .wait_timeout_while(n, timeout, |n| *n != 0 && !self.cleanup_failed())
+            .unwrap()
+            .0
+            == 0
+    }
+    /// Wait for actual worker cleanup, including after a cleanup deadline has reported failure.
+    /// Unlike `wait_stopped`, this cannot return early merely because that failure latched.
+    pub fn wait_drained(&self, timeout: Duration) -> bool {
+        let n = self.shared.workers.lock().unwrap();
+        *self
+            .shared
+            .drained
+            .wait_timeout_while(n, timeout, |n| *n != 0)
             .unwrap()
             .0
             == 0
@@ -401,12 +548,13 @@ struct Worker {
     session: Arc<Mutex<Option<SessionHandle>>>,
     content_scope: Arc<crate::claude_content::SessionContent>,
     shared: Arc<Shared>,
-    _profile: Arc<IsolatedProfile>,
+    _profile: Option<Arc<IsolatedProfile>>,
+    _lifetime: Option<Arc<dyn Send + Sync>>,
     project: PathBuf,
-    program: PathBuf,
-    script: PathBuf,
+    launch: LaunchOptions,
     chat: String,
-    scenario: Scenario,
+    scenario: Option<Scenario>,
+    prompt_suggestions: Option<bool>,
     active: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
     latest: Arc<AtomicU64>,
@@ -420,27 +568,29 @@ impl Drop for Worker {
         self.content_scope.revoke();
         self.active.store(false, Ordering::Release);
         self.done.store(true, Ordering::Release);
+        // Completion is also the owner's reopen barrier. Release captured leases before the
+        // worker count reaches zero, rather than leaving them for implicit field destruction.
+        drop(self._lifetime.take());
+        drop(self._profile.take());
         *self.shared.workers.lock().unwrap() -= 1;
         self.shared.drained.notify_all();
     }
 }
-/// The only constructor creates a private fixture copy and locates a fixed Cargo helper sibling.
-pub struct ClaudeFixture {
+/// Shared worker/lifecycle implementation for fixed fixtures and explicitly configured owners.
+pub struct ClaudeProvider {
     pub(crate) content: Option<Arc<crate::claude_content::SharedContent>>,
-    profile: Arc<IsolatedProfile>,
     isolation: Isolation,
     project: PathBuf,
-    program: PathBuf,
-    /// Fake CLI scripts by launch: the last one serves every later launch.
-    scripts: Vec<PathBuf>,
+    launch: LaunchSource,
     launches: usize,
-    scenario: Scenario,
     shared: Arc<Shared>,
     slots: HashMap<String, Slot>,
     closed: bool,
     facts: Arc<OrdinaryFacts>,
 }
-impl ClaudeFixture {
+/// Existing fixture API. Only `create` is public; configured launch authority stays crate-internal.
+pub type ClaudeFixture = ClaudeProvider;
+impl ClaudeProvider {
     pub fn create(scenario: Scenario) -> Result<Self, Box<dyn std::error::Error>> {
         let profile = Arc::new(IsolatedProfile::create()?);
         let isolation = Isolation::create(profile.path(), &Policy::system())?;
@@ -495,13 +645,15 @@ impl ClaudeFixture {
         };
         Ok(Self {
             content,
-            profile,
             isolation,
             project,
-            program,
-            scripts,
+            launch: LaunchSource::Fixture {
+                profile,
+                program,
+                scripts,
+                scenario,
+            },
             launches: 0,
-            scenario,
             facts,
             shared: Arc::new(Shared {
                 queue: Mutex::new(Queue {
@@ -521,6 +673,82 @@ impl ClaudeFixture {
             closed: false,
         })
     }
+    /// Attach a selected executable to an existing owned Project. No directory is seeded,
+    /// no credential is read, and no process starts until the owner admits a turn.
+    #[cfg(any(test, feature = "chat-runtime"))]
+    pub(crate) fn configured(
+        context: ClaudeLaunchContext,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let ClaudeLaunchContext {
+            isolation,
+            project,
+            mut launch,
+            ordinary,
+            lifetime,
+        } = context;
+        let project = isolation.resolve(&project)?;
+        if !project.is_dir()
+            || launch.cwd.as_ref() != Some(&project)
+            || !launch.program.is_absolute()
+        {
+            return Err(
+                "Claude requires an existing owned Project, matching cwd and absolute executable"
+                    .into(),
+            );
+        }
+        if launch.env.is_none() {
+            return Err("Claude requires an explicitly captured environment".into());
+        }
+        let environment = launch.environment();
+        for key in ["HOME", "CLAUDE_CONFIG_DIR"] {
+            if !environment
+                .iter()
+                .rev()
+                .find(|(name, _)| name == key)
+                .is_some_and(|(_, path)| Path::new(path).is_absolute())
+            {
+                return Err("Claude requires explicit absolute HOME and CLAUDE_CONFIG_DIR".into());
+            }
+        }
+        if !launch.mcp_servers.is_empty()
+            || !launch.extra_args.is_empty()
+            || launch.resume.is_some()
+            || launch.session_id.is_some()
+        {
+            return Err("Configured Claude does not accept MCP extras, extra flags or launch-level session identities".into());
+        }
+        launch.no_session_persistence = false;
+        launch.private_files = true;
+        launch.strict_mcp_config = true;
+        Ok(Self {
+            content: None,
+            isolation,
+            project,
+            launch: LaunchSource::Captured {
+                launch: Box::new(launch),
+                prompt_suggestions: ordinary.prompt_suggestions,
+                lifetime,
+            },
+            launches: 0,
+            shared: Arc::new(Shared {
+                queue: Mutex::new(Queue {
+                    events: VecDeque::new(),
+                    bytes: 0,
+                }),
+                failed: AtomicBool::new(false),
+                cleanup_failed: AtomicBool::new(false),
+                peak_reply_tasks: AtomicUsize::new(0),
+                workers: Mutex::new(0),
+                drained: Condvar::new(),
+                pending: Mutex::new(HashSet::new()),
+                pending_modes: Mutex::new(HashMap::new()),
+                pids: Mutex::new(HashMap::new()),
+            }),
+            slots: HashMap::new(),
+            closed: false,
+            facts: Arc::new(ordinary.facts),
+        })
+    }
     pub fn project(&self) -> &Path {
         &self.project
     }
@@ -531,7 +759,11 @@ impl ClaudeFixture {
         FixtureMonitor {
             content: self.content.clone(),
             shared: self.shared.clone(),
-            _profile: self.profile.clone(),
+            _profile: match &self.launch {
+                LaunchSource::Fixture { profile, .. } => Some(profile.clone()),
+                #[cfg(any(test, feature = "chat-runtime"))]
+                LaunchSource::Captured { .. } => None,
+            },
         }
     }
     fn open(&self) -> Result<(), ProviderError> {
@@ -789,16 +1021,18 @@ impl Provider for ClaudeFixture {
             let native_id = Arc::new(Mutex::new(None));
             let session = Arc::new(Mutex::new(None));
             let content_scope = crate::claude_content::SessionContent::new();
+            let captured = self.launch.capture(self.launches);
             let worker = Worker {
                 session: session.clone(),
                 content_scope: content_scope.clone(),
                 shared: self.shared.clone(),
-                _profile: self.profile.clone(),
+                _profile: captured.profile,
+                _lifetime: captured.lifetime,
                 project: self.project.clone(),
-                program: self.program.clone(),
-                script: self.scripts[self.launches.min(self.scripts.len() - 1)].clone(),
+                launch: captured.options,
                 chat: chat.clone(),
-                scenario: self.scenario,
+                scenario: captured.scenario,
+                prompt_suggestions: captured.prompt_suggestions,
                 facts: self.facts.clone(),
                 tldr: turn.tldr_enabled,
                 active: active.clone(),
@@ -809,7 +1043,7 @@ impl Provider for ClaudeFixture {
             };
             *self.shared.workers.lock().unwrap() += 1;
             std::thread::Builder::new()
-                .name("claude-fixture".into())
+                .name("claude-owner".into())
                 .spawn(move || {
                     match tokio::runtime::Builder::new_current_thread()
                         .enable_all()
@@ -1081,10 +1315,213 @@ impl Drop for ClaudeFixture {
         self.shutdown();
     }
 }
+
+#[cfg(test)]
+mod configured_tests {
+    use super::*;
+
+    fn inputs() -> ClaudeInstructionInputs {
+        ClaudeInstructionInputs::bundled(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/core/src/bundled-skills"),
+            HostNetwork::default(),
+            false,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn configured_refuses_ambient_environment_and_foreign_working_directory() {
+        let fixture = ClaudeFixture::create(Scenario::Reply).unwrap();
+        for kind in [
+            "ambient",
+            "foreign-cwd",
+            "relative-program",
+            "missing-config",
+        ] {
+            let mut launch = fixture.launch.capture(0).options;
+            launch.cwd = Some(fixture.project.clone());
+            match kind {
+                "ambient" => launch.env = None,
+                "foreign-cwd" => launch.cwd = Some(PathBuf::from("/foreign")),
+                "relative-program" => launch.program = PathBuf::from("claude"),
+                "missing-config" => launch
+                    .env
+                    .as_mut()
+                    .unwrap()
+                    .retain(|(name, _)| name != "CLAUDE_CONFIG_DIR"),
+                _ => unreachable!(),
+            }
+            assert!(
+                ClaudeProvider::configured(ClaudeLaunchContext {
+                    isolation: fixture.isolation(),
+                    project: fixture.project.clone(),
+                    launch,
+                    ordinary: inputs(),
+                    lifetime: None,
+                })
+                .is_err(),
+                "{kind}"
+            );
+        }
+        assert_eq!(fixture.monitor().workers(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn configured_core_uses_captured_environment_actual_bundle_and_persistent_launch() {
+        use std::os::fd::AsRawFd;
+        // Fixed child evidence only. This executes the same configured constructor/worker used by
+        // a selected real CLI, without reading a real account or starting a model request.
+        let fixture = ClaudeFixture::create(Scenario::Reply).unwrap();
+        let mut launch = fixture.launch.capture(0).options;
+        launch.cwd = Some(fixture.project.clone());
+        launch
+            .env
+            .as_mut()
+            .unwrap()
+            .push(("CAPTURED_SETTING".into(), "selected-once".into()));
+        let ordinary = inputs();
+        let expected_prompt = ordinary
+            .facts
+            .bundle
+            .milagre_instructions(true, None, false);
+        let expected_agents = ordinary.facts.agents.clone();
+        let script = launch
+            .env
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|(name, _)| name == "FAKE_CLAUDE_SCRIPT")
+            .unwrap()
+            .1
+            .clone();
+        let proof = fixture.project.parent().unwrap().join("configured-eof");
+        let lock_path = fixture
+            .project
+            .parent()
+            .unwrap()
+            .join("configured-root.lock");
+        let lease = Arc::new(
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+                .unwrap(),
+        );
+        assert_eq!(
+            unsafe { libc::flock(lease.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            0
+        );
+        let contender = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        std::fs::write(Path::new(&script), json!([
+            { "expect_launch": { "absent": ["--no-session-persistence"], "env": { "CAPTURED_SETTING": "selected-once" }, "files": { "--append-system-prompt-file": expected_prompt } } },
+            { "expect": { "subtype": "initialize", "fields": { "/request/agents": expected_agents, "/request/promptSuggestions": false } } },
+            { "reply": {} },
+            { "expect": { "subtype": "set_max_thinking_tokens" } },
+            { "reply": {} },
+            { "expect": { "type": "user", "fields": { "/message/content": [{ "type": "text", "text": "configured turn" }] } } },
+            { "emit": { "type": "system", "subtype": "init", "session_id": "configured-native" } },
+            { "emit": { "type": "result", "subtype": "success", "num_turns": 1, "result": "done" } },
+            { "expect_eof": proof },
+        ]).to_string()).unwrap();
+        let mut provider = ClaudeProvider::configured(ClaudeLaunchContext {
+            isolation: fixture.isolation(),
+            project: fixture.project.clone(),
+            launch,
+            ordinary,
+            lifetime: Some(lease.clone()),
+        })
+        .unwrap();
+        let monitor = provider.monitor();
+        let request = RawJson(
+            json!({ "provider": "claude", "chatId": "configured", "cwd": provider.project(), "prompt": "configured turn", "permissionMode": "ask", "model": "sonnet" }),
+        );
+        provider.start_turn(TurnId(1), &request).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut completed = false;
+        while !completed && std::time::Instant::now() < deadline {
+            for event in provider.take_events() {
+                match event {
+                    ProviderEvent::Agent {
+                        event: RawJson(value),
+                        ..
+                    } if value["type"] == "turn-completed" => completed = true,
+                    ProviderEvent::StartFailed { error, .. } => {
+                        panic!("configured start failed: {error:?}")
+                    }
+                    ProviderEvent::Agent {
+                        event: RawJson(value),
+                        ..
+                    } if value["type"] == "turn-failed" => {
+                        panic!("configured turn failed: {value}")
+                    }
+                    _ => {}
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            completed,
+            "fixed child must accept the configured native launch and payload"
+        );
+        let captured_runtime = provider.slots["configured"]
+            .session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .runtime
+            .clone();
+        let (release, blocked) = tokio::sync::oneshot::channel::<()>();
+        let (entered, observed) = std::sync::mpsc::channel();
+        captured_runtime.spawn(async move {
+            entered.send(()).unwrap();
+            let _ = blocked.await;
+        });
+        observed.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(provider);
+        drop(lease);
+        assert_eq!(
+            unsafe { libc::flock(contender.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            -1,
+            "a dropped outer owner cannot release the root while its captured worker retains tasks"
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EWOULDBLOCK)
+        );
+        monitor.shared.cleanup_failed.store(true, Ordering::Release);
+        let before_wait = std::time::Instant::now();
+        assert!(!monitor.wait_drained(Duration::from_millis(25)));
+        assert!(
+            before_wait.elapsed() >= Duration::from_millis(25),
+            "cleanup failure must not cause a busy-spin wait"
+        );
+        release.send(()).unwrap();
+        assert!(monitor.wait_drained(Duration::from_secs(5)));
+        assert_eq!(
+            unsafe { libc::flock(contender.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            0,
+            "wait_drained success is an immediate root-lease release barrier"
+        );
+        assert!(
+            proof.is_file(),
+            "same core closes and reaps the captured child"
+        );
+        assert!(
+            fixture.project().is_dir(),
+            "provider cleanup does not delete caller-owned data"
+        );
+    }
+}
 impl Worker {
-    /// The Node ordinary launch for this session: instructions for its TLDR setting with the
-    /// explicit synthetic host, SubagentStart context (design section only with `design_show`),
-    /// QA agents and the prompt-suggestion default read from this private profile only.
+    /// Ordinary instructions from captured bundle/host inputs. Configured owners supply the
+    /// prompt-suggestion choice; only fixtures read their own temporary settings file.
     fn plan(
         &self,
         options: &mut SessionOptions,
@@ -1097,10 +1534,17 @@ impl Worker {
         });
         let host = self.facts.host.instructions();
         let workspace = instructions::session_workspace(None, &host);
-        let settings = match std::fs::read(self._profile.path().join("home/settings.json")) {
-            Ok(bytes) => Some(bytes),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => return Err(e.into()),
+        let prompt_suggestions = match self.prompt_suggestions {
+            Some(enabled) => enabled,
+            None => {
+                let profile = self._profile.as_ref().ok_or("Missing fixture profile")?;
+                let settings = match std::fs::read(profile.path().join("home/settings.json")) {
+                    Ok(bytes) => Some(bytes),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(e.into()),
+                };
+                instructions::prompt_suggestions_enabled(settings.as_deref(), None)
+            }
         };
         OrdinaryLaunch {
             system_append: self.facts.bundle.milagre_instructions(
@@ -1110,10 +1554,10 @@ impl Worker {
             ),
             subagent_context: self.facts.bundle.subagent_context(design),
             agents: self.facts.agents.clone(),
-            prompt_suggestions: instructions::prompt_suggestions_enabled(settings.as_deref(), None),
+            prompt_suggestions,
             additional_directories: vec![],
-            // Node's WorkspaceAccess skills read allowance over the same explicit directory string the
-            // instructions name. This synthetic path does not exist, so (as in Node) it allows nothing.
+            // The skills read allowance names exactly the same captured directory as instructions.
+            // Fixture traces use a nonexistent synthetic directory, so those grant no extra reads.
             skills_directory: PathBuf::from(self.facts.bundle.skills_dir()),
         }
         .apply(options)?;
@@ -1153,33 +1597,17 @@ impl Worker {
         let mut latest = first.id;
         let mut pending = Some(first);
         let mut running = false;
-        let mut launch = LaunchOptions::new(&self.program);
+        let mut launch = self.launch.clone();
         launch.cwd = Some(self.project.clone());
-        launch.env = Some(vec![
-            (
-                "HOME".into(),
-                self._profile.path().join("home").into_os_string(),
-            ),
-            (
-                "CLAUDE_CONFIG_DIR".into(),
-                self._profile.path().join("home").into_os_string(),
-            ),
-            (
-                "FAKE_CLAUDE_SCRIPT".into(),
-                self.script.clone().into_os_string(),
-            ),
-        ]);
-        // Fixture-only isolation flags Node does not pass; they add restrictions and are recorded
-        // in CLAUDE-FIXTURE.md. Setting sources stay Node's (planned below) over the private home.
-        launch.no_session_persistence = true;
-        launch.strict_mcp_config = true;
         let mut options = SessionOptions::new(launch);
         options.resume_id = pending
             .as_ref()
             .and_then(|s| s.request["resumeId"].as_str().map(str::to_owned));
-        options.interrupt_grace = Duration::from_millis(150);
-        options.limits.close_grace = Duration::from_millis(150);
-        options.limits.kill_grace = Duration::from_millis(500);
+        if self.scenario.is_some() {
+            options.interrupt_grace = Duration::from_millis(150);
+            options.limits.close_grace = Duration::from_millis(150);
+            options.limits.kill_grace = Duration::from_millis(500);
+        }
         options.event_capacity = 256;
         options.event_bytes = BYTES;
         let _registration = match &self.content {
@@ -1273,7 +1701,7 @@ impl Worker {
              },
              reply=answers.recv(), if replies.len()<8=>if let Some(mut reply)=reply{
               if reply.turn!=latest{drop(reply);continue;}
-              let session=session.clone();let delay=match self.scenario{Scenario::QuestionDelayedReceipt=>400,Scenario::AnswerSaturation=>10000,_=>0};
+              let session=session.clone();let delay=match self.scenario{Some(Scenario::QuestionDelayedReceipt)=>400,Some(Scenario::AnswerSaturation)=>10000,_=>0};
               replies.spawn(async move{reply.guard.entered=true;let accepted=match reply.answer{Answer::Permission(decision)=>session.respond_to_permission(&reply.request,&decision),Answer::Question(value)=>session.answer_question(&reply.request,value.as_object())};if accepted&&delay>0{tokio::time::sleep(Duration::from_millis(delay)).await;}reply.guard.settle(if accepted{AnswerOutcome::Accepted}else{AnswerOutcome::NotWaiting});});
               self.shared.peak_reply_tasks.fetch_max(replies.len(),Ordering::AcqRel);
              },
@@ -1827,7 +2255,10 @@ mod retention_tests {
     fn busy_session_reuses_its_worker_at_capacity() {
         let mut provider = ClaudeFixture::create(Scenario::BackgroundRetention).unwrap();
         // Every private Chat runs the same checked-in first-launch script in this capacity test.
-        provider.scripts.truncate(1);
+        let LaunchSource::Fixture { scripts, .. } = &mut provider.launch else {
+            unreachable!()
+        };
+        scripts.truncate(1);
         for index in 0..CHATS {
             let chat = format!("retention-{index}");
             let request = request(&provider, &chat, 1);

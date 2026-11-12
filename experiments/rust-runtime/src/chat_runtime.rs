@@ -1,0 +1,871 @@
+//! Restartable single-Project Chat owner. A private manifest selects one Claude executable, account directory,
+//! model and instruction bundle. The wire profile is fresh; the explicitly created marked data root persists.
+//! No installed profile, registry, credential or executable is discovered. Fixed-child acceptance uses this same
+//! configured provider/actor through a separate compile-time fixture feature.
+
+use std::{
+    collections::BTreeMap,
+    fs::{self, File, OpenOptions},
+    io::{Read, Write},
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    },
+    path::{Component, Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
+
+use milagre_accounts::Accounts;
+use milagre_claude::launch::LaunchOptions;
+use milagre_owner_store::{ownership::RootPin, Isolation, Policy};
+use milagre_owner_wire::{IsolatedProfile, RpcError, RpcResult, Server};
+use serde_json::{json, Value};
+
+use crate::claude_fixture::{
+    ClaudeInstructionInputs, ClaudeLaunchContext, ClaudeProvider, FixtureMonitor,
+};
+
+const MANIFEST: &str = "rust-chat-runtime.json";
+const LOCK: &str = ".rust-chat-runtime.lock";
+const MANIFEST_LIMIT: usize = 32 * 1024;
+pub(crate) const METHODS: &[&str] = &[
+    "project:read",
+    "chat:runs",
+    "project:known",
+    "project:recent",
+    "project:registry",
+    "agent:models",
+    "agent:cli-status",
+    "accounts:list",
+    "accounts:scope",
+];
+
+fn refused(message: impl Into<String>) -> RpcError {
+    RpcError::new("CHAT_RUNTIME_CONFIG", message.into())
+}
+
+fn strict_text<'a>(value: &'a Value, key: &str) -> Result<&'a str, RpcError> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && s.len() <= 4096 && !s.contains('\0'))
+        .ok_or_else(|| refused(format!("Missing or invalid launch field: {key}")))
+}
+
+fn absolute(value: &Value, key: &str) -> Result<PathBuf, RpcError> {
+    let path = PathBuf::from(strict_text(value, key)?);
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+    {
+        return Err(refused(format!(
+            "{key} must be an absolute normalized path"
+        )));
+    }
+    Ok(path)
+}
+
+#[derive(Clone)]
+struct LaunchConfig {
+    value: Value,
+    program: PathBuf,
+    home: PathBuf,
+    config_directory: PathBuf,
+    skills_directory: PathBuf,
+    model: String,
+    path: String,
+    account_id: String,
+    account_label: String,
+    user_name: String,
+    fixture: bool,
+}
+
+impl LaunchConfig {
+    fn parse(value: Value, fixture: bool) -> Result<Self, RpcError> {
+        const FIELDS: &[&str] = &[
+            "program",
+            "home",
+            "configDirectory",
+            "skillsDirectory",
+            "model",
+            "path",
+            "accountId",
+            "accountLabel",
+            "userName",
+        ];
+        if value.as_object().is_none_or(|object| {
+            object.len() != FIELDS.len() || object.keys().any(|key| !FIELDS.contains(&key.as_str()))
+        }) {
+            return Err(refused("Launch manifest must contain exactly program, home, configDirectory, skillsDirectory, model, path, accountId, accountLabel and userName"));
+        }
+        let model = strict_text(&value, "model")?.to_string();
+        let account_id = strict_text(&value, "accountId")?.to_string();
+        let account_label = strict_text(&value, "accountLabel")?.to_string();
+        let user_name = strict_text(&value, "userName")?.to_string();
+        if user_name.len() > 256 || user_name.trim().is_empty() {
+            return Err(refused("userName must be nonempty and at most 256 bytes"));
+        }
+        if model.len() > 256 || account_label.len() > 256 {
+            return Err(refused("Model/account label exceeds 256 bytes"));
+        }
+        let config = Self {
+            program: absolute(&value, "program")?,
+            home: absolute(&value, "home")?,
+            config_directory: absolute(&value, "configDirectory")?,
+            skills_directory: absolute(&value, "skillsDirectory")?,
+            path: strict_text(&value, "path")?.to_string(),
+            model,
+            account_id,
+            account_label,
+            user_name,
+            value,
+            fixture,
+        };
+        config.accounts()?;
+        Ok(config)
+    }
+
+    fn accounts(&self) -> Result<Accounts, RpcError> {
+        let entries = if self.account_id == "default" {
+            vec![]
+        } else {
+            vec![json!({"provider":"claude","id":self.account_id,"label":self.account_label})]
+        };
+        Accounts::parse(Some(
+            &json!({"accounts":entries,"selected":{"claude":self.account_id},"scopes":{}})
+                .to_string(),
+        ))
+        .map_err(|e| refused(e.to_string()))
+    }
+}
+
+/// Path exclusions only. Unlike Policy::system this never reads installed profile registries.
+fn protected_policy() -> Policy {
+    let mut protected = milagre_owner_store::audit::default_data_dirs();
+    if let Some(home) = std::env::var_os("HOME") {
+        protected.push(PathBuf::from(home).join(".milagre"));
+    }
+    if let Some(custom) = std::env::var_os("MILAGRE_DATA_DIR") {
+        protected.push(PathBuf::from(custom));
+    }
+    Policy {
+        protected,
+        registered: vec![],
+    }
+}
+
+fn check_location(root: &Path, policy: &Policy) -> Result<PathBuf, RpcError> {
+    if !root.is_absolute()
+        || root
+            .components()
+            .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+    {
+        return Err(refused(
+            "The dedicated data root must be an absolute normalized path",
+        ));
+    }
+    let parent = fs::canonicalize(
+        root.parent()
+            .ok_or_else(|| refused("Name a new data directory"))?,
+    )?;
+    let path = parent.join(
+        root.file_name()
+            .ok_or_else(|| refused("Name a new data directory"))?,
+    );
+    for protected in &policy.protected {
+        let protected = fs::canonicalize(protected).unwrap_or_else(|_| protected.clone());
+        if path.starts_with(&protected) || protected.starts_with(&path) {
+            return Err(refused(
+                "A Rust Chat data root cannot overlap a Milagre profile",
+            ));
+        }
+    }
+    Ok(path)
+}
+
+fn plain(file: &File) -> Result<(), RpcError> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.nlink() != 1 || metadata.uid() != unsafe { libc::getuid() } {
+        return Err(refused(
+            "Expected a regular, single-link file owned by this user",
+        ));
+    }
+    Ok(())
+}
+
+fn read_file(path: &Path) -> Result<Vec<u8>, RpcError> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)?;
+    read_bounded(file)
+}
+// Coordination has the same unbounded JSON size contract as the owner store, including held queues.
+// The strict 32 KiB limit belongs only to our private launch metadata.
+fn read_coordination(path: &Path) -> Result<Vec<u8>, RpcError> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)?;
+    plain(&file)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+fn read_bounded(file: File) -> Result<Vec<u8>, RpcError> {
+    plain(&file)?;
+    if file.metadata()?.len() > MANIFEST_LIMIT as u64 {
+        return Err(refused("Runtime metadata exceeds 32 KiB"));
+    }
+    let mut bytes = Vec::new();
+    file.take(MANIFEST_LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MANIFEST_LIMIT {
+        return Err(refused("Runtime metadata exceeds 32 KiB"));
+    }
+    Ok(bytes)
+}
+
+fn at(directory: &File, name: &str, flags: i32, mode: u32) -> Result<File, RpcError> {
+    let name = std::ffi::CString::new(name).map_err(|_| refused("Invalid runtime file name"))?;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+            mode,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+fn private_write(directory: &File, name: &str, bytes: &[u8]) -> Result<(), RpcError> {
+    let mut file = at(
+        directory,
+        name,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+        0o600,
+    )?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    directory.sync_all()?;
+    Ok(())
+}
+
+struct DataRoot {
+    isolation: Isolation,
+    pin: RootPin,
+    directory: File,
+    lock: File,
+    config: LaunchConfig,
+    manifest: Vec<u8>,
+}
+impl Drop for DataRoot {
+    fn drop(&mut self) {
+        // Closing alone leaves flock held by any concurrent fork's inherited open-file
+        // description until exec. The final Arc is the authority boundary: all captured
+        // actor/provider leases have ended, so release explicitly before closing our fd.
+        while unsafe { libc::flock(self.lock.as_raw_fd(), libc::LOCK_UN) } != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                eprintln!("CHAT_RUNTIME_UNLOCK_FAILED: {error}");
+                break;
+            }
+        }
+    }
+}
+impl DataRoot {
+    fn directory(path: &Path) -> Result<(RootPin, File), RpcError> {
+        let pin = RootPin::take(path).map_err(|e| refused(e.to_string()))?;
+        pin.check().map_err(refused)?;
+        let directory = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)?;
+        let metadata = directory.metadata()?;
+        if (metadata.dev(), metadata.ino()) != pin.identity()
+            || metadata.uid() != unsafe { libc::getuid() }
+            || metadata.mode() & 0o777 != 0o700
+        {
+            return Err(refused(
+                "Dedicated data root must be owned by this user with mode 0700",
+            ));
+        }
+        Ok((pin, directory))
+    }
+    fn lock(directory: &File) -> Result<File, RpcError> {
+        let lock = at(directory, LOCK, libc::O_RDWR | libc::O_CREAT, 0o600)?;
+        plain(&lock)?;
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(refused(
+                "This dedicated Rust Chat data root is already running",
+            ));
+        }
+        Ok(lock)
+    }
+
+    fn create(root: &Path, config: LaunchConfig) -> Result<Arc<Self>, RpcError> {
+        let policy = protected_policy();
+        let root = check_location(root, &policy)?;
+        // Exclusive directory creation precedes every seed. An existing directory, even empty, is never adopted.
+        fs::DirBuilder::new().mode(0o700).create(&root)?;
+        let isolation = Isolation::create(&root, &policy).map_err(|e| refused(e.to_string()))?;
+        let (pin, directory) = Self::directory(&root)?;
+        let lock = Self::lock(&directory)?;
+        let manifest = json!({"schema":1,"kind":"milagre-rust-chat","root":root,"fixture":config.fixture,"launch":config.value}).to_string().into_bytes();
+        let project = isolation
+            .project(Path::new("project"))
+            .map_err(|e| refused(e.to_string()))?;
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(project.join(".milagre"))?;
+        let metadata = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(project.join(".milagre"))?;
+        private_write(&metadata, "coordination.json", json!({"next_id":10,"name":"Rust Chat","worktrees":{"1":{"id":1,"name":"main","path":project}},"sessions":{"1":{"id":1,"worktree_id":1,"provider":"claude","permissionMode":"ask"}},"messages":[]}).to_string().as_bytes())?;
+        private_write(&directory, MANIFEST, &manifest)?;
+        let data = Arc::new(Self {
+            isolation,
+            pin,
+            directory,
+            lock,
+            config,
+            manifest,
+        });
+        data.check()?;
+        Ok(data)
+    }
+
+    fn open(root: &Path, fixture: bool) -> Result<Arc<Self>, RpcError> {
+        let policy = protected_policy();
+        let root = check_location(root, &policy)?;
+        // Validate the pinned directory and dedicated marker before creating even a lock file.
+        let (pin, directory) = Self::directory(&root)?;
+        let manifest_file = at(&directory, MANIFEST, libc::O_RDONLY, 0)?;
+        if manifest_file.metadata()?.mode() & 0o777 != 0o600 {
+            return Err(refused("Dedicated launch manifest must have mode 0600"));
+        }
+        let bytes = read_bounded(manifest_file)?;
+        let manifest: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| refused("Invalid dedicated runtime manifest"))?;
+        if manifest["schema"] != 1
+            || manifest["kind"] != "milagre-rust-chat"
+            || manifest["root"].as_str() != root.to_str()
+            || manifest["fixture"] != fixture
+        {
+            return Err(refused(
+                "This is not the selected dedicated Rust Chat runtime root",
+            ));
+        }
+        let config = LaunchConfig::parse(manifest["launch"].clone(), fixture)?;
+        let lock = Self::lock(&directory)?;
+        let isolation = Isolation::open(&root, &policy).map_err(|e| refused(e.to_string()))?;
+        let data = Arc::new(Self {
+            isolation,
+            pin,
+            directory,
+            lock,
+            config,
+            manifest: bytes,
+        });
+        data.check()?;
+        let project = data.project();
+        data.isolation
+            .project(&project)
+            .map_err(|e| refused(e.to_string()))?;
+        let state: Value = milagre_owner_store::jsjson::parse_bytes(&read_coordination(
+            &project.join(".milagre/coordination.json"),
+        )?)
+        .map_err(|_| refused("Invalid saved Chat coordination state"))?;
+        if state["worktrees"]["1"]["path"].as_str() != project.to_str()
+            || state["sessions"]["1"]["worktree_id"] != 1
+        {
+            return Err(refused("Saved Chat no longer names this dedicated Project"));
+        }
+        Ok(data)
+    }
+
+    fn project(&self) -> PathBuf {
+        self.isolation.root().join("project")
+    }
+    fn check(&self) -> Result<(), RpcError> {
+        self.pin.check().map_err(refused)?;
+        let root = self.directory.metadata()?;
+        if (root.dev(), root.ino()) != self.pin.identity() {
+            return Err(refused("Dedicated runtime root identity changed"));
+        }
+        let current = at(&self.directory, LOCK, libc::O_RDONLY, 0)?;
+        plain(&current)?;
+        let actual = current.metadata()?;
+        let expected = self.lock.metadata()?;
+        if (actual.dev(), actual.ino()) != (expected.dev(), expected.ino()) {
+            return Err(refused("Dedicated runtime lock identity changed"));
+        }
+        if read_bounded(at(&self.directory, MANIFEST, libc::O_RDONLY, 0)?)? != self.manifest {
+            return Err(refused(
+                "Dedicated runtime configuration changed; restart with explicit configuration",
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(crate) struct Bootstrap {
+    root: Arc<DataRoot>,
+    accounts: Accounts,
+}
+impl Bootstrap {
+    pub(crate) fn check(&self) -> Result<(), RpcError> {
+        self.root.check()
+    }
+    pub(crate) fn require_project(&self, value: Option<&Value>) -> Result<(), RpcError> {
+        if value.and_then(Value::as_str) != self.root.project().to_str() {
+            return Err(refused("Choose the configured dedicated Project"));
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_send(&self, request: &Value) -> Result<(), RpcError> {
+        self.check()?;
+        self.require_project(request.get("projectPath"))?;
+        if request["provider"] != "claude" || request["model"] != self.root.config.model {
+            return Err(refused(
+                "This runtime starts only its explicitly configured Claude model",
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) fn call(&self, method: &str, args: &[Value]) -> RpcResult {
+        self.check()?;
+        let config = &self.root.config;
+        let project = self.root.project();
+        if matches!(
+            method,
+            "agent:models" | "agent:cli-status" | "accounts:scope"
+        ) && args.first().is_some_and(|v| !v.is_null())
+        {
+            self.require_project(args.first())?;
+        }
+        if (method == "accounts:list" && args.first().is_some_and(|v| !v.is_null() && v != false))
+            || (method == "accounts:scope"
+                && args.get(1).is_some_and(|v| !v.is_null() && v != false))
+        {
+            return Err(refused(
+                "This runtime does not inspect or refresh account authentication",
+            ));
+        }
+        let row =
+            json!({"id":project,"path":project,"name":"Rust Chat","git":false,"position":null});
+        match method {
+            "project:known" | "project:recent" | "project:registry" => Ok(json!([row])),
+            "agent:models" => Ok(
+                json!({"claude":[{"id":config.model,"name":config.model,"description":if config.fixture {"Configured fixed child; no model inference"} else {"Explicitly configured Claude model; catalog discovery is not run"},"efforts":[],"ultracode":true,"fastMode":true}]}),
+            ),
+            "agent:cli-status" => Ok(
+                json!({"claude":{"state":"unknown","message":if config.fixture {"Fixed child transport selected; no real CLI or credentials inspected"} else {"Explicit Claude executable/config selected; authentication has not been inspected"}}}),
+            ),
+            "accounts:list" => Ok(claude_accounts(self.accounts.snapshot())),
+            "accounts:scope" => {
+                self.require_project(args.first())?;
+                self.accounts
+                    .scope_snapshot(
+                        project
+                            .to_str()
+                            .ok_or_else(|| refused("Project path isn't UTF-8"))?,
+                    )
+                    .map(claude_accounts)
+                    .map_err(|e| refused(e.to_string()))
+            }
+            _ => Err(refused("This runtime does not provide that service")),
+        }
+    }
+}
+
+fn claude_accounts(mut snapshot: Value) -> Value {
+    if let Some(providers) = snapshot["providers"].as_array_mut() {
+        providers.retain(|provider| provider["provider"] == "claude");
+    }
+    snapshot
+}
+
+/// Keeps the persistent-root lease through owner and captured provider cleanup. No destructor deletes data.
+pub struct RunningChat {
+    pub server: Arc<Server>,
+    pub receipt: Value,
+    monitor: FixtureMonitor,
+    _root: Arc<DataRoot>,
+}
+impl RunningChat {
+    /// Success means owner/wire cleanup and captured worker cleanup finished. Reopen may
+    /// then acquire the dedicated root; Drop alone still honors any independently retained leases.
+    pub fn finish(self) -> Result<(), Box<dyn std::error::Error>> {
+        let Self {
+            server,
+            monitor,
+            _root,
+            ..
+        } = self;
+        let wire_result = Server::finish(server);
+        if !monitor.wait_drained(Duration::from_secs(5)) {
+            eprintln!("CLAUDE_CLEANUP_PENDING: retaining dedicated data-root ownership until captured workers exit");
+            while !monitor.wait_drained(Duration::from_secs(30)) {}
+            wire_result?;
+            return Err("Claude cleanup exceeded its deadline".into());
+        }
+        wire_result?;
+        if monitor.cleanup_failed() {
+            return Err("Claude cleanup reported a failure".into());
+        }
+        Ok(())
+    }
+}
+
+/// `create <root> <launch.json>` or `open <root>`. Fixture commands exist only in the separate test feature.
+pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>> {
+    let data = match args {
+        [mode, root, launch] if mode == "create" => {
+            let value = serde_json::from_slice(&read_file(Path::new(launch))?)
+                .map_err(|_| refused("Invalid launch JSON"))?;
+            DataRoot::create(Path::new(root), LaunchConfig::parse(value, false)?)?
+        }
+        [mode, root] if mode == "open" => DataRoot::open(Path::new(root), false)?,
+        #[cfg(feature = "chat-runtime-fixture")]
+        [mode, root] if mode == "fixture-create" => {
+            let root = check_location(Path::new(root), &protected_policy())?;
+            let config = fixture_config(&root)?;
+            let data = DataRoot::create(&root, config)?;
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(data.config.home.clone())?;
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(data.config.config_directory.clone())?;
+            data
+        }
+        #[cfg(feature = "chat-runtime-fixture")]
+        [mode, root] if mode == "fixture-open" => DataRoot::open(Path::new(root), true)?,
+        _ => return Err(refused(
+            "Usage: chat-runtime create <new-data-root> <launch.json> | open <dedicated-data-root>",
+        )
+        .into()),
+    };
+    let profile = IsolatedProfile::create()?;
+    let project = data.project();
+    let config = &data.config;
+    let accounts = config.accounts()?;
+    let selection = accounts.pin(project.to_str())?;
+    if selection.account_id("claude")? != config.account_id {
+        return Err(refused("Configured account selection changed").into());
+    }
+    #[allow(unused_mut)] // The fixture-only script adds one captured environment entry.
+    let mut environment = BTreeMap::from([
+        ("HOME".to_string(), config.home.clone().into_os_string()),
+        (
+            "CLAUDE_CONFIG_DIR".into(),
+            config.config_directory.clone().into_os_string(),
+        ),
+        ("PATH".into(), config.path.clone().into()),
+        ("USER".into(), config.user_name.clone().into()),
+        ("LOGNAME".into(), config.user_name.clone().into()),
+    ]);
+    #[cfg(feature = "chat-runtime-fixture")]
+    if config.fixture {
+        let script = profile.path().join("fixed-child.json");
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&script)?;
+        serde_json::to_writer(file, &fixture_script(&data)?)?;
+        environment.insert("FAKE_CLAUDE_SCRIPT".into(), script.into_os_string());
+    }
+    let mut launch = LaunchOptions::new(&config.program);
+    launch.cwd = Some(project.clone());
+    launch.env = Some(
+        environment
+            .into_iter()
+            .map(|(key, value)| (key.into(), value))
+            .collect(),
+    );
+    let ordinary = ClaudeInstructionInputs::bundled(
+        &config.skills_directory,
+        crate::instructions::HostNetwork::default(),
+        true,
+    )?;
+    let provider = ClaudeProvider::configured(ClaudeLaunchContext {
+        isolation: data.isolation.clone(),
+        project: project.clone(),
+        launch,
+        ordinary,
+        lifetime: Some(data.clone()),
+    })?;
+    let monitor = provider.monitor();
+    let (server, mut metadata) = crate::actor::start_configured(
+        profile,
+        data.isolation.clone(),
+        project,
+        Box::new(provider),
+        Bootstrap {
+            root: data.clone(),
+            accounts,
+        },
+    )?;
+    metadata["restartable"] = json!(true);
+    metadata["configuredProvider"] = json!(true);
+    metadata["model"] = json!(config.model);
+    metadata["accountId"] = json!(config.account_id);
+    metadata["accountLabel"] = json!(config.account_label);
+    let receipt = json!({"profile":server.profile_path(),"socket":server.socket_path(),"pid":std::process::id(),"protocolVersion":1,"restartable":true,"fixture":config.fixture,"fakeClaude":config.fixture,"dataRoot":data.isolation.root(),"actor":metadata});
+    Ok(RunningChat {
+        server: Arc::new(server),
+        receipt,
+        monitor,
+        _root: data,
+    })
+}
+
+#[cfg(feature = "chat-runtime-fixture")]
+fn fixture_config(root: &Path) -> Result<LaunchConfig, Box<dyn std::error::Error>> {
+    let executable = std::env::current_exe()?;
+    let program = executable
+        .parent()
+        .ok_or("Missing executable parent")?
+        .join("runtime-fake-claude")
+        .canonicalize()?;
+    let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/core/src/bundled-skills")
+        .canonicalize()?;
+    Ok(LaunchConfig::parse(
+        json!({"program":program,"home":root.join("home"),"configDirectory":root.join("claude-account"),"skillsDirectory":bundle,"model":"sonnet","path":"/usr/bin:/bin","accountId":"11111111-1111-4111-8111-111111111111","accountLabel":"Fixed child account (not authenticated)","userName":"rust-chat-fixture-user"}),
+        true,
+    )?)
+}
+
+#[cfg(feature = "chat-runtime-fixture")]
+fn fixture_script(root: &DataRoot) -> Result<Value, RpcError> {
+    let state: Value = milagre_owner_store::jsjson::parse_bytes(&read_coordination(
+        &root.project().join(".milagre/coordination.json"),
+    )?)
+    .map_err(|_| refused("Invalid fixture coordination state"))?;
+    let resume = state["sessions"]["1"]["native_session_id"].as_str();
+    let mut launch = json!({"absent":["--no-session-persistence"],"env":{"USER":root.config.user_name,"LOGNAME":root.config.user_name}});
+    if let Some(resume) = resume {
+        launch["flags"] = json!([format!("--resume={resume}")]);
+    } else {
+        launch["absent"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("--resume"));
+    }
+    let mut steps = vec![
+        json!({"expect_launch":launch}),
+        json!({"expect":{"subtype":"initialize"}}),
+        json!({"reply":{}}),
+        json!({"expect":{"subtype":"set_max_thinking_tokens"}}),
+        json!({"reply":{}}),
+    ];
+    for turn in 0..1 {
+        let id = format!("restart-permission-{turn}");
+        steps.extend([
+            json!({"expect":{"type":"user"}}),
+            json!({"emit":{"type":"system","subtype":"init","session_id":"restartable-native-session"}}),
+            json!({"request":{"id":id,"request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"printf synthetic-approved"}}}}),
+            json!({"expect":{"type":"control_response","fields":{"/response/request_id":id,"/response/response/behavior":"allow"}}}),
+            json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Restartable "}}}}),
+            json!({"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Claude reply"}}}}),
+            json!({"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}}),
+        ]);
+    }
+    steps.push(json!({"wait_eof":true}));
+    Ok(json!(steps))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use milagre_owner_store::{
+        chat_host::{ChatHost, MockProvider},
+        jsjson,
+        states::{ProjectStates, Timing},
+    };
+
+    fn config() -> LaunchConfig {
+        LaunchConfig::parse(json!({"program":"/explicit/unused-claude","home":"/explicit/unused-home","configDirectory":"/explicit/unused-account","skillsDirectory":"/explicit/unused-bundle","model":"sonnet","path":"/usr/bin:/bin","accountId":"11111111-1111-4111-8111-111111111111","accountLabel":"Explicit selected account","userName":"explicit-user"}), false).unwrap()
+    }
+
+    #[test]
+    fn user_identity_is_explicit_bounded_and_not_nul() {
+        let valid = config().value;
+        for invalid in [
+            Value::Null,
+            json!(""),
+            json!("   "),
+            json!("user\0name"),
+            json!("x".repeat(257)),
+        ] {
+            let mut value = valid.clone();
+            value["userName"] = invalid;
+            assert!(LaunchConfig::parse(value, false).is_err());
+        }
+        let mut missing = valid.clone();
+        missing.as_object_mut().unwrap().remove("userName");
+        assert!(LaunchConfig::parse(missing, false).is_err());
+        assert_eq!(
+            LaunchConfig::parse(valid, false).unwrap().user_name,
+            "explicit-user"
+        );
+    }
+
+    #[test]
+    fn durable_root_reopens_without_seeding_and_refuses_competing_owner() {
+        let parent = IsolatedProfile::create().unwrap();
+        let path = parent.path().join("durable");
+        let root = DataRoot::create(&path, config()).unwrap();
+        let manifest = fs::read(path.join(MANIFEST)).unwrap();
+        let state = fs::read(root.project().join(".milagre/coordination.json")).unwrap();
+        assert!(DataRoot::open(&path, false).is_err());
+        assert!(DataRoot::create(&path, config()).is_err());
+        assert_eq!(
+            fs::metadata(path.join(MANIFEST)).unwrap().mode() & 0o777,
+            0o600
+        );
+        let accounts = root.config.accounts().unwrap();
+        assert!(accounts
+            .snapshot()
+            .to_string()
+            .contains("Explicit selected account"));
+        drop(root);
+        let reopened = DataRoot::open(&path, false).unwrap();
+        assert_eq!(fs::read(path.join(MANIFEST)).unwrap(), manifest);
+        assert_eq!(
+            fs::read(reopened.project().join(".milagre/coordination.json")).unwrap(),
+            state
+        );
+    }
+
+    #[test]
+    fn final_root_lease_unlocks_even_while_an_inherited_description_exists() {
+        let parent = IsolatedProfile::create().unwrap();
+        let path = parent.path().join("durable");
+        let root = DataRoot::create(&path, config()).unwrap();
+        // dup shares the same open-file description, as a concurrent fork does until its exec
+        // closes CLOEXEC descriptors. Such a descriptor is not another owner authority lease.
+        let inherited = root.lock.try_clone().unwrap();
+        let captured = root.clone();
+        drop(root);
+        assert!(DataRoot::open(&path, false).is_err());
+        drop(captured);
+        let reopened = DataRoot::open(&path, false).unwrap();
+        drop(inherited);
+        assert!(
+            DataRoot::open(&path, false).is_err(),
+            "closing the old description must not unlock the new owner"
+        );
+        drop(reopened);
+    }
+
+    #[test]
+    fn unmarked_or_existing_root_is_never_adopted_or_seeded() {
+        let parent = IsolatedProfile::create().unwrap();
+        let path = parent.path().join("unmarked");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("sentinel"), b"keep").unwrap();
+        assert!(DataRoot::create(&path, config()).is_err());
+        assert!(DataRoot::open(&path, false).is_err());
+        assert_eq!(fs::read(path.join("sentinel")).unwrap(), b"keep");
+        assert_eq!(fs::read_dir(path).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn changed_launch_manifest_revokes_the_captured_configuration() {
+        let parent = IsolatedProfile::create().unwrap();
+        let root = DataRoot::create(&parent.path().join("durable"), config()).unwrap();
+        fs::write(root.isolation.root().join(MANIFEST), b"{}").unwrap();
+        assert!(root
+            .check()
+            .unwrap_err()
+            .message
+            .contains("configuration changed"));
+    }
+
+    #[test]
+    fn ordinary_create_and_open_need_no_provider_or_credential_execution() {
+        let parent = IsolatedProfile::create().unwrap();
+        let root = parent.path().join("ordinary");
+        let launch = parent.path().join("launch.json");
+        let mut value = config().value;
+        value["skillsDirectory"] = json!(Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/core/src/bundled-skills")
+            .canonicalize()
+            .unwrap());
+        fs::write(&launch, value.to_string()).unwrap();
+        // The explicit unused executable/home/account do not exist. Startup reads only the selected
+        // instruction bundle and our new data root; native execution starts only on an admitted send.
+        let running = start(&[
+            "create".into(),
+            root.to_string_lossy().into(),
+            launch.to_string_lossy().into(),
+        ])
+        .unwrap();
+        assert_eq!(running.receipt["fixture"], false);
+        assert_eq!(
+            running.receipt["actor"]["accountLabel"],
+            "Explicit selected account"
+        );
+        assert_eq!(running.monitor.workers(), 0);
+        running.finish().unwrap();
+        let reopened = start(&["open".into(), root.to_string_lossy().into()]).unwrap();
+        assert_eq!(reopened.monitor.workers(), 0);
+        drop(reopened);
+        assert!(DataRoot::open(&root, false).is_ok());
+    }
+
+    #[test]
+    fn clean_owner_shutdown_reopens_large_held_queue_with_lone_surrogate() {
+        let parent = IsolatedProfile::create().unwrap();
+        let path = parent.path().join("durable");
+        let root = DataRoot::create(&path, config()).unwrap();
+        let project = root.project();
+        let mut host = ChatHost::new(ProjectStates::new(
+            root.isolation.clone(),
+            Timing::default(),
+            0,
+        ));
+        let provider = MockProvider::new("claude");
+        host.register(Box::new(provider.clone()));
+        host.open_project(&project).unwrap();
+        let request = json!({"projectPath":project,"sessionId":1,"provider":"claude","model":"sonnet","body":"first","clientMessageId":"first"});
+        host.send(&request).unwrap();
+        assert!(host.pump().is_empty());
+        let mut queued = request.clone();
+        queued["clientMessageId"] = json!("held");
+        queued["delivery"] = json!("queue");
+        queued["body"] = jsjson::parse(&format!("\"{}\\ud800\"", "q".repeat(40 * 1024))).unwrap();
+        assert!(host.send(&queued).unwrap().queued);
+        let chat = format!("{}#1", project.display());
+        host.interrupt(&chat).unwrap();
+        provider.emit(&chat, json!({"type":"turn-cancelled"}));
+        assert!(host.pump().is_empty());
+        host.shutdown(false).unwrap();
+        drop(host);
+        drop(root);
+        let reopened = DataRoot::open(&path, false).unwrap();
+        let saved = jsjson::parse_bytes(
+            &read_coordination(&reopened.project().join(".milagre/coordination.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["sessions"]["1"]["queued"][0]["body"], queued["body"]);
+        assert_eq!(saved["sessions"]["1"]["queueHeld"], true);
+        assert!(
+            saved["sessions"]["1"]["queued"][0]["body"]
+                .as_str()
+                .unwrap()
+                .len()
+                > MANIFEST_LIMIT
+        );
+    }
+}

@@ -1,5 +1,5 @@
-//! Isolated read/PTY adapters. Optional ProjectStates ownership covers fresh fixture copies only.
-//! No live profile, provider execution, Project mutation, or arbitrary Project folder access.
+//! Isolated read/PTY and owner adapters. The optional chat-runtime entrypoint owns one explicit dedicated
+//! persistent Project with a captured Claude configuration; it never adopts a production profile or socket.
 #[cfg(feature = "acp-fixture")]
 pub mod acp_fixture;
 pub mod actor;
@@ -8,6 +8,8 @@ mod app_content;
 #[cfg(feature = "app-fixture")]
 pub mod app_fixture;
 mod artifacts;
+#[cfg(feature = "chat-runtime")]
+pub mod chat_runtime;
 mod claude_content;
 pub mod claude_fixture;
 pub mod codex_fixture;

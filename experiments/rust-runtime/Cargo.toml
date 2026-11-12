@@ -10,6 +10,8 @@ description = "Isolated read integration of Milagre's Rust wire server and saved
 default = []
 acp-fixture = ["dep:milagre-acp"]
 app-fixture = ["dep:milagre-registry", "dep:milagre-accounts"]
+chat-runtime = ["dep:milagre-accounts"]
+chat-runtime-fixture = ["chat-runtime"]
 
 [dependencies]
 milagre-registry = { path = "../rust-registry", optional = true }
@@ -50,3 +52,8 @@ required-features = ["acp-fixture"]
 name = "app-fixture"
 path = "src/bin/app-fixture.rs"
 required-features = ["app-fixture"]
+
+[[bin]]
+name = "chat-runtime"
+path = "src/bin/chat-runtime.rs"
+required-features = ["chat-runtime"]

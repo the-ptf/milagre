@@ -1,4 +1,4 @@
-//! One owner actor, exercised only against a fresh scripted fixture. No external paths or CLIs.
+//! Shared owner actor for fresh fixtures and the explicitly configured dedicated Chat runtime.
 use milagre_owner_store::{
     agent_runs,
     chat_host::{
@@ -63,6 +63,15 @@ fn app_methods(enabled: bool) -> &'static [&'static str] {
     &[]
 }
 
+fn configured_methods(enabled: bool) -> &'static [&'static str] {
+    #[cfg(feature = "chat-runtime")]
+    if enabled {
+        return crate::chat_runtime::METHODS;
+    }
+    let _ = enabled;
+    &[]
+}
+
 enum Command {
     Call(String, Vec<Value>),
     Shutdown {
@@ -115,6 +124,7 @@ struct Actor {
     project: String,
     content: bool,
     app_fixture: bool,
+    configured: bool,
     claude_modes: bool,
 }
 impl Actor {
@@ -208,6 +218,7 @@ impl Handler for Actor {
                 .copied(),
             )
             .chain(app_methods(self.app_fixture).iter().copied())
+            .chain(configured_methods(self.configured).iter().copied())
             .chain(
                 if self.content && self.app_fixture {
                     DESIGN_SETTINGS
@@ -224,6 +235,7 @@ impl Handler for Actor {
         if !METHODS.contains(&method)
             && !(self.claude_modes && CLAUDE_METHODS.contains(&method))
             && !app_methods(self.app_fixture).contains(&method)
+            && !configured_methods(self.configured).contains(&method)
             && !(self.content
                 && (crate::artifacts::METHODS.contains(&method)
                     || (self.app_fixture && DESIGN_SETTINGS.contains(&method))))
@@ -237,6 +249,7 @@ impl Handler for Actor {
             method,
             "project:open" | "project:switch" | "project:current"
         ) && !app_methods(self.app_fixture).contains(&method)
+            && !configured_methods(self.configured).contains(&method)
             && context.view().project_path.as_deref() != Some(&self.project)
         {
             return Err(RpcError::new(
@@ -392,6 +405,7 @@ struct State {
     project: PathBuf,
     opened: bool,
     version: u64,
+    publication_epoch: Option<String>,
     last: Value,
     run_seq: u64,
     next_readiness_check: Instant,
@@ -402,6 +416,8 @@ struct State {
     // Drop after jobs join and the host releases its locks, even on forced teardown.
     #[cfg(feature = "app-fixture")]
     bootstrap: Option<crate::app_fixture::Bootstrap>,
+    #[cfg(feature = "chat-runtime")]
+    configured: Option<crate::chat_runtime::Bootstrap>,
     _profile: ProfileLease,
 }
 impl Drop for State {
@@ -424,10 +440,24 @@ impl State {
                 .retain(|(channel, _)| channel != "project:state");
         }
     }
+    fn epoch(&self) -> String {
+        self.publication_epoch
+            .clone()
+            .unwrap_or_else(|| format!("isolated-actor:{}", self.project.display()))
+    }
+    fn stamp(&self, value: &mut Value) {
+        if let Some(epoch) = &self.publication_epoch {
+            value["epoch"] = json!(epoch);
+            value["version"] = json!(self.version);
+        }
+    }
     fn project_name(&self) -> &'static str {
         #[cfg(feature = "app-fixture")]
         if self.bootstrap.is_some() {
             return "fixture";
+        }
+        if self.publication_epoch.is_some() {
+            return "Rust Chat";
         }
         "actor"
     }
@@ -435,9 +465,9 @@ impl State {
         self.host
             .require_project_ready(&self.project)
             .map_err(convert)?;
-        Ok(
-            json!({"path":self.project,"name":self.project_name(),"git":false,"state":self.host.states.whole_state(&self.project).map_err(convert)?}),
-        )
+        let mut value = json!({"path":self.project,"name":self.project_name(),"git":false,"state":self.host.states.whole_state(&self.project).map_err(convert)?});
+        self.stamp(&mut value);
+        Ok(value)
     }
     fn cache(&mut self, shared: &Shared) -> Result<(), RpcError> {
         #[cfg(test)]
@@ -487,7 +517,10 @@ impl State {
             self.last = state.clone();
         }
         let projects = if self.opened {
-            vec![json!({"path":self.project,"name":self.project_name(),"git":false,"state":state})]
+            let mut value =
+                json!({"path":self.project,"name":self.project_name(),"git":false,"state":state});
+            self.stamp(&mut value);
+            vec![value]
         } else {
             vec![]
         };
@@ -500,6 +533,32 @@ impl State {
         Ok(())
     }
     fn call(&mut self, method: &str, args: &[Value]) -> RpcResult {
+        #[cfg(feature = "chat-runtime")]
+        if let Some(configured) = &self.configured {
+            configured.check()?;
+            if crate::chat_runtime::METHODS.contains(&method) {
+                self.host
+                    .require_project_ready(&self.project)
+                    .map_err(convert)?;
+                if method == "project:read" {
+                    configured.require_project(args.first())?;
+                    let mut result = self.project()?;
+                    result["version"] = json!(self.version);
+                    result["epoch"] = json!(self.epoch());
+                    if args.get(1).is_some_and(|v| v["state"] == false) {
+                        result.as_object_mut().unwrap().remove("state");
+                    }
+                    return Ok(result);
+                }
+                if method == "chat:runs" {
+                    return Ok(json!({"runs":self.host.runs(),"seq":self.run_seq}));
+                }
+                return configured.call(method, args);
+            }
+            if method == "chat:send" {
+                configured.validate_send(args.first().unwrap_or(&Value::Null))?;
+            }
+        }
         #[cfg(feature = "app-fixture")]
         if self.bootstrap.is_some() && crate::app_fixture::METHODS.contains(&method) {
             self.host
@@ -515,7 +574,7 @@ impl State {
                 }
                 let mut result = self.project()?;
                 result["version"] = json!(self.version);
-                result["epoch"] = json!(format!("isolated-actor:{}", self.project.display()));
+                result["epoch"] = json!(self.epoch());
                 if args.get(1).is_some_and(|v| v["state"] == false) {
                     result.as_object_mut().unwrap().remove("state");
                 }
@@ -579,7 +638,7 @@ impl State {
                 }
                 if method == "state:read" {
                     Ok(
-                        json!({"state":project["state"],"version":self.version,"epoch":format!("isolated-actor:{}",self.project.display())}),
+                        json!({"state":project["state"],"version":self.version,"epoch":self.epoch()}),
                     )
                 } else {
                     Ok(project)
@@ -873,6 +932,9 @@ impl State {
         shared.snapshot.lock().unwrap()["runs"]["seq"] = json!(self.run_seq);
     }
     fn queue_event(&mut self, channel: &str, mut payload: Value) -> Result<(), RpcError> {
+        if channel == "project:state" {
+            self.stamp(&mut payload);
+        }
         if self.pending.len() >= 256 {
             return Err(RpcError::new(
                 "OWNER_EVENT_OVERFLOW",
@@ -1126,6 +1188,8 @@ pub fn start() -> Result<(Server, Value), RpcError> {
         None,
         #[cfg(feature = "app-fixture")]
         None,
+        #[cfg(feature = "chat-runtime")]
+        None,
     )
 }
 
@@ -1154,6 +1218,8 @@ pub(crate) fn start_app_fixture(populated: bool) -> Result<(Server, Value), RpcE
         "kiro",
         Some(content),
         Some(bootstrap),
+        #[cfg(feature = "chat-runtime")]
+        None,
     )?;
     metadata["appFixture"] = json!(true);
     metadata["handoff"] = json!("gated");
@@ -1185,6 +1251,8 @@ pub fn start_claude(
         content,
         #[cfg(feature = "app-fixture")]
         None,
+        #[cfg(feature = "chat-runtime")]
+        None,
     )?;
     Ok((server, metadata, monitor))
 }
@@ -1204,11 +1272,36 @@ pub fn start_acp(
         None,
         #[cfg(feature = "app-fixture")]
         None,
+        #[cfg(feature = "chat-runtime")]
+        None,
     )?;
     metadata["scriptedProvider"] = json!(false);
     metadata["fakeAcp"] = json!(true);
     Ok((server, metadata, monitor))
 }
+/// One explicit dedicated Project and captured provider configuration, using the same owner/publication lifecycle
+/// as the fixture executables. The caller retains the persistent root lease until provider cleanup finishes.
+#[cfg(feature = "chat-runtime")]
+pub(crate) fn start_configured(
+    profile: IsolatedProfile,
+    isolation: Isolation,
+    project: PathBuf,
+    provider: Box<dyn Provider>,
+    configured: crate::chat_runtime::Bootstrap,
+) -> Result<(Server, Value), RpcError> {
+    start_provider(
+        profile,
+        isolation,
+        project,
+        provider,
+        "claude",
+        None,
+        #[cfg(feature = "app-fixture")]
+        None,
+        Some(configured),
+    )
+}
+
 fn start_provider(
     profile: IsolatedProfile,
     isolation: Isolation,
@@ -1217,7 +1310,12 @@ fn start_provider(
     provider_name: &'static str,
     content: Option<Arc<crate::claude_content::SharedContent>>,
     #[cfg(feature = "app-fixture")] bootstrap: Option<crate::app_fixture::Bootstrap>,
+    #[cfg(feature = "chat-runtime")] configured: Option<crate::chat_runtime::Bootstrap>,
 ) -> Result<(Server, Value), RpcError> {
+    #[cfg(feature = "chat-runtime")]
+    let persistent = configured.is_some();
+    #[cfg(not(feature = "chat-runtime"))]
+    let persistent = false;
     let epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1225,16 +1323,23 @@ fn start_provider(
     let started = Instant::now();
     let mut host = ChatHost::new(ProjectStates::new(
         isolation,
-        Timing {
-            debounce_ms: 100,
-            idle_ms: 350,
-            sweep_ms: 100,
-            lazy: true,
+        if persistent {
+            Timing::default()
+        } else {
+            Timing {
+                debounce_ms: 100,
+                idle_ms: 350,
+                sweep_ms: 100,
+                lazy: true,
+            }
         },
         epoch,
     ));
-    host.interrupt_grace_ms = 250;
-    host.answer_grace_ms = 250;
+    if !persistent {
+        host.interrupt_grace_ms = 250;
+        host.answer_grace_ms = 250;
+    }
+    let interrupt_grace = host.interrupt_grace_ms;
     host.answer_capacity = 32;
     host.register(provider);
     // This fixed fixture Project is admitted by trusted setup, never a saved path.
@@ -1288,6 +1393,7 @@ fn start_provider(
         thread: Mutex::new(None),
         project: project.to_string_lossy().into_owned(),
         content: content.is_some(),
+        configured: persistent,
         claude_modes: provider_name == "claude",
         app_fixture: {
             #[cfg(feature = "app-fixture")]
@@ -1309,6 +1415,7 @@ fn start_provider(
         project,
         opened: true,
         version: 0,
+        publication_epoch: persistent.then(|| format!("rust-chat:{}", profile.path().display())),
         last: Value::Null,
         run_seq: initial_run_seq,
         next_readiness_check: Instant::now(),
@@ -1318,25 +1425,31 @@ fn start_provider(
         settled_replies: Vec::new(),
         #[cfg(feature = "app-fixture")]
         bootstrap,
+        #[cfg(feature = "chat-runtime")]
+        configured,
         _profile: profile_lease,
     };
     state.cache(&shared)?;
     let server = Server::bind(
         profile,
         actor.clone(),
-        Config {
-            max_frame_bytes: 4096,
-            // Tiny frames exercise paging; the independent bounded reply budget
-            // accommodates the fixture's concurrent requests without enlarging frames.
-            outgoing_budget_bytes: Some(128 * 1024),
-            ..Config::default()
+        if persistent {
+            Config::default()
+        } else {
+            Config {
+                max_frame_bytes: 4096,
+                // Tiny frames exercise paging; the independent bounded reply budget
+                // accommodates the fixture's concurrent requests without enlarging frames.
+                outgoing_budget_bytes: Some(128 * 1024),
+                ..Config::default()
+            }
         },
     )?;
     *shared.events.lock().unwrap() = Some(server.events());
     *actor.thread.lock().unwrap() = Some(thread::spawn(move || {
         run(state, shared, requests, started, epoch)
     }));
-    let metadata = json!({"project":actor.project,"scriptedProvider":provider_name == "kiro","provider":provider_name,"tickMs":20,"debounceMs":100,"idleMs":350,"interruptGraceMs":250});
+    let metadata = json!({"project":actor.project,"scriptedProvider":provider_name == "kiro","provider":provider_name,"tickMs":20,"debounceMs":if persistent { 250 } else { 100 },"idleMs":if persistent { 600000 } else { 350 },"interruptGraceMs":interrupt_grace});
     Ok((server, metadata))
 }
 
@@ -1642,6 +1755,7 @@ mod tests {
                 project: "fixture".into(),
                 content: false,
                 app_fixture: false,
+                configured: false,
                 claude_modes: false,
             },
             receive,
@@ -1875,6 +1989,7 @@ mod publication_tests {
             project: profile.path().join("fixture"),
             opened: false,
             version: 0,
+            publication_epoch: None,
             last: Value::Null,
             run_seq: 0,
             next_readiness_check: Instant::now(),
@@ -1884,6 +1999,8 @@ mod publication_tests {
             settled_replies: Vec::new(),
             #[cfg(feature = "app-fixture")]
             bootstrap: None,
+            #[cfg(feature = "chat-runtime")]
+            configured: None,
             _profile: profile.lease(),
         };
         (profile, state, shared)
@@ -2390,6 +2507,7 @@ mod job_tests {
             project: project.to_string_lossy().into(),
             content: content.is_some(),
             app_fixture: false,
+            configured: false,
             claude_modes: false,
         });
         let profile_lease = profile.lease();
@@ -2401,6 +2519,7 @@ mod job_tests {
             project: project.to_path_buf(),
             opened,
             version: 0,
+            publication_epoch: None,
             last: Value::Null,
             run_seq: 0,
             next_readiness_check: Instant::now(),
@@ -2410,6 +2529,8 @@ mod job_tests {
             settled_replies: vec![],
             #[cfg(feature = "app-fixture")]
             bootstrap: None,
+            #[cfg(feature = "chat-runtime")]
+            configured: None,
             _profile: profile_lease,
         };
         state.cache(&shared).unwrap();

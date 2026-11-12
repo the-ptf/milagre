@@ -20,6 +20,8 @@ GPUI `9a50ea52` added live reducers and a manually connected mounted transcript,
 
 ## Current safety gate (2026-11-11)
 
+The separate restartable `chat-runtime` now completes two real Claude Code 2.1.322 turns without Milagre's Node daemon: stream and save, stop, reopen the same dedicated Project, read the identical transcript, resume the same native session and recall a previous random marker. Both exits are clean with removed private wire profiles/sockets/owner locks and retained data. It takes explicit executable/account/OS identity and bundled instruction inputs. Root passes 96 runtime tests, strict Clippy/fmt and normal-feature build; fixed-child acceptance also covers permissions and duplicate sends. [CHAT-RUNTIME.md](../rust-runtime/CHAT-RUNTIME.md) records the actual evidence, initial missing-identity authentication failure and cleanup regressions. This establishes ordinary real-Claude text persistence/resume only. Tauri/GPUI adoption, broader tools/providers/services, phone compatibility and production migration/rollback remain required. Production ownership and installed routing are unchanged.
+
 Image checkpoint `9c5909e7` is accepted for existing-Chat sends and saved queues in the
 isolated Claude runtime. The owner stores validated content and passes typed bytes to
 the provider; the pure planner preserves actual Node image-token order and code masking.
@@ -33,14 +35,15 @@ authority is enabled. See the runtime's image checkpoint for evidence and test-e
 failures retained alongside the corrected acceptance runs.
 
 The user rejected the repeated 40% to 55% range as a useful progress metric. Do not infer
-a new percentage from these test counts. The next milestone is one restartable Rust
+a new percentage from these test counts. The milestone is one restartable Rust
 backend completing open, send, stream, permission, save, stop, relaunch and continue,
 without Milagre's Node daemon. Existing actor and Claude-session code already cover the
 core operations. Current implementation priority is a persistent explicitly owned data
 root, captured real Claude launch/account configuration, actual bundled instructions and
 truthful single-project bootstrap. Keep a fresh isolated wire receipt per launch; stable
 production-profile adoption is separate. Fake-process restart tests establish composition,
-then a real-provider run must validate the same path. Optional review polish is deferred
+then a real-provider run must validate the same path. Ordinary real text/resume now passes;
+real tool permissions and frontend adoption remain the next checks. Optional review polish is deferred
 unless it blocks this milestone. Production cutover, broader retained services, phone
 compatibility and upgrade/rollback remain required; Tauri and GPUI stay independent.
 
