@@ -21,6 +21,8 @@ mod configured_codex;
 #[cfg(feature = "chat-runtime")]
 mod configured_git;
 #[cfg(feature = "chat-runtime")]
+mod configured_pr_details;
+#[cfg(feature = "chat-runtime")]
 mod configured_routines;
 #[cfg(feature = "chat-runtime")]
 mod configured_terminals;

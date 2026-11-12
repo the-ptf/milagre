@@ -746,3 +746,89 @@ fn owned_chat_git_reads_an_actual_owned_repo_without_provider_execution() {
         json!({"pid":original_pid,"restartPid":reopened.info().pid,"restartPrDiffEqual":true,"realProvider":false,"realRepository":true,"routes":6,"localPrDiff":true,"missingCommitsRefuseWithoutFetch":true,"indexUnchanged":true,"privateSetupHome":true,"explicitSyntheticIdentity":true,"repoInitializationObserved":true,"commit":head,"uncommittedPatch":true,"untrackedPatch":true,"committedPatch":true,"workingFileUnchanged":true})
     );
 }
+
+#[test]
+#[ignore = "run only using scripts/check-owned-chat.py with its private fixed-sibling stage"]
+fn owned_chat_pr_details_uses_explicit_github_selection_and_observed_viewer() {
+    let parent = private_root();
+    let root = parent.path().join("data");
+    let home = parent.path().join("home");
+    let account = parent.path().join("gh-account");
+    fs::create_dir(&home).unwrap();
+    fs::create_dir(&account).unwrap();
+    let config_file = account.join("hosts.yml");
+    fs::write(&config_file, "synthetic-alice\n").unwrap();
+    fs::set_permissions(&config_file, fs::Permissions::from_mode(0o600)).unwrap();
+    let calls = parent.path().join("gh-calls");
+    let script = parent.path().join("gh.py");
+    fs::write(&script,format!(r#"import json,os,sys
+assert 'owner=example' in sys.argv and 'name=repo' in sys.argv
+assert any(s.startswith('query=') and 'viewer {{ login }}' in s for s in sys.argv)
+assert not any(k in os.environ for k in ['GH_TOKEN','GITHUB_TOKEN','NODE_OPTIONS','SSH_AUTH_SOCK'])
+with open({calls:?},'a') as f:f.write('called'+chr(10))
+print(json.dumps({{'data':{{'viewer':{{'login':'alice'}},'repository':{{'pullRequest':{{'number':12,'title':'SDK PR','state':'OPEN','baseRefOid':'1'*40,'headRefOid':'2'*40,'files':{{'nodes':[],'pageInfo':{{'hasNextPage':False}}}}}}}}}}}}))
+"#,calls=calls.to_str().unwrap())).unwrap();
+    let gh = parent.path().join("gh");
+    fs::write(
+        &gh,
+        format!(
+            "#!/bin/sh\nexec /usr/bin/python3 '{}' \"$@\"\n",
+            script.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o700)).unwrap();
+    let fake = std::env::current_exe()
+        .unwrap()
+        .canonicalize()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("runtime-fake-claude");
+    let skills = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/core/src/bundled-skills")
+        .canonicalize()
+        .unwrap();
+    let selected = parent.path().join("selection.json");
+    fs::write(&selected,json!({"program":fake,"home":home,"configDirectory":home,"skillsDirectory":skills,"model":"sonnet","path":"/usr/bin:/bin","accountId":"11111111-1111-4111-8111-111111111111","accountLabel":"Synthetic selected account","userName":"synthetic-user",
+        "githubRead":{"program":gh,"home":home,"configDirectory":account,"path":"/usr/bin:/bin","accountLogin":"alice","owner":"example","repository":"repo"}}).to_string()).unwrap();
+    fs::set_permissions(&selected, fs::Permissions::from_mode(0o600)).unwrap();
+    let guard = block_on(OwnedChatGuard::create(&root, &selected)).unwrap();
+    assert!(!calls.exists(), "Capture must not probe GitHub");
+    let (client, _, _events) = block_on(guard.connect(ClientOptions::default())).unwrap();
+    let reads = guard.pr_details(&client).unwrap();
+    assert!(matches!(
+        block_on(reads.detail(12)),
+        Err(Error::ViewNotOpened)
+    ));
+    block_on(client.open_view(guard.project())).unwrap();
+    let snapshot = block_on(client.runtime_snapshot()).unwrap();
+    block_on(client.accept_snapshot(&snapshot)).unwrap();
+    let first = block_on(reads.detail(12)).unwrap();
+    assert_eq!(first["pr"]["title"], "SDK PR");
+    assert_eq!(first["pr"]["headRefOid"], "2".repeat(40));
+    fs::write(&config_file, "synthetic-other\n").unwrap();
+    assert!(
+        matches!(block_on(reads.detail(12)),Err(Error::Remote{code,..}) if code=="PR_SELECTION_REVOKED")
+    );
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 1);
+    complete(&guard);
+    client.disconnect();
+    assert_eq!(block_on(reads.detail(12)), Err(Error::Disconnected));
+    drop(guard);
+    let guard = block_on(OwnedChatGuard::open(&root)).unwrap();
+    let (client, _, _events) = block_on(guard.connect(ClientOptions::default())).unwrap();
+    block_on(client.open_view(guard.project())).unwrap();
+    let snapshot = block_on(client.runtime_snapshot()).unwrap();
+    block_on(client.accept_snapshot(&snapshot)).unwrap();
+    assert_eq!(
+        block_on(guard.pr_details(&client).unwrap().detail(12)).unwrap(),
+        first
+    );
+    complete(&guard);
+    client.disconnect();
+    println!(
+        "OWNED_CHAT_PR_DETAILS_EVIDENCE {}",
+        json!({"explicitSyntheticGrant":true,"startupNetwork":false,"viewerObserved":true,"configEditRevoked":true,"restartReadEqual":true,"realProvider":false,"realGithub":false})
+    );
+}

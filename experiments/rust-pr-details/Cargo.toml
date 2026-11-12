@@ -1,0 +1,17 @@
+[package]
+name = "milagre-pr-details"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Explicitly granted bounded read-only GitHub PR detail service"
+
+[workspace]
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+milagre-owner-store = { path = "../rust-owner" }
+rustix = { version = "1", features = ["fs", "process"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

@@ -165,8 +165,17 @@ struct Actor {
     claude_modes: bool,
     #[cfg(feature = "chat-runtime")]
     terminals: Option<Arc<crate::configured_terminals::ConfiguredTerminals>>,
+    #[cfg(feature = "chat-runtime")]
+    pr_details: Option<Arc<crate::configured_pr_details::ConfiguredPrDetails>>,
 }
 impl Actor {
+    fn github_methods(&self) -> &'static [&'static str] {
+        #[cfg(feature = "chat-runtime")]
+        if self.pr_details.is_some() {
+            return crate::configured_pr_details::METHODS;
+        }
+        &[]
+    }
     fn call(&self, command: Command) -> RpcResult {
         let shutdown = matches!(command, Command::Shutdown { .. });
         if self.shared.stop.load(Ordering::Acquire) {
@@ -259,6 +268,7 @@ impl Handler for Actor {
             .chain(app_methods(self.app_fixture).iter().copied())
             .chain(configured_methods(self.configured).iter().copied())
             .chain(configured_service_methods(self.configured))
+            .chain(self.github_methods().iter().copied())
             .chain(
                 if self.content && (self.app_fixture || self.configured) {
                     DESIGN_SETTINGS
@@ -277,6 +287,7 @@ impl Handler for Actor {
             && !app_methods(self.app_fixture).contains(&method)
             && !configured_methods(self.configured).contains(&method)
             && !configured_service_methods(self.configured).contains(&method)
+            && !self.github_methods().contains(&method)
             && !(self.content
                 && (crate::artifacts::METHODS.contains(&method)
                     || ((self.app_fixture || self.configured)
@@ -301,6 +312,14 @@ impl Handler for Actor {
             ));
         }
         #[cfg(feature = "chat-runtime")]
+        if self.github_methods().contains(&method) {
+            let service = self.pr_details.as_ref().ok_or_else(closed)?;
+            self.call(Command::Call("__pr:check".into(), vec![]))?;
+            let result = service.invoke(args);
+            self.call(Command::Call("__pr:check".into(), vec![]))?;
+            return result;
+        }
+        #[cfg(feature = "chat-runtime")]
         if self.configured && TERMINAL_METHODS.contains(&method) {
             let terminals = self.terminals.as_ref().ok_or_else(closed)?;
             let invocation = terminals.capture(method, args)?;
@@ -321,6 +340,12 @@ impl Handler for Actor {
     }
     fn shutdown(&self) -> RpcResult {
         self.call(Command::shutdown(false))
+    }
+    fn begin_shutdown(&self) {
+        #[cfg(feature = "chat-runtime")]
+        if let Some(service) = &self.pr_details {
+            service.revoke();
+        }
     }
     fn shutdown_attempt(&self) -> Result<(), ShutdownError> {
         let refused = Arc::new(AtomicBool::new(false));
@@ -522,6 +547,8 @@ struct State {
     #[cfg(feature = "chat-runtime")]
     terminals: Option<Arc<crate::configured_terminals::ConfiguredTerminals>>,
     #[cfg(feature = "chat-runtime")]
+    pr_details: Option<Arc<crate::configured_pr_details::ConfiguredPrDetails>>,
+    #[cfg(feature = "chat-runtime")]
     git: Option<crate::configured_git::ConfiguredGit>,
     #[cfg(feature = "chat-runtime")]
     routines: Option<crate::configured_routines::ConfiguredRoutines>,
@@ -534,6 +561,10 @@ impl Drop for State {
         #[cfg(feature = "chat-runtime")]
         if let Some(terminals) = &self.terminals {
             terminals.drain_before_owner_drop();
+        }
+        #[cfg(feature = "chat-runtime")]
+        if let Some(service) = &self.pr_details {
+            service.drain_before_owner_drop();
         }
         #[cfg(feature = "chat-runtime")]
         if let Some(routines) = &mut self.routines {
@@ -570,6 +601,10 @@ impl State {
     }
     fn sync_readiness(&mut self) {
         if !self.host.is_project_ready(&self.project) {
+            #[cfg(feature = "chat-runtime")]
+            if let Some(service) = &self.pr_details {
+                service.revoke();
+            }
             #[cfg(feature = "chat-runtime")]
             if let Some(terminals) = &self.terminals {
                 terminals.stop();
@@ -785,6 +820,14 @@ impl State {
                     self.queue_event("routines:changed", json!({}))?;
                 }
                 return Ok(value);
+            }
+            if method == "__pr:check" {
+                configured.check()?;
+                self.host
+                    .require_project_ready(&self.project)
+                    .map_err(convert)?;
+                self.pr_details.as_ref().ok_or_else(closed)?.check()?;
+                return Ok(Value::Null);
             }
             if method == "__terminal:check" {
                 self.host
@@ -1524,6 +1567,17 @@ impl State {
         force: bool,
         refused: &mut bool,
     ) -> RpcResult {
+        #[cfg(feature = "chat-runtime")]
+        if self
+            .pr_details
+            .as_ref()
+            .is_some_and(|service| !service.stop())
+        {
+            return Err(RpcError::new(
+                "QUIT_PENDING",
+                "GitHub read cleanup is still pending",
+            ));
+        }
         #[cfg(feature = "routine-execution-fixture")]
         if let Some(routines) = &mut self.routines {
             let now = self.host.states.now();
@@ -2027,6 +2081,12 @@ fn start_provider(
             Ok::<_, RpcError>(service)
         })
         .transpose()?;
+    #[cfg(feature = "chat-runtime")]
+    let pr_details = configured
+        .as_ref()
+        .map(|config| config.pr_details())
+        .transpose()?
+        .flatten();
     let (send, requests) = mpsc::sync_channel(QUEUE);
     let actor = Arc::new(Actor {
         send,
@@ -2038,6 +2098,8 @@ fn start_provider(
         claude_modes: provider_name == "claude",
         #[cfg(feature = "chat-runtime")]
         terminals: terminals.clone(),
+        #[cfg(feature = "chat-runtime")]
+        pr_details: pr_details.clone(),
         app_fixture: {
             #[cfg(feature = "app-fixture")]
             {
@@ -2076,6 +2138,8 @@ fn start_provider(
         configured,
         #[cfg(feature = "chat-runtime")]
         terminals,
+        #[cfg(feature = "chat-runtime")]
+        pr_details,
         #[cfg(feature = "chat-runtime")]
         git,
         #[cfg(feature = "chat-runtime")]
@@ -2544,6 +2608,8 @@ mod tests {
                 claude_modes: false,
                 #[cfg(feature = "chat-runtime")]
                 terminals: None,
+                #[cfg(feature = "chat-runtime")]
+                pr_details: None,
             },
             receive,
         )
@@ -2803,6 +2869,8 @@ mod publication_tests {
             configured: None,
             #[cfg(feature = "chat-runtime")]
             terminals: None,
+            #[cfg(feature = "chat-runtime")]
+            pr_details: None,
             #[cfg(feature = "chat-runtime")]
             git: None,
             #[cfg(feature = "chat-runtime")]
@@ -4391,6 +4459,8 @@ mod job_tests {
             claude_modes: false,
             #[cfg(feature = "chat-runtime")]
             terminals: None,
+            #[cfg(feature = "chat-runtime")]
+            pr_details: None,
         });
         let profile_lease = profile.lease();
         let mut state = State {
@@ -4419,6 +4489,8 @@ mod job_tests {
             configured: None,
             #[cfg(feature = "chat-runtime")]
             terminals: None,
+            #[cfg(feature = "chat-runtime")]
+            pr_details: None,
             #[cfg(feature = "chat-runtime")]
             git: None,
             #[cfg(feature = "chat-runtime")]

@@ -710,6 +710,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "milagre-pr-details"
+version = "0.1.0"
+dependencies = [
+ "milagre-owner-store",
+ "rustix",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "milagre-providers"
 version = "0.1.0"
 dependencies = [
@@ -762,6 +772,7 @@ dependencies = [
  "milagre-owner-store",
  "milagre-owner-wire",
  "milagre-ports",
+ "milagre-pr-details",
  "milagre-providers",
  "milagre-registry",
  "milagre-routines",

@@ -1,5 +1,15 @@
 # Shared daemon client, owned-fixture checkpoint
 
+The separate `PrDetailsReads` capability adds `guard.pr_details(&client)` and
+`detail(number).await` for explicitly granted GitHub metadata. It is bound weakly
+to the same guard/connection and its captured Project, with no cwd/host/account/
+query selector. The backend advertises `pr:detail` only for a private `githubRead`
+launch grant and observes actual viewer identity on every accepted page. Ordinary
+launches have no GitHub/network authority. Open/apply/accept the view first;
+use a second connection for controls while a detail read waits. Typed account
+revocation propagates without retry/replay. See the runtime's PR-DETAILS.md for
+the grant, bounded read lane and synthetic evidence. No real account is adopted.
+
 An additive default-disabled `owned-chat` checkpoint now supplies a dedicated
 persistent runtime guard and typed ChatActions. Its authority, bounds, exact tests
 and remaining gates are in [OWNED-CHAT.md](OWNED-CHAT.md). Existing fixture APIs and

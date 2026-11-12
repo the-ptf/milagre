@@ -1,0 +1,25 @@
+query($owner:String!,$name:String!,$number:Int!){
+  repository(owner:$owner,name:$name){
+    pullRequest(number:$number){
+      id number url title body state isDraft createdAt updatedAt
+      author{login}
+      baseRefName headRefName headRefOid baseRefOid additions deletions changedFiles
+      mergeStateStatus reviewDecision viewerCanMergeAsAdmin viewerDidAuthor
+      autoMergeRequest{mergeMethod}
+      labels(first:20){nodes{name color}}
+      commits(last:100){nodes{commit{oid messageHeadline}}}
+      checks: commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
+        kind: __typename
+        ... on CheckRun{name status conclusion detailsUrl checkSuite{workflowRun{workflow{name}}}}
+        ... on StatusContext{context state targetUrl}
+      }}}}}}
+      files(first:100){nodes{path additions deletions changeType} pageInfo{hasNextPage endCursor}}
+      reviewRequests(first:20){nodes{requestedReviewer{... on User{login} ... on Team{combinedSlug}}}}
+      latestReviews(first:30){nodes{author{login} state commit{oid}}}
+      reviewThreads(first:100){nodes{id path line originalLine diffSide isResolved isOutdated
+        comments(first:50){nodes{id body createdAt author{login} pullRequestReview{state}}}}}
+      comments(last:50){nodes{id body createdAt author{login}}}
+      pending: reviews(states:PENDING,first:1){nodes{id comments{totalCount}}}
+    }
+  }
+}

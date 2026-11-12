@@ -10,7 +10,7 @@ description = "Isolated read integration of Milagre's Rust wire server and saved
 default = []
 acp-fixture = ["dep:milagre-acp"]
 app-fixture = ["dep:milagre-registry", "dep:milagre-accounts"]
-chat-runtime = ["dep:milagre-accounts", "dep:milagre-routines"]
+chat-runtime = ["dep:milagre-accounts", "dep:milagre-routines", "dep:milagre-pr-details"]
 chat-runtime-fixture = ["chat-runtime"]
 routine-execution-fixture = ["chat-runtime-fixture", "milagre-owner-store/routine-execution-fixture"]
 
@@ -18,6 +18,7 @@ routine-execution-fixture = ["chat-runtime-fixture", "milagre-owner-store/routin
 milagre-registry = { path = "../rust-registry", optional = true }
 milagre-accounts = { path = "../rust-accounts", optional = true }
 milagre-routines = { path = "../rust-routines", features = ["durable-store"], optional = true }
+milagre-pr-details = { path = "../rust-pr-details", optional = true }
 milagre-acp = { path = "../rust-acp", features = ["fake-session"], optional = true }
 libc = "0.2"
 milagre-owner-store = { path = "../rust-owner" }

@@ -100,6 +100,10 @@ pub enum ShutdownError {
 
 /// A future owner adapter implements this boundary. No Project or provider implementation is implied.
 pub trait Handler: Send + Sync + 'static {
+    /// Nonblocking cancellation of explicitly owned read lanes before accepted
+    /// commands drain. Never release owner/storage authority or claim cleanup
+    /// here; shutdown_attempt remains responsible for confirmed cleanup.
+    fn begin_shutdown(&self) {}
     /// Decode one bounded frame. The same representation must be used by encode_request_id,
     /// encode_result and string_len. Default handlers use ordinary Unicode; an owner may use lossless UTF-16.
     fn decode_request(&self, frame: &[u8]) -> Result<Value, RpcError> {
@@ -498,6 +502,7 @@ impl Inner {
             return Ok(());
         }
         self.closing.store(true, Ordering::Release);
+        self.handler.begin_shutdown();
         let expires = Instant::now() + self.config.shutdown_timeout;
         let mut active = self.active.lock().unwrap();
         while *active != 0 {

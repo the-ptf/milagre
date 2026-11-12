@@ -24,6 +24,9 @@ pub(crate) mod chat_actions;
 #[path = "git_reads.rs"]
 pub(crate) mod git_reads;
 #[cfg(feature = "owned-chat")]
+#[path = "pr_details.rs"]
+pub(crate) mod pr_details;
+#[cfg(feature = "owned-chat")]
 #[path = "terminal_actions.rs"]
 pub(crate) mod terminal_actions;
 

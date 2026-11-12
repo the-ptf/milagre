@@ -89,8 +89,49 @@ struct LaunchConfig {
     account_label: String,
     user_name: String,
     fixture: bool,
+    github_read: Option<GithubReadConfig>,
 }
 
+#[derive(Clone)]
+struct GithubReadConfig {
+    program: PathBuf,
+    home: PathBuf,
+    config_directory: PathBuf,
+    path: String,
+    account_login: String,
+    owner: String,
+    repository: String,
+}
+impl GithubReadConfig {
+    fn parse(value: &Value) -> Result<Self, RpcError> {
+        const FIELDS: &[&str] = &[
+            "program",
+            "home",
+            "configDirectory",
+            "path",
+            "accountLogin",
+            "owner",
+            "repository",
+        ];
+        let object = value
+            .as_object()
+            .ok_or_else(|| refused("githubRead must be an explicit object"))?;
+        if object.len() != FIELDS.len() || FIELDS.iter().any(|k| !object.contains_key(*k)) {
+            return Err(refused(
+                "githubRead must contain only its seven explicit launch fields",
+            ));
+        }
+        Ok(Self {
+            program: absolute(value, "program")?,
+            home: absolute(value, "home")?,
+            config_directory: absolute(value, "configDirectory")?,
+            path: strict_text(value, "path")?.into(),
+            account_login: strict_text(value, "accountLogin")?.into(),
+            owner: strict_text(value, "owner")?.into(),
+            repository: strict_text(value, "repository")?.into(),
+        })
+    }
+}
 impl LaunchConfig {
     fn parse(value: Value, fixture: bool) -> Result<Self, RpcError> {
         const FIELDS: &[&str] = &[
@@ -105,11 +146,11 @@ impl LaunchConfig {
             "userName",
         ];
         if value.as_object().is_none_or(|object| {
-            !(object.len() == FIELDS.len() || object.len() == FIELDS.len() + 1)
+            !(FIELDS.len()..=FIELDS.len() + 2).contains(&object.len())
                 || FIELDS.iter().any(|key| !object.contains_key(*key))
-                || object
-                    .keys()
-                    .any(|key| key != "provider" && !FIELDS.contains(&key.as_str()))
+                || object.keys().any(|key| {
+                    key != "provider" && key != "githubRead" && !FIELDS.contains(&key.as_str())
+                })
         }) {
             return Err(refused("Launch manifest must contain exactly program, home, configDirectory, skillsDirectory, model, path, accountId, accountLabel and userName"));
         }
@@ -132,7 +173,12 @@ impl LaunchConfig {
         if model.len() > 256 || account_label.len() > 256 {
             return Err(refused("Model/account label exceeds 256 bytes"));
         }
+        let github_read = value
+            .get("githubRead")
+            .map(GithubReadConfig::parse)
+            .transpose()?;
         let config = Self {
+            github_read,
             provider,
             program: absolute(&value, "program")?,
             home: absolute(&value, "home")?,
@@ -498,6 +544,31 @@ pub(crate) struct Bootstrap {
     accounts: Accounts,
 }
 impl Bootstrap {
+    pub(crate) fn pr_details(
+        &self,
+    ) -> Result<Option<Arc<crate::configured_pr_details::ConfiguredPrDetails>>, RpcError> {
+        let Some(config) = &self.root.config.github_read else {
+            return Ok(None);
+        };
+        let root = self.root.clone();
+        crate::configured_pr_details::ConfiguredPrDetails::new(
+            milagre_pr_details::CapturedContext {
+                project: self.root.project(),
+                program: config.program.clone(),
+                home: config.home.clone(),
+                config_directory: config.config_directory.clone(),
+                owner: config.owner.clone(),
+                repository: config.repository.clone(),
+                account_login: config.account_login.clone(),
+                path: config.path.clone(),
+                computer_label: "this computer".into(),
+                lifetime: self.root.clone(),
+                check: Arc::new(move || root.check().map_err(|e| e.message)),
+                local_commits: None,
+            },
+        )
+        .map(Some)
+    }
     #[cfg(feature = "routine-execution-fixture")]
     pub(crate) fn routine_execution_model(&self) -> Option<String> {
         let manifest: Value = serde_json::from_slice(&self.root.manifest).ok()?;

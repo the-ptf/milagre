@@ -77,6 +77,11 @@ impl OwnedChatGuard {
     pub fn git_reads(&self, client: &Client) -> Result<crate::GitReads> {
         client.owned_git_for(&self.authority)
     }
+    /// Separate remote-read capability, available only when the backend launch
+    /// explicitly grants a GitHub selection. It retains no Client or owner.
+    pub fn pr_details(&self, client: &Client) -> Result<crate::PrDetailsReads> {
+        client.owned_pr_details_for(&self.authority)
+    }
 
     /// Bounded metadata actions for this exact connection; frontend pins stay local.
     pub fn sidebar_actions(&self, client: &Client) -> Result<crate::SidebarActions> {

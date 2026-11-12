@@ -1,0 +1,5 @@
+query($owner:String!,$name:String!,$number:Int!,$after:String!){
+  repository(owner:$owner,name:$name){pullRequest(number:$number){
+    files(first:100,after:$after){nodes{path additions deletions changeType} pageInfo{hasNextPage endCursor}}
+  }}
+}
