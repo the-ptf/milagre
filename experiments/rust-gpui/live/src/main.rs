@@ -78,15 +78,27 @@ fn run(args: &[String]) -> anyhow::Result<()> {
     let guard = futures::executor::block_on(session::launch(match &manifest {
         Some(manifest) => Root::Create { root: &root, manifest },
         None => Root::Open { root: &root },
-    }))?;
+    }))
+    .map_err(|error| {
+        // The runtime refuses a root another owner holds; the client sees its pipe close before the receipt.
+        if manifest.is_none() && format!("{error:#}").contains("FIXTURE_RECEIPT_EOF") {
+            error.context(format!(
+                "{} is already open in another Milagre GPUI Preview, or its runtime is still stopping: quit that one (or wait a few seconds) and open again",
+                root.display()
+            ))
+        } else {
+            error
+        }
+    })?;
     let guard = Arc::new(guard);
     eprintln!(
-        "live: {} {} (pid {}, profile {}, socket {}, model {}, account {})",
+        "live: {} {} (pid {}, profile {}, socket {}, launch {}, model {}, account {})",
         if create { "created" } else { "opened" },
         root.display(),
         guard.info().pid,
         guard.info().profile.display(),
         guard.info().socket.display(),
+        guard.info().launch_root.display(),
         guard.info().model,
         guard.info().account_id
     );
