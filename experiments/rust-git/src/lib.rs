@@ -62,6 +62,57 @@ struct Stats {
 }
 
 impl GitReader {
+    /// Read an explicitly admitted checkout with a fixed system Git executable
+    /// and private HOME/config/cache directories. The caller owns and retains
+    /// `private_root` for the reader's lifetime; this creates no repository and
+    /// grants no mutations. Local repository config is still read, with external
+    /// hooks, filters, fsmonitor, textconv and diff helpers disabled by Runner.
+    #[cfg(unix)]
+    pub fn private_read(
+        roots: impl IntoIterator<Item = PathBuf>,
+        private_root: PathBuf,
+    ) -> Result<Self, GitError> {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+        let invalid = || {
+            GitError::validation(
+                "GIT_PRIVATE_CONTEXT",
+                "Choose an owned private Git query directory.",
+            )
+        };
+        let directory = |path: &Path| -> Result<(), GitError> {
+            let metadata = std::fs::symlink_metadata(path).map_err(|_| invalid())?;
+            if !metadata.is_dir()
+                || metadata.file_type().is_symlink()
+                || metadata.uid() != unsafe { libc::getuid() }
+                || metadata.mode() & 0o077 != 0
+                || std::fs::canonicalize(path).ok().as_deref() != Some(path)
+            {
+                return Err(invalid());
+            }
+            Ok(())
+        };
+        if !private_root.is_absolute() {
+            return Err(invalid());
+        }
+        directory(&private_root)?;
+        for relative in ["home", "home/.config", "home/.cache", "home/gnupg", "hooks"] {
+            let path = private_root.join(relative);
+            match std::fs::DirBuilder::new().mode(0o700).create(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(_) => return Err(invalid()),
+            }
+            directory(&path)?;
+        }
+        let mut reader = Self::new(roots)?;
+        reader.git.fixed_program = true;
+        reader.git.isolated = Some(process::IsolatedEnvironment {
+            hooks: private_root.join("hooks"),
+            root: private_root,
+        });
+        Ok(reader)
+    }
+
     /// Canonicalizes exact admitted directories. A Project's other Worktrees must
     /// each be admitted explicitly by its owner. Symlink aliases of a root work.
     pub fn new(roots: impl IntoIterator<Item = PathBuf>) -> Result<Self, GitError> {

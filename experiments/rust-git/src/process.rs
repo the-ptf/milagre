@@ -79,13 +79,19 @@ impl Drop for Cleanup {
 #[derive(Default)]
 pub(crate) struct Runner {
     pub isolated: Option<IsolatedEnvironment>,
+    pub fixed_program: bool,
 }
 impl Runner {
     pub async fn run(&self, cwd: &Path, args: &[&str]) -> Outcome {
+        let program = if self.fixed_program {
+            "/usr/bin/git"
+        } else {
+            "git"
+        };
         // Node's analysisOnly profile: never execute repository-configured filters,
         // fsmonitor, textconv, diff helpers or hooks while servicing a read.
         let filters = execute_profile(
-            "git",
+            program,
             cwd,
             &[
                 "config",
@@ -124,7 +130,7 @@ impl Runner {
             })
             .collect();
         execute_profile(
-            "git",
+            program,
             cwd,
             args,
             &config,
