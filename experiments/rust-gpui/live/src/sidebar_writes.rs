@@ -17,6 +17,13 @@
 //!   over the snapshot's Projects by the source); hidden computers and the row's Show fields are this device's, kept
 //!   with the pins.
 //! - Reload (`chat:reload`), Detach from parent (`chat:detach`), Unlink issue (`worktree:unlink-issue`), Kept.
+//! - Links (`SidebarLinks.tsx`): the sidebar's Links are the daemon's (`canvas:links []`, read on each sync and
+//!   after every Link write, and followed live through `canvas:links-changed`). "Link with…" makes one
+//!   (`canvas:link-add [a, b]`, the ends `{project_id, worktree_path}`), then, as the popover asks, Always allow
+//!   (`linked:grant [chatId, linkId]`, the id the daemon gave the new Link) and the ask (`chat:send` with the shown
+//!   `body` and the sent `prompt`, on the Chat's provider and model); "Remove Link with…" removes one
+//!   (`canvas:link-remove [id]`) and the toast's Undo puts the same one back (`canvas:link-restore [link]`, as the
+//!   daemon listed it).
 //! - Add Project: the folder dialog, then `project:open [folder, {takeNotice: true}]` (the host registers it and puts
 //!   it first among the recent Projects, as Electron's Add Project does); the window then syncs again to list it. The
 //!   installed daemon advertises `project:open` only to `daemon:status [{commands: true}]`, which the shared client
@@ -40,6 +47,7 @@ use milagre_gpui_spike::logic::lists::chat_row::{CHAT_ROW_FIELDS, ChatRowShow, D
 use milagre_gpui_spike::logic::lists::pins::DevicePins;
 use milagre_gpui_spike::workspace::Workspace;
 use milagre_gpui_spike::workspace::preview::PreviewWrites;
+use milagre_gpui_spike::workspace::sidebar::links::{CanvasLink, LinkEnd};
 use milagre_gpui_spike::workspace::sidebar::menu::MenuAction;
 use milagre_gpui_spike::workspace::sidebar::{ChatPatch, SidebarActions, SidebarCall};
 use serde_json::{Value, json};
@@ -55,7 +63,11 @@ pub const DELETE_UNDO: Duration = Duration::from_millis(6000);
 /// The row actions this layer backs beyond the default four; read-only mode only copies a branch name.
 pub fn backed(read_only: bool) -> Vec<MenuAction> {
     use MenuAction as A;
-    if read_only { vec![A::CopyBranch] } else { vec![A::CopyBranch, A::Reload, A::UnlinkIssue, A::Pin, A::Unpin, A::Detach, A::Delete] }
+    if read_only {
+        vec![A::CopyBranch]
+    } else {
+        vec![A::CopyBranch, A::Reload, A::UnlinkIssue, A::Pin, A::Unpin, A::Detach, A::Delete, A::LinkWith, A::RemoveLink]
+    }
 }
 
 /// One sidebar write for [`SidebarWrites`].
@@ -79,6 +91,26 @@ pub enum Write {
     /// Filters › Computers or Show changed.
     Prefs,
     AddProject,
+    /// "Link with…": the Link, then (from the same popover) Always allow and the ask.
+    AddLink {
+        a: LinkEnd,
+        b: LinkEnd,
+        grant: Option<String>,
+        ask: Option<(String, String, String)>,
+    },
+    RemoveLink(String),
+    RestoreLink(String),
+    /// `linked:grant` on its own (an existing Link's id).
+    Grant {
+        chat: String,
+        link: String,
+    },
+    /// "Link and ask" on its own: the Chat key, the shown body, the sent prompt.
+    Ask {
+        chat: String,
+        body: String,
+        prompt: String,
+    },
 }
 
 /// The Projects hidden from the sidebar: the host's (`project:recent`), laid over the snapshot's Projects, which do
@@ -136,6 +168,13 @@ impl SidebarActions for Router {
             }
             SidebarCall::SetComputerHidden { .. } | SidebarCall::SetRowField { .. } => Some(Write::Prefs),
             SidebarCall::AddProject => Some(Write::AddProject),
+            SidebarCall::AddLink { a, b } => Some(Write::AddLink { a: a.clone(), b: b.clone(), grant: None, ask: None }),
+            SidebarCall::RemoveLink { id } => Some(Write::RemoveLink(id.clone())),
+            SidebarCall::RestoreLink { link } => Some(Write::RestoreLink(link.id.clone())),
+            SidebarCall::GrantDelegations { chat, link } => Some(Write::Grant { chat: chat.clone(), link: link.clone() }),
+            SidebarCall::AskChat { chat, body, prompt } => {
+                Some(Write::Ask { chat: chat.clone(), body: body.clone(), prompt: prompt.clone() })
+            }
             _ => None,
         };
         match write {
@@ -206,8 +245,32 @@ pub fn attach(workspace: &Entity<Workspace>, daemon: Arc<Daemon>, store: LiveSto
         let run = cx.spawn(async move |this: gpui::WeakEntity<SidebarWrites>, cx: &mut gpui::AsyncApp| {
             let mut receiver = receiver;
             while let Some(write) = receiver.next().await {
-                if this.update(cx, |this, cx| this.run(write, cx)).is_err() {
-                    break;
+                // The Link popover sends its Link, Always allow and ask together: they go as one, so the grant names
+                // the id the daemon gives the new Link.
+                let mut writes = vec![write];
+                if matches!(writes[0], Write::AddLink { .. }) {
+                    while let Ok(next) = receiver.try_recv() {
+                        let alone = writes.len() == 1;
+                        let folded = match (&mut writes[0], next) {
+                            (Write::AddLink { grant, .. }, Write::Grant { chat, .. }) if grant.is_none() && alone => {
+                                *grant = Some(chat);
+                                None
+                            }
+                            (Write::AddLink { ask, .. }, Write::Ask { chat, body, prompt }) if ask.is_none() && alone => {
+                                *ask = Some((chat, body, prompt));
+                                None
+                            }
+                            (_, other) => Some(other),
+                        };
+                        if let Some(other) = folded {
+                            writes.push(other);
+                        }
+                    }
+                }
+                for write in writes {
+                    if this.update(cx, |this, cx| this.run(write, cx)).is_err() {
+                        return;
+                    }
                 }
             }
         });
@@ -216,6 +279,7 @@ pub fn attach(workspace: &Entity<Workspace>, daemon: Arc<Daemon>, store: LiveSto
             if syncs != this.syncs {
                 this.syncs = syncs;
                 this.read_hidden(cx);
+                this.read_links(cx);
             }
         });
         let mut this = SidebarWrites {
@@ -226,6 +290,7 @@ pub fn attach(workspace: &Entity<Workspace>, daemon: Arc<Daemon>, store: LiveSto
             hidden: installed.hidden.clone(),
             prefs,
             pending: HashMap::new(),
+            links: Vec::new(),
             refused: Vec::new(),
             errors: Vec::new(),
             saved: 0,
@@ -235,6 +300,7 @@ pub fn attach(workspace: &Entity<Workspace>, daemon: Arc<Daemon>, store: LiveSto
         };
         this.load_prefs(cx);
         this.read_hidden(cx);
+        this.read_links(cx);
         this
     });
     cx.set_global(Writes(entity));
@@ -249,6 +315,8 @@ pub struct SidebarWrites {
     prefs: Option<PathBuf>,
     /// Deletions waiting out their Undo, by Chat key: the Undo's sender.
     pending: HashMap<String, oneshot::Sender<()>>,
+    /// The daemon's Links as it listed them (`canvas:links`), and removed ones an Undo may put back.
+    links: Vec<Value>,
     refused: Vec<String>,
     errors: Vec<String>,
     /// How many times this device's choices were saved.
@@ -411,8 +479,192 @@ impl SidebarWrites {
             }
             Write::SetProjectHidden { path, hidden } => self.set_project_hidden(path, hidden, cx),
             Write::AddProject => self.add_project(cx),
+            Write::AddLink { a, b, grant, ask } => self.add_link(a, b, grant, ask, cx),
+            Write::RemoveLink(id) => {
+                let project = self.link_project(&id);
+                self.link_write(project, vec![("canvas:link-remove", json!([id]))], "Could not remove the Link", cx);
+            }
+            Write::RestoreLink(id) => {
+                let Some(raw) = self.links.iter().find(|l| l["id"] == id.as_str()).cloned() else {
+                    return self.failed("Could not restore the Link: the daemon never listed it".into(), cx);
+                };
+                let project = self.link_project(&id);
+                self.link_write(project, vec![("canvas:link-restore", json!([raw]))], "Could not restore the Link", cx);
+            }
+            Write::Grant { chat, link } => {
+                let Some(at) = chat_ref(None, &chat) else { return };
+                self.link_write(Some(at.project), vec![("linked:grant", json!([chat, link]))], "Could not allow Delegations", cx);
+            }
+            Write::Ask { chat, body, prompt } => self.ask(chat, body, prompt, cx),
         }
     }
+}
+
+/// The Links in a `canvas:links` answer, as the sidebar holds them.
+pub fn canvas_links(list: &Value) -> Vec<CanvasLink> {
+    let end = |v: &Value| {
+        Some(LinkEnd { project_id: v["project_id"].as_str()?.to_owned(), worktree_path: v["worktree_path"].as_str().map(str::to_owned) })
+    };
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| Some(CanvasLink { id: l["id"].as_str()?.to_owned(), a: end(&l["a"])?, b: end(&l["b"])? }))
+        .collect()
+}
+
+fn end_json(end: &LinkEnd) -> Value {
+    match &end.worktree_path {
+        Some(path) => json!({"project_id": end.project_id, "worktree_path": path}),
+        None => json!({"project_id": end.project_id}),
+    }
+}
+
+impl SidebarWrites {
+    /// The daemon's Links into the sidebar (`canvas:links []`, read on the live Project's connection).
+    pub(crate) fn read_links(&mut self, cx: &mut Context<Self>) {
+        let Some((project, _)) = self.daemon.primary() else { return };
+        let daemon = self.daemon.clone();
+        cx.spawn(async move |this, cx| {
+            let read = daemon.read(&project, "canvas:links", json!([])).await;
+            let _ = this.update(cx, |this, cx| match read {
+                Ok(list) => this.set_links(&list, cx),
+                Err(error) => eprintln!("live: couldn't read the Links: {error:#}"),
+            });
+        })
+        .detach();
+    }
+
+    /// A `canvas:links` list (read, answered, or `canvas:links-changed`'s) into the sidebar; removed Links are kept
+    /// aside for an Undo.
+    pub fn set_links(&mut self, list: &Value, cx: &mut Context<Self>) {
+        let Some(items) = list.as_array() else { return };
+        for item in items {
+            self.links.retain(|known| known["id"] != item["id"]);
+        }
+        let mut next = items.clone();
+        next.extend(std::mem::take(&mut self.links));
+        next.truncate(256);
+        self.links = next;
+        let links = canvas_links(list);
+        self.sidebar(cx).update(cx, |s, cx| s.set_links(links, cx));
+    }
+
+    /// The Project a Link's write goes through: one of its ends' (both are Projects on this computer).
+    fn link_project(&self, id: &str) -> Option<String> {
+        self.links.iter().find(|l| l["id"] == id).and_then(|l| l["a"]["project_id"].as_str()).map(str::to_owned)
+    }
+
+    /// Link writes on `project`'s connection, then the daemon's Links read again.
+    fn link_write(&mut self, project: Option<String>, calls: Vec<(&'static str, Value)>, what: &'static str, cx: &mut Context<Self>) {
+        let Some(project) = project.or_else(|| self.daemon.primary().map(|(p, _)| p)) else {
+            return self.failed(format!("{what}: no Project to reach Milagre's daemon through"), cx);
+        };
+        let calls = calls.into_iter().chain([("canvas:links", json!([]))]).collect();
+        self.spawn_write(project, calls, what, cx, |results, this, cx| {
+            if let Some(list) = results.last() {
+                this.set_links(list, cx);
+            }
+            this.notice(None, cx);
+        });
+    }
+
+    /// "Link with…": `canvas:link-add`, the Links read again, then Always allow on the new Link's id and the ask.
+    fn add_link(&mut self, a: LinkEnd, b: LinkEnd, grant: Option<String>, ask: Option<(String, String, String)>, cx: &mut Context<Self>) {
+        let daemon = self.daemon.clone();
+        let ask_target = ask.as_ref().and_then(|(chat, _, _)| self.send_target(chat));
+        cx.spawn(async move |this, cx| {
+            let result = async {
+                let connection = Connection::open(&daemon, &a.project_id, true).await?;
+                connection.call("canvas:link-add", json!([end_json(&a), end_json(&b)])).await?;
+                let list = connection.call("canvas:links", json!([])).await?;
+                let id = milagre_gpui_spike::workspace::sidebar::links::find_link(&canvas_links(&list), &a, &b).map(|l| l.id.clone());
+                if let (Some(chat), Some(id)) = (&grant, &id) {
+                    connection.call("linked:grant", json!([chat, id])).await?;
+                }
+                if let (Some((chat, body, prompt)), Some(target)) = (&ask, &ask_target) {
+                    send_ask(&daemon, chat, body, prompt, target).await?;
+                }
+                Ok::<_, String>(list)
+            }
+            .await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(list) => {
+                    this.set_links(&list, cx);
+                    this.notice(None, cx);
+                }
+                Err(error) => {
+                    this.failed(format!("Could not create the Link: {error}"), cx);
+                    this.read_links(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// "Link and ask" on its own.
+    fn ask(&mut self, chat: String, body: String, prompt: String, cx: &mut Context<Self>) {
+        let Some(target) = self.send_target(&chat) else {
+            return self.failed("That chat is no longer in its Project.".into(), cx);
+        };
+        let daemon = self.daemon.clone();
+        cx.spawn(async move |this, cx| {
+            let result = send_ask(&daemon, &chat, &body, &prompt, &target).await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(()) => this.notice(None, cx),
+                Err(error) => this.failed(format!("Could not ask the Chat: {error}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    /// What a message to `chat` is sent with (`askLinkedChat`): its Worktree, provider, model and permission mode.
+    fn send_target(&self, chat: &str) -> Option<AskTarget> {
+        let at = chat_ref(None, chat)?;
+        self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            let (_, session) = crate::panels::find(&applied.projects, chat)?;
+            if session.archived {
+                return None;
+            }
+            Some(AskTarget {
+                project: at.project.clone(),
+                id: at.id,
+                worktree: session.worktree_id,
+                provider: milagre_gpui_spike::data::Provider::of_session(session.provider_id.as_deref()).id().to_owned(),
+                model: session.summary.as_ref().and_then(|s| s.last_model.as_ref()).map(|m| m.to_string()),
+                mode: crate::sinks::wire_name(session.permission_mode.unwrap_or(milagre_gpui_spike::data::PermissionMode::Ask)).to_owned(),
+            })
+        })
+    }
+}
+
+/// Where "Link and ask" sends.
+#[derive(Clone, Debug)]
+struct AskTarget {
+    project: String,
+    id: u64,
+    worktree: u64,
+    provider: String,
+    model: Option<String>,
+    mode: String,
+}
+
+/// `chat:send` with the shown `body` and the sent `prompt`, on the Chat's provider and model (its last one, else its
+/// provider's recommended one).
+async fn send_ask(daemon: &Daemon, chat: &str, body: &str, prompt: &str, target: &AskTarget) -> Result<(), String> {
+    let writer = daemon.writer(&target.project).await.map_err(|e| format!("{e:#}"))?;
+    let model = match &target.model {
+        Some(model) => model.clone(),
+        None => writer.recommended_model(&target.provider).await.map_err(|e| format!("{e:#}"))?.unwrap_or_default(),
+    };
+    let client_id = format!("gpui-ask-{}-{}", std::process::id(), crate::transcript::now_ms());
+    let request = json!([{
+        "projectPath": target.project, "sessionId": target.id, "worktreeId": target.worktree, "body": body, "prompt": prompt,
+        "images": [], "files": [], "provider": target.provider, "model": model, "permissionMode": target.mode,
+        "clientMessageId": client_id, "replies": "concise", "tldrEnabled": true,
+    }]);
+    writer.call("chat:send", request).await.map_err(|e| format!("{e:#} ({chat})"))?;
+    Ok(())
 }
 
 impl SidebarWrites {

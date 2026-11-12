@@ -397,3 +397,66 @@ fn delete_removes_a_milagre_worktree_only_when_safe(cx: &mut TestAppContext) {
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// Links on the daemon (`SidebarLinks.tsx`): the menu offers "Link with…" and "Remove Link with…"; the Link popover's
+/// Link, Always allow and ask go as one (`canvas:link-add`, then `linked:grant` on the id the daemon gave it, then
+/// `chat:send` with the shown body and the sent prompt); the sidebar holds the daemon's Links (read, and followed
+/// through `canvas:links-changed`); a removal (`canvas:link-remove`) is undone with the same Link as the daemon listed it
+/// (`canvas:link-restore`).
+#[gpui::test]
+fn links_reach_the_daemon(cx: &mut TestAppContext) {
+    use milagre_gpui_spike::workspace::sidebar::links::LinkEnd;
+    cx.executor().allow_parking();
+    let data = data_folder("links");
+    let prefs = data.join("sidebar.json");
+    let fake = FakeDaemon::start(&data, world());
+    let mut m = mount(cx, DaemonSession::start(Daemon::new(Some(data.clone()), false)), &prefs);
+    m.until("the rows", |m| m.keys().len() == 4);
+    let alpha1 = format!("{ALPHA}#1");
+    assert!(m.offered(&alpha1, "link-with"), "Link with… is offered");
+    m.until("the Links read", |_| !calls(&fake, "canvas:links").is_empty());
+
+    // The popover's three writes, as `create_link` sends them (its own fixture id on the grant).
+    let (a, b) = (LinkEnd::worktree(ALPHA, ALPHA), LinkEnd::worktree(BETA, BETA));
+    m.call(SidebarCall::AddLink { a: a.clone(), b: b.clone() });
+    m.call(SidebarCall::GrantDelegations { chat: alpha1.clone(), link: "link-1".into() });
+    m.call(SidebarCall::AskChat { chat: alpha1.clone(), body: "Ask beta".into(), prompt: "Ask beta (linked)".into() });
+    m.until("the Link, grant and ask", |_| !fake.world().grants.is_empty() && !calls(&fake, "chat:send").is_empty());
+    assert_eq!(
+        calls(&fake, "canvas:link-add"),
+        [json!([{"project_id": ALPHA, "worktree_path": ALPHA}, {"project_id": BETA, "worktree_path": BETA}])]
+    );
+    assert_eq!(fake.world().grants, [(alpha1.clone(), "fake-link-1".to_owned())], "the daemon's id, not the sidebar's");
+    let ask = calls(&fake, "chat:send").pop().unwrap();
+    assert_eq!(
+        (ask[0]["sessionId"].clone(), ask[0]["body"].clone(), ask[0]["prompt"].clone()),
+        (json!(1), json!("Ask beta"), json!("Ask beta (linked)"))
+    );
+    let sidebar = m.sidebar();
+    m.until("the sidebar's Links", |m| {
+        sidebar.read_with(m.vcx, |s, _| s.links().iter().map(|l| l.id.clone()).collect::<Vec<_>>()) == ["fake-link-1"]
+    });
+    assert!(m.offered(&alpha1, "remove-link"), "Remove Link with… is offered once a Link reaches the Chat");
+
+    // A Link made elsewhere (Electron, the canvas) arrives through `canvas:links-changed`.
+    {
+        let mut world = fake.world();
+        let other = json!({"id":"fake-link-9","a":{"project_id":BETA},"b":{"project_id":ALPHA},"created_at":"2026-11-12T00:00:00.000Z"});
+        world.links.push(other);
+        let links = world.links.clone();
+        world.emit("canvas:links-changed", json!({"links": links}));
+    }
+    m.until("the other Link", |m| sidebar.read_with(m.vcx, |s, _| s.links().len()) == 2);
+
+    // Remove, then Undo: the same Link back, as the daemon listed it.
+    m.call(SidebarCall::RemoveLink { id: "fake-link-1".into() });
+    m.until("removed", |_| !fake.world().links.iter().any(|l| l["id"] == "fake-link-1"));
+    let removed = milagre_gpui_spike::workspace::sidebar::links::CanvasLink { id: "fake-link-1".into(), a: a.clone(), b: b.clone() };
+    m.call(SidebarCall::RestoreLink { link: removed });
+    m.until("restored", |_| fake.world().links.iter().any(|l| l["id"] == "fake-link-1"));
+    assert_eq!(calls(&fake, "canvas:link-restore")[0][0]["created_at"], "2026-11-12T00:00:00.000Z");
+    assert!(m.errors().is_empty(), "{:?}", m.errors());
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}

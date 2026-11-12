@@ -659,6 +659,13 @@ impl LiveController {
                 }
             }
             "accounts:changed" => self.read_accounts(cx),
+            // The sidebar's Links (`canvas:links-changed {links}`).
+            "canvas:links-changed" => {
+                if let Some(writes) = cx.try_global::<crate::sidebar_writes::Writes>().map(|w| w.0.clone()) {
+                    let links = payload["links"].clone();
+                    writes.update(cx, |w, cx| w.set_links(&links, cx));
+                }
+            }
             _ => {}
         }
         self.events.push(channel.to_owned());
@@ -1632,7 +1639,8 @@ pub fn shown_items(items: &[Item]) -> Vec<String> {
 
 /// The live stream's channels the controller follows besides the reducer: Details' ports, the PR poll and the
 /// accounts change (Electron's renderer listens to the same), and what the notifier needs.
-pub const TAPPED: &[&str] = &["agent:ports", "pull-requests:changed", "accounts:changed", "agent:event", "notification:waiting"];
+pub const TAPPED: &[&str] =
+    &["agent:ports", "pull-requests:changed", "accounts:changed", "canvas:links-changed", "agent:event", "notification:waiting"];
 
 /// [`LiveStore::pump`] that also hands the [`TAPPED`] channels' events to `tap` before the reducer applies them.
 async fn pump_tapped(store: &LiveStore, notifications: &mut Notifications, tap: &UnboundedSender<(String, Value)>) -> crate::SyncError {

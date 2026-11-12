@@ -64,6 +64,11 @@ const METHODS: &[&str] = &[
     // The sidebar's other writes (`sidebar_writes`).
     "chat:delete",
     "worktree:roots",
+    "canvas:links",
+    "canvas:link-add",
+    "canvas:link-remove",
+    "canvas:link-restore",
+    "linked:grant",
     "worktree:status",
     "worktree:remove",
     "chat:reload",
@@ -123,6 +128,11 @@ pub struct World {
     pub statuses: BTreeMap<String, Value>,
     /// `worktree:remove` refuses with this.
     pub remove_error: Option<String>,
+    /// The canvas Links (`canvas:links`), as the daemon lists them.
+    pub links: Vec<Value>,
+    next_link: u64,
+    /// `linked:grant`s: Chat key and Link id.
+    pub grants: Vec<(String, String)>,
     /// Pending turns by Chat key: what finishes them.
     pending: BTreeMap<String, Pending>,
     terminals: BTreeMap<String, String>,
@@ -379,6 +389,46 @@ impl World {
                 Value::Null
             }
             "worktree:roots" => json!(self.roots),
+            "canvas:links" => json!(self.links),
+            "canvas:link-add" => {
+                let (a, b) = (arg.clone(), args[1].clone());
+                if a["project_id"].as_str().is_none() || b["project_id"].as_str().is_none() {
+                    return Err("Expected two Link ends".into());
+                }
+                self.next_link += 1;
+                let link = json!({"id": format!("fake-link-{}", self.next_link), "a": a, "b": b, "created_at": "2026-11-12T00:00:00.000Z"});
+                self.links.push(link.clone());
+                self.emit("canvas:links-changed", json!({"links": self.links}));
+                link
+            }
+            "canvas:link-remove" => {
+                let id = arg.as_str().ok_or("id")?;
+                let before = self.links.len();
+                self.links.retain(|l| l["id"] != id);
+                if self.links.len() == before {
+                    return Err("No such Link".into());
+                }
+                self.emit("canvas:links-changed", json!({"links": self.links}));
+                Value::Null
+            }
+            "canvas:link-restore" => {
+                for key in ["id", "a", "b", "created_at"] {
+                    if arg.get(key).is_none() {
+                        return Err(format!("the Link needs {key}"));
+                    }
+                }
+                self.links.push(arg.clone());
+                self.emit("canvas:links-changed", json!({"links": self.links}));
+                Value::Null
+            }
+            "linked:grant" => {
+                let (chat, link) = (arg.as_str().ok_or("chatId")?, args[1].as_str().ok_or("linkId")?);
+                if !self.links.iter().any(|l| l["id"] == link) {
+                    return Err("No such Link".into());
+                }
+                self.grants.push((chat.to_owned(), link.to_owned()));
+                Value::Null
+            }
             "worktree:status" => {
                 let folder = arg.as_str().ok_or("path")?;
                 args[1].as_str().ok_or("base")?;

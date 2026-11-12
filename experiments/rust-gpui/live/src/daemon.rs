@@ -329,7 +329,7 @@ impl Daemon {
 
 /// The commands [`Daemon::read`] sends: each only reads (the Node daemon's handlers in `packages/core/src/runtime.cjs`).
 pub const READS: &[&str] =
-    &["agent:models", "agent:ports", "pull-requests:snapshot", "accounts:list", "usage:cached", "usage:accounts:cached"];
+    &["agent:models", "agent:ports", "pull-requests:snapshot", "accounts:list", "usage:cached", "usage:accounts:cached", "canvas:links"];
 
 /// The Project whose state is largest in a snapshot body (serialized size).
 fn largest(body: &serde_json::Value) -> Option<String> {
