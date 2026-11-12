@@ -63,6 +63,9 @@ const METHODS: &[&str] = &[
     "git:diff-file",
     // The sidebar's other writes (`sidebar_writes`).
     "chat:delete",
+    "worktree:roots",
+    "worktree:status",
+    "worktree:remove",
     "chat:reload",
     "chat:detach",
     "worktree:unlink-issue",
@@ -112,6 +115,14 @@ pub struct World {
     pub usage: Value,
     /// `pull-requests:snapshot`'s answer, by Project path.
     pub prs: BTreeMap<String, Value>,
+    /// Worktrees Milagre made, by Project path: id, folder and base (Worktree 1 is the Project's own folder).
+    pub worktrees: BTreeMap<String, Vec<(u64, String, String)>>,
+    /// `worktree:roots`' answer.
+    pub roots: Vec<String>,
+    /// `worktree:status`' answer, by folder.
+    pub statuses: BTreeMap<String, Value>,
+    /// `worktree:remove` refuses with this.
+    pub remove_error: Option<String>,
     /// Pending turns by Chat key: what finishes them.
     pending: BTreeMap<String, Pending>,
     terminals: BTreeMap<String, String>,
@@ -187,9 +198,14 @@ impl World {
     fn state(&self, path: &str) -> Value {
         let project = &self.projects[path];
         let sessions: serde_json::Map<String, Value> = project.sessions.iter().map(|(id, s)| (id.to_string(), s.clone())).collect();
+        let mut worktrees = serde_json::Map::new();
+        worktrees.insert("1".into(), json!({"id":1,"path":path,"name":project.name,"project_id":1}));
+        for (id, folder, base) in self.worktrees.get(path).into_iter().flatten() {
+            worktrees.insert(id.to_string(), json!({"id":id,"path":folder,"name":format!("w{id}"),"project_id":1,"base":base}));
+        }
         json!({
             "next_id": project.sessions.keys().max().copied().unwrap_or(0) + 1,
-            "worktrees": {"1": {"id":1,"path":path,"name":project.name,"project_id":1}},
+            "worktrees": worktrees,
             "sessions": sessions,
             "messages": [],
             "projects": {"1": {"id":1,"name":project.name}},
@@ -361,6 +377,31 @@ impl World {
                 project.messages.remove(&id);
                 self.emit_state(&path);
                 Value::Null
+            }
+            "worktree:roots" => json!(self.roots),
+            "worktree:status" => {
+                let folder = arg.as_str().ok_or("path")?;
+                args[1].as_str().ok_or("base")?;
+                self.statuses.get(folder).cloned().ok_or("not a worktree")?
+            }
+            "worktree:remove" => {
+                let folder = arg.as_str().ok_or("path")?.to_owned();
+                let path = args[1]["projectPath"].as_str().ok_or("projectPath")?.to_owned();
+                if let Some(error) = &self.remove_error {
+                    return Err(error.clone());
+                }
+                let list = self.worktrees.get_mut(&path).ok_or("No such Project")?;
+                let ix = list.iter().position(|(_, f, _)| *f == folder).ok_or("not a worktree")?;
+                let (id, _, _) = list.remove(ix);
+                // The Worktree goes with its Chats.
+                let project = self.projects.get_mut(&path).unwrap();
+                let gone: Vec<u64> = project.sessions.iter().filter(|(_, s)| s["worktree_id"] == id).map(|(k, _)| *k).collect();
+                for chat in gone {
+                    project.sessions.remove(&chat);
+                    project.messages.remove(&chat);
+                }
+                self.emit_state(&path);
+                json!({"removed": true})
             }
             "chat:reload" => {
                 let (path, id) = Self::split(arg.as_str().ok_or("chatId")?);

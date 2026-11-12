@@ -318,3 +318,82 @@ fn this_devices_choices_round_trip() {
     assert_eq!(default, DESKTOP_CHAT_ROW_SHOW);
     assert_eq!(crate::sidebar_writes::hidden_in(&json!([{"path":"/a","hidden":true},{"path":"/b"}])), ["/a".to_owned()].into());
 }
+
+/// Delete's Worktree cleanup, as Electron's `checkArchive` and `archiveChat` decide it: a Worktree Milagre made (a base,
+/// under `worktree:roots`) that no other Chat uses and that `worktree:status` reports removable goes with the Chat
+/// (`worktree:remove`, no `chat:delete`); a shared one, one with work to lose, and the Project's own folder stay (the
+/// conversation goes with `chat:delete`); a refused removal brings the Chat back and says why.
+#[gpui::test]
+fn delete_removes_a_milagre_worktree_only_when_safe(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("delete-worktree");
+    let prefs = data.join("sidebar.json");
+    let mut world = World::with(vec![(
+        ALPHA,
+        "alpha",
+        true,
+        (1..=7)
+            .map(|id| {
+                (
+                    id,
+                    ["", "Own folder", "Clean", "Shared a", "Shared b", "Dirty", "Refused", "Spare"][id as usize],
+                    vec![("user", "hi"), ("assistant", "hello")],
+                )
+            })
+            .collect(),
+    )]);
+    world.roots = vec!["/fake-roots/".into()];
+    let w = |id: u64| (id, format!("/fake-roots/alpha/w{id}"), "main".to_owned());
+    world.worktrees.insert(ALPHA.into(), vec![w(2), w(3), w(4), w(5)]);
+    for (chat, worktree) in [(2, 2), (3, 3), (4, 3), (5, 4), (6, 5)] {
+        world.projects.get_mut(ALPHA).unwrap().sessions.get_mut(&chat).unwrap()["worktree_id"] = json!(worktree);
+    }
+    let clean = json!({"removable": true, "uncommitted": 0, "unpushed": 0});
+    for id in [2, 3, 5] {
+        world.statuses.insert(format!("/fake-roots/alpha/w{id}"), clean.clone());
+    }
+    world.statuses.insert("/fake-roots/alpha/w4".into(), json!({"removable": false, "uncommitted": 2, "unpushed": 0}));
+    let fake = FakeDaemon::start(&data, world);
+    let mut m = mount(cx, DaemonSession::start(Daemon::new(Some(data.clone()), false)), &prefs);
+    m.until("the rows", |m| m.keys().len() == 7);
+    let key = |id: u64| format!("{ALPHA}#{id}");
+    let delete = |m: &mut Mounted, id: u64| {
+        m.call(SidebarCall::Archive { chat: key(id), mode: milagre_gpui_spike::workspace::sidebar::ArchiveMode::HideOnly });
+        m.until("hidden", |_| session(&fake, ALPHA, id).is_some_and(|s| s["archived"] == true));
+        m.vcx.executor().advance_clock(Duration::from_secs(7));
+    };
+
+    // A clean Worktree Milagre made, used by this Chat only: removed with it.
+    delete(&mut m, 2);
+    m.until("the Worktree removed", |_| !calls(&fake, "worktree:remove").is_empty() && session(&fake, ALPHA, 2).is_none());
+    assert_eq!(
+        calls(&fake, "worktree:remove"),
+        [json!(["/fake-roots/alpha/w2", {"force": false, "base": "main", "projectPath": ALPHA, "chatId": key(2), "seen": clean}])]
+    );
+    assert!(calls(&fake, "chat:delete").is_empty(), "the removal drops the Chat");
+    assert!(!fake.world().worktrees[ALPHA].iter().any(|(id, _, _)| *id == 2));
+
+    // Shared with another Chat: the Worktree stays, its status is not even read; the conversation goes.
+    delete(&mut m, 3);
+    m.until("the conversation deleted", |_| calls(&fake, "chat:delete") == [json!([ALPHA, 3])]);
+    assert!(!calls(&fake, "worktree:status").iter().any(|a| a[0] == "/fake-roots/alpha/w3"));
+    // Work to lose: stays.
+    delete(&mut m, 5);
+    m.until("deleted, Worktree kept", |_| calls(&fake, "chat:delete").contains(&json!([ALPHA, 5])));
+    // The Project's own folder (no base): stays, nothing read about it.
+    delete(&mut m, 1);
+    m.until("deleted", |_| calls(&fake, "chat:delete").contains(&json!([ALPHA, 1])));
+    assert_eq!(calls(&fake, "worktree:remove").len(), 1, "only the clean one was removed");
+
+    // A refused removal: the Chat comes back and the sidebar says why.
+    fake.world().remove_error = Some("fatal: worktree is locked.".into());
+    delete(&mut m, 6);
+    m.until("the Chat back", |m| session(&fake, ALPHA, 6).is_some_and(|s| s["archived"] == false) && m.keys().contains(&key(6)));
+    m.until("the notice", |m| {
+        m.notice().is_some_and(|n| n.starts_with("Couldn't remove the worktree") && n.ends_with("The chat stays so you can find it."))
+    });
+    assert!(fake.world().worktrees[ALPHA].iter().any(|(id, _, _)| *id == 5), "the Worktree stays");
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}

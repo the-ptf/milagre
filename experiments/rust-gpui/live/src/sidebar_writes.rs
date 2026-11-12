@@ -3,10 +3,13 @@
 //! capabilities where they exist (`SidebarActions::restore`), else `InstalledProject::call` with the preload's
 //! arguments, each on a short request-only connection of the Chat's Project that loads it first (`load_view`).
 //!
-//! - Delete (`HIDE_ONLY`, the sidebar's only mode): a running turn is stopped (`agent:interrupt`), the Chat is hidden
-//!   at once (`chat:patch {archived: true, unread: false}`), and after the toast's 6-second Undo the conversation goes
-//!   (`chat:delete`); an Undo in the window brings it back (`chat:patch {archived: false}`). A refused delete restores
-//!   it and says why. The Worktree always stays (no cleanup check here).
+//! - Delete (`archiveChat` in `@milagre/shared/archive`): a running turn is stopped (`agent:interrupt`), the Chat is
+//!   hidden at once (`chat:patch {archived: true, unread: false}`), and an Undo inside the toast's 6 seconds brings it
+//!   back (`chat:patch {archived: false}`). After them, as Electron's `checkArchive` decides: a Worktree Milagre made
+//!   (it has a base and lies under one of `worktree:roots []`) that no other Chat uses and that `worktree:status [path,
+//!   base]` reports `removable` goes with it (`worktree:remove [path, {force: false, base, projectPath, chatId,
+//!   seen}]`, which drops its Chats too; a refusal brings the Chat back and says why); otherwise the conversation goes
+//!   (`chat:delete`) and the Worktree stays. A refused delete restores it and says why.
 //! - Pin and Unpin are this device's (`milagre.chatPins`): kept in the Preview's own preferences
 //!   (`<Preview folder>/sidebar.json`), never on the host, except that pinning a Run Chat its host may still hide
 //!   tells it the person took it over (`chat:patch {kept: true}`), as `pinChatHere` does.
@@ -343,6 +346,21 @@ impl SidebarWrites {
         })
     }
 
+    /// The Chat's Worktree as the window holds it (path, base), unless another Chat that isn't archived uses it
+    /// (`worktreeShared`): then nothing would be removed.
+    fn worktree(&self, chat: &ChatRef) -> Option<CleanupWorktree> {
+        self.store.read(|reducer| {
+            let applied = reducer.state().ok()?;
+            let open = applied.projects.iter().find(|o| o.project.path.as_ref() == chat.project)?;
+            let state = open.state.as_ref()?;
+            let session = state.chat(chat.id)?;
+            let shared =
+                state.sessions.values().any(|other| other.id != session.id && other.worktree_id == session.worktree_id && !other.archived);
+            let worktree = state.worktree_of(session)?;
+            (!shared).then(|| CleanupWorktree { path: worktree.path.to_string(), base: worktree.base.as_ref().map(|b| b.to_string()) })
+        })
+    }
+
     fn running(&self, chat: &ChatRef) -> bool {
         self.store.read(|reducer| reducer.state().is_ok_and(|applied| applied.runs.get(&chat.key()).is_some()))
     }
@@ -444,24 +462,31 @@ impl SidebarWrites {
         let (undo, undone) = oneshot::channel();
         self.pending.insert(key.clone(), undo);
         let (running, daemon) = (self.running(&chat), self.daemon.clone());
+        let worktree = self.worktree(&chat);
         let window = cx.background_executor().timer(DELETE_UNDO);
         cx.spawn(async move |this, cx| {
             let hidden = async {
                 let connection = Connection::open(&daemon, &chat.project, true).await?;
+                // `checkArchive`: only a Worktree Milagre made, that no other Chat uses, and that is safe to remove.
+                let plan = plan(&connection, worktree.as_ref()).await;
                 if running {
                     // As Stop does; a stop that fails never holds the deletion up.
                     let _ = connection.call("agent:interrupt", json!([key])).await;
                 }
-                connection.call("chat:patch", json!([chat.project, chat.id, {"archived": true, "unread": false}])).await
+                connection.call("chat:patch", json!([chat.project, chat.id, {"archived": true, "unread": false}])).await?;
+                Ok::<_, String>(plan)
             }
             .await;
-            if let Err(error) = hidden {
-                let _ = this.update(cx, |this, cx| {
-                    this.pending.remove(&key);
-                    this.failed(format!("Could not delete Chat: {error}"), cx);
-                });
-                return;
-            }
+            let removal = match hidden {
+                Ok(plan) => plan,
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.pending.remove(&key);
+                        this.failed(format!("Could not delete Chat: {error}"), cx);
+                    });
+                    return;
+                }
+            };
             let undone = match futures::future::select(window, undone).await {
                 futures::future::Either::Right((Ok(()), _)) => true,
                 // The window closed with the Chat hidden: it stays hidden, as when Electron quits in the window.
@@ -476,6 +501,18 @@ impl SidebarWrites {
                     sidebar.restore(chat.id).await.map_err(|e| format!("chat:patch: {e}"))?;
                     return Ok(());
                 }
+                if let Some((worktree, status)) = &removal {
+                    let options =
+                        json!({"force": false, "base": worktree.base, "projectPath": chat.project, "chatId": key, "seen": status});
+                    return match connection.call("worktree:remove", json!([worktree.path, options])).await {
+                        Ok(_) => Ok(()),
+                        // The Worktree stays, and so does the Chat, brought back with it.
+                        Err(error) => {
+                            let _ = connection.call("chat:patch", json!([chat.project, chat.id, {"archived": false}])).await;
+                            Err(remove_failure(&error))
+                        }
+                    };
+                }
                 match connection.call("chat:delete", json!([chat.project, chat.id])).await {
                     Ok(_) => Ok(()),
                     // `destroy` failed: the Chat comes back.
@@ -489,6 +526,9 @@ impl SidebarWrites {
             let _ = this.update(cx, |this, cx| match result {
                 Ok(()) => this.notice(None, cx),
                 Err(error) if undone => this.failed(format!("Could not restore Chat: {error}"), cx),
+                Err(error) if error.starts_with("Couldn't remove the worktree") || error.starts_with("It changed after you checked") => {
+                    this.failed(error, cx)
+                }
                 Err(error) => this.failed(format!("Could not delete Chat: {error}"), cx),
             });
         })
@@ -667,4 +707,43 @@ pub fn parse_prefs(value: &Value) -> (DevicePins, HashSet<String>, ChatRowShow) 
         }
     }
     (pins, computers, show)
+}
+
+/// A Chat's Worktree as Delete sees it.
+#[derive(Clone, Debug)]
+struct CleanupWorktree {
+    path: String,
+    base: Option<String>,
+}
+
+/// A Worktree to remove with its status (`seen`), when `archiveMode` is `remove`: Milagre made it (a base, under one of
+/// `worktree:roots []`) and `worktree:status [path, base]` reports it `removable`. Any failed read keeps it.
+async fn plan(connection: &Connection, worktree: Option<&CleanupWorktree>) -> Option<(CleanupWorktree, Value)> {
+    let worktree = worktree?.clone();
+    let base = worktree.base.clone()?;
+    let roots = connection.call("worktree:roots", json!([])).await.ok()?;
+    let roots: Vec<&str> = roots.as_array()?.iter().filter_map(Value::as_str).collect();
+    if !inside_roots(&worktree.path, &roots) {
+        return None;
+    }
+    let status = connection.call("worktree:status", json!([worktree.path, base])).await.ok()?;
+    (status["removable"] == true).then_some((worktree, status))
+}
+
+/// `isInsideRoots`: a folder under one of the roots Milagre keeps its Worktrees in (not the root itself).
+pub fn inside_roots(path: &str, roots: &[&str]) -> bool {
+    roots.iter().any(|root| {
+        let base = root.trim_end_matches('/');
+        !base.is_empty() && path.len() > base.len() + 1 && path.starts_with(&format!("{base}/"))
+    })
+}
+
+/// `removeFailureNotice`: the Worktree stays and the Chat comes back.
+fn remove_failure(error: &str) -> String {
+    if error.contains("WORKTREE_CHANGED") {
+        // `gitMessage(WORKTREE_CHANGED)`.
+        return "It changed after you checked, so the chat and its worktree stay.".into();
+    }
+    let message = error.trim_start_matches("worktree:remove: ").trim_start_matches("fatal: ").trim().trim_end_matches(['.', ' ']);
+    format!("Couldn't remove the worktree: {message}. The chat stays so you can find it.")
 }
