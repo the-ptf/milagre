@@ -46,6 +46,26 @@ pub const CHANGED: &str = "INSTALLED_OWNER_CHANGED";
 /// What the window says while there is no daemon to adopt (read-only windows, which never start one).
 pub const OPEN_MILAGRE_FIRST: &str = "Open Milagre first: this window connects to its daemon as soon as it runs.";
 
+/// What the window says while Milagre has no Projects (a new install): Add Project in the sidebar makes the first.
+pub const NO_PROJECTS: &str = "No Projects yet: add one with Add Project.";
+
+/// Milagre's daemon runs but knows no Project yet (nothing to connect a live stream through).
+#[derive(Debug)]
+pub struct NoProjects;
+
+impl std::fmt::Display for NoProjects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Milagre has no Projects yet")
+    }
+}
+
+impl std::error::Error for NoProjects {}
+
+/// Whether a sync failed only because there is no Project yet.
+pub fn no_projects(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.downcast_ref::<NoProjects>().is_some())
+}
+
 /// What the window says when there is no daemon and no Milagre.app to start one from.
 pub const INSTALL_MILAGRE: &str = "Install Milagre to use this preview: it runs on Milagre's daemon, which this window starts.";
 
@@ -298,7 +318,7 @@ impl Daemon {
             state.known = known.clone();
             state.preferred.clone().filter(|p| known.iter().any(|k| &k.path == p))
         };
-        let first = first.or_else(|| known.first().map(|k| k.path.clone())).ok_or_else(|| anyhow!("Milagre has no Projects yet"))?;
+        let first = first.or_else(|| known.first().map(|k| k.path.clone())).ok_or_else(|| anyhow::Error::new(NoProjects))?;
         let (mut project, (mut client, mut notifications, mut snapshot)) = (first.clone(), self.snapshot(&first).await?);
         // The largest state can only stream on its own Project's connection (see the module doc).
         if let Some(largest) = largest(&snapshot.body)

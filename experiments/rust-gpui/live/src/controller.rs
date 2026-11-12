@@ -198,7 +198,9 @@ impl DaemonSession {
 
 /// What the sidebar says when a sync failed.
 fn notice_for(daemon: &Daemon, error: &anyhow::Error) -> String {
-    if crate::daemon::unavailable(error) && daemon.app_missing() {
+    if crate::daemon::no_projects(error) {
+        crate::daemon::NO_PROJECTS.into()
+    } else if crate::daemon::unavailable(error) && daemon.app_missing() {
         crate::daemon::INSTALL_MILAGRE.into()
     } else if crate::daemon::unavailable(error) {
         crate::daemon::OPEN_MILAGRE_FIRST.into()

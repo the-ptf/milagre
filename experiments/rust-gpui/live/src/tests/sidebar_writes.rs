@@ -460,3 +460,25 @@ fn links_reach_the_daemon(cx: &mut TestAppContext) {
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// A new install: Milagre's daemon runs but knows no Project. The window says so (not "Couldn't reach"), and Add
+/// Project makes the first one, after which the window syncs and lists it.
+#[gpui::test]
+fn a_daemon_without_projects_starts_with_add_project(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("no-projects");
+    let prefs = data.join("sidebar.json");
+    let fake = FakeDaemon::start(&data, World::with(Vec::new()));
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    assert_eq!(session.error.as_deref(), Some(crate::daemon::NO_PROJECTS));
+    let mut m = mount(cx, session, &prefs);
+    assert_eq!(m.notice().as_deref(), Some(crate::daemon::NO_PROJECTS));
+    m.call(SidebarCall::AddProject);
+    m.until("the first Project opened", |_| calls(&fake, "project:open") == [json!([DELTA, {"takeNotice": true}])]);
+    m.until("synced on it", |m| {
+        m.controller.read_with(m.vcx, |c, _| c.unavailable().is_none()) && m.notice().as_deref() != Some(crate::daemon::NO_PROJECTS)
+    });
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
