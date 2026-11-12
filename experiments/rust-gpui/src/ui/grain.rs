@@ -23,8 +23,9 @@ fn tiles_for(length: f32) -> usize {
 
 /// How much of the baked texture shows: Victor asked for a quieter grain than the reference.
 pub const STRENGTH: f32 = 0.5;
-/// Inside the Chat card the grain is a little stronger than outside it: Victor asked for 1.5 to 2 times, so 1.75.
-pub const CARD_STRENGTH: f32 = STRENGTH * 1.75;
+/// Inside the Chat card the grain matches the surface outside it: Victor first asked for 1.5 to 2 times, then for
+/// less noise inside the Chat (2026-11-12).
+pub const CARD_STRENGTH: f32 = STRENGTH;
 
 const LIGHT_SPECKS: &str = "grain/grain-light.png";
 const DARK_SPECKS: &str = "grain/grain-dark.png";

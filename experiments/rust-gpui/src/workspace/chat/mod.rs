@@ -51,9 +51,6 @@ use crate::workspace::chrome;
 use crate::workspace::sidebar::ChatRow;
 
 const COMPOSER_BOTTOM: f32 = 24.0;
-/// The fade at the transcript's top, under the Chat card's border: shorter than the list's own top padding, so the
-/// first item at rest is never tinted.
-const TOP_FADE: f32 = 12.0;
 
 /// What the Chat column asks the window to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -440,16 +437,6 @@ impl Render for ChatView {
                         .flex_1()
                         .min_h_0()
                         .child(AnyView::from(self.transcript.clone()).cached(StyleRefinement::default().size_full()))
-                        // What scrolls up under the card's top border fades out first, so it never touches the line.
-                        .child(
-                            div().debug_selector(|| "transcript-top-fade".into()).absolute().top_0().left_0().right_0().h(px(TOP_FADE)).bg(
-                                gpui::linear_gradient(
-                                    180.,
-                                    gpui::linear_color_stop(theme.page, 0.),
-                                    gpui::linear_color_stop(gpui::Rgba { a: 0.0, ..theme.page }, 1.),
-                                ),
-                            ),
-                        )
                         .on_key_down(cx.listener(Self::on_transcript_key))
                         .when_some(self.running.clone().zip(running_offset), |el, (running, offset)| {
                             el.child(running_row(running, offset, room))

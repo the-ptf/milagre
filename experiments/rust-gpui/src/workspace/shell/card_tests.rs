@@ -88,17 +88,16 @@ fn one_grain_under_the_whole_window_renders_once(cx: &mut TestAppContext) {
     assert_eq!(renders(cx), before, "no render for hover or scroll");
 }
 
-/// The card has its own grain, 1.5 to 2 times the surface's, over its fill and under its content, rendered once: not
+/// The card has its own grain, as strong as the surface's (Victor asked for less noise inside the Chat), over its fill and under its content, rendered once: not
 /// for a scroll of the transcript, a hover, or a keystroke in the composer.
 #[gpui::test]
-fn the_card_has_its_own_stronger_grain_that_renders_once(cx: &mut TestAppContext) {
+fn the_card_has_its_own_grain_that_renders_once(cx: &mut TestAppContext) {
     use crate::ui::grain::{CARD_STRENGTH, STRENGTH};
     let (workspace, cx) = testing::mount_workspace(cx);
     let card = cx.debug_bounds("chat-card").expect("the card is drawn");
     let grain = cx.debug_bounds("card-grain").expect("the card's grain is drawn");
     assert_eq!(grain, card, "the grain fills the card, and ends where it does");
-    let ratio = CARD_STRENGTH / STRENGTH;
-    assert!((1.5..=2.0).contains(&ratio), "the card's grain is {ratio} times the surface's");
+    assert_eq!(CARD_STRENGTH, STRENGTH, "the card's grain is the surface's");
     let renders = |cx: &mut gpui::VisualTestContext| workspace.read_with(cx, |w, cx| w.card_grain.read(cx).renders());
     let page = cx.debug_bounds("chat-card-content").expect("the content").center();
     // Mouse mode first, then settle: the first mouse move after typing (and the first key after the mouse) refreshes
@@ -161,15 +160,12 @@ fn the_transcript_runs_behind_the_floating_composer_to_the_cards_bottom(cx: &mut
     assert_eq!(pills.bottom(), composer.top() - px(8.0), "the pills ride 8px above the composer");
 }
 
-/// The transcript's first item at rest starts below the card's border with room to spare, and what scrolls up under
-/// the border fades out before it reaches the line.
+/// The transcript starts right under the card's border, with no fade band over the grain (it read as a dark border).
 #[gpui::test]
 fn the_transcript_starts_clear_of_the_cards_top_border(cx: &mut TestAppContext) {
     let (_workspace, cx) = testing::mount_workspace(cx);
     let card = cx.debug_bounds("chat-card").expect("the card");
     let transcript = cx.debug_bounds("transcript").expect("the transcript");
     assert_eq!(transcript.top(), card.top() + px(1.0), "right under the border");
-    let fade = cx.debug_bounds("transcript-top-fade").expect("the fade under the border");
-    assert_eq!(fade.top(), transcript.top());
-    assert!(fade.size.height < px(crate::workspace::chat::transcript::LIST_TOP_PAD), "shorter than the list's top padding");
+    assert!(cx.debug_bounds("transcript-top-fade").is_none(), "no fade band under the border");
 }
