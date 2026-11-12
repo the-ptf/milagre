@@ -61,6 +61,8 @@ pub enum Backend {
 
 type Local<T> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>>>>;
 
+mod new_chat;
+
 impl Backend {
     /// The one Project a Chat key may name, or `None` for any (the daemon).
     fn only_project(&self) -> Option<&str> {
@@ -1660,6 +1662,8 @@ impl LiveController {
                 _ => {}
             }
         }
+        // The new-Chat screen's pickers follow the Project the heading names.
+        self.follow_new_chat(cx);
         if mode != self.mode {
             self.mode = mode;
             let target = self.sink.target.borrow().clone();
@@ -1797,6 +1801,8 @@ impl LiveController {
         self.follow_unread(cx);
         // A Chat that just got its first messages can now be the composer's target.
         self.follow_chat(cx);
+        // The new-Chat screen's Projects and Worktrees follow the state too.
+        self.follow_new_chat(cx);
         self.sync_tail(cx);
         self.refresh_panels(cx);
     }
@@ -2082,7 +2088,13 @@ impl LiveController {
         }
         let backend = self.backend.clone();
         Some(match command {
-            Command::Send { target, text, queue, mode, effort, model } => {
+            // Milagre's daemon: a new Chat goes where the tray says (`new_chat.rs`).
+            Command::Send { target: Target::NewChat, text, queue, mode, effort, model, new_chat: Some(choice) }
+                if matches!(backend, Backend::Daemon(_)) =>
+            {
+                return self.new_chat_job(*choice, text, queue, mode, effort, model, cx);
+            }
+            Command::Send { target, text, queue, mode, effort, model, .. } => {
                 let (project, send_target) = match target {
                     Target::NewChat => match self.new_chat_project(cx) {
                         Some(project) => (project, SendTarget::NewProjectChat),

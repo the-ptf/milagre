@@ -327,3 +327,51 @@ fn the_chips_open_their_pickers(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("permission-menu").is_none(), "picking closes the menu");
     assert!(cx.debug_bounds("model-picker").is_some(), "and leaves the picker open");
 }
+
+/// Picking a Linear issue sends its first message at once (the typed text after it), with the issue on the new Chat's
+/// choice while it sends, as the desktop's `startFromIssue`.
+#[gpui::test]
+fn a_linear_issue_starts_the_chat_at_once(cx: &mut TestAppContext) {
+    use super::new_chat::NewChatIssue;
+    let (rig, cx) = mount(cx);
+    let composer = rig.composer.clone();
+    let seen = Rc::new(RefCell::new(Vec::<Option<String>>::new()));
+    let log = seen.clone();
+    let _watch = cx.update(|_, cx| {
+        cx.subscribe(&composer, move |composer, event: &ComposerEvent, cx| {
+            if let ComposerEvent::Send(_) = event {
+                log.borrow_mut().push(composer.read(cx).new_chat_choice(cx).and_then(|c| c.issue).map(|i| i.key.to_string()));
+            }
+        })
+    });
+    composer.update_in(cx, |c, window, cx| {
+        c.start_new_chat(cx);
+        c.set_text("and add a test", window, cx);
+    });
+    let issue = NewChatIssue {
+        key: "MIL-7".into(),
+        title: "Fix it".into(),
+        url: "https://linear.app/x/issue/mil-7".into(),
+        description: Some("The details".into()),
+        workspace: Some("x".into()),
+    };
+    composer.update_in(cx, |c, window, cx| c.start_from_issue(issue, window, cx));
+    cx.run_until_parked();
+    let sends: Vec<String> = rig.events.borrow().iter().filter(|e| e.starts_with("send:")).cloned().collect();
+    assert_eq!(sends, vec!["send:Work on Linear issue MIL-7: Fix it\n\nThe details\n\nhttps://linear.app/x/issue/mil-7\n\nand add a test"]);
+    assert_eq!(*seen.borrow(), vec![Some("MIL-7".to_owned())], "the issue rides on the send");
+    composer.update(cx, |c, cx| c.end_new_chat(cx));
+    composer.update(cx, |c, cx| c.start_new_chat(cx));
+    assert!(composer.read_with(cx, |c, cx| c.new_chat_choice(cx).is_some_and(|c| c.issue.is_none())), "a new screen starts without it");
+}
+
+/// Full access shows its orange shield on the model chip, as the desktop's `data-permission-full`.
+#[gpui::test]
+fn full_access_shows_on_the_model_chip(cx: &mut TestAppContext) {
+    let (rig, cx) = mount(cx);
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("composer-permission-full").is_none());
+    rig.composer.update(cx, |c, cx| c.set_permission_mode(crate::data::PermissionMode::Full, cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("composer-permission-full").is_some());
+}

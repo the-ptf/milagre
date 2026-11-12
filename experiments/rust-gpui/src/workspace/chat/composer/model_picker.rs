@@ -70,12 +70,22 @@ impl Composer {
         let (provider, name, effort) = (self.bar.provider, self.bar.model_name.clone(), self.bar.effort.clone());
         let (dim, warn) = (theme.ink3, theme.orange_ink);
         let fast = self.bar.fast;
+        // Full access shows on the chip itself (`data-permission-full`): the shield in orange, before the mark.
+        let full = self.bar.permission == crate::data::PermissionMode::Full;
         let composer = cx.entity();
         let open = matches!(self.bar.open, Some("composer-model" | "composer-permission"));
         super::pick_list::popup(&composer, "composer-model", open)
             .trigger(move |open| {
                 Chip::new("composer-model-chip")
                     .on(open)
+                    .when(full, |chip| {
+                        chip.child(
+                            div()
+                                .debug_selector(|| "composer-permission-full".into())
+                                .flex_none()
+                                .child(Icon::new(IconName::ShieldAlert).size(IconSize::S14).color(warn)),
+                        )
+                    })
                     .child(ProviderLogo::new(provider).size(14.0))
                     .child(div().min_w_0().max_w(px(112.0)).truncate().child(name.clone()))
                     .when_some(effort.clone(), |chip, effort| {

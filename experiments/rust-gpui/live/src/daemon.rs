@@ -497,6 +497,12 @@ impl Daemon {
 
 /// The commands [`Daemon::read`] sends: each only reads (the Node daemon's handlers in `packages/core/src/runtime.cjs`).
 pub const READS: &[&str] = &[
+    // The new-Chat tray (`new_chat.rs`): the branches a Worktree starts from, the Project's base, and Linear's issues.
+    "project:branches",
+    "project-git:read",
+    "linear:enabled:read",
+    "linear:status",
+    "linear:issues",
     "agent:models",
     "agent:ports",
     "pull-requests:snapshot",

@@ -51,6 +51,8 @@ pub enum Command {
         effort: Option<&'static str>,
         /// The composer's provider and model id (a new Chat starts on them in Node-daemon mode).
         model: (Provider, String),
+        /// The new-Chat tray's choice at the send (Node-daemon mode sends where it says).
+        new_chat: Option<Box<milagre_gpui_spike::workspace::chat::composer::new_chat::NewChatChoice>>,
     },
     Interrupt(ChatRef),
     SendQueuedNow {
@@ -150,6 +152,7 @@ impl MessageSink for LiveSink {
             _ => self.state.model.borrow().clone(),
         };
         self.push(Command::Send {
+            new_chat: message.new_chat,
             target,
             text: message.prompt,
             queue,

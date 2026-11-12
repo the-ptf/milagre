@@ -103,12 +103,17 @@ fn on_the_empty_screen(workspace: &Entity<Workspace>, cx: &mut VisualTestContext
     assert!(sidebar.read_with(cx, |s, _| s.selected_row().is_none()));
     assert!(!panel.read_with(cx, |p, _| p.is_open()), "the panel follows: no Chat, no panel");
     let composer = chat.read_with(cx, |c, _| c.composer.clone());
-    assert!(composer.read_with(cx, |c, _| c.new_chat().is_some() && !c.starters().is_empty()), "the tray and the starters");
+    assert!(composer.read_with(cx, |c, _| c.new_chat().is_some() && c.starters().is_empty()), "the tray, no starter cards");
     let body = cx.debug_bounds("new-chat-body").expect("the empty screen");
     let tray = cx.debug_bounds("new-chat-tray").expect("the tray");
-    let (above, below) = (tray.top() - body.top(), body.bottom() - tray.bottom());
-    // The starters sit above the tray inside the centred group, so the tray is a little low: not docked at the bottom.
-    assert!(above > gpui::px(150.0) && below > gpui::px(150.0), "the composer floats in the middle: {above:?} above, {below:?} below");
+    let heading = cx.debug_bounds("new-chat-heading").expect("Start building in");
+    assert!(heading.bottom() <= tray.top() && heading.bottom() + gpui::px(24.0) >= tray.top(), "the heading sits on the tray");
+    assert!(cx.debug_bounds("new-chat-project-chip").is_some(), "the heading names the Project as a picker");
+    let (above, below) = (heading.top() - body.top(), body.bottom() - tray.bottom());
+    assert!(
+        above > gpui::px(150.0) && below > gpui::px(150.0),
+        "the heading and the tray float in the middle: {above:?} above, {below:?} below"
+    );
 }
 
 #[gpui::test]

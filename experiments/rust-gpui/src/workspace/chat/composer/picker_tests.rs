@@ -82,3 +82,44 @@ fn the_new_chat_tray_starts_and_ends(cx: &mut TestAppContext) {
     composer.update(cx, |c, cx| c.end_new_chat(cx));
     composer.read_with(cx, |c, _| assert!(c.new_chat().is_none()));
 }
+
+/// The data layer's lists replace the fixture's: the choice keeps its Project when the lists still have it, takes the
+/// Project's base branch unless one was picked here, and reads back as the host sends it.
+#[gpui::test]
+fn the_new_chat_takes_the_data_layers_lists_and_reads_back_its_choice(cx: &mut TestAppContext) {
+    use super::new_chat::{Isolation, NewChatOptions, NewChatProject, NewChatWorktree};
+    let composer = cx.new(Composer::new);
+    let options = |base: &str| NewChatOptions {
+        projects: vec![
+            NewChatProject { path: "/p/alpha".into(), name: "alpha".into() },
+            NewChatProject { path: "/p/beta".into(), name: "beta".into() },
+        ],
+        computers: Vec::new(),
+        worktrees: vec![
+            NewChatWorktree { id: 1, name: "main".into(), path: "/p/beta".into() },
+            NewChatWorktree { id: 7, name: "w7".into(), path: "/p/beta-w7".into() },
+        ],
+        branches: vec!["main".into(), "develop".into()],
+        base_branch: Some(base.into()),
+        issues: None,
+        isolation: Isolation::Worktree,
+    };
+    composer.update(cx, |c, cx| {
+        c.set_new_chat_options(options("develop"), cx);
+        c.start_new_chat_in(Some("beta"), cx);
+    });
+    let choice = composer.read_with(cx, |c, cx| c.new_chat_choice(cx)).expect("on the new-Chat screen");
+    assert_eq!(choice.project.as_ref(), "/p/beta", "the Project asked for, by name");
+    assert_eq!((choice.isolation, choice.base_branch.as_deref(), choice.branch_picked), (Isolation::Worktree, Some("develop"), false));
+    // A new base from the host moves an unpicked branch with it; This checkout names its Worktree's id.
+    composer.update(cx, |c, cx| {
+        c.set_new_chat_options(options("main"), cx);
+        let chat = c.new_chat.as_mut().unwrap();
+        chat.isolation = Isolation::Local;
+        chat.worktree = 1;
+    });
+    let choice = composer.read_with(cx, |c, cx| c.new_chat_choice(cx)).unwrap();
+    assert_eq!((choice.project.as_ref(), choice.worktree, choice.base_branch.as_deref()), ("/p/beta", Some(7), Some("main")));
+    composer.update(cx, |c, cx| c.end_new_chat(cx));
+    assert!(composer.read_with(cx, |c, cx| c.new_chat_choice(cx)).is_none());
+}

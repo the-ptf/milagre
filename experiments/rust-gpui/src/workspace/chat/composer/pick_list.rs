@@ -207,8 +207,15 @@ impl RenderOnce for PickList {
 /// A composer popover opened upward whose open state the composer owns (`BarState::open`), so a snapshot or an
 /// action can open it and only one is open at a time.
 pub fn popup(composer: &gpui::Entity<super::Composer>, key: &'static str, open: bool) -> crate::ui::Popover {
+    popup_at(composer, key, open, true)
+}
+
+/// [`popup`], opening above its trigger or (`above: false`, the new-Chat heading's Project list) below it.
+pub fn popup_at(composer: &gpui::Entity<super::Composer>, key: &'static str, open: bool, above: bool) -> crate::ui::Popover {
     let composer = composer.clone();
-    crate::ui::Popover::new(key).above().bare().open(open).on_open_change(move |open, window, cx| {
+    let popover = crate::ui::Popover::new(key);
+    let popover = if above { popover.above() } else { popover };
+    popover.bare().open(open).on_open_change(move |open, window, cx| {
         composer.update(cx, |composer, cx| {
             composer.bar.permission_menu = false;
             if open {

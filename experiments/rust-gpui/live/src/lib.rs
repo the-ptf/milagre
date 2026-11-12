@@ -31,6 +31,7 @@ pub mod controller;
 pub mod daemon;
 pub mod deeplinks;
 pub mod git;
+pub mod new_chat;
 pub mod notify;
 pub mod opener;
 pub mod panels;

@@ -24,6 +24,9 @@
 //!   unloaded Project opened on purpose is refused.
 //! - `the_window_waits_for_milagre_and_follows_a_restart`: "Open Milagre first", then the daemon starts, then it
 //!   restarts in another process and the window syncs again on its own.
+//! - `the_new_chat_tray_reads_the_daemon_and_sends_where_it_says`: the heading's loaded Projects, the tray's Worktrees,
+//!   branches, base and Linear issues from the daemon; New Worktree (`worktree:create`, then `chat:send` to its Chat)
+//!   and a Chat started from an issue.
 //! - `the_sidebar_keeps_its_rows_through_resyncs_and_bursts_of_events`: a closed stream keeps the rows until the next
 //!   sync's snapshot (every redraw lists them all), through bursts of `agent:ports`, `accounts:changed` and
 //!   `pull-requests:changed`.
@@ -1118,6 +1121,83 @@ fn the_sidebar_keeps_its_rows_through_resyncs_and_bursts_of_events(cx: &mut Test
     let shown = shown.borrow().clone();
     assert!(!shown.is_empty(), "the sidebar redrew while the stream closed and synced again");
     assert!(shown.iter().all(|rows| *rows == 3), "no empty or partial list in between: {shown:?}");
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// The new-Chat screen on the daemon: the heading lists the loaded Projects, the tray the Project's Worktrees, its
+/// branches with the Project's base (`project-git:read`) and Linear's issues; New Worktree on a picked branch makes the
+/// Worktree first (`worktree:create`) and sends to the Chat it made, with the picker's model and permission mode; an
+/// issue starts its own Chat at once, on its own Worktree. Never a `project:open`.
+#[gpui::test]
+fn the_new_chat_tray_reads_the_daemon_and_sends_where_it_says(cx: &mut TestAppContext) {
+    use milagre_gpui_spike::workspace::chat::composer::new_chat::Isolation;
+    cx.executor().allow_parking();
+    let data = data_folder("new-chat");
+    let fake = FakeDaemon::start(&data, world());
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    m.wait_for("the loaded Projects' rows", |m| m.row_keys().len() == 3);
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    m.vcx.update(|window, cx| m.workspace.update(cx, |w, cx| w.show_new_chat(window, cx)));
+    m.wait_for("the tray's reads", |m| {
+        composer.read_with(m.vcx, |c, cx| {
+            let options = c.new_chat_options(cx);
+            options.branches.len() == 2 && options.issues.as_ref().is_some_and(|issues| issues.len() == 1)
+        })
+    });
+    let (options, choice) = composer.read_with(m.vcx, |c, cx| (c.new_chat_options(cx), c.new_chat_choice(cx).unwrap()));
+    let mut listed: Vec<&str> = options.projects.iter().map(|p| p.path.as_ref()).collect();
+    listed.sort_unstable();
+    assert_eq!(listed, vec![ALPHA, BETA], "the loaded Projects only");
+    assert!(options.computers.is_empty(), "Run on waits for computers");
+    assert!(!options.worktrees.is_empty(), "the Project's own checkout at least");
+    assert_eq!((choice.isolation, choice.base_branch.as_deref()), (Isolation::Local, Some("develop")), "This checkout from the base");
+    // Drawn: the heading over the tray, the Git chips and Linear's; no Run on.
+    m.vcx.run_until_parked();
+    for drawn in ["new-chat-heading", "new-chat-project-chip", "new-chat-isolation-chip", "new-chat-branch-chip", "new-chat-issue-chip"] {
+        assert!(m.vcx.debug_bounds(drawn).is_some(), "{drawn} is drawn");
+    }
+    assert!(m.vcx.debug_bounds("new-chat-computer-chip").is_none(), "no computer chip until computers land");
+
+    // New Worktree from `main`, Full access: the Worktree first, then the Chat it made.
+    composer.update(m.vcx, |c, cx| {
+        c.set_new_chat_isolation(Isolation::Worktree, cx);
+        assert!(c.set_new_chat_branch("main", cx));
+        c.set_permission_mode(milagre_gpui_spike::data::PermissionMode::Full, cx);
+    });
+    m.vcx.run_until_parked();
+    let project = composer.read_with(m.vcx, |c, cx| c.new_chat_choice(cx).unwrap().project.to_string());
+    m.type_and_send("start on a branch");
+    m.wait_for("the new Worktree's Chat open", |m| {
+        let session = sent(&fake).last().and_then(|send| send["sessionId"].as_u64());
+        session.is_some_and(|session| m.open_key() == Some(format!("{project}#{session}"))) && !m.running()
+    });
+    let created = fake.log().into_iter().find(|(method, _)| method == "worktree:create").expect("a Worktree was made").1;
+    assert_eq!(created[0]["projectPath"].as_str(), Some(project.as_str()));
+    assert_eq!((created[0]["baseBranch"].as_str(), created[0]["useProjectBase"].as_bool()), (Some("main"), Some(false)));
+    assert_eq!(created[0]["prompt"].as_str(), Some("start on a branch"));
+    let send = sent(&fake).pop().unwrap();
+    let worktree = fake.world().worktrees[&project].last().unwrap().0;
+    assert_eq!(send["worktreeId"].as_u64(), Some(worktree), "sent in the new Worktree");
+    let session = send["sessionId"].as_u64().expect("to the Chat worktree:create made");
+    assert_eq!(m.open_key(), Some(format!("{project}#{session}")));
+    assert_eq!(send["permissionMode"].as_str(), Some("full"));
+
+    // A Linear issue: its own Chat at once, on its own Worktree named after it.
+    m.vcx.update(|window, cx| m.workspace.update(cx, |w, cx| w.show_new_chat(window, cx)));
+    m.wait_for("the issues again", |m| composer.read_with(m.vcx, |c, cx| c.new_chat_options(cx).issues.is_some_and(|i| !i.is_empty())));
+    let issue = composer.read_with(m.vcx, |c, cx| c.new_chat_options(cx).issues.unwrap()[0].clone());
+    m.vcx.update(|window, cx| composer.update(cx, |c, cx| c.start_from_issue(issue, window, cx)));
+    m.wait_for("the issue's Chat", |_| sent(&fake).last().is_some_and(|s| s.get("linearIssue").is_some()));
+    let made: Vec<Value> = fake.log().into_iter().filter(|(method, _)| method == "worktree:create").map(|(_, a)| a[0].clone()).collect();
+    assert_eq!((made.len(), made[1]["issueKey"].as_str(), made[1]["issueWorkspace"].as_str()), (2, Some("FAKE-1"), Some("fake")));
+    let send = sent(&fake).pop().unwrap();
+    assert_eq!(send["linearIssue"], json!({"key":"FAKE-1","workspace":"fake"}));
+    assert!(send["body"].as_str().unwrap().starts_with("Work on Linear issue FAKE-1: Fake issue"));
+    assert!(!fake.methods().iter().any(|m| m == "project:open"), "never project:open");
     m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);
     drop(fake);

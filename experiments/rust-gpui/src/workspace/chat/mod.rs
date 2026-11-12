@@ -239,8 +239,8 @@ impl ChatView {
         cx.notify();
     }
 
-    /// The empty new-Chat screen (`New Chat`, ⌘N): nothing on screen but the title, the composer in its tray with the
-    /// first-Chat starters, centred in the column. The sidebar's selection is cleared by the window; picking a row
+    /// The empty new-Chat screen (`New Chat`, ⌘N): nothing on screen but the title, "Start building in [Project ▾]"
+    /// and the composer in its tray, centred in the column. The sidebar's selection is cleared by the window; picking a row
     /// again ([`ChatView::set_chat`]) leaves this screen.
     pub fn set_new_chat(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(old) = self.key.take() {
@@ -261,8 +261,9 @@ impl ChatView {
         }
         self.composer.update(cx, |composer, cx| {
             composer.set_text("", window, cx);
-            composer.start_new_chat(cx);
-            composer.set_starters(Some(project), cx);
+            // No starter cards: the heading and the tray alone, as the desktop's New Chat (starters are the onboarding's).
+            composer.start_new_chat_in(Some(project), cx);
+            composer.set_starters(None, cx);
         });
         self.close_find(window, cx);
         self.close_undo(cx);

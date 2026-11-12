@@ -172,6 +172,13 @@ pub struct Composer {
     queue: queue::Queue,
     bar: bar::BarState,
     new_chat: Option<new_chat::NewChat>,
+    /// What the new-Chat pickers list, once the data layer has said (`new_chat.rs`); the Project asked for at the start,
+    /// kept until the lists name it; the Linear issue a send is starting from.
+    new_chat_options: Option<new_chat::NewChatOptions>,
+    new_chat_wanted: Option<SharedString>,
+    new_chat_issue: Option<new_chat::NewChatIssue>,
+    /// The isolation picked last this session, the next new Chat's.
+    new_chat_isolation: Option<new_chat::Isolation>,
     /// The first Chat's starter tasks (`starters` in `ChatComposer.tsx`), over the tray of an empty new Chat.
     starters: Vec<crate::onboarding::model::Starter>,
     sink: Option<Rc<dyn MessageSink>>,
@@ -275,6 +282,10 @@ impl Composer {
             queue: queue::Queue::default(),
             bar,
             new_chat,
+            new_chat_options: None,
+            new_chat_wanted: None,
+            new_chat_issue: None,
+            new_chat_isolation: None,
             starters,
             sink: None,
             limits: ComposerLimits::default(),
@@ -756,6 +767,7 @@ impl Composer {
             provider: self.bar.provider,
             model: self.bar.model_id.clone(),
             permission: self.bar.permission,
+            new_chat: self.new_chat_choice(cx).map(Box::new),
         };
         if self.prompt_history.last() != Some(&message) && !message.is_empty() {
             self.prompt_history.push(message.clone());
@@ -951,6 +963,7 @@ impl Render for Composer {
             .child(self.render_send_row(&theme, cx))
             .when_some(menu, |el, menu| el.child(self.render_menu(&menu, &theme, cx)));
         let header = self.render_tray_header(&theme, cx);
+        let heading = self.render_new_chat_heading(&theme, cx);
         // `isNewChat && starters.length > 0`, and nothing typed or sent yet.
         let starters_shown = self.new_chat.is_some() && !self.starters.is_empty() && empty;
         let bar = match header {
@@ -982,6 +995,7 @@ impl Render for Composer {
             .max_w(px(if self.new_chat.is_some() { new_chat::tray_width() } else { crate::theme::column_width() }))
             .when_some(queue, |el, queue| el.child(queue))
             .when(starters_shown, |el| el.child(self.render_starters(cx)))
+            .children(heading)
             .child(bar)
     }
 }

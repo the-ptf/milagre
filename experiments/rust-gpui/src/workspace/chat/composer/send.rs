@@ -139,6 +139,9 @@ pub struct OutgoingMessage {
     pub provider: crate::data::Provider,
     pub model: SharedString,
     pub permission: crate::data::PermissionMode,
+    /// On the new-Chat screen: where the Chat starts (the tray's Project, isolation, Worktree or branch, and the Linear
+    /// issue it starts from), read at the send, before the screen gives way to the Chat.
+    pub new_chat: Option<Box<super::new_chat::NewChatChoice>>,
 }
 
 /// The data layer's side of the composer: a send, the Stop button, and the queue's Send now and Remove.

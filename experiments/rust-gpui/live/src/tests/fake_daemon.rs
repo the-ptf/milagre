@@ -28,6 +28,13 @@ use serde_json::{Value, json};
 /// [{commands: true}]`, as the Node daemon does (`desktop-commands-v1`, the client's two-step handshake).
 const METHODS: &[&str] = &[
     "project:known",
+    // The new-Chat tray's reads and its new Worktree.
+    "project:branches",
+    "project-git:read",
+    "linear:enabled:read",
+    "linear:status",
+    "linear:issues",
+    "worktree:create",
     "project:read",
     "project:current",
     "state:read",
@@ -671,6 +678,29 @@ impl World {
                 Value::Null
             }
             "agent:set-permission-mode" | "chat:queue-send" | "chat:queue-remove" => Value::Null,
+            // The new-Chat tray: two branches, `develop` the Project's base, Linear on with one issue.
+            "project:branches" => json!(["main", "develop"]),
+            "project-git:read" => json!({"effective":{"baseBranch":"develop"}}),
+            "linear:enabled:read" => json!({"enabled":true}),
+            "linear:status" => json!({"connected":true}),
+            "linear:issues" => {
+                json!({"issues":[{"key":"FAKE-1","title":"Fake issue","url":"https://linear.app/fake/issue/fake-1","workspace":"fake"}]})
+            }
+            // A new Worktree and the Chat made for it, as the daemon's `worktree:create` answers.
+            "worktree:create" => {
+                let path = arg["projectPath"].as_str().ok_or("projectPath")?.to_owned();
+                let base = arg["baseBranch"].as_str().unwrap_or_default().to_owned();
+                let list = self.worktrees.entry(path.clone()).or_default();
+                let id = list.iter().map(|w| w.0).max().unwrap_or(1) + 1;
+                list.push((id, format!("{path}-w{id}"), base));
+                let project = self.projects.get_mut(&path).ok_or("No such Project")?;
+                let session = project.sessions.keys().max().copied().unwrap_or(0) + 1;
+                project
+                    .sessions
+                    .insert(session, json!({"id":session,"worktree_id":id,"agent_name":"fake","provider":"claude","summary":{"count":0}}));
+                self.emit_state(&path);
+                json!({"project":{"path":path,"state":self.state(&path)},"worktreeId":id})
+            }
             "chat:patch" => {
                 let (path, id, patch) = (arg.as_str().ok_or("project")?.to_owned(), args[1].as_u64().ok_or("chat")?, &args[2]);
                 let session = self.projects.get_mut(&path).and_then(|p| p.sessions.get_mut(&id)).ok_or("No such Chat")?;
