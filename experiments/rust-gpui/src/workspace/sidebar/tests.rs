@@ -443,3 +443,22 @@ fn pressing_a_row_renders_each_row_once_per_event(cx: &mut TestAppContext) {
     let released = sidebar.read_with(cx, |s, _| s.rows_built());
     assert!(released - after <= alive + 1, "the mouse up rendered each row once, and at most the selection's changes more");
 }
+
+/// The PR chip (`PullRequestChip`): its glyph and tone follow the PR's state, and resting on it names the PR in a
+/// tooltip: the glyph, `#number` and the title.
+#[gpui::test]
+fn the_pr_chip_names_its_pr_in_a_tooltip(cx: &mut TestAppContext) {
+    let (sidebar, cx) = mount(cx);
+    let ix = (0..sidebar.read_with(cx, |s, _| s.row_count()))
+        .find(|ix| sidebar.read_with(cx, |s, _| s.row(*ix).is_some_and(|row| row.pr_look.is_some())))
+        .expect("a row with one PR");
+    let look = sidebar.read_with(cx, |s, _| s.row(ix).unwrap().pr_look.clone().unwrap());
+    assert!(!look.title.is_empty(), "the title rides on the row");
+    let selector: &'static str = Box::leak(format!("chat-row-prs-{ix}").into_boxed_str());
+    let chip = cx.debug_bounds(selector).expect("the chip is drawn");
+    assert!(cx.debug_bounds("chat-row-pr-tooltip").is_none());
+    cx.simulate_mouse_move(chip.center(), None, Modifiers::none());
+    cx.executor().advance_clock(std::time::Duration::from_secs(2));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("chat-row-pr-tooltip").is_some(), "the PR's tooltip shows");
+}

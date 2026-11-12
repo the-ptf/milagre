@@ -44,6 +44,30 @@ impl Tooltip {
         Self::new(label).build()
     }
 
+    /// A builder for `.tooltip(...)` with its own content on the same ink capsule (the sidebar's PR chip: the PR's state
+    /// glyph, its number in mono and its title).
+    pub fn rich(
+        content: impl Fn(&crate::theme::Theme) -> gpui::AnyElement + 'static,
+    ) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+        let content = std::rc::Rc::new(content);
+        move |window, cx| {
+            let theme = *cx.theme();
+            let content = content.clone();
+            WidgetTooltip::element(move |_, _| div().debug_selector(|| "tooltip".into()).child(content(&theme)))
+                .bg(theme.ink)
+                .text_color(theme.on_ink)
+                .border_0()
+                .rounded(RADIUS_CHIP)
+                .shadow(theme.shadow_raised())
+                .m(px(6.0))
+                .px(px(8.0))
+                .py(px(4.0))
+                .text_step(TEXT_12)
+                .font_weight(FontWeight::MEDIUM)
+                .build(window, cx)
+        }
+    }
+
     /// The builder for `.tooltip(...)`.
     pub fn build(self) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
         let Tooltip { label, shortcut } = self;

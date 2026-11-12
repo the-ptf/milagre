@@ -32,7 +32,7 @@ use super::list::{ShownChat, SidebarData, list_clock, project_label};
 use crate::logic::identity::project_list::project_initial;
 use crate::logic::lists::chat_row::{ChatRowShow, DESKTOP_CHAT_ROW_SHOW};
 use crate::logic::marks::{ChatMark, MarkIcon, Tone, chat_mark_presentation};
-use crate::logic::prs::blockers::row_pull_requests;
+use crate::logic::prs::blockers::{PrIcon, PrTone, pull_request_presentation, row_pull_requests};
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_10, TEXT_12, TextStep, TextStepExt, Theme, hex, sidebar_step};
 use crate::ui::press::{Press, ROW_DURATION, ROW_SCALE};
 use crate::ui::{Icon, IconName, IconSize, ProjectAvatar, Spinner};
@@ -109,6 +109,8 @@ pub struct ChatRow {
     pub prs: Option<SharedString>,
     /// The first PR's number, which the chip opens.
     pub pr_number: Option<u32>,
+    /// The first PR's look (`prLook`): its state's glyph and tone, and its title for the chip's tooltip.
+    pub pr_look: Option<RowPrLook>,
     /// How long ago the Chat last moved ("2d"), for an idle row's right edge.
     pub recency: Option<SharedString>,
     /// Marked Done (only the Done list's rows are).
@@ -135,6 +137,7 @@ impl Default for ChatRow {
             computer: None,
             prs: None,
             pr_number: None,
+            pr_look: None,
             recency: None,
             done: false,
             ran: None,
@@ -190,6 +193,7 @@ impl ChatRow {
         }
         let mut prs_label = None;
         let mut pr_number = None;
+        let mut pr_look = None;
         if show.pull_requests {
             let folder = scope.state.worktree_of(chat).map(|worktree| worktree.path.clone()).unwrap_or_default();
             let refs = chat.summary.as_ref().map(|summary| summary.pull_requests.clone()).unwrap_or_default();
@@ -198,6 +202,8 @@ impl ChatRow {
             if let Some(number) = prs.first().and_then(|pr| pr.number) {
                 parts.push(format!("#{number}"));
                 pr_number = Some(number);
+                let look = pull_request_presentation(&prs[0]);
+                pr_look = Some(RowPrLook { icon: look.icon, tone: look.tone, title: prs[0].title.clone().into() });
             }
             if prs.len() > 1 {
                 parts.push(format!("+{}", prs.len() - 1));
@@ -253,6 +259,7 @@ impl ChatRow {
             computer,
             prs: prs_label.map(Into::into),
             pr_number,
+            pr_look,
             recency: recency.map(Into::into),
             done: chat.is_done(),
             ran: listed.first_at.zip(listed.last_at).map(|(first, last)| ran_label(last - first).into()),
@@ -488,9 +495,16 @@ impl Render for ChatRowView {
             )
             .children(row.prs.clone().map(|prs| {
                 let number = row.pr_number;
+                let look = row.pr_look.clone();
+                let (glyph, tone) =
+                    look.as_ref().map_or((IconName::GitPullRequest, theme.green), |look| (look.glyph(), look.color(&theme)));
+                let ink = theme.ink;
                 div()
                     .id(("chat-row-prs", ix))
                     .debug_selector(move || format!("chat-row-prs-{ix}"))
+                    // `PullRequestChip`: the number underlined in ink under the pointer, and the PR named in a tooltip.
+                    .hover(move |style| style.text_color(ink).underline())
+                    .when_some(look.zip(number), |el, (look, number)| el.tooltip(look.tooltip(number)))
                     .when_some(number, |el, number| {
                         // A plain click opens the PR in the Chat's PR panel (`openRowPullRequest`), not the row's click.
                         el.cursor_pointer().on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
@@ -502,8 +516,8 @@ impl Render for ChatRowView {
                     .flex_none()
                     .items_center()
                     .gap(px(META_GAP))
-                    .text_color(theme.green)
-                    .child(Icon::new(IconName::GitPullRequest).size(IconSize::S12).color(theme.green))
+                    .text_color(tone)
+                    .child(Icon::new(glyph).size(IconSize::S12).color(tone))
                     .child(prs)
             }));
 
@@ -559,6 +573,58 @@ impl Render for ChatRowView {
         )
     }
 }
+
+/// A row PR's look (`prLook`): the glyph and tone of its state, and its title.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RowPrLook {
+    pub icon: PrIcon,
+    pub tone: PrTone,
+    pub title: SharedString,
+}
+
+impl RowPrLook {
+    /// `PR_ICONS` (the checking dot draws the open glyph: the set has no circle-dot).
+    pub fn glyph(&self) -> IconName {
+        match self.icon {
+            PrIcon::Merged => IconName::GitMerge,
+            PrIcon::Closed => IconName::GitPullRequestClosed,
+            PrIcon::Draft => IconName::GitPullRequestDraft,
+            PrIcon::Ready => IconName::Tick02,
+            PrIcon::Checking | PrIcon::Open => IconName::GitPullRequest,
+        }
+    }
+
+    /// `PR_TONES`.
+    pub fn color(&self, theme: &Theme) -> Rgba {
+        match self.tone {
+            PrTone::Purple => theme.purple,
+            PrTone::Red => theme.red,
+            PrTone::Orange => theme.orange,
+            PrTone::Green => theme.green,
+            PrTone::Ink3 => theme.ink3,
+        }
+    }
+
+    /// The chip's tooltip: the state's glyph in its tone, `#980` in mono, then the title cut with an ellipsis.
+    fn tooltip(&self, number: u32) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
+        let look = self.clone();
+        crate::ui::Tooltip::rich(move |theme| {
+            div()
+                .debug_selector(|| "chat-row-pr-tooltip".into())
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .max_w(px(PR_TOOLTIP_WIDTH))
+                .child(Icon::new(look.glyph()).size(IconSize::S12).color(look.color(theme)))
+                .child(div().flex_none().font_family(crate::theme::mono()).child(format!("#{number}")))
+                .child(div().min_w_0().truncate().child(look.title.clone()))
+                .into_any_element()
+        })
+    }
+}
+
+/// The PR tooltip's widest (the desktop's tooltips wrap at 280; this one cuts its title instead).
+const PR_TOOLTIP_WIDTH: f32 = 280.0;
 
 /// The first line's right edge: the state, or the Done action while the pointer is on the row. The action rests in
 /// ink-2 and brightens to ink while the pointer is on it (`hover:text-ink` on the desktop's `data-chat-done`).
