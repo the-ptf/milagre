@@ -78,6 +78,7 @@ fn absolute(value: &Value, key: &str) -> Result<PathBuf, RpcError> {
 #[derive(Clone)]
 struct LaunchConfig {
     value: Value,
+    provider: String,
     program: PathBuf,
     home: PathBuf,
     config_directory: PathBuf,
@@ -104,9 +105,22 @@ impl LaunchConfig {
             "userName",
         ];
         if value.as_object().is_none_or(|object| {
-            object.len() != FIELDS.len() || object.keys().any(|key| !FIELDS.contains(&key.as_str()))
+            !(object.len() == FIELDS.len() || object.len() == FIELDS.len() + 1)
+                || FIELDS.iter().any(|key| !object.contains_key(*key))
+                || object
+                    .keys()
+                    .any(|key| key != "provider" && !FIELDS.contains(&key.as_str()))
         }) {
             return Err(refused("Launch manifest must contain exactly program, home, configDirectory, skillsDirectory, model, path, accountId, accountLabel and userName"));
+        }
+        let provider = match value.get("provider") {
+            None => "claude",
+            Some(Value::String(v)) if v == "claude" || v == "codex" => v.as_str(),
+            _ => return Err(refused("Provider must be explicitly claude or codex")),
+        }
+        .to_owned();
+        if fixture && provider != "claude" {
+            return Err(refused("Fixed runtime fixture presets are Claude-only"));
         }
         let model = strict_text(&value, "model")?.to_string();
         let account_id = strict_text(&value, "accountId")?.to_string();
@@ -119,6 +133,7 @@ impl LaunchConfig {
             return Err(refused("Model/account label exceeds 256 bytes"));
         }
         let config = Self {
+            provider,
             program: absolute(&value, "program")?,
             home: absolute(&value, "home")?,
             config_directory: absolute(&value, "configDirectory")?,
@@ -139,10 +154,10 @@ impl LaunchConfig {
         let entries = if self.account_id == "default" {
             vec![]
         } else {
-            vec![json!({"provider":"claude","id":self.account_id,"label":self.account_label})]
+            vec![json!({"provider":self.provider,"id":self.account_id,"label":self.account_label})]
         };
         Accounts::parse(Some(
-            &json!({"accounts":entries,"selected":{"claude":self.account_id},"scopes":{}})
+            &json!({"accounts":entries,"selected":{(self.provider.clone()):self.account_id},"scopes":{}})
                 .to_string(),
         ))
         .map_err(|e| refused(e.to_string()))
@@ -335,13 +350,14 @@ impl DataRoot {
         config: LaunchConfig,
         execution: bool,
     ) -> Result<Arc<Self>, RpcError> {
-        Self::create_variant(root, config, execution, false)
+        Self::create_variant(root, config, execution, false, false)
     }
     fn create_variant(
         root: &Path,
         config: LaunchConfig,
         execution: bool,
         blocked: bool,
+        quiet: bool,
     ) -> Result<Arc<Self>, RpcError> {
         if execution && (!cfg!(feature = "routine-execution-fixture") || !config.fixture) {
             return Err(refused(
@@ -360,6 +376,9 @@ impl DataRoot {
             manifest["routineExecutionFixture"] = json!(true);
             if blocked {
                 manifest["routineFixtureBlocked"] = json!(true);
+            }
+            if quiet {
+                manifest["routineFixtureQuiet"] = json!(true);
             }
         }
         let manifest = manifest.to_string().into_bytes();
@@ -509,9 +528,11 @@ impl Bootstrap {
                 "Chat identity is assigned by the owner, not the send request",
             ));
         }
-        if request["provider"] != "claude" || request["model"] != self.root.config.model {
+        if request["provider"] != self.root.config.provider
+            || request["model"] != self.root.config.model
+        {
             return Err(refused(
-                "This runtime starts only its explicitly configured Claude model",
+                "This runtime starts only its explicitly configured provider and model",
             ));
         }
         Ok(())
@@ -573,13 +594,16 @@ impl Bootstrap {
             }
             "canvas:links" | "link:list" => Ok(json!([])),
             "agent:models" => Ok(
-                json!({"claude":[{"id":config.model,"name":config.model,"description":if config.fixture {"Configured fixed child; no model inference"} else {"Explicitly configured Claude model; catalog discovery is not run"},"efforts":[],"ultracode":true,"fastMode":true}]}),
+                json!({(config.provider.clone()):[{"id":config.model,"name":config.model,"description":if config.fixture {"Configured fixed child; no model inference"} else {"Explicitly configured model; catalog discovery is not run"},"efforts":[],"ultracode":config.provider=="claude","fastMode":config.provider=="claude"}]}),
             ),
             "agent:cli-status" => Err(RpcError::new(
                 "CLI_STATUS_UNAVAILABLE",
-                "This runtime has not inspected the selected Claude CLI or account authentication.",
+                "This runtime has not inspected the selected CLI or account authentication.",
             )),
-            "accounts:list" => Ok(claude_accounts(self.accounts.snapshot())),
+            "accounts:list" => Ok(selected_accounts(
+                self.accounts.snapshot(),
+                &config.provider,
+            )),
             "accounts:scopes" => Ok(
                 json!([{"key":project,"name":row["name"],"kind":"project","projects":[{"id":project,"path":project,"name":row["name"]}]}]),
             ),
@@ -591,7 +615,7 @@ impl Bootstrap {
                             .to_str()
                             .ok_or_else(|| refused("Project path isn't UTF-8"))?,
                     )
-                    .map(claude_accounts)
+                    .map(|snapshot| selected_accounts(snapshot, &config.provider))
                     .map_err(|e| refused(e.to_string()))
             }
             _ => Err(refused("This runtime does not provide that service")),
@@ -599,18 +623,44 @@ impl Bootstrap {
     }
 }
 
-fn claude_accounts(mut snapshot: Value) -> Value {
+fn selected_accounts(mut snapshot: Value, selected: &str) -> Value {
     if let Some(providers) = snapshot["providers"].as_array_mut() {
-        providers.retain(|provider| provider["provider"] == "claude");
+        providers.retain(|provider| provider["provider"] == selected);
     }
     snapshot
+}
+
+#[derive(Clone)]
+enum ProviderMonitor {
+    Claude(FixtureMonitor),
+    Codex(crate::codex_fixture::FixtureMonitor),
+}
+impl ProviderMonitor {
+    fn workers(&self) -> usize {
+        match self {
+            Self::Claude(v) => v.workers(),
+            Self::Codex(v) => v.workers(),
+        }
+    }
+    fn cleanup_failed(&self) -> bool {
+        match self {
+            Self::Claude(v) => v.cleanup_failed(),
+            Self::Codex(v) => v.cleanup_failed(),
+        }
+    }
+    fn wait_drained(&self, timeout: Duration) -> bool {
+        match self {
+            Self::Claude(v) => v.wait_drained(timeout),
+            Self::Codex(v) => v.wait_drained(timeout),
+        }
+    }
 }
 
 /// Keeps the persistent-root lease through owner and captured provider cleanup. No destructor deletes data.
 pub struct RunningChat {
     pub server: Arc<Server>,
     pub receipt: Value,
-    monitor: FixtureMonitor,
+    monitor: ProviderMonitor,
     _root: Arc<DataRoot>,
 }
 impl RunningChat {
@@ -625,14 +675,14 @@ impl RunningChat {
         } = self;
         let wire_result = Server::finish(server);
         if !monitor.wait_drained(Duration::from_secs(5)) {
-            eprintln!("CLAUDE_CLEANUP_PENDING: retaining dedicated data-root ownership until captured workers exit");
+            eprintln!("PROVIDER_CLEANUP_PENDING: retaining dedicated data-root ownership until captured workers exit");
             while !monitor.wait_drained(Duration::from_secs(30)) {}
             wire_result?;
-            return Err("Claude cleanup exceeded its deadline".into());
+            return Err("Provider cleanup exceeded its deadline".into());
         }
         wire_result?;
         if monitor.cleanup_failed() {
-            return Err("Claude cleanup reported a failure".into());
+            return Err("Provider cleanup reported a failure".into());
         }
         Ok(())
     }
@@ -654,6 +704,7 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
                 "routine-fixture-create"
                     | "routine-blocked-fixture-create"
                     | "routine-new-chat-fixture-create"
+                    | "routine-quiet-fixture-create"
             ) =>
         {
             let root = check_location(Path::new(root), &protected_policy())?;
@@ -663,6 +714,7 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
                 config,
                 true,
                 mode == "routine-blocked-fixture-create",
+                mode == "routine-quiet-fixture-create",
             )?;
             fs::DirBuilder::new()
                 .mode(0o700)
@@ -670,7 +722,13 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
             fs::DirBuilder::new()
                 .mode(0o700)
                 .create(&data.config.config_directory)?;
-            seed_due_routine(&data, mode == "routine-new-chat-fixture-create")?;
+            seed_due_routine(
+                &data,
+                matches!(
+                    mode.as_str(),
+                    "routine-new-chat-fixture-create" | "routine-quiet-fixture-create"
+                ),
+            )?;
             data
         }
         #[cfg(feature = "routine-execution-fixture")]
@@ -700,51 +758,81 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
     let config = &data.config;
     let accounts = config.accounts()?;
     let selection = accounts.pin(project.to_str())?;
-    if selection.account_id("claude")? != config.account_id {
+    if selection.account_id(&config.provider)? != config.account_id {
         return Err(refused("Configured account selection changed").into());
     }
-    #[allow(unused_mut)] // The fixture-only script adds one captured environment entry.
-    let mut environment = BTreeMap::from([
-        ("HOME".to_string(), config.home.clone().into_os_string()),
-        (
-            "CLAUDE_CONFIG_DIR".into(),
-            config.config_directory.clone().into_os_string(),
-        ),
-        ("PATH".into(), config.path.clone().into()),
-        ("USER".into(), config.user_name.clone().into()),
-        ("LOGNAME".into(), config.user_name.clone().into()),
-    ]);
-    #[cfg(feature = "chat-runtime-fixture")]
-    if config.fixture {
-        let script = profile.path().join("fixed-child.json");
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&script)?;
-        serde_json::to_writer(file, &fixture_script(&data)?)?;
-        environment.insert("FAKE_CLAUDE_SCRIPT".into(), script.into_os_string());
+    let mut selected_claude = None;
+    let mut selected_codex = None;
+    if config.provider == "claude" {
+        #[allow(unused_mut)] // The fixture-only script adds one captured environment entry.
+        let mut environment = BTreeMap::from([
+            ("HOME".to_string(), config.home.clone().into_os_string()),
+            (
+                "CLAUDE_CONFIG_DIR".into(),
+                config.config_directory.clone().into_os_string(),
+            ),
+            ("PATH".into(), config.path.clone().into()),
+            ("USER".into(), config.user_name.clone().into()),
+            ("LOGNAME".into(), config.user_name.clone().into()),
+        ]);
+        #[cfg(feature = "chat-runtime-fixture")]
+        if config.fixture {
+            let script = profile.path().join("fixed-child.json");
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&script)?;
+            serde_json::to_writer(file, &fixture_script(&data)?)?;
+            environment.insert("FAKE_CLAUDE_SCRIPT".into(), script.into_os_string());
+        }
+        let mut launch = LaunchOptions::new(&config.program);
+        launch.cwd = Some(project.clone());
+        launch.env = Some(
+            environment
+                .into_iter()
+                .map(|(key, value)| (key.into(), value))
+                .collect(),
+        );
+        let ordinary = ClaudeInstructionInputs::bundled(
+            &config.skills_directory,
+            crate::instructions::HostNetwork::default(),
+            true,
+        )?;
+        let provider = ClaudeProvider::configured(ClaudeLaunchContext {
+            isolation: data.isolation.clone(),
+            project: project.clone(),
+            launch,
+            ordinary,
+            lifetime: Some(data.clone()),
+        })?;
+        selected_claude = Some(provider);
+    } else {
+        let skills = config.skills_directory.canonicalize()?;
+        let writing = fs::read_to_string(skills.join("tldr/default.md"))?;
+        let bundle = crate::instructions::Bundle::new(
+            skills.to_str().ok_or("Skills path is not UTF-8")?,
+            &writing,
+        )?;
+        let retained = data.clone();
+        let provider = crate::codex_fixture::CodexFixture::configured(
+            crate::configured_codex::CodexLaunchContext {
+                isolation: data.isolation.clone(),
+                project: project.clone(),
+                program: config.program.clone(),
+                home: config.home.clone(),
+                config_directory: config.config_directory.clone(),
+                path: config.path.clone(),
+                user_name: config.user_name.clone(),
+                model: config.model.clone(),
+                developer_instructions: bundle.milagre_instructions(true, None, false),
+                tldr_enabled: true,
+                lifetime: data.clone(),
+                check: Arc::new(move || retained.check().map_err(|e| e.message)),
+            },
+        )?;
+        selected_codex = Some(provider);
     }
-    let mut launch = LaunchOptions::new(&config.program);
-    launch.cwd = Some(project.clone());
-    launch.env = Some(
-        environment
-            .into_iter()
-            .map(|(key, value)| (key.into(), value))
-            .collect(),
-    );
-    let ordinary = ClaudeInstructionInputs::bundled(
-        &config.skills_directory,
-        crate::instructions::HostNetwork::default(),
-        true,
-    )?;
-    let mut provider = ClaudeProvider::configured(ClaudeLaunchContext {
-        isolation: data.isolation.clone(),
-        project: project.clone(),
-        launch,
-        ordinary,
-        lifetime: Some(data.clone()),
-    })?;
     let root = Arc::downgrade(&data);
     let content = crate::claude_content::SharedContent::configured(
         data.isolation.clone(),
@@ -762,16 +850,26 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
                 .map_err(|error| milagre_content_store::Error::coded(&error.code, error.message))
         }),
     )?;
-    // Capture the monitor before assigning content so this drain callback has no Arc cycle.
-    let drain = provider.monitor();
+    // The content owner retains only monitor state, never the provider/context itself.
+    let monitor = if let Some(provider) = &selected_claude {
+        ProviderMonitor::Claude(provider.monitor())
+    } else {
+        ProviderMonitor::Codex(selected_codex.as_ref().unwrap().monitor())
+    };
+    let drain = monitor.clone();
     content.retain_native_drain(Arc::new(move || drain.workers() == 0));
-    provider.content = Some(content.clone());
-    let monitor = provider.monitor();
+    let provider: Box<dyn milagre_owner_store::chat_host::Provider> =
+        if let Some(mut provider) = selected_claude {
+            provider.content = Some(content.clone());
+            Box::new(provider)
+        } else {
+            Box::new(selected_codex.take().unwrap())
+        };
     let (server, mut metadata) = crate::actor::start_configured(
         profile,
         data.isolation.clone(),
         project,
-        Box::new(provider),
+        provider,
         content,
         Bootstrap {
             root: data.clone(),
@@ -780,6 +878,7 @@ pub fn start(args: &[String]) -> Result<RunningChat, Box<dyn std::error::Error>>
     )?;
     metadata["restartable"] = json!(true);
     metadata["configuredProvider"] = json!(true);
+    metadata["provider"] = json!(config.provider);
     metadata["model"] = json!(config.model);
     metadata["accountId"] = json!(config.account_id);
     metadata["accountLabel"] = json!(config.account_label);
@@ -840,12 +939,20 @@ fn fixture_script(root: &DataRoot) -> Result<Value, RpcError> {
         let blocked = serde_json::from_slice::<Value>(&root.manifest)
             .map_err(|e| refused(e.to_string()))?["routineFixtureBlocked"]
             == true;
+        let quiet = serde_json::from_slice::<Value>(&root.manifest)
+            .map_err(|e| refused(e.to_string()))?["routineFixtureQuiet"]
+            == true;
+        let reply = if quiet {
+            "(pass) Actor timer clean"
+        } else {
+            "Actor timer completed"
+        };
         let mut script = json!([
             {"expect":{"subtype":"initialize"}}, {"reply":{}},
             {"expect":{"subtype":"set_max_thinking_tokens"}}, {"reply":{}},
             {"expect":{"type":"user","fields":{"/message/content":[{"type":"text","text":format!("Check the scheduled actor fixture{}","\n\nIf nothing needs doing, reply starting with \"(pass)\" and a short reason.")}]}}},
             {"emit":{"type":"system","subtype":"init","session_id":"actor-routine-native"}},
-            {"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Actor timer completed"}}}},
+            {"emit":{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":reply}}}},
             {"emit":{"type":"result","subtype":"success","num_turns":1,"result":"done"}},
             {"wait_eof":true}
         ]);
@@ -936,6 +1043,33 @@ mod tests {
 
     fn config() -> LaunchConfig {
         LaunchConfig::parse(json!({"program":"/explicit/unused-claude","home":"/explicit/unused-home","configDirectory":"/explicit/unused-account","skillsDirectory":"/explicit/unused-bundle","model":"sonnet","path":"/usr/bin:/bin","accountId":"11111111-1111-4111-8111-111111111111","accountLabel":"Explicit selected account","userName":"explicit-user"}), false).unwrap()
+    }
+
+    #[test]
+    fn launch_provider_is_optional_legacy_claude_or_explicit_codex_only() {
+        let value = config().value;
+        let legacy = LaunchConfig::parse(value.clone(), false).unwrap();
+        assert_eq!(legacy.provider, "claude");
+        assert!(legacy.value.get("provider").is_none());
+        let mut codex = value.clone();
+        codex["provider"] = json!("codex");
+        let parsed = LaunchConfig::parse(codex.clone(), false).unwrap();
+        assert_eq!(
+            parsed
+                .accounts()
+                .unwrap()
+                .pin(Some("/explicit/project"))
+                .unwrap()
+                .account_id("codex")
+                .unwrap(),
+            parsed.account_id
+        );
+        assert!(LaunchConfig::parse(codex, true).is_err());
+        for unsupported in [json!(null), json!(true), json!("unknown"), json!("Codex")] {
+            let mut bad = value.clone();
+            bad["provider"] = unsupported;
+            assert!(LaunchConfig::parse(bad, false).is_err());
+        }
     }
 
     #[cfg(feature = "routine-execution-fixture")]

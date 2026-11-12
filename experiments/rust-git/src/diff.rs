@@ -100,6 +100,21 @@ impl GitReader {
                 parent,
             });
         }
+        // Only the separately validated PR read facade constructs this mode.
+        if mode == Some("pr-range") {
+            let base = string(args, "base")
+                .filter(|s| sha(s))
+                .ok_or_else(|| GitError::validation("INVALID_ARGUMENT", "Invalid PR base"))?;
+            let head = string(args, "head")
+                .filter(|s| sha(s))
+                .ok_or_else(|| GitError::validation("INVALID_ARGUMENT", "Invalid PR head"))?;
+            let merge = self.git.out(cwd, &["merge-base", base, head]).await;
+            return Ok(Refs {
+                name: None,
+                refs: merge.map(|base| vec![base, head.into()]),
+                parent: None,
+            });
+        }
         // The IPC intentionally does not accept the internal PR range parameter.
         if mode == Some("range") {
             return Ok(Refs {
@@ -206,7 +221,10 @@ impl GitReader {
             file["binary"] = json!(count.binary);
         }
         let mut truncated = files.len() > FILE_LIMIT;
-        if !matches!(string(args, "mode"), Some("committed" | "range")) {
+        if !matches!(
+            string(args, "mode"),
+            Some("committed" | "range" | "pr-range")
+        ) {
             let mut list_args = vec!["ls-files", "--others", "--exclude-standard", "-z"];
             list_args.extend(PATHSPEC);
             let listed = self.git.run(cwd, &list_args).await;
@@ -266,7 +284,10 @@ impl GitReader {
             .transpose()?;
         let untracked = args.get("commit").is_none_or(Value::is_null)
             && args.get("untracked").is_some_and(|v| *v == true)
-            && !matches!(string(args, "mode"), Some("committed" | "range"));
+            && !matches!(
+                string(args, "mode"),
+                Some("committed" | "range" | "pr-range")
+            );
         let result = if untracked {
             if !self.untracked_inside(cwd, file).await {
                 return Ok(empty_patch(false));

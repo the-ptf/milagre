@@ -85,7 +85,7 @@ def main():
             combined += result.stdout
         if canary.read_bytes() != before:
             raise SystemExit("Synthetic ambient profile changed")
-        if "OWNED_CHAT_READS_EVIDENCE " not in combined or "OWNED_CHAT_ACTIONS_EVIDENCE " not in combined or "OWNED_CHAT_TERMINALS_EVIDENCE " not in combined or "OWNED_CHAT_GIT_EVIDENCE " not in combined or combined.count("OWNED_CHAT_CLEANUP ") != 6:
+        if "OWNED_CHAT_READS_EVIDENCE " not in combined or "OWNED_CHAT_ACTIONS_EVIDENCE " not in combined or "OWNED_CHAT_TERMINALS_EVIDENCE " not in combined or "OWNED_CHAT_GIT_EVIDENCE " not in combined or combined.count("OWNED_CHAT_CLEANUP ") != 7:
             raise SystemExit("Dedicated runtime evidence missing")
     if stage.exists():
         raise SystemExit("Dedicated staging storage remains")

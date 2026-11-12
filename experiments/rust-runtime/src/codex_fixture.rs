@@ -1,5 +1,5 @@
-//! Nonblocking Codex/ChatHost bridge, restricted to the repository's Node fake app-server.
-//! No constructor accepts an executable, profile, environment, role or MCP endpoint.
+//! Nonblocking Codex/ChatHost bridge. The public constructor uses only the repository Node fake.
+//! The private configured constructor requires a dedicated owner launch capability and retained root lease.
 use milagre_owner_store::{
     chat_host::{
         AnswerId, AnswerOutcome, Provider, ProviderError, ProviderErrorKind, ProviderEvent, TurnId,
@@ -147,6 +147,17 @@ impl FixtureMonitor {
             .0
             == 0
     }
+    /// Wait for actual worker drainage even after cleanup failure was reported.
+    pub(crate) fn wait_drained(&self, timeout: Duration) -> bool {
+        let count = self.shared.workers.lock().unwrap();
+        *self
+            .shared
+            .drained
+            .wait_timeout_while(count, timeout, |n| *n != 0)
+            .unwrap()
+            .0
+            == 0
+    }
     /// Last observed fixture session; bounded to 32 entries, contains no request or environment.
     pub fn native_session(&self, chat: &str) -> Option<(Option<u32>, Option<String>)> {
         self.shared
@@ -244,10 +255,12 @@ struct Start {
     request: Value,
 }
 struct Worker {
+    _root_lifetime: Option<Arc<dyn Send + Sync>>,
     shared: Arc<Shared>,
     profile: Arc<IsolatedProfile>,
     project: PathBuf,
     node: PathBuf,
+    configured: Option<Arc<crate::configured_codex::CodexLaunchContext>>,
     scenario: Scenario,
     chat: String,
     active: Arc<AtomicBool>,
@@ -268,6 +281,7 @@ pub struct CodexFixture {
     isolation: Isolation,
     project: PathBuf,
     node: PathBuf,
+    configured: Option<Arc<crate::configured_codex::CodexLaunchContext>>,
     scenario: Scenario,
     shared: Arc<Shared>,
     slots: HashMap<String, Slot>,
@@ -294,7 +308,40 @@ impl CodexFixture {
             isolation,
             project,
             node,
+            configured: None,
             scenario,
+            shared: Arc::new(Shared {
+                queue: Mutex::new(Queue {
+                    items: VecDeque::new(),
+                    bytes: 0,
+                }),
+                failed: AtomicBool::new(false),
+                answers: Mutex::new(HashSet::new()),
+                workers: Mutex::new(0),
+                observations: Mutex::new(VecDeque::new()),
+                input_probe: Mutex::new(None),
+                drained: Condvar::new(),
+                cleanup_failed: AtomicBool::new(false),
+            }),
+            slots: HashMap::new(),
+            closed: false,
+        })
+    }
+    /// Attach the existing bounded bridge to an explicitly owned persistent Project.
+    /// Nothing is seeded and no provider process starts before an admitted turn.
+    #[allow(dead_code)] // Connected by the dedicated owner entrypoint, never public wire input.
+    pub(crate) fn configured(
+        context: crate::configured_codex::CodexLaunchContext,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        context.validate()?;
+        let profile = Arc::new(IsolatedProfile::create()?);
+        Ok(Self {
+            profile,
+            isolation: context.isolation.clone(),
+            project: context.project.clone(),
+            node: context.program.clone(),
+            configured: Some(Arc::new(context)),
+            scenario: Scenario::Reply,
             shared: Arc::new(Shared {
                 queue: Mutex::new(Queue {
                     items: VecDeque::new(),
@@ -334,6 +381,11 @@ impl CodexFixture {
     ) -> Result<(), ProviderError> {
         if self.closed || self.shared.failed.load(Ordering::Acquire) {
             return Err(refused("The fixture provider is closed"));
+        }
+        if let Some(context) = &self.configured {
+            context
+                .validate()
+                .map_err(|_| refused("Codex launch authority was revoked"))?;
         }
         let slot = self
             .slots
@@ -375,6 +427,28 @@ impl CodexFixture {
         }
         if id.0 == 0 || request.to_string().len() > REQUEST_BYTES {
             return Err(refused("Invalid or oversized fixture turn"));
+        }
+        if let Some(context) = &self.configured {
+            context
+                .validate()
+                .map_err(|_| refused("Codex launch authority was revoked"))?;
+            if request
+                .get("tldrEnabled")
+                .is_some_and(|v| !v.is_null() && !v.is_boolean())
+            {
+                return Err(refused("Codex TLDR selection must be boolean"));
+            }
+            if request["model"] != context.model
+                || request
+                    .get("tldrEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true)
+                    != context.tldr_enabled
+            {
+                return Err(refused(
+                    "Codex model/instruction selection differs from captured launch",
+                ));
+            }
         }
         let map = request
             .as_object()
@@ -420,6 +494,9 @@ impl CodexFixture {
             ));
         }
         for key in ["ultracode", "fastMode", "tldrEnabled"] {
+            if key == "tldrEnabled" && self.configured.is_some() {
+                continue;
+            }
             if request.get(key).is_some_and(|v| !v.is_null() && v != false) {
                 return Err(refused(
                     "Instruction and policy assembly is not implemented by the fixture bridge",
@@ -472,10 +549,15 @@ impl Provider for CodexFixture {
             let latest = Arc::new(AtomicU64::new(0));
             let native_thread = Arc::new(Mutex::new(None));
             let worker = Worker {
+                _root_lifetime: self
+                    .configured
+                    .as_ref()
+                    .map(|context| context.lifetime.clone()),
                 shared: self.shared.clone(),
                 profile: self.profile.clone(),
                 project: self.project.clone(),
                 node: self.node.clone(),
+                configured: self.configured.clone(),
                 scenario: self.scenario,
                 chat: chat.clone(),
                 active: active.clone(),
@@ -680,6 +762,14 @@ impl Drop for CodexFixture {
 
 impl Worker {
     fn agent(&self, id: TurnId, event: Value, terminal: bool) -> bool {
+        if !terminal
+            && self
+                .configured
+                .as_ref()
+                .is_some_and(|c| c.validate().is_err())
+        {
+            return false;
+        }
         self.shared.emit(
             ProviderEvent::Agent {
                 chat: self.chat.clone(),
@@ -721,8 +811,24 @@ impl Worker {
             command=commands.recv()=>match command {Some(c)=>c,None=>return}
         };
         let mut latest = first.id;
+        if self
+            .configured
+            .as_ref()
+            .is_some_and(|c| c.validate().is_err())
+        {
+            self.shared.emit(
+                ProviderEvent::StartFailed {
+                    chat: self.chat.clone(),
+                    turn: latest,
+                    error: refused("Codex launch authority was revoked"),
+                },
+                true,
+            );
+            self.exit(latest);
+            return;
+        }
         let home = self.profile.path().join("home");
-        let spawn = codex::SpawnOptions::new(&self.node)
+        let fixture_spawn = codex::SpawnOptions::new(&self.node)
             .args([Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../packages/core/src/agents/fixtures/fake-app-server.cjs")])
             .cwd(&self.project)
@@ -737,23 +843,46 @@ impl Worker {
                 drain_grace: Duration::from_millis(100),
                 ..Default::default()
             });
+        let spawn = match &self.configured {
+            Some(context) => match context.spawn() {
+                Ok(spawn) => spawn,
+                Err(_) => {
+                    self.shared.emit(
+                        ProviderEvent::StartFailed {
+                            chat: self.chat.clone(),
+                            turn: latest,
+                            error: refused("Codex launch authority was revoked"),
+                        },
+                        true,
+                    );
+                    self.exit(latest);
+                    return;
+                }
+            },
+            None => fixture_spawn,
+        };
         let cwd = self.project.to_string_lossy().to_string();
         let policy = codex::codex_policy(codex::PermissionMode::Ask, &cwd, &[], false, false);
         let mut options =
             codex::SessionOptions::new(codex::ConnectOptions::new(spawn, "fixture"), cwd);
         options.resume_thread_id = first.request["resumeId"].as_str().map(str::to_owned);
-        options.interrupt_grace = Duration::from_millis(200);
+        options.interrupt_grace = if self.configured.is_some() {
+            Duration::from_secs(3)
+        } else {
+            Duration::from_millis(200)
+        };
         options.event_queue = milagre_providers::queue::QueueLimits {
             max_events: 128,
             max_bytes: BYTES,
         };
-        let startup = CodexSession::start(
-            options,
-            chat_thread(
-                first.request["model"].as_str().map(str::to_owned),
-                policy.clone(),
-            ),
+        let mut thread = chat_thread(
+            first.request["model"].as_str().map(str::to_owned),
+            policy.clone(),
         );
+        if let Some(context) = &self.configured {
+            thread.developer_instructions = Some(context.developer_instructions.clone());
+        }
+        let startup = CodexSession::start(options, thread);
         let result = tokio::select! { biased; _=close.changed()=>None, _=interrupt.changed()=>None, result=startup=>Some(result) };
         let (session, mut events) = match result {
             Some(Ok(value)) => value,
@@ -786,7 +915,13 @@ impl Worker {
         loop {
             if let Some(start) = pending.take() {
                 latest = start.id;
-                if *close.borrow() || *interrupt.borrow() == latest.0 {
+                if *close.borrow()
+                    || *interrupt.borrow() == latest.0
+                    || self
+                        .configured
+                        .as_ref()
+                        .is_some_and(|c| c.validate().is_err())
+                {
                     self.shared.emit(
                         ProviderEvent::StartFailed {
                             chat: self.chat.clone(),
@@ -807,6 +942,13 @@ impl Worker {
                 let result = tokio::select! { biased; _=close.changed()=>None, _=interrupt.changed()=>None, result=session.send(settings)=>Some(result) };
                 match result {
                     Some(Ok(outcome)) => {
+                        if self
+                            .configured
+                            .as_ref()
+                            .is_some_and(|c| c.validate().is_err())
+                        {
+                            break;
+                        }
                         native = outcome.turn_id.clone();
                         running = true;
                         if matches!(self.scenario, Scenario::QuestionInputProbe) {
@@ -848,7 +990,7 @@ impl Worker {
                         tokio::select! { biased; _=close.changed()=>break, _=session.interrupt()=>{} }
                     }
                 }
-                event=events.recv()=>match event {
+                event=events.recv()=>match event.filter(|_|self.configured.as_ref().is_none_or(|context|context.validate().is_ok())) {
                     Some(SessionEvent::Agent(event))=> {
                         if !self.agent(latest,event,false) { break; }
                     }
@@ -865,10 +1007,12 @@ impl Worker {
                 reply=answers.recv(), if reply_tasks.len()<8=> if let Some(reply)=reply {
                     if reply.turn!=latest {reply.guard.settle(AnswerOutcome::NotWaiting);} else {
                         let session=session.clone();
+                        let configured=self.configured.clone();
                         let delayed_receipt=matches!(self.scenario,Scenario::QuestionDelayedReceipt);
                         let probe=matches!(self.scenario,Scenario::QuestionInputProbe).then(||(self.shared.clone(),self.chat.clone()));
                         reply_tasks.spawn(async move {
                             let mut guard=reply.guard;
+                            if configured.as_ref().is_some_and(|context|context.validate().is_err()) { guard.settle(AnswerOutcome::Failed(refused("Codex launch authority was revoked"))); return; }
                             guard.entered=true;
                             let result=match reply.kind {
                                 ReplyKind::Permission(decision)=>session.respond_to_permission(&reply.request_id,decision).await,

@@ -45,6 +45,10 @@ References and comparison behavior follow `packages/core/src/git/client.cjs`: re
 
 The read boundary uses the existing Node client's `analysisOnly` approach: clear inherited `GIT_*` redirects, disable fsmonitor, hooks, external diff, textconv and configured clean/smudge/process filters. It also sets `GIT_OPTIONAL_LOCKS=0` so status does not refresh the index, and `GIT_NO_LAZY_FETCH=1` so a partial clone cannot fetch objects during a read. No fetch, push, checkout, commit, staging, remote update or configuration write is available. Worktree common Git directories and configured object stores remain Git's own repository storage; admission is not a sandbox for a malicious concurrently changing filesystem.
 
+The separate [local PR diff read capability](PR-READS.md) adds `pr:diff-files`
+and `pr:diff-file` without GitHub/authentication/fetch authority. `METHODS` stays
+the four local Git channels; `PR_READ_METHODS` advertises this separate subset.
+
 ## Deliberate gaps
 
 1. GitHub PR lookup and default GitHub repository selection remain in the unported GitHub adapter. When Node would query GitHub, this reader returns `ghReady:false`, an explicit unavailable `ghMessage`, `pr:null`, and `prRepo:null`. It does not claim that the user's installed `gh` is missing and omits `ghCode`. Other local fields match Node.

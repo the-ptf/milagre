@@ -5,6 +5,7 @@ mod diff;
 mod history;
 #[cfg(unix)]
 pub mod isolated;
+mod pr;
 mod process;
 mod refs;
 
@@ -25,6 +26,7 @@ pub const METHODS: &[&str] = &[
     "git:diff-files",
     "git:diff-file",
 ];
+pub const PR_READ_METHODS: &[&str] = &["pr:diff-files", "pr:diff-file"];
 pub const UNSUPPORTED_MUTATIONS: &[&str] = &[
     "git:generate",
     "git:commit",
@@ -168,7 +170,7 @@ impl GitReader {
     /// `args` is the object passed by the production renderer (cwd, base, mode,
     /// path, etc.). The daemon adapter owns Project/client authorization first.
     pub async fn call(&self, method: &str, args: Value) -> Result<Value, GitError> {
-        if !METHODS.contains(&method) {
+        if !METHODS.contains(&method) && !PR_READ_METHODS.contains(&method) {
             return Err(GitError::validation(
                 "UNSUPPORTED_METHOD",
                 format!("{method} is not supported by the read-only Rust Git adapter."),
@@ -181,6 +183,15 @@ impl GitReader {
             ));
         }
         let cwd = self.folder(&args)?;
+        if PR_READ_METHODS.contains(&method) {
+            return self.pr_read(&cwd, method, &args).await;
+        }
+        if string(&args, "mode") == Some("pr-range") {
+            return Err(GitError::validation(
+                "INVALID_ARGUMENT",
+                "Reserved Git diff mode.",
+            ));
+        }
         // Reject malformed ref values before building argv. A leading dash remains
         // a missing base, as in Node; it is never passed to an option-taking query.
         for name in ["base", "recordedBase"] {

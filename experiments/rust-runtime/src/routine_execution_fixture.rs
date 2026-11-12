@@ -331,15 +331,22 @@ impl Scheduler {
                 .iter()
                 .filter(|m| jsjson::strict_equals(&m["session_id"], session))
                 .take_while(|m| m["role"] != "user")
-                .find(|m| m["role"] == "assistant" && m.get("context").is_none_or(Value::is_null));
+                .filter(|m| m["role"] == "assistant" && m.get("context").is_none_or(Value::is_null))
+                .last();
             let Some(reply) = reply else {
                 continue;
             };
             let (status, error, summary) = match reply["outcome"].as_str() {
-                Some("completed") => match quiet_summary(reply["body"].as_str().unwrap_or(""))? {
-                    Some(summary) => (RunFinishStatus::Quiet, None, Some(summary)),
-                    None => (RunFinishStatus::Acted, None, None),
-                },
+                Some("completed") => {
+                    match quiet_summary(&milagre_owner_store::chat_host::routine_reply_text(
+                        messages.iter(),
+                        session,
+                        run_id,
+                    )?)? {
+                        Some(summary) => (RunFinishStatus::Quiet, None, Some(summary)),
+                        None => (RunFinishStatus::Acted, None, None),
+                    }
+                }
                 Some("cancelled") => (RunFinishStatus::Failed, Some("cancelled".into()), None),
                 Some("failed") => (
                     RunFinishStatus::Failed,
@@ -416,54 +423,7 @@ fn space(unit: u16) -> bool {
     matches!(unit,0x09..=0x0d|0x20|0xa0|0x1680|0x2000..=0x200a|0x2028|0x2029|0x202f|0x205f|0x3000|0xfeff)
 }
 pub(crate) fn quiet_summary(text: &str) -> Result<Option<String>> {
-    let units = jsjson::to_utf16(text);
-    let start = units
-        .iter()
-        .position(|u| !space(*u) && *u != b'*' as u16 && *u != b'_' as u16)
-        .unwrap_or(units.len());
-    let tail = &units[start..];
-    if tail.len() < 6
-        || !tail[..6]
-            .iter()
-            .zip("(pass)".bytes())
-            .all(|(a, b)| *a == b as u16 || *a == (b.to_ascii_uppercase() as u16))
-    {
-        return Ok(None);
-    }
-    let rest = &tail[6..];
-    let end = rest
-        .iter()
-        .position(|u| matches!(u, 0x0a | 0x0d | 0x2028 | 0x2029))
-        .unwrap_or(rest.len());
-    let line = &rest[..end];
-    let begin = line
-        .iter()
-        .position(|u| !space(*u) && *u != b'*' as u16 && *u != b'_' as u16)
-        .unwrap_or(line.len());
-    let mut line = &line[begin..];
-    while line.last().is_some_and(|u| space(*u)) {
-        line = &line[..line.len() - 1];
-    }
-    let mut result = line.to_vec();
-    if line.len() > 80 {
-        let cut = &line[..79];
-        let mut word = cut.len();
-        if let Some(at) = cut.iter().rposition(|u| space(*u)) {
-            word = at;
-            while word > 0 && space(cut[word - 1]) {
-                word -= 1;
-            }
-        }
-        let mut selected = if word >= 40 { &cut[..word] } else { cut };
-        while selected.last().is_some_and(|u| space(*u)) {
-            selected = &selected[..selected.len() - 1];
-        }
-        result = selected.to_vec();
-        result.push(0x2026);
-    }
-    String::from_utf16(&result)
-        .map(Some)
-        .map_err(|_| "Quiet summary needs a lossless UTF-16 storage boundary".into())
+    milagre_owner_store::chat_host::routine_quiet_summary(text)
 }
 
 // Node summaryTitle uses JS whitespace and UTF-16 shortTitle. A split surrogate

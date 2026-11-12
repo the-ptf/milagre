@@ -88,6 +88,7 @@ fn configured_service_methods(enabled: bool) -> Vec<&'static str> {
         let mut methods: Vec<_> = TERMINAL_METHODS
             .iter()
             .chain(milagre_git_read::METHODS.iter())
+            .chain(milagre_git_read::PR_READ_METHODS.iter())
             .copied()
             .collect();
         #[cfg(feature = "chat-runtime")]
@@ -758,7 +759,9 @@ impl State {
                     .refresh(&state.to_value())?;
                 return Ok(Value::Null);
             }
-            if milagre_git_read::METHODS.contains(&method) {
+            if milagre_git_read::METHODS.contains(&method)
+                || milagre_git_read::PR_READ_METHODS.contains(&method)
+            {
                 let service = self.git.take().ok_or_else(closed)?;
                 let result = service.invoke(method, args, || {
                     self.configured.as_ref().ok_or_else(closed)?.check()?;
@@ -1831,12 +1834,22 @@ pub(crate) fn start_configured(
     content: Arc<crate::claude_content::SharedContent>,
     configured: crate::chat_runtime::Bootstrap,
 ) -> Result<(Server, Value), RpcError> {
+    let default_provider = match provider.name() {
+        "claude" => "claude",
+        "codex" => "codex",
+        _ => {
+            return Err(RpcError::new(
+                "UNSUPPORTED_PROVIDER",
+                "This dedicated provider is unavailable",
+            ))
+        }
+    };
     start_provider(
         profile,
         isolation,
         project,
         provider,
-        "claude",
+        default_provider,
         Some(content),
         #[cfg(feature = "app-fixture")]
         None,

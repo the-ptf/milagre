@@ -587,6 +587,10 @@ fn owned_chat_git_reads_an_actual_owned_repo_without_provider_execution() {
     let (client, _, _events) = block_on(guard.connect(ClientOptions::default())).unwrap();
     let git = guard.git_reads(&client).unwrap();
     assert_eq!(block_on(git.changes(None)), Err(Error::ViewNotOpened));
+    assert_eq!(
+        block_on(git.pr_diff_files(&"0".repeat(40), &"0".repeat(40))),
+        Err(Error::ViewNotOpened)
+    );
     block_on(client.open_view(guard.project())).unwrap();
     let snapshot = block_on(client.runtime_snapshot()).unwrap();
     block_on(client.accept_snapshot(&snapshot)).unwrap();
@@ -694,13 +698,51 @@ fn owned_chat_git_reads_an_actual_owned_repo_without_provider_execution() {
         .unwrap()["head"],
         head
     );
+    let base = fs::read_to_string(Path::new(guard.project()).join(".git/refs/heads/main"))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let index = fs::read(Path::new(guard.project()).join(".git/index")).unwrap();
+    let pr_files = block_on(git.pr_diff_files(&base, head)).unwrap();
+    assert_eq!(pr_files["files"][0]["path"], "hello.txt");
+    let pr_patch = block_on(git.pr_diff_file(&base, head, "hello.txt", None)).unwrap();
+    assert!(pr_patch["patch"].as_str().unwrap().contains("+topic"));
+    assert!(!pr_patch["patch"].as_str().unwrap().contains("+working"));
+    let missing = block_on(git.pr_diff_files(&base, &"0".repeat(40))).unwrap();
+    assert_eq!(
+        missing["message"],
+        "Fetch this PR's commits to see its diff here."
+    );
+    assert_eq!(
+        fs::read(Path::new(guard.project()).join(".git/index")).unwrap(),
+        index
+    );
     block_on(terminal.close(id)).unwrap();
     complete(&guard);
     client.disconnect();
     reader.disconnect();
     assert_eq!(block_on(git.changes(None)), Err(Error::Disconnected));
+    let original_pid = guard.info().pid;
+    drop((git, terminal, output, client, reader, guard));
+    let reopened = block_on(launch_request(Request::prepare(&root, None, true).unwrap())).unwrap();
+    let (client, _, _events) = block_on(reopened.connect(ClientOptions::default())).unwrap();
+    block_on(client.open_view(reopened.project())).unwrap();
+    let snapshot = block_on(client.runtime_snapshot()).unwrap();
+    block_on(client.accept_snapshot(&snapshot)).unwrap();
+    let git = reopened.git_reads(&client).unwrap();
+    assert_eq!(block_on(git.pr_diff_files(&base, head)).unwrap(), pr_files);
+    assert_eq!(
+        block_on(git.pr_diff_file(&base, head, "hello.txt", None)).unwrap(),
+        pr_patch
+    );
+    assert_eq!(
+        fs::read_to_string(Path::new(reopened.project()).join("hello.txt")).unwrap(),
+        "working\n"
+    );
+    complete(&reopened);
+    client.disconnect();
     println!(
         "OWNED_CHAT_GIT_EVIDENCE {}",
-        json!({"pid":guard.info().pid,"realProvider":false,"realRepository":true,"routes":4,"privateSetupHome":true,"explicitSyntheticIdentity":true,"repoInitializationObserved":true,"commit":head,"uncommittedPatch":true,"untrackedPatch":true,"committedPatch":true,"workingFileUnchanged":true})
+        json!({"pid":original_pid,"restartPid":reopened.info().pid,"restartPrDiffEqual":true,"realProvider":false,"realRepository":true,"routes":6,"localPrDiff":true,"missingCommitsRefuseWithoutFetch":true,"indexUnchanged":true,"privateSetupHome":true,"explicitSyntheticIdentity":true,"repoInitializationObserved":true,"commit":head,"uncommittedPatch":true,"untrackedPatch":true,"committedPatch":true,"workingFileUnchanged":true})
     );
 }

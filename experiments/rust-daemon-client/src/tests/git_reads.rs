@@ -7,6 +7,8 @@ const GIT: &[&str] = &[
     "git:history",
     "git:diff-files",
     "git:diff-file",
+    "pr:diff-files",
+    "pr:diff-file",
 ];
 fn git_server(
     run: impl FnOnce(&mut Peer) + Send + 'static,
@@ -393,7 +395,92 @@ fn unsupported_git_method_is_capability_error_without_discovery_or_fallback() {
             required: "method:git:changes".into()
         })
     );
+    assert_eq!(
+        block_on(git.pr_diff_files(SHA, SHA)),
+        Err(Error::Capability {
+            required: "method:pr:diff-files".into()
+        })
+    );
     block_on(client.project_current()).unwrap();
     client.disconnect();
+    worker.join().unwrap();
+}
+
+#[test]
+fn local_pr_routes_validate_commits_paths_and_keep_connection_authority() {
+    let (guard, worker) = git_server(|peer| {
+        open(peer);
+        let request = peer.request("pr:diff-files");
+        assert_eq!(
+            request["args"],
+            json!([{"cwd":PROJECT,"base":SHA,"head":SHA}])
+        );
+        peer.reply(&request, json!({"files":[],"base":null,"isRepo":true}));
+        let request = peer.request("pr:diff-file");
+        assert_eq!(
+            request["args"],
+            json!([{"cwd":PROJECT,"base":SHA,"head":SHA,"path":"new λ","oldPath":"old λ"}])
+        );
+        peer.reply(
+            &request,
+            json!({"patch":"actual patch","binary":false,"tooLarge":false}),
+        );
+        peer.closed();
+    });
+    let (foreign, _) = pair();
+    let (client, _, _) = connect(&guard);
+    assert!(matches!(
+        client.owned_git_for(&foreign.authority),
+        Err(Error::InvalidScope)
+    ));
+    let git = client.owned_git_for(&guard.authority).unwrap();
+    block_on(async {
+        assert_eq!(git.pr_diff_files(SHA, SHA).await, Err(Error::ViewNotOpened));
+        assert_eq!(
+            git.pr_diff_file(SHA, SHA, "file", None).await,
+            Err(Error::ViewNotOpened)
+        );
+        client.open_view(PROJECT).await.unwrap();
+        for bad in [
+            "HEAD",
+            "-HEAD",
+            "A123456789012345678901234567890123456789",
+            "",
+        ] {
+            assert!(matches!(
+                git.pr_diff_files(bad, SHA).await,
+                Err(Error::InvalidInput { field: "base", .. })
+            ));
+            assert!(matches!(
+                git.pr_diff_files(SHA, bad).await,
+                Err(Error::InvalidInput { field: "head", .. })
+            ));
+        }
+        for bad in ["../escape", "/tmp/escape", "a\\..\\escape", ""] {
+            assert!(matches!(
+                git.pr_diff_file(SHA, SHA, bad, None).await,
+                Err(Error::InvalidInput { field: "path", .. })
+            ));
+            assert!(matches!(
+                git.pr_diff_file(SHA, SHA, "valid", Some(bad)).await,
+                Err(Error::InvalidInput {
+                    field: "oldPath",
+                    ..
+                })
+            ));
+        }
+        assert_eq!(git.pr_diff_files(SHA, SHA).await.unwrap()["isRepo"], true);
+        assert_eq!(
+            git.pr_diff_file(SHA, SHA, "new λ", Some("old λ"))
+                .await
+                .unwrap()["patch"],
+            "actual patch"
+        );
+    });
+    client.disconnect();
+    assert_eq!(
+        block_on(git.pr_diff_files(SHA, SHA)),
+        Err(Error::Disconnected)
+    );
     worker.join().unwrap();
 }

@@ -17,6 +17,7 @@ pub mod claude_fixture;
 pub mod codex_fixture;
 #[cfg(feature = "chat-runtime")]
 mod configured_chat_patch;
+mod configured_codex;
 #[cfg(feature = "chat-runtime")]
 mod configured_git;
 #[cfg(feature = "chat-runtime")]

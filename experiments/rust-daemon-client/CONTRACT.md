@@ -95,10 +95,10 @@ substitutes for the retained guard's final cleanup evidence.
 ## Dedicated Git reads (`owned-chat`, default off)
 
 `OwnedChatGuard::git_reads(&Client) -> Result<GitReads>` is another exact-guard,
-weak-Client capability. All four routes require an explicitly opened Project view
+weak-Client capability. The four Git routes and two local PR diff routes require an explicitly opened Project view
 on that Client. A successful `project_current` read is insufficient. Every call
 derives `cwd` from the captured dedicated Project; the caller cannot supply it.
-There is no raw argument object, mutation, PR action, Worktree-path selection,
+There is no raw argument object, mutation, remote PR action, Worktree-path selection,
 parent-repository discovery or fallback. The backend independently verifies the
 Project/repository identity and scope before and after each query.
 
@@ -108,6 +108,8 @@ impl GitReads {
     async fn history(&self, options: GitHistoryOptions) -> Result<Value>;
     async fn diff_files(&self, options: GitDiffOptions) -> Result<Value>;
     async fn diff_file(&self, path: &str, options: GitDiffFileOptions) -> Result<Value>;
+    async fn pr_diff_files(&self, base: &str, head: &str) -> Result<Value>;
+    async fn pr_diff_file(&self, base: &str, head: &str, path: &str, old_path: Option<&str>) -> Result<Value>;
 }
 struct GitHistoryOptions {
     base: Option<String>, recorded_base: Option<String>,
@@ -130,7 +132,7 @@ extra keys. `recorded_base`, `branches_version`, and `old_path` become
 when not supplied; an explicitly empty base string is preserved. A false
 untracked flag is omitted, matching the backend default. Commit selection needs
 a full 40-character lowercase hexadecimal SHA-1 and Committed mode; an untracked
-patch needs Uncommitted mode. Unsupported range/PR options and caller cwd cannot
+patch needs Uncommitted mode. Arbitrary range options and caller cwd cannot
 be represented. Incompatible combinations refuse before enqueue rather than
 being silently ignored.
 
@@ -152,6 +154,16 @@ the explicit separate reader connection described above. Existing notification
 barriers apply unchanged; GitReads does not create another subscription or owner.
 Repository absence is preserved as the daemon's `isRepo:false` result (or its
 `GIT_NOT_REPOSITORY` refusal for a patch), never an invented empty repository.
+
+The explicit local PR methods use `pr:diff-files` and `pr:diff-file` with full
+lowercase 40-character SHA-1 `base`/`head`, comparing merge-base(base,head)..head.
+`old_path` becomes `oldPath`; paths keep the same bounded literal relative-path
+contract. No fetch, GitHub authentication, PR detail lookup, review write or remote
+API is added. Missing local commits return the backend's fetch-needed/empty-patch
+result rather than silently fetching. The ordinary Git diff capability does not
+accept this internal PR range mode. Existing snapshot receipt/event barriers stay
+unchanged; integration tests explicitly open the view, apply/accept a snapshot,
+then call these methods. Reconnect remains explicit.
 
 `milagre-daemon-client` is the backend-owned protocol-v1 client boundary agreed with the GPUI workstream in Chat #11899. It is independent of Tauri, GPUI and the caller's async runtime. This checkpoint adds a separate connection-bound ScriptedActions capability to the owned-child launcher and protocol engine. Bounded deferred Project-state hydration remains available. Real `app-fixture` reads, live hydration, paging, reconnect and lifecycle checks run separately from the default test suite. **It is not production authority or a complete GPUI adapter.** No installed app or runtime imports this crate yet.
 

@@ -56,7 +56,9 @@ use crate::transcripts::{
 #[cfg(feature = "routine-execution-fixture")]
 mod routine_fixture;
 #[cfg(feature = "routine-execution-fixture")]
-pub use routine_fixture::RoutineFixtureError;
+pub use routine_fixture::{
+    quiet_summary as routine_quiet_summary, routine_reply_text, RoutineFixtureError,
+};
 enum SendAdmission {
     Ordinary,
     #[cfg(feature = "routine-execution-fixture")]
@@ -3340,6 +3342,37 @@ impl ChatHost {
                     .is_some_and(|(turn, _)| *turn == receipt.turn)
                 {
                     receipt.marked = marked_unread.then(|| std::sync::Arc::downgrade(&state.rest));
+                }
+            }
+        }
+        // Node observes the folded terminal before broadcasting it. Keep the
+        // fold/unread mutation intact; only this exact trusted routine turn may
+        // annotate its completed event. Durable finishing stays in the scheduler.
+        #[cfg(feature = "routine-execution-fixture")]
+        if kind == "turn-completed" {
+            if let Some(receipt) = self.routine_unread.get(chat).filter(|receipt| {
+                self.active
+                    .get(chat)
+                    .is_some_and(|(turn, _)| *turn == receipt.turn)
+            }) {
+                let session = json!(session_id);
+                let own_message = session_messages(&state, &session)
+                    .filter(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+                    .last()
+                    .is_some_and(|m| {
+                        m.value()["context"]["kind"] == "routine-run"
+                            && m.value()["context"]["runId"] == receipt.run_id
+                    });
+                if own_message {
+                    match routine_fixture::routine_reply_text(state.message_list().iter().map(|m| m.value()), &session, &receipt.run_id)
+                        .and_then(|body| routine_fixture::quiet_summary(&body)) {
+                        Ok(Some(_)) => event["quiet"] = json!(true),
+                        Ok(None) => {},
+                        Err(_) => self.notice(Notice::Gap {
+                            chat: chat.into(),
+                            what: "routine quiet classification needs a valid reply and lossless UTF-16 storage boundary".into(),
+                        }),
+                    }
                 }
             }
         }

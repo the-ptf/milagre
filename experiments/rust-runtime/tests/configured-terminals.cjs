@@ -31,7 +31,7 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   const project = receipt.actor.project,
     chatId = project + "#1";
   client = await connect({ dataDir: receipt.profile, timeoutMs: 10000 });
-  for (const method of ["terminal:profiles", "terminal:list", "terminal:open", "git:changes"])
+  for (const method of ["terminal:profiles", "terminal:list", "terminal:open", "git:changes", "pr:diff-files", "pr:diff-file"])
     await assert.rejects(client.call(method, [{ chatId, cwd: project }]), { code: "ISOLATED_SCOPE_ONLY" });
   await client.call("project:open", [project]);
   assert.equal((await client.call("project:current")).git, false);
@@ -93,6 +93,13 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.ok(diff.patch.includes("+after"));
   const history = await second.call("git:history", [{ cwd: project }]);
   assert.equal(typeof history.head, "string");
+  const commits = { cwd: project, base: history.head, head: history.head };
+  assert.deepEqual((await second.call("pr:diff-files", [commits])).files, []);
+  assert.equal((await second.call("pr:diff-file", [{ ...commits, path: "terminal.txt" }])).patch, "");
+  assert.equal((await second.call("pr:diff-files", [{ ...commits, head: "0".repeat(40) }])).message, "Fetch this PR's commits to see its diff here.");
+  await assert.rejects(second.call("pr:diff-files", [{ ...commits, cwd: "/tmp" }]), { code: "GIT_SCOPE" });
+  assert.equal((await second.call("pr:diff-file", [{ ...commits, path: "../escape" }])).ok, false);
+
   await assert.rejects(second.call("git:changes", [{ cwd: "/tmp" }]), { code: "GIT_SCOPE" });
   await second.call("terminal:close", [{ terminalId: terminal.id }]);
   assert.equal((await second.call("terminal:read", [{ terminalId: terminal.id, after: read.offset }])).ended, true);

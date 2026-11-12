@@ -3,7 +3,123 @@ use super::*;
 
 pub(super) struct UnreadReceipt {
     pub(super) turn: TurnId,
+    pub(super) run_id: String,
     pub(super) marked: Option<std::sync::Weak<serde_json::Map<String, Value>>>,
+}
+
+fn space(unit: u16) -> bool {
+    matches!(unit,0x09..=0x0d|0x20|0xa0|0x1680|0x2000..=0x200a|0x2028|0x2029|0x202f|0x205f|0x3000|0xfeff)
+}
+/// Pure Node parsePass port shared by saved completion and live publication.
+pub fn quiet_summary(text: &str) -> std::result::Result<Option<String>, String> {
+    let units = jsjson::to_utf16(text);
+    let start = units
+        .iter()
+        .position(|u| !space(*u) && *u != b'*' as u16 && *u != b'_' as u16)
+        .unwrap_or(units.len());
+    let tail = &units[start..];
+    if tail.len() < 6
+        || !tail[..6]
+            .iter()
+            .zip("(pass)".bytes())
+            .all(|(a, b)| *a == b as u16 || *a == (b.to_ascii_uppercase() as u16))
+    {
+        return Ok(None);
+    }
+    let rest = &tail[6..];
+    let end = rest
+        .iter()
+        .position(|u| matches!(u, 0x0a | 0x0d | 0x2028 | 0x2029))
+        .unwrap_or(rest.len());
+    let line = &rest[..end];
+    let begin = line
+        .iter()
+        .position(|u| !space(*u) && *u != b'*' as u16 && *u != b'_' as u16)
+        .unwrap_or(line.len());
+    let mut line = &line[begin..];
+    while line.last().is_some_and(|u| space(*u)) {
+        line = &line[..line.len() - 1];
+    }
+    let mut result = line.to_vec();
+    if line.len() > 80 {
+        let cut = &line[..79];
+        let mut word = cut.len();
+        if let Some(at) = cut.iter().rposition(|u| space(*u)) {
+            word = at;
+            while word > 0 && space(cut[word - 1]) {
+                word -= 1;
+            }
+        }
+        let mut selected = if word >= 40 { &cut[..word] } else { cut };
+        while selected.last().is_some_and(|u| space(*u)) {
+            selected = &selected[..selected.len() - 1];
+        }
+        result = selected.to_vec();
+        result.push(0x2026);
+    }
+    String::from_utf16(&result)
+        .map(Some)
+        .map_err(|_| "Quiet summary needs a lossless UTF-16 storage boundary".into())
+}
+
+/// Node routineReply: only final prose after the last non-thinking tool offset.
+/// The caller supplies the captured Run ID; a foreign/newer divider refuses.
+pub fn routine_reply_text<'a>(
+    messages: impl IntoIterator<Item = &'a Value>,
+    session: &Value,
+    run_id: &str,
+) -> std::result::Result<String, String> {
+    let messages: Vec<_> = messages
+        .into_iter()
+        .filter(|m| jsjson::strict_equals(&m["session_id"], session))
+        .collect();
+    let Some(start) = messages
+        .iter()
+        .rposition(|m| m["role"] == "user" && m["context"]["kind"] == "routine-run")
+    else {
+        return Err("Routine reply divider disappeared".into());
+    };
+    if messages[start]["context"]["runId"] != run_id {
+        return Err("Routine reply belongs to another Run".into());
+    }
+    let reply = messages[start + 1..].iter().rev().find(|m| {
+        m["role"] == "assistant"
+            && m.get("context").is_none_or(Value::is_null)
+            && (m["body"]
+                .as_str()
+                .is_some_and(|s| !crate::tool_activity::js_trim(s).is_empty())
+                || m["steps"].as_array().is_some_and(|steps| !steps.is_empty()))
+    });
+    let Some(reply) = reply else {
+        return Ok(String::new());
+    };
+    let body = reply
+        .get("body")
+        .filter(|v| !v.is_null())
+        .map_or(Ok(""), |v| {
+            v.as_str().ok_or("Routine reply body must be text")
+        })?;
+    let units = jsjson::to_utf16(body);
+    let mut cut = 0usize;
+    if let Some(steps) = reply.get("steps").filter(|v| !v.is_null()) {
+        for step in steps
+            .as_array()
+            .ok_or("Routine reply steps must be a list")?
+        {
+            if step["kind"] == "thinking" {
+                continue;
+            }
+            let offset = match step.get("offset").filter(|v| !v.is_null()) {
+                None => 0.0,
+                Some(v) => v.as_f64().ok_or("Routine reply offset must be numeric")?,
+            };
+            if !offset.is_finite() {
+                return Err("Routine reply offset must be finite".into());
+            }
+            cut = cut.max(offset.max(0.0).min(units.len() as f64).trunc() as usize);
+        }
+    }
+    Ok(crate::tool_activity::js_trim(&jsjson::from_utf16(&units[cut..])).to_owned())
 }
 
 pub const ROUTINE_PASS_HINT: &str =
@@ -57,8 +173,14 @@ impl ChatHost {
             .send_admitted(&request, SendAdmission::RoutineFixture)
             .map_err(RoutineFixtureError::Dispatch)?;
         if let Some(turn) = sent.turn {
-            self.routine_unread
-                .insert(chat, UnreadReceipt { turn, marked: None });
+            self.routine_unread.insert(
+                chat,
+                UnreadReceipt {
+                    turn,
+                    run_id: claim["run"]["id"].as_str().unwrap().into(),
+                    marked: None,
+                },
+            );
         }
         Ok(sent)
     }
@@ -398,6 +520,158 @@ mod tests {
         (root, host, provider, project, claim)
     }
     #[test]
+    fn final_routine_reply_matches_actual_node_with_tools_and_multiple_replies() {
+        let cases = vec![
+            json!([{"body":"Checking CI. (pass) CI green","steps":[{"kind":"tool","offset":13}]}]),
+            json!([{"body":"(pass) provisional. Changed files","steps":[{"kind":"tool","offset":20}]}]),
+            json!([{"body":"(pass) old"},{"body":"Acted final"}]),
+            json!([{"body":"Acted first"},{"body":"(pass) Final"}]),
+            json!([{"body":"(pass) Kept","steps":[{"kind":"thinking","offset":999}]}]),
+            json!([{"body":"😀before (pass) Unicode","steps":[{"kind":"tool","offset":9}]}]),
+            json!([{"body":"(pass) Previous"},{"body":"","steps":[]}]),
+            json!([{"body":"(pass) Previous"},{"body":"","steps":[{"kind":"tool","offset":0}]}]),
+            json!([{"body":"note","context":{"kind":"note"}},{"body":" \u{feff}(pass) Final\n"}]),
+        ];
+        let vectors: Vec<Value> = cases.iter().map(|replies| {
+            let mut messages=vec![json!({"session_id":1,"role":"user","context":{"kind":"routine-run","runId":"r"}})];
+            for reply in replies.as_array().unwrap() { let mut m=reply.clone();m["session_id"]=json!(1);m["role"]=json!("assistant");messages.push(m); }
+            json!({"messages":messages})
+        }).collect();
+        let output=std::process::Command::new("node").arg("-e")
+            .arg("const {routineReply}=require(process.argv[1]+'/packages/core/src/routines/runtime-adapter.cjs');console.log(JSON.stringify(JSON.parse(process.argv[2]).map(state=>routineReply(state,1))))")
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .arg(serde_json::to_string(&vectors).unwrap()).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+        for (state, expected) in vectors.iter().zip(expected) {
+            let actual =
+                routine_reply_text(state["messages"].as_array().unwrap().iter(), &json!(1), "r")
+                    .unwrap();
+            assert_eq!(actual, expected, "{state}");
+            assert_eq!(
+                quiet_summary(&actual).unwrap().is_some(),
+                expected.starts_with("(pass)")
+            );
+        }
+        assert!(routine_reply_text(
+            vectors[0]["messages"].as_array().unwrap().iter(),
+            &json!(1),
+            "other"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn live_quiet_annotation_is_exact_turn_scoped_and_parser_failure_keeps_terminal() {
+        // Actual Node scheduler, including its pending-message/turn observer,
+        // rather than a hand-written event classifier.
+        let script = r#"
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {createRoutineStore}=require(process.argv[1]+'/packages/core/src/routines/store.cjs');
+const {createRoutineScheduler}=require(process.argv[1]+'/packages/core/src/routines/scheduler.cjs');
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'rust-live-quiet-oracle-'));
+(async()=>{const out=[];for(const [i,text] of JSON.parse(process.argv[2]).entries()){
+let at=Date.UTC(2026,0,5,10),n=0;const store=createRoutineStore({file:path.join(root,i+'.json'),now:()=>at,id:()=>`id${++n}`});
+const routine=store.upsertHeartbeat({chatId:'c1',name:'check',prompt:'check',every:'15m',timezone:'UTC',createdBy:{kind:'user'}});
+const chats={exists:()=>true,archived:()=>false,busy:()=>false,send:async()=>({started:Promise.resolve({turnId:'t1'})}),replyText:()=>text,patchRunContext:async()=>{},nameRun:async()=>{}};
+const scheduler=createRoutineScheduler({store,chats,now:()=>at});at=routine.nextRunAt;await scheduler.tick();scheduler.observe('c1',{type:'turn-started',turnId:'t1'});
+const event={type:'turn-completed'};scheduler.observe('c1',event);out.push(event);await scheduler.idle();}
+console.log(JSON.stringify(out));})().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>fs.rmSync(root,{recursive:true}));
+"#;
+        let output = std::process::Command::new("node")
+            .arg("-e")
+            .arg(script)
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .arg(
+                json!([
+                    "(pass) Clean",
+                    "\u{feff}**_(PASS) Clean",
+                    "Ordinary acted reply"
+                ])
+                .to_string(),
+            )
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+            json!([
+                {"type":"turn-completed","quiet":true}, {"type":"turn-completed","quiet":true}, {"type":"turn-completed"}
+            ])
+        );
+        for (text, tracking, quiet, gap) in [
+            ("(pass) Clean".to_string(), "exact", true, false),
+            ("\u{feff}**_(PASS) Clean".to_string(), "exact", true, false),
+            ("Ordinary acted reply".to_string(), "exact", false, false),
+            ("(pass) Clean".to_string(), "none", false, false),
+            ("(pass) Clean".to_string(), "wrong-turn", false, false),
+            ("(pass) Clean".to_string(), "wrong-run", false, false),
+            (
+                format!("(pass) {}😀zz", "a".repeat(78)),
+                "exact",
+                false,
+                true,
+            ),
+        ] {
+            let (_root, mut host, _provider, project, claim) = setup();
+            let chat = claim["routine"]["target"]["chatId"].as_str().unwrap();
+            let turn = host
+                .send_claimed_routine_fixture(&project, &claim, "sonnet")
+                .unwrap()
+                .turn
+                .unwrap();
+            match tracking {
+                "none" => {
+                    host.routine_unread.remove(chat);
+                }
+                "wrong-turn" => {
+                    host.routine_unread.get_mut(chat).unwrap().turn = TurnId(turn.0 + 1)
+                }
+                "wrong-run" => {
+                    host.routine_unread.get_mut(chat).unwrap().run_id = "different-run".into()
+                }
+                _ => {}
+            }
+            host.receive(chat, turn, &json!({"type":"text-delta","text":text}))
+                .unwrap();
+            host.take_notices();
+            host.receive(chat, turn, &json!({"type":"turn-completed"}))
+                .unwrap();
+            let notices = host.take_notices();
+            let terminal: Vec<_> = notices
+                .iter()
+                .filter_map(|n| match n {
+                    Notice::Event { event, .. } if event["type"] == "turn-completed" => Some(event),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(terminal.len(), 1, "{tracking} {text}");
+            assert_eq!(
+                terminal[0].get("quiet") == Some(&json!(true)),
+                quiet,
+                "{tracking} {text}"
+            );
+            assert!(terminal[0].get("summary").is_none());
+            assert_eq!(notices.iter().any(|n| matches!(n, Notice::Gap { what, .. } if what.starts_with("routine quiet classification"))), gap);
+            // Annotation occurs after fold: unread mutation still receives its
+            // exact receipt for the later saved completion path.
+            assert_eq!(
+                host.states.current(&project).unwrap().rest["sessions"]["1"]["unread"],
+                true
+            );
+            host.shutdown(false).unwrap();
+        }
+    }
+
+    #[test]
     fn unread_tracking_capacity_refuses_before_dispatch_and_successful_close_drains() {
         let (_root, mut host, provider, project, claim) = setup();
         for id in 0..64 {
@@ -405,6 +679,7 @@ mod tests {
                 format!("{}#{}", project.display(), id + 100),
                 UnreadReceipt {
                     turn: TurnId(id),
+                    run_id: "capacity-only".into(),
                     marked: None,
                 },
             );

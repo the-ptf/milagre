@@ -347,3 +347,75 @@ production root, real provider, normal application binary or client was changed.
 Final explicit-intent validation passes 151 runtime and 234 owner checks.
 Feature/normal runtime and feature owner all-target strict Clippy, rustfmt and
 whitespace checks pass. All three actual actor timer cases remain green.
+
+## Live quiet completed-event annotation (source, not installed)
+
+After a successful terminal fold and before constructing its Event notice, the
+owner marks an exact registered routine turn's completed event `quiet:true` when
+its own saved reply parses as `(pass)`. The active TurnId and the latest user
+message's captured Run ID must both match. This uses the existing bounded 64-turn
+tracking, with a bounded Run ID added to each entry. Untracked ordinary turns,
+wrong turns/Runs and acted replies receive no annotation. The normal/default
+owner build has no hook.
+
+The one pure Node `parsePass` port now lives in the owner fixture and is reused
+by runtime saved completion. The observer changes no durable Run and creates no
+new worker, clock, lease or completion retry. It deliberately runs after the
+ordinary fold/unread mutation, matching Node's fold-then-observe ordering; exact
+unread provenance remains available for the later saved completion rollback.
+Node puts only `quiet` on the live event. The summary stays on its saved divider,
+not a fabricated live `summary` field.
+
+If UTF-16 summary truncation would produce an unrepresentable lone surrogate,
+the owner emits a visible classification Gap and the original terminal without
+inventing `quiet`. It still publishes exactly one terminal. The scheduler's shared
+parser then refuses saved completion and retains its existing no-replay fence.
+That is a stated strict difference from Node's representable UTF-16 string, not a
+successful quiet completion. Other fold and publication failures retain their
+existing behavior. Retry/failed-again/silenced terminals and model-generated acted
+names remain outside this bounded checkpoint; public scheduling stays disabled.
+
+Evidence: the actual Node scheduler `observe` oracle compares quiet/acted event
+shapes. Owner controls cover untracked, wrong-turn, wrong-Run and parser-error
+paths, preserving the ordinary terminal unread fold. The new explicit synthetic
+quiet preset runs an actual fixed native turn through the real actor/socket and
+Node client; its one terminal already carries `quiet:true` when received. It
+checks saved context/title/archive/unread, relaunch/no replay and the existing
+manifest-revocation/cleanup path. No new clock RPC exists; the timer waits for a
+real minute under the existing 75-second bound. The wire test checks annotation,
+not whether the network event arrives before the durable Run write.
+
+Full validation: 235 owner and 152 runtime checks pass, including all four actual
+actor/native timer cases; strict owner feature and runtime feature/normal Clippy,
+rustfmt, JS Prettier/oxlint and whitespace checks pass. Logs:
+`/tmp/milagre-routine-live-{owner-node,owner-full,runtime-full,owner-clippy,runtime-clippy,normal-clippy,actor,actor-final}.log`.
+The final actor rerun only renames the test to state its narrower evidence.
+Initial owner compile and missing-NODE_PATH failures remain separate logs; they
+are not acceptance evidence. No installed binary or live provider was used.
+
+### Reply extraction review correction
+
+Independent review found that classifying the raw full reply ignored Node's
+`routineReply` rule: final prose starts after the maximum non-thinking tool-step
+UTF-16 offset in the last nonempty/tool-bearing assistant reply after the latest
+Run divider. An introductory `(pass)` before later tool work must not hide an
+acted result; a final `(pass)` after introductory prose must still be quiet.
+
+Live and saved classification now use one owner fixture `routine_reply_text`
+helper, with exact captured Run ID validation. Saved terminal status reads the
+last assistant rather than the first. The actual Node `routineReply` differential
+covers nine tool-offset, thinking, multiple-reply, empty-reply and Unicode cases.
+Malformed nonnumeric/nonfinite offsets and malformed selected reply fields refuse
+rather than guessing JavaScript coercions; normal native recorded offsets are
+numeric. The existing lone-surrogate summary refusal remains unchanged.
+
+Focused correction logs: `/tmp/milagre-routine-reply-{owner-focused,owner-tests,runtime-focused}.log`.
+This correction awaits root's combined full-suite acceptance with the parallel
+Codex/Git integration; prior full-suite counts above predate this correction.
+Focused correction reruns pass ten owner routine-fixture cases and fourteen runtime
+routine execution cases. The first fresh-target runtime attempt compiled but
+failed before fixture creation because its fixed fake sibling binary was absent;
+that attempt remains in `runtime-focused.log`. Building only the fake sibling and
+rerunning passes (`runtime-focused-retry.log`). Whole-workspace formatting checks
+may still reflect concurrent Codex integration; the touched routine files pass
+individual rustfmt checks.

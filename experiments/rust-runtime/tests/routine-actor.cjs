@@ -41,6 +41,13 @@ async function launch(mode) {
   );
   lines.close();
   row.client = await connect({ dataDir: row.receipt.profile, timeoutMs: 3000 });
+  row.events = [];
+  row.client.on("event", (e) => {
+    if (e.channel === "agent:event") {
+      if (row.events.length >= 128) row.eventsOverflow = true;
+      else row.events.push(e.payload);
+    }
+  });
   await row.client.call("project:open", [row.receipt.actor.project]);
   return row;
 }
@@ -70,8 +77,17 @@ async function stop(row) {
 }
 (async () => {
   const blocked = process.argv[3] === "--blocked";
-  const newChat = process.argv[3] === "--new-chat";
-  const row = await launch(blocked ? "routine-blocked-fixture-create" : newChat ? "routine-new-chat-fixture-create" : "routine-fixture-create");
+  const quiet = process.argv[3] === "--quiet";
+  const newChat = quiet || process.argv[3] === "--new-chat";
+  const row = await launch(
+    blocked
+      ? "routine-blocked-fixture-create"
+      : quiet
+        ? "routine-quiet-fixture-create"
+        : newChat
+          ? "routine-new-chat-fixture-create"
+          : "routine-fixture-create",
+  );
   if (blocked) {
     const end = Date.now() + 75000;
     for (;;) {
@@ -105,10 +121,10 @@ async function stop(row) {
   const end = Date.now() + 75000;
   while (Date.now() < end) {
     saved = JSON.parse(fs.readFileSync(path.join(root, "routines/routines.json"), "utf8"));
-    if (Object.values(saved.runs).some((runs) => runs[0]?.status === "acted")) break;
+    if (Object.values(saved.runs).some((runs) => runs[0]?.status === (quiet ? "quiet" : "acted"))) break;
     await pause(20);
   }
-  const runs = Object.values(saved.runs).find((entries) => entries[0]?.status === "acted");
+  const runs = Object.values(saved.runs).find((entries) => entries[0]?.status === (quiet ? "quiet" : "acted"));
   assert.ok(runs, "real actor must persist terminal before deadline");
   const run = runs[0];
   assert.equal(saved.routines[0].runCount, 1);
@@ -123,7 +139,7 @@ async function stop(row) {
       runId: run.id,
       hidden: true,
     });
-    assert.equal(state.sessions[String(chatId)].generatedTitle, "Actor timer fixture");
+    assert.equal(state.sessions[String(chatId)].generatedTitle, quiet ? "Actor timer clean" : "Actor timer fixture");
     assert.equal(state.sessions["1"].summary.count, 0);
     assert.equal(run.worktreeId, String(state.sessions[String(chatId)].worktree_id));
   }
@@ -132,7 +148,20 @@ async function stop(row) {
   assert.equal(messages.total, 2);
   assert.equal(messages.messages[0].context.kind, "routine-run");
   assert.equal(messages.messages[0].context.runId, run.id);
-  assert.equal(messages.messages[1].body, "Actor timer completed");
+  assert.equal(messages.messages[1].body, quiet ? "(pass) Actor timer clean" : "Actor timer completed");
+  assert.equal(row.eventsOverflow, undefined);
+  const terminals = row.events.filter((e) => e.chatId === `${row.receipt.actor.project}#${chatId}` && e.event.type === "turn-completed");
+  assert.equal(terminals.length, 1);
+  assert.equal(terminals[0].event.quiet === true, quiet);
+  assert.equal(Object.hasOwn(terminals[0].event, "summary"), false);
+  if (quiet) {
+    assert.equal(messages.messages[0].context.quiet, true);
+    assert.equal(messages.messages[0].context.summary, "Actor timer clean");
+    assert.equal(run.title, "Actor timer clean");
+    const persisted = (await row.client.call("state:read", [row.receipt.actor.project])).state;
+    assert.equal(persisted.sessions[String(chatId)].archived, true);
+    assert.equal(persisted.sessions[String(chatId)].unread, false);
+  }
   assert.equal(messages.messages[1].outcome, "completed");
   await stop(row);
   const reopened = await launch("routine-fixture-open");
@@ -177,6 +206,7 @@ async function stop(row) {
     JSON.stringify({
       actorTimer: true,
       newChat,
+      liveQuietTerminal: quiet,
       ownerFaultRetainedAndRecovered: true,
       actualFixedNative: true,
       storedClaim: true,

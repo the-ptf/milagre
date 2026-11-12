@@ -1,6 +1,6 @@
 # Restartable Rust Chat runtime
 
-`chat-runtime` runs one dedicated Project and one explicitly selected Claude account/model. The Rust owner handles open, send, streamed events, permission answers, queues, SQLite messages and shutdown. It starts no Milagre Node daemon. Each launch creates a fresh private wire profile, socket and publication epoch; the separate marked data root and saved native session ID persist.
+`chat-runtime` runs one dedicated Project and one explicitly selected Claude or Codex account/model. The optional launch field `provider` is `"claude"` (also the backward-compatible default when absent) or `"codex"`. The Rust owner handles open, send, streamed events, permission answers, queues, SQLite messages and shutdown. It starts no Milagre Node daemon. Each launch creates a fresh private wire profile, socket and publication epoch; the separate marked data root and saved native session ID persist.
 
 Build the executable explicitly:
 
@@ -82,6 +82,37 @@ The owner and provider preserve their existing refusal and save semantics. A fai
 Desktop bootstrap reads expose the configured Project: `canvas:snapshot` includes current state supplied by the owning actor, `canvas:links` and `link:list` return empty arrays because this runtime has no Link/group writers, and `accounts:scopes` lists only that Project. These four reads take no caller scope or state. They remain behind the same live Project/root checks; unsupported mutations and account refresh remain refused. Their shapes follow the existing actual Node bootstrap oracle, with the dedicated Project's own identity/name and no invented opening timestamp. No transcript is seeded for display. The restart client compares canvas state before and after a real owner turn and on reopen; fixed-child evidence remains separate from real Claude validation.
 
 Opening a Chat can mark it read through `chat:patch(projectPath, sessionId, {unread: boolean})`. This configured-runtime subset requires the connection to have opened the explicit Project, a ready owner, an existing positive safe-integer Chat ID, and exactly that one boolean field. Other patches, including mixed fields, are refused. It follows Node `patchSession`: true sets `unread`, false removes it, and unchanged marks do not publish a new version. The owning state store flushes before publication and the null RPC result. A failed save returns an error and retains the owner's dirty state/persistence warning; retrying the same mark still flushes that pending save. Focused fault tests and the fixed-child restart client cover this boundary, with the client comparing results directly to the actual shared Node reducer and checking both mark values across daemon restarts.
+
+## Explicit Codex selection
+
+A normal private launch manifest may add `"provider":"codex"` to the same nine
+fields. `program` must name the explicitly selected Codex executable;
+`configDirectory` becomes its selected `CODEX_HOME`. Model/account metadata and
+all sends are pinned to that provider/model. Old nine-field Claude manifests and
+saved roots are unchanged. Unknown/null providers and Codex fixture presets refuse.
+
+Codex starts directly with `app-server`, using only the captured HOME, CODEX_HOME,
+PATH, USER, LOGNAME and LANG environment. No Node daemon or sidecar is used in the
+configured path. The owner snapshots actual bundled writing instructions and uses
+the shared Node-compatible `milagreInstructions(true, undefined, sharedLink:false)`
+assembly as `developerInstructions` on thread start/resume. The model and TLDR
+selection are fixed for this launch. Ask text, native approvals/questions, stream,
+interrupt and saved native-thread resume reuse the existing bounded transport.
+Auto/Full, images, fast mode, caller MCP extras and changing TLDR during this launch
+remain refused. Milagre content tools are not registered with Codex yet; renderer
+content reads/edits retain the same single SharedContent writer. The native CLI
+may read its own explicitly selected account configuration, including its MCP
+configuration; this checkpoint neither imports caller MCP servers nor claims to
+suppress every native account setting or provide filesystem confinement.
+
+The actual normal create/open entrypoint is tested with a synthetic executable
+wrapper over the repository Node app-server fake, not a real account. Two native
+processes stream/save replies, reopen identical history first without sending,
+then send using the exact saved native thread via `thread/resume`. The fake records
+actual thread frames and their instructions equal real Node `sessionInstructions`
+byte for byte. Both stops require actual socket/profile/Project-lock cleanup with
+retained data. CLI/account status remains unknown; no authentication readiness or
+real Codex compatibility is claimed. See [CONFIGURED-CODEX.md](CONFIGURED-CODEX.md).
 
 ## Retained configured content
 

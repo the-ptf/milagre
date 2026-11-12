@@ -36,7 +36,7 @@ pub struct GitDiffFileOptions {
 }
 
 /// Weak reads for one opened dedicated Project. No cwd selection, raw arguments,
-/// mutations, PR actions, ambient discovery, or implicit connections are exposed.
+/// mutations, remote PR actions, ambient discovery, or implicit connections are exposed.
 #[derive(Clone)]
 pub struct GitReads {
     handle: Weak<Handle>,
@@ -138,6 +138,44 @@ impl GitReads {
             reply,
         })?;
         Ok(wait)
+    }
+    /// Local immutable PR comparison. Missing local commits never trigger fetch.
+    pub async fn pr_diff_files(&self, base: &str, head: &str) -> Result<Value> {
+        let client = self.client()?;
+        let argument = Self::pr_argument(&client, base, head)?;
+        Self::enqueue(client, "pr:diff-files", argument)?.await
+    }
+    /// Local immutable PR patch. Both paths are literal relative repository paths.
+    pub async fn pr_diff_file(
+        &self,
+        base: &str,
+        head: &str,
+        path: &str,
+        old_path: Option<&str>,
+    ) -> Result<Value> {
+        let client = self.client()?;
+        relative_path(path, "path")?;
+        let mut argument = Self::pr_argument(&client, base, head)?;
+        argument["path"] = json!(path);
+        if let Some(old_path) = old_path {
+            relative_path(old_path, "oldPath")?;
+            argument["oldPath"] = json!(old_path);
+        }
+        Self::enqueue(client, "pr:diff-file", argument)?.await
+    }
+    fn pr_argument(client: &Client, base: &str, head: &str) -> Result<Value> {
+        let mut argument = Self::argument(client);
+        for (name, value) in [("base", base), ("head", head)] {
+            if value.len() != 40
+                || !value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err(input(name, "Expected a full lowercase SHA-1"));
+            }
+            argument[name] = json!(value);
+        }
+        Ok(argument)
     }
     pub async fn changes(&self, base: Option<&str>) -> Result<Value> {
         let client = self.client()?;

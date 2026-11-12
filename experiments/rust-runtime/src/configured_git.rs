@@ -96,10 +96,12 @@ impl ConfiguredGit {
     ) -> RpcResult {
         check()?;
         self.root.check().map_err(scope)?;
-        if !milagre_git_read::METHODS.contains(&method) {
+        if !milagre_git_read::METHODS.contains(&method)
+            && !milagre_git_read::PR_READ_METHODS.contains(&method)
+        {
             return Err(RpcError::new(
                 "UNSUPPORTED_METHOD",
-                "Only the installed read-only Git commands are available",
+                "Only the installed read-only Git and local PR diff commands are available",
             ));
         }
         if args.len() != 1 || !args[0].is_object() {
@@ -124,6 +126,12 @@ impl ConfiguredGit {
             self.runtime
                 .block_on(self.reader.call(method, argument))
                 .map_err(convert)
+        } else if milagre_git_read::PR_READ_METHODS.contains(&method) {
+            Ok(if method == "pr:diff-files" {
+                json!({"isRepo":false,"message":NOT_REPO})
+            } else {
+                json!({"patch":"","binary":false,"tooLarge":false})
+            })
         } else if method == "git:diff-file" {
             Err(RpcError::new("GIT_NOT_REPOSITORY", NOT_REPO))
         } else {
@@ -319,7 +327,27 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("literal \u{10fffe} Unicode"));
-        assert_eq!(calls.get(), 10);
+        let base = git(&project, &["rev-parse", "main"]);
+        let index_before = fs::read(project.join(".git/index")).unwrap();
+        let pr_files = service
+            .invoke(
+                "pr:diff-files",
+                &[json!({"cwd":project,"base":base,"head":head})],
+                check,
+            )
+            .unwrap();
+        assert_eq!(pr_files["files"][0]["path"], "hello.txt");
+        let pr_patch = service
+            .invoke(
+                "pr:diff-file",
+                &[json!({"cwd":project,"base":base,"head":head,"path":"hello.txt"})],
+                check,
+            )
+            .unwrap();
+        assert!(pr_patch["patch"].as_str().unwrap().contains("+committed"));
+        assert!(!pr_patch["patch"].as_str().unwrap().contains("+working"));
+        assert_eq!(fs::read(project.join(".git/index")).unwrap(), index_before);
+        assert_eq!(calls.get(), 14);
         let validation = Cell::new(0);
         let revoked = service
             .invoke(
@@ -350,7 +378,12 @@ mod tests {
         git(profile.path(), &["init", "-b", "main"]);
         let service = ConfiguredGit::new(project.clone()).unwrap();
         assert!(!service.is_repository().unwrap());
-        for method in ["git:changes", "git:history", "git:diff-files"] {
+        for method in [
+            "git:changes",
+            "git:history",
+            "git:diff-files",
+            "pr:diff-files",
+        ] {
             assert_eq!(
                 service
                     .invoke(method, &[json!({"cwd":project})], || Ok(()))
