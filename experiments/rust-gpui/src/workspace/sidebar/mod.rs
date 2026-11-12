@@ -267,6 +267,31 @@ impl Sidebar {
         }
     }
 
+    /// The usage block, or in preview mode the line that names the fixed account and model and what is not live.
+    fn usage_or_preview(&self, theme: &crate::theme::Theme, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        use crate::theme::TextStepExt as _;
+        let Some(preview) = crate::workspace::preview::get(cx).cloned() else {
+            return usage::rows(&self.data.usage, &self.usage_hooks(cx), theme);
+        };
+        vec![
+            div()
+                .debug_selector(|| "preview-note".into())
+                .px_3()
+                .py_2()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .text_step(crate::theme::TEXT_12)
+                .text_color(theme.ink3)
+                .child(div().text_color(theme.ink2).child(format!("Preview \u{b7} {} \u{b7} {}", preview.account, preview.model)))
+                .child(format!(
+                    "Panels, Settings, Routines, usage and Done, Pin, Rename: {}",
+                    crate::workspace::preview::UNAVAILABLE.to_lowercase()
+                ))
+                .into_any_element(),
+        ]
+    }
+
     fn set_data(&mut self, data: SidebarData, select: Option<&str>) {
         self.data = data;
         self.rebuild(select);
@@ -333,6 +358,9 @@ impl Sidebar {
 
     /// A row's hover action: Done moves the Chat to the Done list at once; ⌘Z takes it back.
     pub fn toggle_done_row(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if crate::workspace::preview::is_on(cx) {
+            return;
+        }
         let Some(row) = self.rows.get(ix) else { return };
         let key = row.key.to_string();
         self.mark_done(&key, true, cx);
@@ -778,7 +806,7 @@ impl Render for Sidebar {
                     // Over the list, under the footer: the surface's colour at each edge that has more to scroll to.
                     .child(self.fade.overlay(grained(theme.canvas, theme.appearance))),
             )
-            .child(bottom::bottom_group(done, usage::rows(&self.data.usage, &self.usage_hooks(cx), &theme), toast, footer, &theme))
+            .child(bottom::bottom_group(done, self.usage_or_preview(&theme, cx), toast, footer, &theme))
             .children(self.overlays(window, cx))
             .into_any_element()
     }

@@ -38,6 +38,8 @@ pub struct Session {
     /// Fixed when the root was created: the composer shows it and cannot change it.
     pub model: String,
     pub account_id: String,
+    /// The account's label as the root's saved launch configuration names it (the id when it has none).
+    pub account_label: String,
     /// The accepted snapshot's global watermark.
     pub event_seq: u64,
 }
@@ -57,6 +59,7 @@ impl Session {
         client.accept_snapshot(&snapshot).await.context("accept the snapshot")?;
         let actions = guard.chat_actions(&client).context("Chat actions")?;
         let info = guard.info().clone();
+        let account_label = saved_label(&info.data_root).unwrap_or_else(|| info.account_id.clone());
         Ok(Session {
             guard,
             client,
@@ -66,6 +69,7 @@ impl Session {
             project,
             model: info.model,
             account_id: info.account_id,
+            account_label,
             event_seq: snapshot.event_seq,
         })
     }
@@ -94,4 +98,11 @@ pub fn clean(report: &OwnedChatShutdown) -> bool {
             && cleanup.temporary.socket_removed
             && cleanup.temporary.launch_storage_removed
             && cleanup.data_retained)
+}
+
+/// `launch.accountLabel` from the root's saved launch configuration (nonsecret metadata the runtime wrote).
+fn saved_label(root: &Path) -> Option<String> {
+    let bytes = std::fs::read(root.join("rust-chat-runtime.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value["launch"]["accountLabel"].as_str().map(str::to_owned)
 }

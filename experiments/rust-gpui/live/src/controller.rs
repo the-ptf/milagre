@@ -26,6 +26,7 @@ use milagre_gpui_spike::workspace::Workspace;
 use milagre_gpui_spike::workspace::chat::composer::{ComposerLimits, Delivery};
 use milagre_gpui_spike::workspace::chat::running::RunningRow;
 use milagre_gpui_spike::workspace::chat::transcript::{ApprovalState, CardDecision, Item};
+use milagre_gpui_spike::workspace::preview::PreviewMode;
 use milagre_gpui_spike::workspace::sidebar::{Actions, RecordingActions, SidebarSeed};
 use serde_json::Value;
 
@@ -53,6 +54,8 @@ pub fn install_globals(session: &Session, cx: &mut App) -> Wiring {
         recorded: recorded.clone(),
     })));
     cx.set_global(SidebarSeed { open_chat: newest_chat(session) });
+    // Everything the runtime does not back is off or labelled (`workspace::preview`).
+    cx.set_global(PreviewMode { account: session.account_label.clone().into(), model: session.model.clone().into() });
     Wiring { commands, receiver, recorded }
 }
 

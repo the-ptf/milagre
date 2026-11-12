@@ -231,6 +231,11 @@ impl Sidebar {
     /// Runs a menu item for the open menu's Chat and closes the menu.
     pub fn run_menu(&mut self, action: MenuAction, window: &mut Window, cx: &mut Context<Self>) {
         let Some(open) = self.menu.take() else { return };
+        if crate::workspace::preview::is_on(cx) && action != MenuAction::MarkUnread {
+            window.focus(&self.focus, cx);
+            cx.notify();
+            return;
+        }
         window.focus(&self.focus, cx);
         let context = open.context;
         let key = context.key.clone();
@@ -267,6 +272,9 @@ impl Sidebar {
 
     /// Moves a Chat to Done at once; the host's write follows (`chat:patch { doneAt }`).
     pub fn mark_done(&mut self, key: &str, record: bool, cx: &mut Context<Self>) {
+        if crate::workspace::preview::is_on(cx) {
+            return;
+        }
         let at = now_ms();
         let Some(chat) = self.chat_mut(key) else { return };
         if chat.done_at.is_some() {
@@ -299,6 +307,9 @@ impl Sidebar {
 
     /// Delete hides the Chat (`HIDE_ONLY`: its Worktree stays); the toast's Undo takes it back for 6 seconds.
     pub fn delete(&mut self, key: &str, record: bool, cx: &mut Context<Self>) {
+        if crate::workspace::preview::is_on(cx) {
+            return;
+        }
         let Some(chat) = self.chat_mut(key) else { return };
         chat.archived = true;
         self.send(SidebarCall::Archive { chat: key.to_owned(), mode: ArchiveMode::HideOnly });
@@ -319,6 +330,9 @@ impl Sidebar {
 
     /// Pins (after the Chats pinned in its scope) or unpins on this device.
     pub fn pin(&mut self, key: &str, pinned: bool, record: bool, cx: &mut Context<Self>) {
+        if crate::workspace::preview::is_on(cx) {
+            return;
+        }
         let Some((scope, id)) = self.locate(key) else { return };
         let before = pins::pin_of(&self.data, &self.list_filters.pins, scope, id);
         let after = pinned.then(|| pins::next_order(&self.data, &self.list_filters.pins, scope, id));
@@ -356,6 +370,9 @@ impl Sidebar {
     // ---- rename -------------------------------------------------------------------------------------------------
 
     pub fn start_rename(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if crate::workspace::preview::is_on(cx) {
+            return;
+        }
         let Some(title) = self.row_title(key) else { return };
         self.close_card();
         let field = gpui::AppContext::new(cx, |cx| RenameField::new(&title, window, cx));

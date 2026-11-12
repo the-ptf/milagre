@@ -17,6 +17,7 @@ pub mod chrome;
 pub mod link;
 mod overlays;
 pub mod panel;
+pub mod preview;
 pub mod shell;
 pub mod sidebar;
 
@@ -262,7 +263,12 @@ impl Render for Workspace {
                 self.routines_open = false;
             }
         }
-        let columns = if self.routines_open {
+        let preview = preview::is_on(cx);
+        let columns = if preview {
+            // Preview: the Chat column (and its local Terminal) only; the panel and Routines are not backed.
+            let body = self.chat.clone().into_any_element();
+            self.chat_column(terminal::column(body, &self.terminals, window, cx), cx)
+        } else if self.routines_open {
             div().flex().flex_1().min_w_0().h_full().child(self.routines_column(cx)).into_any_element()
         } else {
             let body = self.chat.clone().into_any_element();
@@ -284,7 +290,10 @@ impl Render for Workspace {
             .id("workspace")
             .track_focus(&self.focus)
             .on_action(move |_: &ToggleSettings, window, cx| {
-                settings.update(cx, |modal, cx| modal.toggle(window, cx));
+                // Preview: Settings would show the fixture's values; it stays closed.
+                if !preview::is_on(cx) {
+                    settings.update(cx, |modal, cx| modal.toggle(window, cx));
+                }
             })
             .on_action(cx.listener(|this, _: &TogglePalette, window, cx| this.toggle_palette(window, cx)))
             .on_action(cx.listener(|this, _: &OpenGitActions, window, cx| this.open_git_actions(window, cx)))
@@ -311,7 +320,7 @@ impl Render for Workspace {
             // Over the columns' headers, under Settings and the overlays.
             .child(self.top_bar(cx))
             .children(self.corner(cx))
-            .child(self.notices.clone())
+            .when(!preview, |el| el.child(self.notices.clone()))
             .child(self.onboarding.clone())
             .child(self.settings.clone())
             .child(palette)

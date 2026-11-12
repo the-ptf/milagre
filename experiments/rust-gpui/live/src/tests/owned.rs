@@ -233,6 +233,8 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
     assert!(!m.running());
     let attach_drawn = m.vcx.debug_bounds("composer-attach").is_some();
     assert!(!attach_drawn, "attachments are off");
+    // Preview mode: the account and model line stands where usage was; nothing unbacked looks real.
+    assert!(m.vcx.debug_bounds("preview-note").is_some(), "the preview line is drawn");
 
     // 1. New Project Chat by its first send; the approval card; Allow once.
     m.type_and_send("First live turn");

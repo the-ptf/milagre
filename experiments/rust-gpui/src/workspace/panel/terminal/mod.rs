@@ -156,7 +156,20 @@ pub fn column(chat: impl IntoElement, drawer: &Entity<TerminalDrawer>, window: &
                     .w_full()
                     .h(px(slot))
                     .child(AnyView::from(drawer.clone()).cached(StyleRefinement::default().size_full()))
-                    .children(slide.cover),
+                    .children(slide.cover)
+                    // Preview: the drawer is this computer's own PTY, not the runtime's.
+                    .when(crate::workspace::preview::is_on(cx), |el| {
+                        el.child(
+                            div()
+                                .debug_selector(|| "terminal-local-shell".into())
+                                .absolute()
+                                .top(px(GAP + 6.0))
+                                .right(px(INSET + 12.0))
+                                .text_step(TEXT_12)
+                                .text_color(cx.theme().ink3)
+                                .child(crate::workspace::preview::LOCAL_SHELL),
+                        )
+                    }),
             )
         })
         .into_any_element()
