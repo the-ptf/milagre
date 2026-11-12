@@ -6,8 +6,8 @@
     python3 scripts/check-gpui-live.py run --backend <backend worktree>
 
 `export` writes `git archive <CLIENT_COMMIT> experiments/rust-daemon-client` into the GPUI crate's ignored
-target/daemon-client-130d553c/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
-(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-130d553c/,
+target/daemon-client-3410109b/ (the path live/Cargo.toml names) and the backend's fixed Claude stand-in
+(`experiments/rust-claude/src/bin/fake_claude.rs` at the same commit) into daemon-check/target/fake-claude-3410109b/,
 checking every exported file against the commit's blobs. The app-fixture adapter keeps its own client at 9aa5deb3
 (scripts/check-gpui-adapter.py); nothing here touches that export or its pins.
 
@@ -37,16 +37,18 @@ import tempfile
 CRATE = Path(__file__).resolve().parents[1]
 GPUI = CRATE.parent
 LIVE = GPUI / "live"
-CLIENT_COMMIT = "130d553c0f1de03691f31625c9f72afceb9ddbcc"
-CLIENT_TREE = "e601c2292dfdbae89ead82e4bdacff73fb863394"
+CLIENT_COMMIT = "3410109bbbd3c8f8e1a06cd92d9e8ae004de2620"
+CLIENT_TREE = "668c4fefe77d2c263117b8fd731baab44a447a5f"
 CLIENT_PATH = "experiments/rust-daemon-client"
-EXPORT = GPUI / "target/daemon-client-130d553c"
+EXPORT = GPUI / "target/daemon-client-3410109b"
 FAKE_PATH = "experiments/rust-claude/src/bin/fake_claude.rs"
 FAKE_BLOB = "7508b11e3e7245fcadd4d596f995f2f4289d800f"
-FAKE_CRATE = CRATE / "target/fake-claude-130d553c"
-# The agreed dedicated runtimes, newest first: 846ee97a (backend 4c5f541a, adds PTY and Git on the runtime side; no
+FAKE_CRATE = CRATE / "target/fake-claude-3410109b"
+# The agreed dedicated runtimes, newest first: 862f4cd2 (backend's signed "Milagre Rust Preview" runtime for client
+# 3410109b: owner-death exit, CHAT_ROOT_BUSY, bootstrap project_id/agent_name), 846ee97a (backend 4c5f541a, adds PTY and Git on the runtime side; no
 # client facade for them) and c4a6c25a (content and late cleanup). `--sha256` picks another agreed one.
 AGREED = {
+    "862f4cd2f7a7d243da524852320554e09fd8d11835523a3a6a4fdfa956d70502": "backend signed runtime for client 3410109b",
     "846ee97abc1d8ab38d2ea53c3e510fba726c305e1b58f7256fe07cd9805113f2": "backend 4c5f541a combined runtime",
     "c4a6c25ac01c44312b33b1db7963d16f99ddba0f3e9feba907fa5b60ceda2ea5": "content + late cleanup checkpoint",
 }

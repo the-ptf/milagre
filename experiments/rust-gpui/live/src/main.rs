@@ -80,12 +80,15 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         None => Root::Open { root: &root },
     }))
     .map_err(|error| {
-        // The runtime refuses a root another owner holds; the client sees its pipe close before the receipt.
-        if manifest.is_none() && format!("{error:#}").contains("FIXTURE_RECEIPT_EOF") {
-            error.context(format!(
-                "{} is already open in another Milagre GPUI Preview, or its runtime is still stopping: quit that one (or wait a few seconds) and open again",
+        // The runtime refuses a root another owner holds (`CHAT_ROOT_BUSY`).
+        let busy = error.chain().any(|cause| {
+            matches!(cause.downcast_ref::<milagre_daemon_client::Error>(), Some(milagre_daemon_client::Error::Remote { code, .. }) if code == "CHAT_ROOT_BUSY")
+        });
+        if busy {
+            anyhow::anyhow!(
+                "This root is already open: {} is in use by another Milagre GPUI Preview (or its runtime is still stopping). Quit that one, then open again.",
                 root.display()
-            ))
+            )
         } else {
             error
         }

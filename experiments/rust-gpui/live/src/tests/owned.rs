@@ -244,9 +244,9 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
     assert!(m.running(), "the running row is up while the turn waits");
     assert!(m.sidebar_row(&key).is_some(), "the new Chat is listed");
     m.click("approval-allow-once");
-    m.until("the first reply", |m| m.items().last().is_some_and(|i| i == "reply: Fixed GPUI reply one") && !m.running());
+    // The saved transcript replaces the live tail (the approval card) once the run ends.
+    m.until("the saved first reply", |m| !m.running() && m.items() == ["user: First live turn", "reply: Fixed GPUI reply one"]);
     let first = m.items();
-    assert_eq!(first, ["user: First live turn", "reply: Fixed GPUI reply one"]);
     println!("GPUI_LIVE_RESOLVED {:?}", m.released_decisions());
 
     // 2. Same client message id again: the owner's receipt, no replay; send_status matches.
@@ -266,7 +266,9 @@ fn the_live_window_runs_real_chats_on_the_owned_runtime(cx: &mut TestAppContext)
     m.type_and_send("Second live turn");
     m.until("the second approval", |m| m.items().iter().any(|i| i.starts_with("approval Waiting")));
     m.click("approval-always");
-    m.until("the second reply", |m| m.items().last().is_some_and(|i| i == "reply: Reply two") && !m.running());
+    m.until("the saved second reply", |m| {
+        !m.running() && m.items().last().is_some_and(|i| i == "reply: Reply two") && m.items().len() == 4
+    });
     println!("GPUI_LIVE_RESOLVED {:?}", m.released_decisions());
     let decisions = m.controller.read_with(m.vcx, |c, _| c.decisions().to_vec());
     assert_eq!(decisions[1], ("perm-2".to_owned(), "AllowForChat".to_owned()), "Always allow is Chat-wide, never global");
