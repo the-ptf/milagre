@@ -35,7 +35,7 @@ synthetic reduced motion only in the smoke build. The normal separate Preview is
 Quit/cleanup. Its latest real send reached the selected account quota; the earlier
 startup turn completed. A fresh installed turn waits until the 02:00 Toronto reset.
 This is not production profile adoption or full migration.
-The detailed current checkpoint supersedes historical foundation counts below.
+Latest integration `3410109b` also fixes launcher-loss cleanup, typed root-busy startup and dedicated metadata. The installed normal Preview passes its final saved-read/metadata/native-Quit checks; runtime 125, wire 34 and shared-client 79 tests pass. GPUI has matching pins and reports its own real turn/restart preview. The detailed current checkpoint supersedes historical foundation counts below.
 
 
 The off-default `milagre-rust-chat` window now drives the unchanged production React UI against its exact owned `chat-runtime` child, with no Node fallback. Actual native WebKit runs pass composer send, streamed Claude text, visible Allow once and Deny buttons, saved messages and reload without replay. Allowed file bytes match; the denied file remains absent. Configured bootstrap supplies real Project/Canvas/account-scope reads. A native-discovered `chat:patch` error is fixed for the persisted unread-boolean subset; other patches refuse. Root passes 100 runtime tests, default/fixture desktop tests and strict checks; current screenshots show the read-status banner gone. [CHAT-DESKTOP.md](CHAT-DESKTOP.md) records hashes, evidence and limits. Thirty-six other unavailable method names remain visible in diagnostics, so this is one working Chat workflow, not full retained-service parity. Installed routing, production ownership, phone and GPUI pins remain unchanged.

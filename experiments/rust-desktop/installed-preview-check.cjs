@@ -11,10 +11,15 @@ const { socketPath } = require("../../apps/daemon/src/paths.cjs");
 
 const app = path.resolve(process.argv[2] ?? "");
 const dataRoot = path.resolve(process.argv[3] ?? "");
-const checkRoutines = process.argv[4] === "--paused-routines";
+const checks = process.argv.slice(4);
+const checkRoutines = checks.includes("--paused-routines");
+const checkMetadata = checks.includes("--metadata");
 assert.ok(
-  process.argv.length === 4 || (process.argv.length === 5 && checkRoutines),
-  "Pass the explicit Preview.app, dedicated data root and optional --paused-routines",
+  process.argv.length >= 4 &&
+    checks.length <= 2 &&
+    new Set(checks).size === checks.length &&
+    checks.every((flag) => ["--paused-routines", "--metadata"].includes(flag)),
+  "Pass the explicit Preview.app, dedicated data root and optional --paused-routines/--metadata",
 );
 assert.equal(path.basename(app), "Milagre Rust Preview.app");
 assert.equal(fs.realpathSync(app), app);
@@ -125,8 +130,8 @@ exit(3)
   const status = await client.call("daemon:status");
   assert.equal(status.pid, receipt.daemonPid);
   await client.call("project:open", [receipt.project]);
-  const state = await client.call("project:read", [receipt.project]);
-  assert.ok(state && typeof state === "object");
+  const projectRead = await client.call("project:read", [receipt.project]);
+  assert.ok(projectRead && typeof projectRead === "object");
   const first = await client.call("chat:messages", [receipt.project, 1]);
   assert.ok(Array.isArray(first.messages));
   assert.equal(typeof first.total, "number");
@@ -144,6 +149,20 @@ exit(3)
     assert.ok(Array.isArray(routines.routines));
     assert.ok(routines.routines.every((routine) => routine.enabled === false));
     report.routines = { flags, count: routines.routines.length, schedulingVerified: false };
+  }
+  if (checkMetadata) {
+    const snapshot = await client.call("state:read", [receipt.project]);
+    const state = snapshot.state;
+    assert.equal(state.worktrees["1"].project_id, 1);
+    assert.equal(state.sessions["1"].agent_name, state.worktrees["1"].name);
+    assert.deepEqual(state.projects["1"], { id: 1, name: "Rust Chat" });
+    assert.ok(state.tasks && typeof state.tasks === "object" && !Array.isArray(state.tasks));
+    report.metadata = {
+      projectId: state.worktrees["1"].project_id,
+      agentName: state.sessions["1"].agent_name,
+      status: state.sessions["1"].status ?? null,
+      summary: state.sessions["1"].summary,
+    };
   }
   report.quit = execFileSync(helper, [String(child.pid), app], { encoding: "utf8", timeout: 20000 }).trim();
   report.exit = await bounded(exit, "native Quit and retained cleanup", 35000);

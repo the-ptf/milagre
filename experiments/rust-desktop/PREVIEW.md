@@ -182,3 +182,36 @@ Package report and retained previous app:
 Its normal features remain `chat-desktop` and `chat-runtime`, with no smoke/fixture
 entrypoints. The signed arm64 development app is approximately 96 MiB and is not
 notarized or claimed as a release-performance benchmark.
+
+
+## Final launcher-loss/startup/metadata refresh
+
+Integration `3410109b` fixes the reproduced orphan after a launcher dies mid-turn.
+The owner-loss path closes/saves the turn, reaps the native child and waits for
+actual cleanup. Accepted-command drain timeouts retry with admission closed;
+save/ownership failures remain explicit. Ordinary viewer disconnect and wire Stop
+retain their existing semantics. Both actual controller-SIGKILL variants (including
+closed stderr) pass over the fixed native child, followed by a real process reopen.
+This is not a claim of live-provider crash or production-profile recovery parity.
+
+The final normal staged and installed checks include optional `--metadata` in
+addition to `--paused-routines`:
+
+- Staged: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-LwETCC/report.json`.
+- Installed: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-GC8XF3/report.json`.
+
+Both send nothing, read the identical saved transcript, require actual metadata,
+then observe native Quit, exit 0, drained/empty stderr, removed socket/profile/shell
+roots and retained data. The existing root's repair preserves all old session fields,
+summary times and native identity (`/private/tmp/milagre-preview-metadata-before-2rtjtqes/verified.json`).
+Legacy missing status remains absent as Node does; fresh starters have Created.
+
+Current installed shell SHA-256:
+`125c2f591b65f1ea795d3f15322a4ed9e1fea7363eaf98a6891250410fd5c1fa`.
+Current runtime SHA-256:
+`862f4cd2f7a7d243da524852320554e09fd8d11835523a3a6a4fdfa956d70502`.
+The current package and retained prior app are recorded under
+`/private/tmp/milagre-rust-preview-package-gul8ira_/`.
+Client `3410109b` additionally preserves typed root-busy refusal from this exact
+child; old success receipts remain compatible. Matching pins were sent to GPUI.
+No production app, host or mobile fingerprint was replaced.

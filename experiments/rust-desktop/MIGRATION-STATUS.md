@@ -6,6 +6,40 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+Latest accepted integration is `3410109b`. The default-disabled dedicated runtime
+now supplies Node-exact starter metadata and missing-only legacy repair, typed
+`CHAT_ROOT_BUSY` startup refusal, and a separate launcher-loss cleanup policy.
+Actual fixed-native controller-crash tests reproduce the old orphan, then prove
+exit 0, native-child reap, retained data and saved failed-turn reopen with stderr
+open and closed. Accepted-command drain timeouts retry without reopening admission;
+real save/owner failures retain authority. Ordinary RPC Stop/viewer disconnect
+semantics are unchanged. Runtime 125 tests, wire 34 tests and root shared-client
+79 tests/six compile-fail doctests pass with strict checks and independent reviews.
+
+The final normal app passes both staged and installed no-args lifecycle checks,
+including metadata and paused-storage reads, native Quit and actual temporary
+resource removal. Installed proof:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-GC8XF3/report.json`.
+Package/rollback report: `/private/tmp/milagre-rust-preview-package-gul8ira_/package-report.json`.
+Current shell SHA-256:
+`125c2f591b65f1ea795d3f15322a4ed9e1fea7363eaf98a6891250410fd5c1fa`.
+Current runtime SHA-256:
+`862f4cd2f7a7d243da524852320554e09fd8d11835523a3a6a4fdfa956d70502`.
+The actual existing preview root gained the missing names/IDs while preserving
+all existing session fields, summary times, native ID and next ID, independently
+checked in `/private/tmp/milagre-preview-metadata-before-2rtjtqes/verified.json`.
+No new real turn was sent before the selected account's 02:00 Toronto quota reset.
+
+GPUI received matching client/runtime pins. Root read its real run1/run2 JSON and
+logs and verified marker recall, distinct runtime PIDs, reported Complete cleanup
+and later path absence, without rerunning its live provider or touching its root:
+`/private/tmp/milagre-gpui-peer-evidence-review-elb33fbz/report.json`. Those reports
+contain no permission answers and do contain an AppKit sandbox-extension warning;
+no real approval or empty-app-stderr claim is made. Its final repin and approval
+check remain owned by Chat 11899. Both frontends stay independent.
+
+### Earlier paused-storage package checkpoint
+
 Latest separate normal Preview is installed from runtime `85f4e539`. Source tests
 pass 118 runtime checks and 83 routine library/16 integration/one doctest checks
 (one optional ignored), plus final target/readiness and strict checks. Routine
