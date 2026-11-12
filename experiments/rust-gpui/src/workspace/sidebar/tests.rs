@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use gpui::{Modifiers, TestAppContext, px};
 
-use super::list::{DONE_INLINE_WINDOW, ListFilters, SidebarData, chat_lists_with};
+use super::list::{ListFilters, SidebarData, chat_lists_with};
 use super::{ChatRow, RowState, Sidebar};
 use crate::data::fixture::{DONE_CHATS, LISTED_ROWS};
 use crate::data::{FixtureSource, now};
@@ -24,9 +24,7 @@ fn fixture_data() -> SidebarData {
 
 fn rows() -> Vec<ChatRow> {
     let data = fixture_data();
-    // As the sidebar lists them: Chats Done in the last day stay in the list.
-    let filters = ListFilters { done_since: Some(crate::data::fixture::NOW - DONE_INLINE_WINDOW), ..ListFilters::default() };
-    let lists = chat_lists_with(&data, ChatOrder::Created, &filters);
+    let lists = chat_lists_with(&data, ChatOrder::Created, &ListFilters::default());
     lists.pinned.iter().chain(&lists.rows).map(|shown| ChatRow::new(shown, &data)).collect()
 }
 
@@ -223,10 +221,10 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
             ("R", "RDCar ops", "rd-car · deer", Question),
             ("R", "Tailscale routes for phone", "rd-car · #557 · +2 · deer", Running),
             ("G", "Gestor RDCar", "Chats · deer", Unread),
-            // Marked Done minutes ago: still listed.
-            ("S", "Ship the Lighthouse budget", "site · #1011 · Victor XPro", Idle),
+            // The two Chats marked Done minutes ago are in the Done list only.
             ("M", "Identify issues to close", "milagre-ade · Victor XPro", Idle),
-            ("W", "What's a good name for a CLI?", "Chats · Victor XPro", Idle),
+            ("H", "Nightly dependency check", "happiergym · Victor XPro", Waiting),
+            ("M", "Babysit PR #1013", "milagre-ade · #1013 · Victor XPro", Idle),
         ]
     );
     // What each row's edges show (design `gpui-sidebar-v-a`).
@@ -244,9 +242,9 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
             RowState::Question,
             RowState::Working,
             RowState::Idle { unread: true },
-            RowState::Done,
             RowState::Idle { unread: false },
-            RowState::Done
+            RowState::Approval,
+            RowState::Idle { unread: false }
         ]
     );
     assert!(rows[6].failed, "an idle Chat whose last turn failed shows the red alert");
@@ -255,15 +253,15 @@ fn rows_come_from_the_domain_data_through_the_list_and_mark_rules() {
     assert_eq!(rows[5].prs.as_deref(), Some("+4"), "several PRs: how many");
     assert_eq!(rows[8].computer.as_deref(), Some("deer"), "working on another computer");
     assert_eq!(rows[2].computer.as_deref(), Some("Victor XPro"));
-    assert_eq!(rows[11].recency.as_deref(), Some("14m"), "an idle row's right edge: when it last moved");
-    assert!(rows[12].chats_home && rows[12].project.as_ref() == "Chat", "a Chat without a Project");
-    assert!(rows[10].dimmed() && rows[11].dimmed() && !rows[4].dimmed(), "Done and read idle rows are dimmed");
+    assert_eq!(rows[10].recency.as_deref(), Some("14m"), "an idle row's right edge: when it last moved");
+    assert!(rows[9].chats_home && rows[9].project.as_ref() == "Chat", "a Chat without a Project");
+    assert!(rows[10].dimmed() && rows[12].dimmed() && !rows[4].dimmed(), "read idle rows are dimmed");
     let offline = rows[4].offline.clone().expect("tianxu is offline");
     assert_eq!(&rows[4].detail[offline], "tianxu, offline");
     assert_eq!(rows[4].computer.as_deref(), Some("tianxu, offline"));
     assert!(rows[4].tile.is_some() && rows[2].tile.is_none(), "milagre has an identity colour, milagre-ade the neutral tile");
     assert!(rows.iter().all(|row| row.title.as_ref() != "Scratch idea 0"), "a hidden Project's Chats are left out");
-    assert!(rows.iter().all(|row| !row.title.starts_with("Finished:") && !row.title.starts_with("Archived")), "Done a day ago or more");
+    assert!(rows.iter().all(|row| !row.title.starts_with("Finished:") && !row.title.starts_with("Archived")), "Done and archived Chats");
 }
 
 #[gpui::test]
@@ -307,45 +305,35 @@ fn the_done_footer_opens_a_list_and_a_done_row_opens_its_chat(cx: &mut TestAppCo
     assert!(cx.debug_bounds("done-row-0").is_none());
 }
 
-/// Resting on a row swaps its state for "Done"; clicking it marks the Chat Done (the row stays, dimmed), ⌘Z takes it
-/// back, and on a Done row the same place says "Reopen".
+/// Resting on a row swaps its state for "Done" (never "Reopen": that is the Done list's); clicking it moves the Chat
+/// to the Done list at once, and ⌘Z takes it back to its place.
 #[gpui::test]
-fn the_hover_action_marks_done_and_reopens(cx: &mut TestAppContext) {
+fn the_hover_action_moves_the_chat_to_done_and_cmd_z_brings_it_back(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
-    // Row 11 is idle: its right edge shows when it last moved.
-    let ix = 11;
+    // Row 10 is idle: its right edge shows when it last moved.
+    let ix = 10;
     let key = sidebar.read_with(cx, |s, _| s.row(ix).unwrap().key.to_string());
-    let selector: &'static str = "chat-row-state-11";
+    let selector: &'static str = "chat-row-state-10";
     assert!(cx.debug_bounds(selector).is_some(), "the state shows while the pointer is away");
-    assert!(cx.debug_bounds("chat-row-action-11").is_none());
-    let row = cx.debug_bounds("chat-row-11").expect("row 11 is drawn");
-    cx.simulate_mouse_move(row.center(), None, Modifiers::none());
-    cx.run_until_parked();
-    assert!(cx.debug_bounds(selector).is_none(), "the pointer on the row swaps the state for the action");
-    let action = cx.debug_bounds("chat-row-action-11").expect("Done shows on hover");
-    assert!(action.right() <= row.right() - px(13.0) && action.left() > row.center().x, "at the right edge, inside the padding");
-    let selected = sidebar.read_with(cx, |s, _| s.selected());
-    let rows = sidebar.read_with(cx, |s, _| s.row_count());
-    cx.simulate_click(action.center(), Modifiers::none());
-    assert!(sidebar.read_with(cx, |s, _| s.is_done_key(&key)));
-    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), selected, "the action does not select the row");
-    assert_eq!(sidebar.read_with(cx, |s, _| s.row_count()), rows, "a Chat Done just now stays in the list");
-    assert_eq!(sidebar.read_with(cx, |s, _| s.row(ix).map(ChatRow::state)), Some(RowState::Done));
-    assert_eq!(sidebar.read_with(cx, |s, _| s.toast_text()), Some("Moved to Done".into()));
-    cx.simulate_keystrokes("cmd-z");
-    assert!(!sidebar.read_with(cx, |s, _| s.is_done_key(&key)), "⌘Z takes it back");
-
-    // A Done row's action reopens it.
-    let done_ix = 10;
-    let done_key = sidebar.read_with(cx, |s, _| s.row(done_ix).unwrap().key.to_string());
-    assert!(sidebar.read_with(cx, |s, _| s.is_done_key(&done_key)));
+    assert!(cx.debug_bounds("chat-row-action-10").is_none());
     let row = cx.debug_bounds("chat-row-10").expect("row 10 is drawn");
     cx.simulate_mouse_move(row.center(), None, Modifiers::none());
     cx.run_until_parked();
-    let action = cx.debug_bounds("chat-row-action-10").expect("Reopen shows on hover");
+    assert!(cx.debug_bounds(selector).is_none(), "the pointer on the row swaps the state for the action");
+    let action = cx.debug_bounds("chat-row-action-10").expect("Done shows on hover");
+    assert!(action.right() <= row.right() - px(13.0) && action.left() > row.center().x, "at the right edge, inside the padding");
+    let selected = sidebar.read_with(cx, |s, _| s.selected());
+    let (rows, done) = sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count()));
     cx.simulate_click(action.center(), Modifiers::none());
-    assert!(!sidebar.read_with(cx, |s, _| s.is_done_key(&done_key)));
-    assert_eq!(sidebar.read_with(cx, |s, _| s.toast_text()), Some("Back in Chats".into()));
+    assert!(sidebar.read_with(cx, |s, _| s.is_done_key(&key)));
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), selected, "the action does not select the row");
+    assert_eq!(sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count())), (rows - 1, done + 1), "it moves to Done at once");
+    assert_eq!(sidebar.read_with(cx, |s, _| s.done_rows()[0].key.to_string()), key, "at the top of the Done list");
+    assert_eq!(sidebar.read_with(cx, |s, _| s.toast_text()), Some("Moved to Done".into()));
+    cx.simulate_keystrokes("cmd-z");
+    assert!(!sidebar.read_with(cx, |s, _| s.is_done_key(&key)), "⌘Z takes it back");
+    assert_eq!(sidebar.read_with(cx, |s, _| s.row(ix).map(|row| row.key.to_string())), Some(key), "to its place");
+    assert!((0..rows).all(|ix| sidebar.read_with(cx, |s, _| !s.row(ix).unwrap().done)), "no list row is Done");
 }
 
 /// Rows are 54px boxes 2px apart, 14px in, the first 8px under the header.
@@ -367,17 +355,13 @@ fn rows_are_54px_two_apart_with_their_content_14px_in(cx: &mut TestAppContext) {
     assert_eq!(first.right() - state.right(), px(14.0));
 }
 
-/// Done Chats marked in the last day stay in the list; older ones are the Done section, and without a window every
-/// Done Chat is.
+/// Every Done Chat is in the Done section, the ones marked minutes ago too; none stays in the list.
 #[test]
-fn recently_done_chats_stay_in_the_list_and_older_ones_go_to_the_done_section() {
-    use crate::data::fixture::INLINE_DONE;
+fn every_done_chat_is_in_the_done_section_and_none_in_the_list() {
     let data = fixture_data();
-    let inline = ListFilters { done_since: Some(crate::data::fixture::NOW - DONE_INLINE_WINDOW), ..ListFilters::default() };
-    let lists = chat_lists_with(&data, ChatOrder::Created, &inline);
+    let lists = chat_lists_with(&data, ChatOrder::Created, &ListFilters::default());
     assert_eq!(lists.done.len(), DONE_CHATS);
-    assert_eq!(lists.rows.iter().filter(|row| row.item.chat.is_done()).count(), INLINE_DONE);
-    let all = chat_lists_with(&data, ChatOrder::Created, &ListFilters::default());
-    assert_eq!(all.done.len(), DONE_CHATS + INLINE_DONE);
-    assert!(all.rows.iter().all(|row| !row.item.chat.is_done()));
+    assert!(lists.rows.iter().chain(&lists.pinned).all(|row| !row.item.chat.is_done()));
+    let first: Vec<_> = lists.done.iter().take(2).map(|row| row.chat.display_title(&[]).to_string()).collect();
+    assert_eq!(first, ["Ship the Lighthouse budget", "What's a good name for a CLI?"], "most recently marked first");
 }

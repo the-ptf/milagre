@@ -13,7 +13,8 @@
 //!   green, a quiet ink-4 spinner while it works, or for an idle Chat how long ago it last moved ("2d");
 //! - line 2: the Project's 14px mark and name (a Chat without a Project: a bubble and "Chat"), the computer, and at
 //!   the right edge the PR number in green ("+n" for several);
-//! - hovering swaps the state for "Done" (or "Reopen" on a Done Chat), which marks it through the sidebar.
+//! - hovering swaps the state for "Done", which moves the Chat to the Done list through the sidebar (Reopen is on the
+//!   Done list's rows only).
 //!
 //! The data still follows the desktop's inbox row (`ChatRow.tsx`): `detail` is its "project · #PR · +n · computer"
 //! line, which the Chat column and the tests read; the row draws from the split fields.
@@ -70,7 +71,7 @@ pub enum RowEvent {
     ContextMenu(Point<Pixels>),
     /// The pointer came onto the row (with the row's bounds in the window) or left it.
     Hover(Option<Bounds<Pixels>>),
-    /// The hover action: "Done" on a live Chat, "Reopen" on a Done one.
+    /// The hover action: "Done".
     ToggleDone,
 }
 
@@ -105,7 +106,7 @@ pub struct ChatRow {
     pub prs: Option<SharedString>,
     /// How long ago the Chat last moved ("2d"), for an idle row's right edge.
     pub recency: Option<SharedString>,
-    /// Marked Done (a recently Done Chat stays in the list, dimmed, with the green check).
+    /// Marked Done (only the Done list's rows are).
     pub done: bool,
 }
 
@@ -510,7 +511,7 @@ impl Render for ChatRowView {
     }
 }
 
-/// The first line's right edge: the state, or the Done (Reopen) action while the pointer is on the row.
+/// The first line's right edge: the state, or the Done action while the pointer is on the row.
 fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut Context<ChatRowView>) -> gpui::AnyElement {
     if !hovered {
         return div()
@@ -521,7 +522,6 @@ fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut C
             .child(state_mark(ix, row, theme))
             .into_any_element();
     }
-    let (label, glyph) = if row.done { ("Reopen", IconName::Undo02) } else { ("Done", IconName::Tick02) };
     div()
         .id(("chat-row-action", ix))
         .debug_selector(move || format!("chat-row-action-{ix}"))
@@ -537,8 +537,8 @@ fn right_edge(ix: usize, row: &ChatRow, hovered: bool, theme: &Theme, cx: &mut C
             cx.stop_propagation();
             cx.emit(RowEvent::ToggleDone);
         }))
-        .child(Icon::new(glyph).size(IconSize::S14).color(theme.ink2))
-        .child(label)
+        .child(Icon::new(IconName::Tick02).size(IconSize::S14).color(theme.ink2))
+        .child("Done")
         .into_any_element()
 }
 

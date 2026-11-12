@@ -241,22 +241,22 @@ impl Sidebar {
         }
     }
 
-    /// Builds the rows again from the data, keeping the selection on the same Chat (or `select`).
+    /// Builds the rows again from the data, keeping the Chat on screen (or `select`): selected while it has a row,
+    /// picked while it has none (a Chat just marked Done, a Done row opened, a Subchat).
     fn rebuild(&mut self, select: Option<&str>) {
-        let selected_key =
-            select.map(str::to_owned).or_else(|| self.selected.and_then(|ix| self.rows.get(ix)).map(|row| row.key.to_string()));
-        let picked = self.picked.take().filter(|_| select.is_none() && selected_key.is_none());
-        // Chats marked Done in the last day stay in the list (dimmed, with the check); older ones are the Done section.
-        self.list_filters.done_since = Some(list::list_clock() - list::DONE_INLINE_WINDOW);
+        let on_screen = select.map(str::to_owned).or_else(|| self.selected_row().map(|row| row.key.to_string()));
         let lists = list::chat_lists_with(&self.data, CHAT_ORDER, &self.list_filters);
         self.pinned = lists.pinned.len();
         self.done = lists.done.len();
         self.done_rows =
             lists.done.iter().map(|item| ChatRow::with_show(&list::ShownChat { item: item.clone() }, &self.data, self.show)).collect();
-        self.picked = picked.filter(|row| self.selected.is_none() && self.locate(row.key.as_ref()).is_some());
         self.rows = lists.pinned.iter().chain(&lists.rows).map(|shown| ChatRow::with_show(shown, &self.data, self.show)).collect();
         self.meta = lists.pinned.iter().chain(&lists.rows).map(RowMeta::of).collect();
-        self.selected = selected_key.and_then(|key| self.rows.iter().position(|row| row.key.as_ref() == key));
+        self.selected = on_screen.as_deref().and_then(|key| self.rows.iter().position(|row| row.key.as_ref() == key));
+        self.picked = match (&on_screen, self.selected) {
+            (Some(key), None) => self.row_of(key),
+            _ => None,
+        };
         self.row_views.clear();
     }
 
@@ -289,15 +289,11 @@ impl Sidebar {
         &self.done_rows
     }
 
-    /// A row's hover action: Done on a live Chat, Reopen on a Done one; ⌘Z takes either back.
+    /// A row's hover action: Done moves the Chat to the Done list at once; ⌘Z takes it back.
     pub fn toggle_done_row(&mut self, ix: usize, cx: &mut Context<Self>) {
         let Some(row) = self.rows.get(ix) else { return };
         let key = row.key.to_string();
-        if self.is_done_key(&key) {
-            self.reopen(&key, true, cx);
-        } else {
-            self.mark_done(&key, true, cx);
-        }
+        self.mark_done(&key, true, cx);
     }
 
     /// The footer's toggle: opens or folds the Done list.

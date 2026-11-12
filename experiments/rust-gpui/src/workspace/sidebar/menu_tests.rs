@@ -227,24 +227,25 @@ fn detach_patches_a_subchat_that_has_no_row(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn done_stays_in_the_list_dimmed_and_cmd_z_takes_it_back(cx: &mut TestAppContext) {
+fn done_moves_the_chat_to_the_done_list_at_once_and_cmd_z_takes_it_back(cx: &mut TestAppContext) {
     let (sidebar, cx) = mount(cx);
     let chat = key(&sidebar, cx, 11);
     let (rows, done) = sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count()));
     run(&sidebar, cx, 11, MenuAction::Done);
-    // Marked just now, it keeps its place in the list (dimmed, with the check); the Done section holds older ones.
-    assert_eq!(sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count())), (rows, done));
+    // It leaves the list at once and heads the Done list (most recently marked first).
+    assert_eq!(sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count())), (rows - 1, done + 1));
     assert!(sidebar.read_with(cx, |s, _| s.is_done_key(&chat)));
-    assert_eq!(
-        sidebar.read_with(cx, |s, _| s.row(11).map(|row| (row.key.to_string(), row.state()))),
-        Some((chat.clone(), super::RowState::Done))
-    );
+    assert!(!sidebar.read_with(cx, |s, _| s.row_keys().contains(&chat)));
+    assert_eq!(sidebar.read_with(cx, |s, _| s.done_rows()[0].key.to_string()), chat);
+    // The menu selected it: it stays on screen, picked, with no list row selected.
+    assert_eq!(sidebar.read_with(cx, |s, _| (s.selected(), s.selected_row().map(|row| row.key.to_string()))), (None, Some(chat.clone())));
     assert!(matches!(calls(&sidebar, cx)[..], [SidebarCall::Patch { patch: ChatPatch::DoneAt(Some(_)), .. }]));
     assert_eq!(sidebar.read_with(cx, |s, _| s.toast_text()), Some("Moved to Done".into()));
     assert!(cx.debug_bounds("toast-undo").is_some(), "the toast offers Undo");
 
     cx.simulate_keystrokes("cmd-z");
     assert_eq!(sidebar.read_with(cx, |s, _| (s.row_count(), s.done_count())), (rows, done));
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(11), "back in its place, selected again");
     assert_eq!(calls(&sidebar, cx).last(), Some(&SidebarCall::Patch { chat: chat.clone(), patch: ChatPatch::DoneAt(None) }));
     assert_eq!(sidebar.read_with(cx, |s, _| s.toast_text()), Some("Back in Chats".into()));
     assert!(cx.debug_bounds("toast-redo").is_some());
@@ -344,8 +345,8 @@ fn undo_walks_back_three_steps_and_redo_forward_again(cx: &mut TestAppContext) {
     let delete_ix = at(cx, &delete);
     super::menu_tests::delete(&sidebar, cx, delete_ix);
     let after = sidebar.read_with(cx, |s, _| (s.row_count(), s.pinned_count(), s.done_count()));
-    // The Done Chat stays in the list (marked just now); the deleted one leaves it.
-    assert_eq!(after, (initial.0 - 1, initial.1 + 1, initial.2));
+    // The Done Chat and the deleted one both leave the list; Done counts one more.
+    assert_eq!(after, (initial.0 - 2, initial.1 + 1, initial.2 + 1));
 
     cx.simulate_keystrokes("cmd-z");
     assert!(!sidebar.read_with(cx, |s, _| s.is_archived_key(&delete)), "the deletion is taken back first");
