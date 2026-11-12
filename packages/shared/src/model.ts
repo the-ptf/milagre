@@ -956,6 +956,8 @@ export interface ChatStep {
   hasDetail?: boolean;
   /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, its generated image or snapshot. */
   file?: string;
+  /** The files of a change that edited several (a Codex patch), which has no single `file`; a reply's file links match them too. */
+  files?: string[];
   /** An image snapshot of a file the agent viewed, rather than an image it generated. */
   imageOrigin?: "viewed";
   /** Provenance of a viewed snapshot only; never grants access to this file. */
@@ -1182,7 +1184,10 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "imageOrigin" | "sourceFile" | "tool" | "agent" | "startedAt"> }
+  | {
+      type: "step-started";
+      step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "files" | "imageOrigin" | "sourceFile" | "tool" | "agent" | "startedAt">;
+    }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to

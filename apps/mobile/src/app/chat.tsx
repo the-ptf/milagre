@@ -785,6 +785,9 @@ function ChatPane({
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
   const history = chatHistory(messages);
+  // The steps whose files a reply may name relative to a subfolder: the saved ones, then the running turn's.
+  const liveSteps = liveRun?.steps;
+  const chatSteps = useMemo(() => (liveSteps?.length ? [...history.steps, ...liveSteps] : history.steps), [history.steps, liveSteps]);
   const chosen = useMemo(() => chosenDesign(history.userBodies), [history.userBodies]);
   const designChoice = chosen ? `${chosen.id}:${chosen.version}` : undefined;
   // Long Chats mount their newest messages first; earlier ones load on request.
@@ -2337,7 +2340,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={chatSteps}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}

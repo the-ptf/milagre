@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { isMarkdownFile } from "@milagre/shared/file-link";
 import { File, FileMode } from "expo-file-system";
 import { Platform, Text, View } from "react-native";
@@ -13,11 +13,41 @@ import { Markdown } from "../markdown";
 import { ErrorNotice, HeaderButton, PageScroll, PillButton, useStyles } from "../ui";
 import { fileLinkFolder } from "@milagre/shared/file-link";
 
+/** The path to read, then `fallbacks` (a JSON list): files the Chat worked on that end with a path a reply named. */
+function previewPaths(path: string | undefined, fallbacks: string | undefined): string[] {
+  if (!path) return [];
+  try {
+    const parsed: unknown = fallbacks ? JSON.parse(fallbacks) : [];
+    return [path, ...(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string" && !!item && item !== path) : [])];
+  } catch {
+    return [path];
+  }
+}
+
 export default function FilePreview() {
   const styles = useStyles();
-  const { path, uri, name: localName } = useLocalSearchParams<{ path?: string; uri?: string; name?: string }>();
+  const { path: named, uri, name: localName, fallbacks } = useLocalSearchParams<{ path?: string; uri?: string; name?: string; fallbacks?: string }>();
   const { client } = useSession();
-  const remote = useRpc<{ text: string; binary: boolean; truncated: boolean }>(path ? client : null, "attachment:preview", [path]);
+  // A path a reply named from the agent's subfolder misses under the Chat's folder: each file the Chat worked on that
+  // ends with it is read next. When none reads, the named path's own error shows.
+  const paths = useMemo(() => previewPaths(named, fallbacks), [named, fallbacks]);
+  // Which of `paths` is read, and the named path's error once it missed; other paths start over.
+  const [tried, setTried] = useState({ paths, attempt: 0, namedError: "" });
+  const { attempt, namedError } = tried.paths === paths ? tried : { attempt: 0, namedError: "" };
+  const path = paths[Math.min(attempt, Math.max(paths.length - 1, 0))];
+  const read = useRpc<{ text: string; binary: boolean; truncated: boolean }>(path ? client : null, "attachment:preview", [path]);
+  const tryNext = !!read.error && attempt < paths.length - 1;
+  // Adjusted while rendering, as React does for state that follows a value: the next read starts at once, and the miss
+  // that moved it on is no longer this path's.
+  if (tryNext) setTried({ paths, attempt: attempt + 1, namedError: attempt === 0 ? read.error : namedError });
+  const remote = {
+    data: read.data,
+    error: tryNext || !read.error ? "" : namedError || read.error,
+    refresh: () => {
+      if (attempt) setTried({ paths, attempt: 0, namedError: "" });
+      else read.refresh();
+    },
+  };
   const [local, setLocal] = useState<{ data?: { text: string; binary: boolean; truncated: boolean }; error?: string }>({});
   useEffect(() => {
     if (!uri) return;

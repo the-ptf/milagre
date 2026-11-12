@@ -80,7 +80,7 @@ import { ChatMentionsContext, EMPTY_CHAT_MENTIONS, type ChatMentionScope } from 
 import { StepApprovalProvider, type StepApproval } from "./agents/step-approval";
 import { PromptText } from "./PromptText";
 import { onlyImageMentions } from "@milagre/shared/prompt-parts";
-import { useFilesRoot } from "./editor-links";
+import { ChatFiles, useFilesRoot } from "./editor-links";
 import { useSentSkills } from "./useSentSkills";
 import { isRemoteKey, useScope } from "../lib/computer-bridge";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "../lib/prompt-mentions";
@@ -2204,7 +2204,7 @@ export function ChatTranscript({
   );
 }
 
-/** The contexts a Chat's replies read: its designs and the send function a generative UI button posts through. */
+/** The contexts a Chat's replies read: its designs, the files its steps worked on and the send function a generative UI button posts through. */
 function ReplyProviders({
   mentionContext = EMPTY_CHAT_MENTIONS,
   chatId,
@@ -2230,7 +2230,9 @@ function ReplyProviders({
   return (
     <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent} subagents={subagents}>
       <GenerativeUIProvider onSend={onSend}>
-        <ChatMentionsContext value={mentionContext}>{children}</ChatMentionsContext>
+        <ChatMentionsContext value={mentionContext}>
+          <ChatFiles steps={steps}>{children}</ChatFiles>
+        </ChatMentionsContext>
       </GenerativeUIProvider>
     </ArtifactsProvider>
   );

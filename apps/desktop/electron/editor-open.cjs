@@ -8,8 +8,9 @@ function createEditorOpener({ editors, open, checkRoot }) {
   return async (request) => {
     try {
       if (!request || typeof request.root !== "string") return failure("File not found");
+      const fallbacks = Array.isArray(request.fallbacks) ? request.fallbacks.filter((file) => typeof file === "string") : undefined;
       const message = await open(
-        { root: request.root, path: request.path, line: request.line, editor: request.editor },
+        { root: request.root, path: request.path, line: request.line, editor: request.editor, ...(fallbacks?.length ? { fallbacks } : {}) },
         { editors: await editors(), ...(checkRoot ? { checkRoot } : {}) },
       );
       return message ? failure(message) : { ok: true, value: null };

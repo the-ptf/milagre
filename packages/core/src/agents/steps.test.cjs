@@ -243,7 +243,8 @@ test("Codex: file changes show what changed and the diff", () => {
       { path: "/repo/old.js", kind: { type: "delete" }, diff: "gone\n" },
     ],
   };
-  assert.deepEqual(codexStep(edited).title, "Edited 2 files");
+  // A patch over several files has no single `file`, and keeps every one for file links in the reply.
+  assert.deepEqual(codexStep(edited), { id: "exec-3", kind: "edit", title: "Edited 2 files", files: ["/repo/app.js", "/repo/old.js"] });
   assert.deepEqual(codexStepResult(edited), {
     id: "exec-3",
     status: "failed",
