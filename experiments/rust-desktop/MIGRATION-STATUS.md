@@ -6,6 +6,18 @@ Never restart/replace the production host, take over live locks, launch a second
 
 ## Current checkpoint
 
+At the 2026-11-12 00:00 Toronto continuation, all previous implementation agents
+were complete and tracked sources clean. Installed Preview hashes/signature still
+match the accepted build below, and production PID start times remain unchanged.
+GPUI reports daemon-terminal commit `96e6c476` and is adopting the final matching
+client/runtime pair. No real send is retried before 07:00 UTC.
+
+The next parallel lane is durable schedule execution transactions in rust-routines
+plus an isolated, explicitly opt-in runtime scheduler. Agents are coordinating
+claim/start/finish/recovery semantics and actual owner dispatch. This is work in
+progress: the installed build remains paused-storage-only, with no timers enabled.
+No new execution capability or completed-port claim follows from dispatching it.
+
 Latest accepted integration is `3410109b`. The default-disabled dedicated runtime
 now supplies Node-exact starter metadata and missing-only legacy repair, typed
 `CHAT_ROOT_BUSY` startup refusal, and a separate launcher-loss cleanup policy.

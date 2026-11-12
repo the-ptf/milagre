@@ -6,7 +6,7 @@ The installed Electron app and this client share the daemon through its existing
 
 ## Frontend choice stays open
 
-The user explicitly wants to choose between Tauri and GPUI at the end. Keep both independent until comparable feature, usability and performance checks support that choice. Tauri retains the production React UI; GPUI stays in its own `experiments/rust-gpui` worktree/branch. The shared Rust daemon and frontend-independent client are the common backend target. Neither backend authority nor its protocol may depend on GPUI. The installed Tauri shell currently still uses its existing transport and Node owner; GPUI uses the shared Rust client only in its off-by-default fixture check crate. No replacement decision or automatic app wiring is implied.
+The user explicitly wants to choose between Tauri and GPUI at the end. Keep both independent until comparable feature, usability and performance checks support that choice. Tauri retains the production React UI; GPUI stays in its own `experiments/rust-gpui` worktree/branch. The shared Rust daemon and frontend-independent client are the common backend target. Neither backend authority nor its protocol may depend on GPUI. The ordinary installed Tauri shell still uses its existing transport and Node owner. The separate Rust Preview uses its owned Rust runtime, and GPUI has a separate real-data preview using the shared Rust client. Both remain experimental and use dedicated roots. No production replacement decision is implied.
 
 ## Completion estimate and shared frontend integration (2026-11-11)
 
