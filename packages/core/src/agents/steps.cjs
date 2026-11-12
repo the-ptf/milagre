@@ -238,8 +238,12 @@ function codexStep(item) {
       if (action?.type === "listFiles") return step("search", action.path ? `Listed files in ${code(action.path)}` : "Listed files", detail);
       return step("shell", `Ran ${code(command)}`, detail);
     }
-    case "fileChange":
-      return step("edit", changeTitle(item.changes ?? []), undefined, item.changes?.length === 1 ? item.changes[0].path : undefined);
+    case "fileChange": {
+      // One file is the step's `file`; a patch over several keeps them all, for links to any of them.
+      const paths = (item.changes ?? []).map((change) => filePath(change?.path)).filter(Boolean);
+      const edit = step("edit", changeTitle(item.changes ?? []), undefined, item.changes?.length === 1 ? item.changes[0].path : undefined);
+      return paths.length > 1 ? { ...edit, files: [...new Set(paths)] } : edit;
+    }
     case "mcpToolCall":
       if (isArtifactTool(item.server, item.tool)) return artifactStep(step, item.arguments?.title, item.tool);
       if (isResolveTool(item.server, item.tool)) return step("other", resolvedTitle(item.tool), item.arguments?.note);

@@ -594,7 +594,7 @@ export type MilagreBridge = {
   /** Code editors found on this Mac, in the order the first becomes the default. */
   listEditors: () => Promise<EditorInfo[]>;
   /** Opens a file (or, with no path, the folder) in an editor. `path` is relative to `root`. Returns a Result with a failure code and message. */
-  openInEditor: (request: { root: string; path?: string; line?: number; editor?: string }) => Promise<Result<null>>;
+  openInEditor: (request: { root: string; path?: string; line?: number; editor?: string; fallbacks?: string[] }) => Promise<Result<null>>;
   getCurrentProject: () => Promise<(OpenProject & StateStamp) | null>;
   openProject: () => Promise<(OpenProject & StateStamp) | null>;
   /** This Mac's folder dialog without opening a Project: where a clone goes. A path, or null when cancelled. */

@@ -7852,6 +7852,12 @@
         },
         "editor": {
           "type": "string"
+        },
+        "fallbacks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": ["root"],

@@ -300,7 +300,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       }
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
-      if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
+      if (base === "chat-link-context" && !(id in modules))
+        return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider", ChatFilesContext: "ChatFilesContext" };
       if (base === "browser-link" && !(id in modules)) return load("browser-link.ts", modules, "", cache);
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
@@ -2219,11 +2220,19 @@ function markdownHost({
   haptic = () => {},
   textPx = 15,
   codeSize = 12,
+  steps = [],
 } = {}) {
   const react = {
     ...hookHost({ effects: true }),
     memo: (fn) => fn,
-    useContext: (context) => (context === "ReachableHostContext" ? reachable : context === "ChatLinkContext" ? openChatLink : undefined),
+    useContext: (context) =>
+      context === "ReachableHostContext"
+        ? reachable
+        : context === "ChatLinkContext"
+          ? openChatLink
+          : context === "ChatFilesContext"
+            ? { current: steps }
+            : undefined,
   };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
@@ -2580,6 +2589,92 @@ test("links to files on the computer open the file preview", () => {
     assert.equal(JSON.stringify(screen.routes), JSON.stringify([{ pathname: "/file-preview", params: { path } }]));
     assert.deepEqual(screen.links, [], "a file link never goes to the phone's browser");
   }
+});
+
+test("inline code that names a file opens the preview, with the Chat's files that end with it to try next", () => {
+  // A routine's agent works in .routines/r and names its case file from there; a Codex patch wrote it with another file.
+  const written = "/worktrees/feature/.routines/r/casos/a.md";
+  const screen = markdownHost({
+    basePath: "/worktrees/feature",
+    steps: [{ file: "/worktrees/feature/README.md" }, { files: [written, "/worktrees/feature/.routines/r/casos/b.md"] }],
+  });
+  const link = find(screen.render("The case is in `casos/a.md:12`."), (node) => node.props?.accessibilityRole === "link");
+  assert.ok(link, "the file in inline code is a link");
+  link.props.onPress();
+  assert.equal(
+    JSON.stringify(screen.routes),
+    JSON.stringify([{ pathname: "/file-preview", params: { path: "/worktrees/feature/casos/a.md", fallbacks: JSON.stringify([written]) } }]),
+  );
+  // A file the Chat didn't work on goes alone; commands and words stay code; with no folder nothing is a link.
+  find(screen.render("See `src/main.ts`."), (node) => node.props?.accessibilityRole === "link").props.onPress();
+  assert.equal(JSON.stringify(screen.routes.at(-1)), JSON.stringify({ pathname: "/file-preview", params: { path: "/worktrees/feature/src/main.ts" } }));
+  for (const text of ["Run `npm test`.", "Call `console.log`."])
+    assert.equal(
+      find(screen.render(text), (node) => node.props?.accessibilityRole === "link"),
+      undefined,
+      text,
+    );
+  assert.equal(
+    find(markdownHost().render("See `src/main.ts`."), (node) => node.props?.accessibilityRole === "link"),
+    undefined,
+  );
+  // Code inside a link is the link's text: one link, to where the link points.
+  const links = [];
+  find(screen.render("[`docs/spec.md`](https://example.com/spec)"), (node) => {
+    if (node.props?.accessibilityRole === "link") links.push(node);
+    return false;
+  });
+  assert.equal(links.length, 1);
+});
+
+test("the file preview reads each fallback when the named path misses, and shows the named path's error when none reads", () => {
+  const react = hookHost({ effects: true });
+  const present = new Set();
+  const reads = [];
+  let params = {};
+  const { default: FilePreview } = load("app/file-preview.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    // oxlint-disable-next-line typescript/no-extraneous-class -- empty stub standing in for expo-file-system's File constructor
+    "expo-file-system": { File: class {}, FileMode: { ReadOnly: "readOnly" } },
+    "react-native": { Platform: { OS: "ios" }, Text: "Text", View: "View" },
+    "expo-router": { Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "ToolbarButton" }) }, useLocalSearchParams: () => params },
+    "../session": { useSession: () => ({ client: {} }) },
+    "../use-rpc": {
+      useRpc: (client, method, args) => {
+        reads.push(args[0]);
+        return present.has(args[0])
+          ? { data: { text: `contents of ${args[0]}`, binary: false, truncated: false }, error: "", refresh() {} }
+          : { data: null, error: `ENOENT: ${args[0]}`, refresh() {} };
+      },
+    },
+    "../save-attachment": { saveAttachment: async () => true },
+    "../file-code": { FileCode: "FileCode" },
+    "../markdown": { Markdown: "Markdown" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll", HeaderButton: "HeaderButton" },
+  });
+  const render = () => {
+    react.begin();
+    return FilePreview();
+  };
+  const fallback = "/p/.routines/r/casos/a.ts";
+  present.add(fallback);
+  params = { path: "/p/casos/a.ts", fallbacks: JSON.stringify(["/p/other/casos/a.ts", fallback]) };
+  for (let i = 0; i < 4; i++) render();
+  assert.deepEqual([...new Set(reads)], ["/p/casos/a.ts", "/p/other/casos/a.ts", fallback]);
+  const code = find(render(), (node) => node.type === "FileCode");
+  assert.equal(code.props.text, `contents of ${fallback}`);
+  assert.equal(
+    find(render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  // None reads: the error is the named path's, not the last fallback's.
+  present.clear();
+  reads.length = 0;
+  params = { path: "/p/casos/b.ts", fallbacks: JSON.stringify(["/p/other/casos/b.ts"]) };
+  for (let i = 0; i < 4; i++) render();
+  assert.equal(find(render(), (node) => node.type === "ErrorNotice").props.message, "ENOENT: /p/casos/b.ts");
 });
 
 test("mobile replies keep code URLs and unsafe links inert", () => {

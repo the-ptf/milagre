@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fileLinkFolder, fileLinkName, isMarkdownFile, isWindowsPath, localFileLink } from "./file-link.mjs";
+import { fileLinkFolder, fileLinkName, fileLinkTarget, isMarkdownFile, isWindowsPath, localFileLink, touchedFileMatches } from "./file-link.mjs";
 
 test("absolute paths open in the viewer", () => {
   assert.deepEqual(localFileLink("/Users/me/repo/docs/spec.md"), { path: "/Users/me/repo/docs/spec.md" });
@@ -72,4 +72,100 @@ test("markdown files are recognized by extension", () => {
   assert.equal(isMarkdownFile("README.MDX"), true);
   assert.equal(isMarkdownFile("notes.markdown"), true);
   assert.equal(isMarkdownFile("main.ts"), false);
+});
+
+test("relative file paths, with or without a line, are links", () => {
+  assert.deepEqual(fileLinkTarget("README.md"), { path: "README.md" });
+  assert.deepEqual(fileLinkTarget("app/src/App.tsx:42"), { path: "app/src/App.tsx", line: 42 });
+  assert.deepEqual(fileLinkTarget("app/src/App.tsx:42:7"), { path: "app/src/App.tsx", line: 42, column: 7 });
+  assert.deepEqual(fileLinkTarget("./electron/main.cjs"), { path: "./electron/main.cjs" });
+  assert.deepEqual(fileLinkTarget("package.json"), { path: "package.json" });
+  assert.deepEqual(fileLinkTarget("src/index.d.ts:3"), { path: "src/index.d.ts", line: 3 });
+  assert.deepEqual(fileLinkTarget("app/src/lib/settings.ts:10-20"), { path: "app/src/lib/settings.ts", line: 10 });
+  assert.deepEqual(fileLinkTarget("app/(group)/[id].tsx"), { path: "app/(group)/[id].tsx" });
+  assert.deepEqual(fileLinkTarget(".gitignore"), { path: ".gitignore" });
+  assert.deepEqual(fileLinkTarget("styles.CSS"), { path: "styles.CSS" });
+});
+
+test("plain words, commands, versions and URLs stay code", () => {
+  for (const code of [
+    "npm test",
+    "useState",
+    "v1.2.3",
+    "1.2.3",
+    "https://example.com/a.ts",
+    "http://localhost:5180",
+    "console.log",
+    "Math.max",
+    "example.com",
+    "e.g.",
+    "foo.bar",
+    "git status",
+    "--flag",
+    "a.ts b.ts",
+    "",
+    "src/",
+    "src/utils",
+    "file.ts:",
+    "file.ts:0",
+    "file.ts:x",
+    "file.ts:1:2:3",
+    "C:\\Users\\a.ts",
+    "$HOME/a.ts",
+    "~/a.ts",
+    "/etc/hosts",
+    "/abs/path/a.ts",
+    "../outside.ts",
+    "a/../b.ts",
+    "mailto:a@b.co",
+    "foo.tsx()",
+    "name@1.2.0",
+    "a.ts\nb.ts",
+  ]) {
+    assert.equal(fileLinkTarget(code), null, code);
+  }
+});
+
+test("a path relative to a subfolder finds the file a step worked on, the latest first", () => {
+  // A routine's agent works in .routines/<name> and names its case file from there.
+  const written = String.raw`C:\Users\me\Proj\.routines\support\casos\2026-11-11-case.md`;
+  const steps = [
+    { file: String.raw`C:\Users\me\Proj\.routines\support\INSTRUCTIONS.md` },
+    { file: written },
+    { file: String.raw`C:\Users\me\Proj\casos-old\2026-11-11-case.md` },
+    {},
+  ];
+  assert.deepEqual(touchedFileMatches("casos/2026-11-11-case.md", steps), [written]);
+  assert.deepEqual(touchedFileMatches("./casos/2026-11-11-case.md", steps), [written]);
+  // Windows paths compare with either slash and in any case.
+  assert.deepEqual(touchedFileMatches(String.raw`Casos\2026-11-11-CASE.md`, steps), [written]);
+  assert.deepEqual(touchedFileMatches("src/a.ts", [{ file: "/r/one/src/a.ts" }, { file: "/r/two/src/a.ts" }, { file: "/r/one/src/a.ts" }]), [
+    "/r/one/src/a.ts",
+    "/r/two/src/a.ts",
+  ]);
+  // POSIX paths keep their case, and a name must match whole.
+  assert.deepEqual(touchedFileMatches("src/A.ts", [{ file: "/r/src/a.ts" }]), []);
+  assert.deepEqual(touchedFileMatches("a.ts", [{ file: "/r/src/data.ts" }]), []);
+});
+
+test("every file of a change that touched several is a candidate", () => {
+  // Codex patches casos/a.md and casos/b.md in one change: the step has no single file, only its files.
+  const change = { files: ["/p/.routines/r/casos/a.md", "/p/.routines/r/casos/b.md"] };
+  assert.deepEqual(touchedFileMatches("casos/b.md", [change]), ["/p/.routines/r/casos/b.md"]);
+  assert.deepEqual(touchedFileMatches("casos/a.md", [{ file: "/p/old/casos/a.md" }, change]), ["/p/.routines/r/casos/a.md", "/p/old/casos/a.md"]);
+});
+
+test("a file on a Windows network share is a candidate", () => {
+  const share = String.raw`\\server\share\proj\.routines\r\casos\a.md`;
+  assert.deepEqual(touchedFileMatches("casos/a.md", [{ file: share }]), [share]);
+  assert.deepEqual(touchedFileMatches(String.raw`CASOS\A.md`, [{ file: share }]), [share]);
+  assert.deepEqual(touchedFileMatches(share, [{ file: share }]), [], "an absolute path has no fallback");
+});
+
+test("absolute, parent-relative and empty paths have no fallback", () => {
+  const steps = [{ file: "/r/src/a.ts" }, { file: String.raw`C:\r\src\a.ts` }];
+  for (const path of ["", "/r/src/a.ts", String.raw`C:\r\src\a.ts`, "../src/a.ts", "x/../src/a.ts"])
+    assert.deepEqual(touchedFileMatches(path, steps), [], path);
+  // A step's file that is neither absolute nor a drive or share path is skipped.
+  assert.deepEqual(touchedFileMatches("a.ts", [{ file: "src/a.ts" }]), []);
 });

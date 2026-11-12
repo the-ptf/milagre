@@ -8,6 +8,8 @@ export interface EditorRequest {
   path?: string;
   line?: number;
   editor?: string;
+  /** Absolute files to open instead when `path` is missing under `root`, the first found inside it; at most 20 are read. */
+  fallbacks?: string[];
 }
 export function detectEditors(): Promise<DetectedEditor[]>;
 export function requireWorktreeRoot(root: string): Promise<void>;
