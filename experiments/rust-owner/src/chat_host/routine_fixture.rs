@@ -46,6 +46,74 @@ impl ChatHost {
         self.send_admitted(&request, SendAdmission::RoutineFixture)
             .map_err(RoutineFixtureError::Dispatch)
     }
+    /// Saved completion effects only. Unread needs terminal mutation provenance and
+    /// is deliberately untouched here. No model naming authority is minted.
+    pub fn finish_claimed_routine_fixture_chat(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        run_id: &str,
+        quiet_summary: Option<&str>,
+        quiet_title: Option<&str>,
+    ) -> Result<()> {
+        let (resolved, sid) = self.canonical_chat(chat)?;
+        if resolved != project || self.active_turn(chat).is_some() {
+            return Err(gate("Routine completion no longer owns an idle Chat"));
+        }
+        self.require_project_ready(project)?;
+        self.states
+            .try_update(project, Some(&[sid]), true, |latest| {
+                let mut messages = latest.message_list().to_vec();
+                let index = messages
+                    .iter()
+                    .rposition(|m| {
+                        m.value()["session_id"] == sid
+                            && m.value()["context"]["kind"] == "routine-run"
+                            && m.value()["context"]["runId"] == run_id
+                    })
+                    .ok_or_else(|| gate("Routine completion divider disappeared"))?;
+                if messages[index + 1..]
+                    .iter()
+                    .any(|m| m.value()["session_id"] == sid && m.value()["role"] == "user")
+                {
+                    return Err(gate("Routine completion observed a successor user turn"));
+                }
+                let mut message = messages[index].value().clone();
+                message["context"]["quiet"] = json!(quiet_summary.is_some());
+                if let Some(summary) = quiet_summary {
+                    message["context"]["summary"] = json!(summary);
+                }
+                messages[index] = Msg::new(message);
+                let mut next = latest.with_messages(messages);
+                let mut session = latest
+                    .sessions()
+                    .and_then(|ss| ss.get(&sid.to_string()))
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .ok_or_else(|| gate("Routine Chat disappeared"))?;
+                if session
+                    .get("routine")
+                    .is_some_and(|origin| origin["runId"] == run_id)
+                {
+                    if let Some(title) = quiet_title {
+                        if session
+                            .get("title")
+                            .and_then(Value::as_str)
+                            .is_none_or(|s| crate::tool_activity::js_trim(s).is_empty())
+                        {
+                            session.insert("generatedTitle".into(), json!(title));
+                        }
+                    }
+                    if quiet_summary.is_some() {
+                        session.insert("archived".into(), json!(true));
+                    }
+                    next = agent_runs::with_session(&next, sid, session);
+                }
+                Ok(Some(next))
+            })?;
+        self.states.flush(Some(project))?;
+        Ok(())
+    }
     /// Creates only a fresh primary-Project fixture Chat. The durable scheduler
     /// must attach the returned identities before calling trusted send.
     pub fn create_claimed_routine_fixture_chat(
@@ -267,6 +335,90 @@ mod tests {
         host.open_project(&project).unwrap();
         let claim = json!({"routine":{"id":"abc00001","name":"Synthetic schedule","prompt":"Check fixture","trigger":{"kind":"schedule"},"permissionMode":"ask","model":"sonnet","target":{"kind":"chat","chatId":format!("{}#1",project.display())}},"run":{"id":"abc00002","routineId":"abc00001","status":"running","startedAt":1_790_000_000_000i64}});
         (root, host, provider, project, claim)
+    }
+    #[test]
+    fn saved_quiet_context_and_title_match_actual_node_methods() {
+        for user_title in [
+            None,
+            Some("User chosen title"),
+            Some("\u{feff}"),
+            Some("\u{85}"),
+        ] {
+            let (_root, mut host, _provider, project, mut claim) = setup();
+            claim["routine"]["target"] =
+                json!({"kind":"new-chat","projectPath":project,"workspace":"project"});
+            let (chat, _) = host
+                .create_claimed_routine_fixture_chat(&project, &claim, "sonnet")
+                .unwrap();
+            let (_, sid) = host.canonical_chat(&chat).unwrap();
+            host.states.try_update(&project, Some(&[sid]), true, |latest| {
+                let mut session=latest.sessions().unwrap()[&sid.to_string()].as_object().unwrap().clone();
+                if let Some(title)=user_title { session.insert("title".into(),json!(title)); }
+                let next=agent_runs::with_session(latest,sid,session);
+                Ok(Some(next.with_messages(vec![Msg::new(json!({"id":101,"session_id":sid,"role":"user","body":"Check","context":{"kind":"routine-run","runId":"abc00002"}}))])))
+            }).unwrap();
+            let before = host.states.whole_state(&project).unwrap();
+            let script = r#"
+const {ChatHost}=require(process.argv[1]+"/packages/core/src/agents/chat-host.cjs");
+const {compactProjectState}=require(process.argv[1]+"/packages/core/src/project-store.cjs");
+const input=JSON.parse(process.argv[2]);let state=input.state;
+const chats={states:{update:async(_p,change)=>{state=await compactProjectState(_p,change(state),state);return {state,changed:true};}},broadcast(){}};
+(async()=>{await ChatHost.prototype.patchMessageContext.call(chats,"p",input.sid,m=>m.context?.runId==="abc00002",{quiet:true,summary:"All clean"});
+await ChatHost.prototype.nameRunChat.call(chats,"p",input.sid,"abc00002","All clean");console.log(JSON.stringify(state));})().catch(e=>{console.error(e);process.exitCode=1});
+"#;
+            let output = std::process::Command::new("node")
+                .arg("-e")
+                .arg(script)
+                .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+                .arg(json!({"state":before,"sid":sid}).to_string())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let node: Value = serde_json::from_slice(&output.stdout).unwrap();
+            host.finish_claimed_routine_fixture_chat(
+                &project,
+                &chat,
+                "abc00002",
+                Some("All clean"),
+                Some("All clean"),
+            )
+            .unwrap();
+            let after = host.states.whole_state(&project).unwrap();
+            assert_eq!(after["messages"], node["messages"]);
+            assert_eq!(
+                after["sessions"][sid.to_string()]["generatedTitle"],
+                node["sessions"][sid.to_string()]["generatedTitle"]
+            );
+            assert_eq!(
+                after["sessions"][sid.to_string()]["title"],
+                node["sessions"][sid.to_string()]["title"]
+            );
+            assert_eq!(after["sessions"][sid.to_string()]["archived"], true);
+            host.states
+                .try_update(&project, Some(&[sid]), true, |latest| {
+                    let mut list = latest.message_list().to_vec();
+                    list.push(Msg::new(
+                        json!({"id":102,"session_id":sid,"role":"user","body":"User successor"}),
+                    ));
+                    Ok(Some(latest.with_messages(list)))
+                })
+                .unwrap();
+            let before_refusal = host.states.whole_state(&project).unwrap();
+            assert!(host
+                .finish_claimed_routine_fixture_chat(
+                    &project,
+                    &chat,
+                    "abc00002",
+                    Some("Changed"),
+                    Some("Changed")
+                )
+                .is_err());
+            assert_eq!(host.states.whole_state(&project).unwrap(), before_refusal);
+        }
     }
     #[test]
     fn fresh_primary_chat_matches_actual_node_empty_chat_and_context() {

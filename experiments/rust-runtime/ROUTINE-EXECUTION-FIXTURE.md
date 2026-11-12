@@ -242,3 +242,41 @@ checks pass. The initial 147 runtime count predates the capacity regression.
 The Node oracle needs the existing checkout dependency directory in `NODE_PATH`.
 All runtime builds use `/tmp/milagre-routine-execution-runtime-target`; no installed
 Preview or ordinary runtime binary is rebuilt by this fixture increment.
+
+## Saved completion effects checkpoint (source, not installed)
+
+The synthetic scheduler now saves the exact routine divider's `quiet`/`summary`
+fields before making the durable Run terminal. Quiet summaries use Node's trimmed
+first-line/60-UTF-16-unit title rule (57 units plus ellipsis when longer); the
+Run title and its own origin Chat's `generatedTitle` agree. A user title wins.
+Quiet origin Chats are archived; existing-Chat targets are not archived. The
+owner flushes these effects before the routine store finish transaction. Missing
+context, owner/write failure, an active successor, or a successor user message
+refuses/fences instead of acknowledging completion; restart retains the existing
+no-replay recovery rule. A UTF-16 title cut inside a surrogate pair leaves naming
+unset, because this fixture's String wire cannot represent that Node result.
+
+This is saved-state parity only. Node's scheduler synchronously annotates live
+terminal events before publication; the current polling fixture cannot claim
+that ordering. Node also reverts unread only using actual terminal
+`markedUnread` mutation provenance. Rust does not yet retain the provenance plus
+protection against intervening user unread changes, so this checkpoint deliberately
+leaves unread untouched. Quiet archived Chats may therefore retain an unread flag.
+Acted-run naming needs the separate model title service and remains deferred;
+these Runs keep their Routine name. Worktree retirement and Link scopes stay out.
+
+Evidence includes actual Node `ChatHost.patchMessageContext`/`nameRunChat`
+comparisons (including user-title and JS whitespace cases), actual shared Node
+`shortTitle` vectors, and a fixed-native quiet fresh-Chat completion/reopen test.
+The initial full-session reopen assertion failed because shutdown removes a
+transient `suggestionTurnId`; the corrected test compares saved completion fields,
+summary and transcript explicitly. That original failure remains in
+`/tmp/milagre-routine-completion-quiet.log`. Compilation failures from initial
+message-Arc indexing/private test helper visibility remain separate attempt logs.
+No normal app/runtime package, real provider or production root is used.
+
+Final frozen-source validation: 150 runtime checks and 232 owner checks pass.
+Strict feature/normal runtime all-target Clippy and feature owner all-target
+Clippy pass, as do rustfmt and whitespace checks. Logs:
+`/tmp/milagre-routine-completion-{final,owner-final,clippy,normal-clippy,owner-clippy-final}.log`.
+The full suites run against the final successor-user refusal guard.

@@ -291,6 +291,7 @@ impl Scheduler {
         summary: Option<String>,
         now: i64,
     ) -> Result<()> {
+        let title = summary.as_deref().and_then(quiet_title);
         self.transaction(
             StoreCommand::FinishRun {
                 run_id,
@@ -298,7 +299,7 @@ impl Scheduler {
                 chat_id,
                 error,
                 summary,
-                title: None,
+                title,
             },
             now,
         )?;
@@ -356,6 +357,17 @@ impl Scheduler {
                 .map_err(|e| e.to_string())?;
         }
         for (run, chat, status, error, summary) in complete {
+            self.check_owner()?;
+            let title = summary.as_deref().and_then(quiet_title);
+            host.finish_claimed_routine_fixture_chat(
+                &self.project,
+                &chat,
+                &run,
+                summary.as_deref(),
+                title.as_deref(),
+            )
+            .map_err(|e| e.to_string())?;
+            self.check_owner()?;
             self.finish(run.clone(), status, Some(chat), error, summary, now)?;
             self.pending.remove(&run);
         }
@@ -444,4 +456,31 @@ pub(crate) fn quiet_summary(text: &str) -> Result<Option<String>> {
     String::from_utf16(&result)
         .map(Some)
         .map_err(|_| "Quiet summary needs a lossless UTF-16 storage boundary".into())
+}
+
+// Node summaryTitle uses JS whitespace and UTF-16 shortTitle. A split surrogate
+// cannot be represented by this wire's String, so refuse naming in that case.
+pub(crate) fn quiet_title(summary: &str) -> Option<String> {
+    let trimmed = summary.trim_matches(|c: char| {
+        let mut units = [0; 2];
+        let encoded = c.encode_utf16(&mut units);
+        encoded.len() == 1 && space(encoded[0])
+    });
+    let line = trimmed
+        .split('\n')
+        .next()
+        .unwrap_or("")
+        .trim_matches(|c: char| {
+            let mut units = [0; 2];
+            let encoded = c.encode_utf16(&mut units);
+            encoded.len() == 1 && space(encoded[0])
+        });
+    if line.is_empty() {
+        return None;
+    }
+    let units = line.encode_utf16().collect::<Vec<_>>();
+    if units.len() <= 60 {
+        return Some(line.into());
+    }
+    Some(format!("{}…", String::from_utf16(&units[..57]).ok()?))
 }

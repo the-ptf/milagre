@@ -877,3 +877,86 @@ fn attached_new_chat_owner_revocation_before_dispatch_keeps_claim_without_replay
     );
     next.finish();
 }
+
+#[test]
+fn quiet_fresh_chat_saves_title_context_archive_and_run_before_restart() {
+    let mut f = Harness::new("(pass) All fixture checks clean", false);
+    let row = f.create_new("Quiet fresh schedule");
+    let due = row["nextRunAt"].as_i64().unwrap();
+    f.run_until_finished(due);
+    let runs = f
+        .scheduler
+        .store
+        .execute(
+            StoreCommand::Runs(row["id"].as_str().unwrap().into()),
+            due + 1000,
+        )
+        .unwrap()
+        .value;
+    assert_eq!(runs[0]["status"], "quiet");
+    assert_eq!(runs[0]["title"], "All fixture checks clean");
+    let state = f.host.states.whole_state(&f.root.project()).unwrap();
+    let sid = state["messages"][0]["session_id"]
+        .as_i64()
+        .unwrap()
+        .to_string();
+    assert_eq!(state["sessions"][&sid]["archived"], true);
+    assert_eq!(state["sessions"][&sid]["generatedTitle"], runs[0]["title"]);
+    assert_eq!(state["messages"][0]["context"]["quiet"], true);
+    assert_eq!(
+        state["messages"][0]["context"]["summary"],
+        runs[0]["summary"]
+    );
+    let path = f.root.isolation.root().to_owned();
+    let profile = f.profile.clone();
+    f.finish();
+    drop(f);
+    let root = DataRoot::open(&path, true).unwrap();
+    let mut next = Harness::attach(root, profile, "Unexpected replay", false, due + 2000);
+    next.scheduler.tick(&mut next.host, due + 60_000).unwrap();
+    assert_eq!(next.monitor.workers(), 0);
+    let restored = next.host.states.whole_state(&next.root.project()).unwrap();
+    for key in ["archived", "generatedTitle", "routine", "summary", "unread"] {
+        assert_eq!(
+            restored["sessions"][&sid][key], state["sessions"][&sid][key],
+            "{key}"
+        );
+    }
+    assert_eq!(restored["messages"], state["messages"]);
+    next.finish();
+}
+
+#[test]
+fn quiet_titles_match_actual_shared_node_short_title() {
+    let inputs = vec![
+        " Simple ".to_string(),
+        "\u{feff}First line\r\nsecond".into(),
+        "x".repeat(60),
+        "x".repeat(61),
+        "😀".repeat(20),
+    ];
+    let script = r#"const {pathToFileURL}=require('node:url');(async()=>{const {shortTitle}=await import(pathToFileURL(process.argv[1]));console.log(JSON.stringify(JSON.parse(process.argv[2]).map(s=>shortTitle(s.trim().split('\n')[0].trim())||null)))})().catch(e=>{console.error(e);process.exitCode=1});"#;
+    let output = std::process::Command::new("node")
+        .arg("-e")
+        .arg(script)
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../packages/shared/src/chats.mjs"),
+        )
+        .arg(serde_json::to_string(&inputs).unwrap())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let node: Vec<Option<String>> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        inputs
+            .iter()
+            .map(|s| crate::routine_execution_fixture::quiet_title(s))
+            .collect::<Vec<_>>(),
+        node
+    );
+}
