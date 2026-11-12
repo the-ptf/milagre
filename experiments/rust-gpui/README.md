@@ -647,8 +647,11 @@ The module comment in `diff/mod.rs` lists the files and every deliberate differe
   slice of the card. The sticky header is a copy over the list's top, pushed up by the end of its card. Unified, split (always wraps, two
   equal columns) and wrap; the choice is the session's `DiffPrefs` global, shared by every diff.
 - Syntax runs: syntect with gpui-component's grammars, mapped to the same Shiki buckets code blocks use (`ui::markdown::highlight`); word
-  marks from `logic::diff::word_changes` under them. Hunks up to 120 lines are highlighted in the frame; longer ones on a background thread,
-  400 lines at a time (syntect costs about 0.25 ms a TypeScript line here, 0.07 ms a Rust one), plain until their chunk lands.
+  marks from `logic::diff::word_changes` under them. Every hunk is highlighted on a background thread, 48 lines first, then 400 at a time
+  (syntect costs about 0.25 ms a TypeScript line here, 0.07 ms a Rust one), plain until its chunk lands. A grammar's first parse compiles
+  its patterns (about 130 ms for TSX), so the Changes panel warms the grammars its files use in the background when its list arrives.
+  The first file click used to pay that in its first frame: 374 to 493 ms before, 21 ms after (release, headless,
+  `cargo test --release first_changes_clicks -- --ignored --nocapture`).
 - The picked file is held at the top until the reader scrolls, presses or something else moves the list; patches load when their rows
   come within 60 rows of the screen; files over 3,000 changed lines wait for "Show diff"; binary, too large, renamed and empty files say so.
 - Line comments: press the row's "+" and drag (Shift extends), the editor opens under the range (⌘↵ saves, Esc cancels); cards with

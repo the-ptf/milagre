@@ -24,6 +24,8 @@ pub mod fixture;
 
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, target_os = "macos"))]
+mod timing_tests;
 
 use std::collections::{HashMap, HashSet};
 
@@ -40,7 +42,7 @@ use crate::ui::{
     EmptySize, EmptyState, Icon, IconName, IconSize, ScrollArea, SectionLabel, Segmented, SegmentedOption, Select, SelectOption,
     SelectVariant, Skeleton, Tooltip,
 };
-use crate::workspace::panel::diff::{DiffEvent, DiffLayout, DiffPrefs, DiffView};
+use crate::workspace::panel::diff::{DiffEvent, DiffLayout, DiffPrefs, DiffView, highlight};
 
 /// Files or Commits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -114,6 +116,10 @@ struct ViewState {
 
 const HEADER_PAD: f32 = 12.0;
 
+/// Whether the grammar warm-up runs under `cargo test` (only the timing test turns it on).
+#[cfg(test)]
+pub(crate) static WARM_IN_TESTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub struct ChangesView {
     chat: SharedString,
     data: ChangesData,
@@ -159,6 +165,7 @@ impl ChangesView {
     pub fn set_chat(&mut self, chat: SharedString, data: ChangesData, cx: &mut Context<Self>) {
         self.chat = chat;
         self.data = data;
+        self.warm_grammars(cx);
         self.rebuild_diff(cx);
         cx.notify();
     }
@@ -166,8 +173,23 @@ impl ChangesView {
     /// Replaces the data for the same Chat (a read finished, a refresh came back).
     pub fn set_data(&mut self, data: ChangesData, cx: &mut Context<Self>) {
         self.data = data;
+        self.warm_grammars(cx);
         self.rebuild_diff(cx);
         cx.notify();
+    }
+
+    /// Compiles the grammars the listed files use on a background thread, once per process, so a file's first diff
+    /// colours at once instead of paying for them (about 130 ms for TSX). Tests skip it unless they time it.
+    fn warm_grammars(&self, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        if !WARM_IN_TESTS.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let ChangesData::Ready(changes) = &self.data else { return };
+        let cold = highlight::claim_cold(changes.unique_files().into_iter().map(|file| file.path.as_str()));
+        if !cold.is_empty() {
+            cx.background_spawn(async move { cold.into_iter().for_each(highlight::warm) }).detach();
+        }
     }
 
     /// The diff bar's Refresh (`changes.refresh()`): the Worktree is read again. The fixture answers with a fresh copy of

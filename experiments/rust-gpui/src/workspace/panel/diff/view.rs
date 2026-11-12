@@ -26,10 +26,12 @@ use crate::ui::TextArea;
 pub const LARGE_DIFF_LINES: u32 = 3000;
 /// Rows past the screen whose files load (the desktop loads files within 800px of the viewport).
 const LOAD_MARGIN: usize = 60;
-/// Hunks this long are highlighted in the frame that first draws them (TypeScript costs about 0.25 ms a line in
-/// syntect, Rust 0.07); longer ones parse in the background.
-const SYNC_HIGHLIGHT_LINES: usize = 120;
-/// Lines a background parse hands back at a time.
+/// Every hunk is highlighted off the main thread: syntect costs about 0.25 ms a TypeScript line (Rust 0.07), and a
+/// grammar's first parse in the process compiles its patterns, about 130 ms for TSX, which the frame that first drew a
+/// diff used to pay. Rows draw plain until their chunk lands. The first chunk is short, so the lines on screen colour
+/// within a frame or two; then a long hunk goes on in larger chunks.
+const FIRST_CHUNK: usize = 48;
+/// Lines a background parse hands back at a time after the first chunk.
 const BACKGROUND_CHUNK: usize = 400;
 /// A row's height before it is measured.
 pub(super) const ROW_ESTIMATE: f32 = 20.0;
@@ -1216,15 +1218,10 @@ impl DiffView {
         let mut map = self.styles.borrow_mut();
         let entry = map.entry((file, hunk)).or_insert_with(|| {
             let state = self.files.get(file)?;
-            let h = state.hunks()?.get(hunk)?;
-            let syntax = syntax_for(&state.entry.path)?;
-            if h.lines.len() <= SYNC_HIGHLIGHT_LINES {
-                let mut highlighter = HunkHighlighter::new(syntax, h);
-                Some((0..h.lines.len()).map(|ix| highlighter.runs(h, ix).cloned()).collect())
-            } else {
-                self.wanted.borrow_mut().push((file, hunk));
-                Some(Vec::new())
-            }
+            state.hunks()?.get(hunk)?;
+            syntax_for(&state.entry.path)?;
+            self.wanted.borrow_mut().push((file, hunk));
+            Some(Vec::new())
         });
         entry.as_ref()?.get(line).cloned().flatten()
     }
@@ -1241,7 +1238,8 @@ impl DiffView {
                 let mut highlighter = Some(HunkHighlighter::new(syntax, &h));
                 let mut next = 0;
                 while next < h.lines.len() {
-                    let end = (next + BACKGROUND_CHUNK).min(h.lines.len());
+                    let chunk = if next == 0 { FIRST_CHUNK } else { BACKGROUND_CHUNK };
+                    let end = (next + chunk).min(h.lines.len());
                     let (job_h, mut job) = (h.clone(), highlighter.take());
                     let (back, runs) = cx
                         .background_executor()

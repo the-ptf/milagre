@@ -4,8 +4,10 @@
 //! same syntect grammars gpui-component highlights code blocks with, and the same names, mapped to the same buckets.
 //!
 //! gpui-component keeps its syntect highlighter crate-private, so this runs syntect itself, resumably: a side keeps
-//! syntect's parse state where it stopped. The view parses a short hunk in the frame that draws it and a long one on
-//! a background thread a chunk at a time (`DiffView::runs_for`): TypeScript costs about 0.25 ms a line here.
+//! syntect's parse state where it stopped. The view parses every hunk on a background thread a chunk at a time
+//! (`DiffView::runs_for`): TypeScript costs about 0.25 ms a line here. A grammar's first parse compiles its patterns
+//! (about 130 ms for TSX), so the Changes panel warms the grammars its files use in the background ([`warm`]) as soon
+//! as it has the list.
 //! Only the 40 desktop languages are highlighted (`resolveCodeLanguage`); anything else stays plain, as there.
 
 use std::collections::HashMap;
@@ -49,6 +51,34 @@ pub fn syntax_for(path: &str) -> Option<&'static SyntaxReference> {
         .into_iter()
         .find_map(|token| syntaxes.find_syntax_by_token(token))
         .filter(|syntax| syntax.name != "Plain Text")
+}
+
+/// A few lines of the usual shapes (imports, a function, a class, strings, numbers, comments) that reach a grammar's
+/// common contexts, so parsing them compiles the patterns a real file needs first.
+const WARM_SAMPLE: &str = "import { a, b } from \"./c\";\n// a comment\n/* a block */\nexport function f(x: number, y = 'z'): string {\n  const v = [1, 2.5, true, null];\n  if (x > 0) { return `${x}` + y; }\n  return obj.method(v).field;\n}\nclass C extends D implements E { private g = new Map<string, number>(); }\nfn main() { let s = String::from(\"x\"); }\n";
+
+/// The grammars `paths` use that no one has warmed yet, now marked as warmed.
+pub fn claim_cold(paths: impl IntoIterator<Item = impl AsRef<str>>) -> Vec<&'static SyntaxReference> {
+    static WARMED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let mut warmed = WARMED.lock().unwrap_or_else(|poison| poison.into_inner());
+    let mut cold = Vec::new();
+    for path in paths {
+        let Some(syntax) = syntax_for(path.as_ref()) else { continue };
+        if !warmed.contains(&syntax.name) {
+            warmed.push(syntax.name.clone());
+            cold.push(syntax);
+        }
+    }
+    cold
+}
+
+/// Parses [`WARM_SAMPLE`] with `syntax`: its patterns compile here (meant for a background thread), not in the parse
+/// of the first diff that uses it.
+pub fn warm(syntax: &'static SyntaxReference) {
+    let mut parser = ParseState::new(syntax);
+    for line in WARM_SAMPLE.split_inclusive('\n') {
+        let _ = parser.parse_line(line, &SYNTAXES);
+    }
 }
 
 /// The gpui-component highlight name for a TextMate scope (`semantic_name` in its syntect backend: the same names, so
