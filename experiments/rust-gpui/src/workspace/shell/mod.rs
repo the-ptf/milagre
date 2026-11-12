@@ -222,7 +222,7 @@ impl Workspace {
         });
         let panel = self.panel.read(cx);
         // The card's right edge, from the window's.
-        let card_right = card::right_gap(panel.is_open()) + if panel.is_open() { panel.width() } else { 0.0 };
+        let card_right = card::right_gap(panel.is_open()) + if panel.is_open() { panel.live_width(cx) } else { 0.0 };
         Some(top_bar::corner(&items, card_right, on_toggle))
     }
 

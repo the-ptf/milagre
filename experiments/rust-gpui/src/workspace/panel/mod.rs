@@ -178,7 +178,7 @@ impl Panel {
             content,
             states: HashMap::new(),
             width: dock::WIDTH_RULE.default,
-            resizable: cx.new(|_| ResizableState::default()),
+            resizable: Self::new_resizable(cx),
             tabs_fade: crate::ui::scroll_fade::ScrollFade::handle(&tabs_scroll).horizontal(),
             tabs_scroll,
             changes,
@@ -349,6 +349,19 @@ impl Panel {
         self.width = dock::WIDTH_RULE.clamp(width);
     }
 
+    /// The split's state, watched so a drag re-lays the window out on every step: the corner toggle and the
+    /// card follow the panel's edge while it moves, not only when the drag ends.
+    fn new_resizable(cx: &mut Context<Self>) -> Entity<ResizableState> {
+        let state = cx.new(|_| ResizableState::default());
+        cx.observe(&state, |_, _, cx| cx.emit(PanelEvent::Layout)).detach();
+        state
+    }
+
+    /// The panel's width as drawn right now: the split's live size during a drag, else the stored width.
+    pub fn live_width(&self, cx: &gpui::App) -> f32 {
+        self.resizable.read(cx).sizes().get(1).copied().map(f32::from).unwrap_or(self.width)
+    }
+
     /// Back to the tab's default width (the double-click on the edge).
     pub fn reset_width(&mut self, cx: &mut Context<Self>) {
         self.width = dock::WIDTH_RULE.default;
@@ -357,7 +370,7 @@ impl Panel {
 
     /// The panel's place in the window changed: the split starts again at the panel's width.
     fn relayout(&mut self, cx: &mut Context<Self>) {
-        self.resizable = cx.new(|_| ResizableState::default());
+        self.resizable = Self::new_resizable(cx);
         cx.emit(PanelEvent::Layout);
         cx.notify();
     }
