@@ -25,3 +25,8 @@ futures = "0.3"
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
 gpui-component = "=0.9.1"
+
+# The base crate's patched gpui-pre-apple (its vendor/), as its own workspace applies it: without it the base crate's
+# glass (backdrop blur marker) does not build here.
+[patch.crates-io]
+gpui-pre-apple = { path = "../vendor/gpui-pre-apple" }

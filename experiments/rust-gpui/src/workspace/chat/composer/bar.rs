@@ -200,13 +200,15 @@ impl Composer {
             .gap_1()
             .h(CONTROL_SM)
             .px(px(super::FRAME_PAD - super::FRAME_PAD_X))
-            .child(
-                div().id("composer-attach-tip").tooltip(Tooltip::text("Attach files")).child(
-                    IconButton::new("composer-attach", IconName::Attachment01)
-                        .pill()
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_file_picker(window, cx))),
-                ),
-            )
+            .when(self.limits.attachments, |row| {
+                row.child(
+                    div().id("composer-attach-tip").tooltip(Tooltip::text("Attach files")).child(
+                        IconButton::new("composer-attach", IconName::Attachment01)
+                            .pill()
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_file_picker(window, cx))),
+                    ),
+                )
+            })
             .child(div().flex_1())
             .child(self.model_chip(theme, cx))
             .child(self.context_slot(theme, cx))

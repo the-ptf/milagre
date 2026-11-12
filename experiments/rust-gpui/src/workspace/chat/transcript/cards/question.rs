@@ -175,6 +175,14 @@ impl Transcript {
     /// only changes colours.
     fn replace_question(&mut self, ix: usize, card: QuestionCard, remeasure: bool, cx: &mut Context<Self>) {
         let resolved = card.status != Status::Open;
+        let decision = resolved.then(|| super::super::CardDecision::Question {
+            ix,
+            request_id: card.request_id.clone(),
+            answers: match card.status {
+                Status::Answered(_) => answers::draft_answers(&card.questions, &card.drafts),
+                _ => None,
+            },
+        });
         if remeasure || resolved {
             self.set_card(ix, super::Card::Question(Box::new(card)), cx);
         } else if let Some(super::super::Item::Card(slot)) = self.items.get_mut(ix) {
@@ -183,6 +191,9 @@ impl Transcript {
         }
         if resolved {
             self.inputs.retain(|(item, _), _| *item != ix);
+        }
+        if let Some(decision) = decision {
+            cx.emit(decision);
         }
     }
 

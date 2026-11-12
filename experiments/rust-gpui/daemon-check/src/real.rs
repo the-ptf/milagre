@@ -2,7 +2,6 @@
 //! test runner beside the exact hashed `app-fixture` so `FixtureGuard::launch()` (the only launch path) finds it.
 //! Plain tests drive the client with `futures::executor::block_on`; the GPUI test with GPUI's own executor.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -269,7 +268,7 @@ fn sidebar_mounts_from_the_adapter(cx: &mut TestAppContext) {
     assert_eq!(data.scopes.len(), 1);
     assert_eq!(data.scopes[0].project.path, path);
     assert_eq!(data.scopes[0].state.sessions.keys().copied().collect::<Vec<_>>(), vec![1, 2]);
-    let lists = chat_lists(&data, ChatOrder::Created, &HashSet::new());
+    let lists = chat_lists(&data, ChatOrder::Created);
 
     cx.update(|cx| {
         cx.set_global(milagre_gpui_spike::theme::Theme::dark());

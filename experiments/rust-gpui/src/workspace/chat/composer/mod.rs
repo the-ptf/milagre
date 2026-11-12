@@ -32,6 +32,7 @@ pub(crate) mod context;
 mod editor;
 mod external;
 mod history;
+mod limits;
 mod mentions;
 mod menu;
 mod model_picker;
@@ -62,6 +63,7 @@ pub use attachments::{Attachment, AttachmentKind, ERROR_PASTE, ERROR_SIZE, ERROR
 pub use bar::{BarState, permission_label};
 pub use chips::{CHIP_EM, ChipKind};
 pub use history::EditKind;
+pub use limits::ComposerLimits;
 pub use mentions::{FixtureMentions, MentionSource, SkillOption, SkillScope};
 pub use menu::{MenuKind, PromptToken, prompt_token};
 pub use queue::{Queue, QueuedEntry};
@@ -173,6 +175,8 @@ pub struct Composer {
     /// The first Chat's starter tasks (`starters` in `ChatComposer.tsx`), over the tray of an empty new Chat.
     starters: Vec<crate::onboarding::model::Starter>,
     sink: Option<Rc<dyn MessageSink>>,
+    /// What the data layer turned off (`limits.rs`).
+    limits: ComposerLimits,
     /// The context ring's keyboard focus, and the pending open or close of its card (`ContextRing.tsx`).
     context_focus: gpui::FocusHandle,
     context_pointer: Option<gpui::Task<()>>,
@@ -273,6 +277,7 @@ impl Composer {
             new_chat,
             starters,
             sink: None,
+            limits: ComposerLimits::default(),
             context_focus: cx.focus_handle(),
             context_pointer: None,
             context_card_hovered: false,
@@ -588,7 +593,7 @@ impl Composer {
                 ClipboardEntry::String(_) => {}
             }
         }
-        if !images.is_empty() || !paths.is_empty() {
+        if (!images.is_empty() || !paths.is_empty()) && self.limits.attachments {
             cx.stop_propagation();
             let at = self.selected_range();
             cx.emit(ComposerAttachment::Pasted { images: images.clone(), paths: paths.clone(), at: at.clone() });
@@ -622,6 +627,9 @@ impl Composer {
     }
 
     fn on_drop(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.limits.attachments {
+            return;
+        }
         let at = self.selected_range();
         cx.emit(ComposerAttachment::Dropped { paths: paths.paths().to_vec(), at: at.clone() });
         self.attach_paths(paths.paths().to_vec(), at, window, cx);

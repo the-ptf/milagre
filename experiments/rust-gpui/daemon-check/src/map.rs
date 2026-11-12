@@ -183,7 +183,8 @@ fn check_key(key: &str, id: u64, path: &str) -> Result<()> {
 
 fn worktree(value: &Value, path: &str) -> Result<Worktree> {
     let o = obj(value, path)?;
-    let mut worktree = Worktree::new(o.u64("id")? as WorktreeId, o.u64("project_id")?, o.str("path")?, o.str("name")?);
+    // The dedicated Chat runtime seeds its one Worktree with `project_id: null` (no registry Project id): 0.
+    let mut worktree = Worktree::new(o.u64("id")? as WorktreeId, o.opt_u64("project_id")?.unwrap_or(0), o.str("path")?, o.str("name")?);
     worktree.base = o.opt_str("base")?;
     worktree.generated_branch = o.opt_str("generatedBranch")?;
     worktree.linear_unlinked = o.map.get("linearIssue").is_some_and(Value::is_null);
@@ -201,7 +202,12 @@ fn worktree(value: &Value, path: &str) -> Result<Worktree> {
 /// `AgentSession`.
 pub fn chat(value: &Value, path: &str) -> Result<Chat> {
     let o = obj(value, path)?;
-    let mut chat = Chat::new(o.u64("id")? as ChatId, o.u64("worktree_id")?, o.str("agent_name")?);
+    // The dedicated Chat runtime's sessions carry `provider` and no `agent_name`: the provider names the agent.
+    let agent = match o.opt_str("agent_name")? {
+        Some(name) => name,
+        None => o.opt_str("provider")?.unwrap_or_default(),
+    };
+    let mut chat = Chat::new(o.u64("id")? as ChatId, o.u64("worktree_id")?, agent);
     chat.status = enum_of(o.opt_str("status")?, path, "status", |s| {
         Some(match s {
             "Created" => SessionStatus::Created,

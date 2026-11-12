@@ -1,0 +1,33 @@
+[package]
+name = "milagre-gpui-live"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Off-by-default live GPUI app: the base crate's UI on the backend's owned dedicated Chat runtime"
+
+# Its own workspace: the base GPUI crate's manifest, lock and default build do not know this crate exists.
+[workspace]
+
+[[bin]]
+name = "milagre-gpui-live"
+path = "src/main.rs"
+
+[dependencies]
+milagre-gpui-spike = { path = ".." }
+# The backend's shared client at 90922b6c with its off-by-default `owned-chat` feature, exported (never edited) by
+# ../daemon-check/scripts/check-gpui-live.py into the GPUI crate's ignored target/ directory.
+milagre-daemon-client = { path = "../target/daemon-client-90922b6c/experiments/rust-daemon-client", features = ["owned-chat"] }
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
+gpui-component = "=0.9.1"
+anyhow = "1"
+serde_json = "1"
+futures = "0.3"
+
+[dev-dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+
+# The base crate's patched gpui-pre-apple (its vendor/), as its own workspace applies it.
+[patch.crates-io]
+gpui-pre-apple = { path = "../vendor/gpui-pre-apple" }

@@ -242,6 +242,31 @@ impl Sidebar {
         this
     }
 
+    /// Reads the app's [`Data`] again and rebuilds the rows from it, keeping the Chat on screen: a live data layer
+    /// calls it when its state changed (a new Chat, an unread mark, a turn starting or ending). The fixture never
+    /// does. A source that answers at once is applied in this call; any other when its read finishes.
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = cx.try_global::<Data>().map(|data| data.0.clone()) else { return };
+        match poll_once(SidebarData::load(source)) {
+            Polled::Ready(Ok(data)) => {
+                self.data = data;
+                self.rebuild(None);
+                cx.notify();
+            }
+            Polled::Ready(Err(error)) => eprintln!("sidebar: couldn't read the Chats: {error}"),
+            Polled::Pending(load) => {
+                self._load = Some(cx.spawn(async move |this, cx| {
+                    let Ok(data) = load.await else { return };
+                    let _ = this.update(cx, |this, cx| {
+                        this.data = data;
+                        this.rebuild(None);
+                        cx.notify();
+                    });
+                }));
+            }
+        }
+    }
+
     fn set_data(&mut self, data: SidebarData, select: Option<&str>) {
         self.data = data;
         self.rebuild(select);

@@ -32,6 +32,10 @@ impl Composer {
     /// Picks a model: the chip follows, the effort stays when the model takes it, Fast and Ultracode drop when it
     /// does not offer them.
     pub fn pick_model(&mut self, model: &ModelOption, cx: &mut gpui::Context<Self>) {
+        // A model fixed when the data layer started (`limits.rs`) stays.
+        if self.limits.model_locked && (model.provider != self.bar.provider || model.id != self.bar.model_id.as_ref()) {
+            return;
+        }
         let capability = capability(model);
         let effort = effort_for(&capability, self.bar.effort_id);
         self.bar.provider = model.provider;

@@ -38,6 +38,7 @@ use crate::workspace::chat::transcript_selection::{Keeper, SelectionTracker, Sha
 
 pub mod activity;
 pub mod cards;
+pub mod decision;
 pub mod find;
 pub mod quote;
 pub mod step_row;
@@ -45,6 +46,7 @@ pub mod summary;
 
 pub use activity::{Activity, RowState, StepItem};
 pub use cards::Card;
+pub use decision::CardDecision;
 pub use quote::{Passage, TranscriptEvent};
 pub use summary::Entry;
 
@@ -425,6 +427,7 @@ impl Transcript {
         {
             approval.state = state;
             self.list.splice(ix..ix + 1, 1);
+            cx.emit(CardDecision::Approval { ix, state });
             cx.notify();
         }
     }

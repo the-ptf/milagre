@@ -1,7 +1,6 @@
 //! Real-fixture tests on `FixtureGuard::launch_populated()`: the fixed preset with three completed Scripted turns
 //! across two Chats (Chat 1: two turns, 4 messages; Chat 2: one turn, 2 messages). No client sends.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use futures::executor::block_on;
@@ -121,7 +120,7 @@ fn the_sidebar_shows_the_two_real_rows(cx: &mut TestAppContext) {
         assert_eq!(summary.title_line.as_deref(), wire["titleLine"].as_str());
         println!("GPUI_ADAPTER_SUMMARY chat={id} title={title:?} {summary:?}");
     }
-    let lists = chat_lists(&data, ChatOrder::Created, &HashSet::new());
+    let lists = chat_lists(&data, ChatOrder::Created);
 
     cx.update(|cx| {
         cx.set_global(milagre_gpui_spike::theme::Theme::dark());

@@ -2657,8 +2657,6 @@ dependencies = [
 [[package]]
 name = "gpui-pre-apple"
 version = "0.3.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a460605ec4e8cbcc9b213462a84b1d6cc3efe4ed8f0e18669659f07b2d5c6aec"
 dependencies = [
  "anyhow",
  "async-task",
@@ -4357,11 +4355,13 @@ dependencies = [
  "alacritty_terminal",
  "anyhow",
  "async-channel",
+ "base64",
  "getrandom 0.3.4",
  "gpui-base",
  "gpui-component",
  "gpui-kit-assets",
  "gpui-pre",
+ "gpui-pre-apple",
  "gpui-pre-platform",
  "image",
  "lb-wry",
@@ -4369,7 +4369,9 @@ dependencies = [
  "mermaid-rs-renderer",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
+ "objc2-core-graphics",
  "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
  "pulldown-cmark",
  "raw-window-handle",
  "serde_json",
