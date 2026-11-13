@@ -27,6 +27,7 @@ import { DURATION, EASE_OUT, scaled, useMotionScale } from "../../lib/ease";
 import { useWindowChrome } from "../../lib/window-chrome";
 import { useDisplayNow } from "../../lib/display-clock";
 import { familyEntry, type FamilyEntry, type FamilyReads } from "../../lib/family-menu";
+import { KIND_INK } from "../../lib/subchat-track";
 import { Icon } from "../primitives/Icon";
 import { IconButton } from "../primitives/Button";
 import { ScrollArea } from "../primitives/ScrollArea";
@@ -202,7 +203,7 @@ function elapsed(since: number, now: number) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** A Lineage row: opens that Chat; under the pointer a muted arrow takes the place of its state. */
+/** A Lineage row: opens that Chat; under the pointer a muted arrow takes the place of its state. Done stays muted, not green. */
 function LineageRow({
   entry,
   icon,
@@ -228,7 +229,7 @@ function LineageRow({
       <span className="min-w-0 flex-1 truncate">{entry.title}</span>
       <span className="grid shrink-0 justify-items-end">
         <Value
-          className={`col-start-1 row-start-1 transition-opacity group-hover/lineage:opacity-0 group-focus-visible/lineage:opacity-0 ${icon === "parent" ? "text-ink-3" : entry.ink}`}
+          className={`col-start-1 row-start-1 transition-opacity group-hover/lineage:opacity-0 group-focus-visible/lineage:opacity-0 ${icon === "parent" || entry.ink === KIND_INK.done ? "text-ink-3" : entry.ink}`}
         >
           {value}
         </Value>
