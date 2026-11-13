@@ -63,11 +63,11 @@ const subscribe = (listener: () => void) => {
 };
 
 /** Whether the Details panel is open, and its toggle. */
-export function useDetailsPanelOpen() {
+function useDetailsPanelOpen() {
   return useSyncExternalStore(subscribe, () => open);
 }
 
-export function setDetailsPanelOpen(next: boolean) {
+function setDetailsPanelOpen(next: boolean) {
   if (next === open) return;
   open = next;
   localStorage.setItem(KEY, next ? "1" : "0");
@@ -288,7 +288,7 @@ function descendants(family: FamilyReads, key: string, depth = 0): { key: string
   return directSubchats(family.sessions, key).flatMap((child) => [{ key: child, depth }, ...descendants(family, child, depth + 1)]);
 }
 
-export function DetailsBody({ data }: { data: DetailsData }) {
+function DetailsBody({ data }: { data: DetailsData }) {
   const [, rerender] = useState(0);
   const fold = (name: keyof typeof folds) => () => {
     folds[name] = !folds[name];
@@ -463,7 +463,7 @@ export function DetailsBody({ data }: { data: DetailsData }) {
  * The Details overlay: a glass card over the Chat under the corner's buttons, never a panel beside it, so the Chat keeps
  * its width. It fades in moving down (and back up out), and has the composer's glass: the surface at 76% over a blur.
  */
-export function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
+function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
   const shown = useDetailsPanelOpen() && data !== null;
   const scale = useMotionScale();
   const chrome = useWindowChrome();
