@@ -217,6 +217,10 @@
       "types": "./src/done.d.mts",
       "default": "./src/done.mjs"
     },
+    "./snooze": {
+      "types": "./src/snooze.d.mts",
+      "default": "./src/snooze.mjs"
+    },
     "./device-notes": {
       "types": "./src/device-notes.d.mts",
       "default": "./src/device-notes.mjs"

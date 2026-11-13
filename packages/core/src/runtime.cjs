@@ -105,6 +105,8 @@ const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
 const { createDoneSettings } = require("./done-settings.cjs");
 const { createDoneSweep } = require("./done-sweep.cjs");
+const { createSnoozeSweep } = require("./snooze-sweep.cjs");
+const { wakesSnoozed } = require("@milagre/shared/snooze");
 const { doneDue } = require("@milagre/shared/done");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
@@ -1398,6 +1400,11 @@ function createRuntime(options) {
         .then((switched) => !switched && limitResume?.observe(chatId, event, token))
         .catch((error) => console.warn("Milagre couldn't continue after a usage limit:", error.message));
     }
+    // A snoozed Chat that needs the user (a question, an approval) or failed comes back to the list now.
+    if (wakesSnoozed(event))
+      void track(() => wakeSnoozedChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background).catch((error) =>
+        console.warn("Milagre couldn't wake a snoozed Chat:", error.message),
+      );
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
     // A turn may have opened, pushed to or merged a PR: its Worktree's PRs are read again now, not on the next tick.
@@ -2257,6 +2264,7 @@ function createRuntime(options) {
     if (rest.sessionId != null) {
       await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
       await reopenDoneChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't reopen a Done Chat:", error.message));
+      await wakeSnoozedChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't wake a snoozed Chat:", error.message));
     }
     return { sessionId };
   }
@@ -2385,8 +2393,10 @@ function createRuntime(options) {
   function sessionPatch(patch) {
     if (!patch || typeof patch !== "object") return {};
     const { done, done_at: _clientClock, ...rest } = patch;
-    if (done === true) return { ...rest, done_at: Date.now() };
-    if (done === false || rest.archived === false) return { ...rest, done_at: undefined };
+    // Done, archive and un-archive all take a Chat out of the Snoozed list too.
+    if (done === true) return { ...rest, done_at: Date.now(), snoozed_until: undefined };
+    if (done === false || rest.archived === false) return { ...rest, done_at: undefined, snoozed_until: undefined };
+    if (rest.archived) return { ...rest, snoozed_until: undefined };
     return rest;
   }
   async function patchChat(projectPath, sessionId, raw) {
@@ -2401,6 +2411,23 @@ function createRuntime(options) {
   async function reopenDoneChat(projectPath, sessionId) {
     if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.done_at) return;
     await editProject(projectPath, (state) => patchSession(state, sessionId, { done_at: undefined }), { chats: [] });
+  }
+  // Waking a snoozed Chat: back in its list, unread so it shows it came back. `due` (the sweep's) only wakes one whose time
+  // has passed, read again in the queue; an agent's question, approval or failure wakes it whenever it is snoozed.
+  async function wakeSnoozedChat(projectPath, sessionId, { due = false } = {}) {
+    if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.snoozed_until) return false;
+    let woke = false;
+    await editProject(
+      projectPath,
+      (state) => {
+        const session = state.sessions[sessionId];
+        if (!session?.snoozed_until || (due && session.snoozed_until > Date.now())) return state;
+        woke = true;
+        return patchSession(state, sessionId, { snoozed_until: undefined, unread: true });
+      },
+      { chats: [] },
+    );
+    return woke;
   }
   // The sweep's archive of one Done Chat: read again and archived only while it is still due, then its worktree goes the
   // way the archive menu's does (archive.mjs archiveMode): only one Milagre made, no other Chat uses and git says holds
@@ -3757,12 +3784,21 @@ function createRuntime(options) {
     isClosing: () => closing,
   });
   doneSweep.start();
+  // Snoozed Chats whose time has come wake every 30 seconds, in every open Project and Link.
+  const snoozeSweep = createSnoozeSweep({
+    scopes: () => scopeStates.projects(),
+    heldState,
+    wake: (scope, sessionId) => track(() => wakeSnoozedChat(scope, sessionId, { due: true }), background),
+    isClosing: () => closing,
+  });
+  snoozeSweep.start();
 
   function close() {
     clearInterval(uploadSweepTimer);
     chatSecrets?.close();
     bugReports?.close();
     void doneSweep.stop();
+    void snoozeSweep.stop();
     closing = true;
     // Optional PR metadata must not hold accepted commands open until gh's network timeout. Desktop and phone
     // share this poller; end its reads before draining commands, while still saving accepted Chat mutations below.
@@ -3840,6 +3876,8 @@ function createRuntime(options) {
       Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId), panelForwarders.close(clientId)]).then(() => undefined),
     /** Runs the Done sweep now instead of at its next minute (tests); resolves with the Chats it archived. */
     sweepDone: () => doneSweep.sweep(),
+    /** Runs the snooze sweep now (tests); resolves with the Chats it woke. */
+    sweepSnoozed: () => snoozeSweep.sweep(),
     openProject: (projectPath, options) => accept(() => openProject(projectPath, options)),
     resumeRecentProjects: () => accept(resumeRecentProjects),
     environmentReady,

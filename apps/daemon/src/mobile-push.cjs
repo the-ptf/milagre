@@ -114,6 +114,8 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     const task = (async () => {
       const metadata = await context(chatId);
       if (!metadata) return;
+      // A snoozed Chat finishing stays quiet; it only comes back when it needs the user or its time comes.
+      if (!requestId && metadata.snoozedUntil > occurredAt) return;
       const notice = requestId ? attentionNotice(event, metadata) : completionNotice(metadata.chatTitle, completion);
       const validEvent = () => epoch === version && chats.get(chatId) === run && (requestId ? !run.ended && run.requests.has(requestId) : run.ended);
       if (!notice || !validEvent()) return;
