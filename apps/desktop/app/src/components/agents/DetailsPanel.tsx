@@ -137,6 +137,19 @@ function Section({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
+/** "Copied", in ink-3, fading in and out at the fast duration; always mounted so it can fade out. */
+function CopiedNote({ shown, className = "" }: { shown: boolean; className?: string }) {
+  return (
+    <span
+      aria-hidden={!shown}
+      role={shown ? "status" : undefined}
+      className={`pointer-events-none shrink-0 text-12 text-ink-3 transition-opacity duration-fast ${shown ? "opacity-100" : "opacity-0"} ${className}`}
+    >
+      Copied
+    </span>
+  );
+}
+
 /** A row whose click copies its text (the repo, the branch), saying Copied for a moment. */
 function CopyRow({
   name,
@@ -163,7 +176,7 @@ function CopyRow({
     >
       <Glyph icon={icon} />
       <span className="min-w-0 flex-1 truncate">{shown}</span>
-      {copied && <span className="shrink-0 text-12 text-green-ink">Copied</span>}
+      <CopiedNote shown={copied} />
     </button>
   );
   // A branch cut in its middle names itself in full under the pointer.
@@ -293,10 +306,12 @@ export function DetailsBody({ data }: { data: DetailsData }) {
                 <span className="min-w-0 flex-1 truncate">{middle(data.path, 26)}</span>
               </button>
             </Tooltip>
-            {copied === "path" ? (
-              <span className="shrink-0 pr-1 text-12 text-green-ink">Copied</span>
-            ) : (
-              <>
+            {/* The buttons give way to "Copied" for a moment, crossfading. */}
+            <span className="relative flex shrink-0 items-center">
+              <span
+                className={`flex items-center transition-opacity duration-fast ${copied === "path" ? "pointer-events-none opacity-0" : "opacity-100"}`}
+                inert={copied === "path" || undefined}
+              >
                 {data.onReveal && <IconButton size={24} label="Show in Finder" icon={FolderOpenIcon} onClick={data.onReveal} />}
                 {data.onOpenInEditor && (
                   <IconButton
@@ -306,8 +321,9 @@ export function DetailsBody({ data }: { data: DetailsData }) {
                     onClick={data.onOpenInEditor}
                   />
                 )}
-              </>
-            )}
+              </span>
+              <CopiedNote shown={copied === "path"} className="absolute right-1" />
+            </span>
           </div>
         )}
       </Section>
