@@ -249,6 +249,41 @@ fn pasted_text_is_plain_with_unix_lines_and_pasted_images_or_files_become_an_eve
 }
 
 #[gpui::test]
+fn pasted_image_files_are_one_tray_of_image_tiles_not_paths(cx: &mut TestAppContext) {
+    // CleanShot's way: the pasteboard carries the files (and their paths as text). Electron attaches them as pasted
+    // images, each named as its file, in the one attachments tray, their chips at the caret; nothing pastes as text.
+    let (composer, cx) = mount(cx);
+    composer.update(cx, |c, cx| c.set_limits(super::ComposerLimits { attachments: true, model_locked: false }, cx));
+    let dir = format!("{}/tests/assets/images", env!("CARGO_MANIFEST_DIR"));
+    let first = PathBuf::from(format!("{dir}/attachment-screenshot.png"));
+    let second = PathBuf::from(format!("{dir}/viewed-wide.png"));
+    let text_path = format!("{} {}", first.display(), second.display());
+    cx.write_to_clipboard(ClipboardItem {
+        entries: vec![
+            ClipboardEntry::ExternalPaths(ExternalPaths(vec![first.clone(), second.clone()].into())),
+            ClipboardEntry::String(gpui::ClipboardString::new(text_path)),
+        ],
+    });
+    cx.simulate_keystrokes("cmd-v");
+    let (names, paths, images) = composer.read_with(cx, |c, _| {
+        (
+            c.attachments().iter().map(|a| a.name.to_string()).collect::<Vec<_>>(),
+            c.attachments().iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
+            c.attachments().iter().filter(|a| a.is_image()).count(),
+        )
+    });
+    assert_eq!(names, ["attachment-screenshot.png", "viewed-wide.png"]);
+    assert_eq!(images, 2, "both are image tiles");
+    assert_eq!(paths, [None, None], "pasted images carry their bytes, as Electron's data URLs");
+    assert!(!text(&composer, cx).contains(".png"), "no path pasted as text: {}", text(&composer, cx));
+    assert_eq!(chips(&composer, cx).len(), 2, "one [Image #N] chip each");
+    // The send carries both as data URLs.
+    let outgoing = composer.read_with(cx, |c, _| c.tray_outgoing());
+    assert_eq!(outgoing.0.len(), 2);
+    assert!(outgoing.0.iter().all(|image| image.data_url.as_deref().is_some_and(|url| url.starts_with("data:image/png;base64,"))));
+}
+
+#[gpui::test]
 fn dropped_files_become_an_event(cx: &mut TestAppContext) {
     let (composer, cx) = mount(cx);
     let (_, attached, _subscriptions) = record(&composer, cx);
@@ -431,4 +466,27 @@ fn ime_composition_is_one_step_and_chips_wait_for_the_commit(cx: &mut TestAppCon
     assert_eq!(chips(&composer, cx).len(), 1);
     cx.simulate_keystrokes("cmd-z");
     assert_eq!(text(&composer, cx), "@src/app.rs ", "the composition undoes as one step");
+}
+
+/// Past four rows the prompt scrolls in a box that reaches up through the composer's top padding to its top edge (just
+/// inside the border), so a scrolled line is cut there and not halfway down the padding; the caret's line stays in
+/// view with the inset under it. Up to four rows nothing scrolls and the text sits where it always does.
+#[gpui::test]
+fn a_long_prompt_scrolls_up_to_the_composers_top_edge(cx: &mut TestAppContext) {
+    let (composer, cx) = mount(cx);
+    composer.update_in(cx, |c, window, cx| c.set_text("one\ntwo", window, cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("composer-input-scroll").is_none(), "two rows fit");
+    let lines = (1..=9).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\n");
+    composer.update_in(cx, |c, window, cx| c.set_text(&lines, window, cx));
+    cx.run_until_parked();
+    let (frame, input, scroll) = (bounds(cx, "composer"), bounds(cx, "composer-input"), bounds(cx, "composer-input-scroll"));
+    assert_eq!(input.top(), frame.top() + px(super::FRAME_PAD + 1.0), "the prompt keeps its place under the padding");
+    assert_eq!(scroll.top(), frame.top() + px(1.0), "the scroll area starts at the composer's top edge, inside its border");
+    assert_eq!(scroll.bottom(), input.bottom(), "and ends where the 100px box does");
+    assert_eq!(scroll.size.height, px(super::EDITOR_MAX_HEIGHT + super::FRAME_PAD));
+    // The caret is on the last line: scrolled so that line and its 8px inset end at the box's bottom.
+    let offset = composer.read_with(cx, |c, _| c.input_scroll.offset().y);
+    let content = 9.0 * super::PROMPT_LINE_HEIGHT + 2.0 * super::EDITOR_PAD_Y + super::FRAME_PAD;
+    assert_eq!(offset, -px(content - (super::EDITOR_MAX_HEIGHT + super::FRAME_PAD)));
 }

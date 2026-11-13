@@ -113,7 +113,17 @@ pub struct PillRow {
     /// A data layer feeds the row ([`Self::set_live`]): no fixture pills, and no Archive (it would change nothing the
     /// host keeps).
     live: bool,
+    /// The data layer's latest pills while some of the shown ones are held over ([`Self::set_live`]), and since when.
+    held: Option<(Instant, PillsData)>,
+    /// The PR pill was acted on: the next data drops it at once.
+    pr_cleared: bool,
+    /// Every pill set drawn while recording, as (Tasks, Subagents, PR) shown: tests record the row across a run.
+    drawn: Option<Vec<(bool, bool, bool)>>,
 }
+
+/// How long a pill the data layer dropped stays while its replacement is on the way: a state replaced mid-turn can
+/// briefly lack a Chat's plan or subagents, and the row must not blink empty in between.
+pub const PILL_HOLD: std::time::Duration = std::time::Duration::from_millis(2_000);
 
 impl PillRow {
     pub fn new(key: &str, title: &str, cx: &mut Context<Self>) -> Self {
@@ -133,6 +143,9 @@ impl PillRow {
             scroll: ScrollHandle::new(),
             window: (1440.0, 900.0),
             live: false,
+            held: None,
+            pr_cleared: false,
+            drawn: None,
         };
         if let Some(kind) = std::env::var("MILAGRE_GPUI_PILLS_OPEN").ok().and_then(|name| match name.as_str() {
             "tasks" => Some(Kind::Tasks),
@@ -158,6 +171,7 @@ impl PillRow {
         }
         self.morph = None;
         self.folded.clear();
+        self.held = None;
         cx.notify();
     }
 
@@ -172,7 +186,66 @@ impl PillRow {
             self.morph = None;
             self.folded.clear();
         }
-        self.data = data;
+        // The same Chat: a pill the new data lacks stays for [`PILL_HOLD`] (its replacement usually arrives first);
+        // after that the data wins. A Chat switch above takes the new data whole.
+        let since = self.held.as_ref().map_or_else(Instant::now, |(since, _)| *since);
+        let within = since.elapsed() < PILL_HOLD;
+        let old = std::mem::take(&mut self.data);
+        let mut shown = data.clone();
+        let mut kept = false;
+        if within && self.key.as_ref() == key {
+            if shown.plan.as_ref().is_none_or(|plan| plan.is_empty()) && old.plan.as_ref().is_some_and(|plan| !plan.is_empty()) {
+                shown.plan = old.plan.clone();
+                kept = true;
+            }
+            if !shown.subagents.iter().any(|agent| !agent.archived) && old.subagents.iter().any(|agent| !agent.archived) {
+                shown.subagents = old.subagents.clone();
+                kept = true;
+            }
+            if shown.pr_action.is_none() && old.pr_action.is_some() && !self.pr_cleared {
+                shown.pr_action = old.pr_action.clone();
+                kept = true;
+            }
+        }
+        self.pr_cleared = false;
+        if kept {
+            let first = self.held.is_none();
+            self.held = Some((since, data));
+            if first {
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(PILL_HOLD).await;
+                    this.update(cx, |this, cx| this.release_held(cx)).ok();
+                })
+                .detach();
+            }
+        } else {
+            self.held = None;
+        }
+        self.data = shown;
+        cx.notify();
+    }
+
+    /// Starts recording every pill set the row draws ([`Self::drawn`]).
+    pub fn record_draws(&mut self) {
+        self.drawn = Some(Vec::new());
+    }
+
+    /// The pill sets drawn since [`Self::record_draws`], as (Tasks, Subagents, PR) shown.
+    pub fn drawn(&self) -> &[(bool, bool, bool)] {
+        self.drawn.as_deref().unwrap_or_default()
+    }
+
+    /// The hold is over: the data layer's latest pills show as they are.
+    fn release_held(&mut self, cx: &mut Context<Self>) {
+        if let Some((_, data)) = self.held.take() {
+            self.data = data;
+            cx.notify();
+        }
+    }
+
+    /// The PR pill's fix was just asked for: its pill goes at once, not held.
+    pub fn clear_pr_action(&mut self, cx: &mut Context<Self>) {
+        self.pr_cleared = true;
         cx.notify();
     }
 
@@ -448,6 +521,10 @@ impl Render for PillRow {
         let size = window.viewport_size();
         self.window = (f32::from(size.width), f32::from(size.height));
         let right_kinds: Vec<Kind> = [Kind::Tasks, Kind::Subagents].into_iter().filter(|kind| self.is_shown(*kind)).collect();
+        let shown = (self.is_shown(Kind::Tasks), self.is_shown(Kind::Subagents), self.data.pr_action.is_some());
+        if let Some(drawn) = self.drawn.as_mut() {
+            drawn.push(shown);
+        }
         // The PR pills lead the row; the rest sit at its right (`justify-end`, the last left pill takes `mr-auto`).
         let mut left = div().flex().items_end().gap_2();
         left = left.children(self.pr_action_pill(cx)).children(self.review_pill(cx));

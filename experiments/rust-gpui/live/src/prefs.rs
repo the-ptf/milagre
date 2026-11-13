@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use gpui::{App, BorrowAppContext as _};
 use milagre_gpui_spike::settings::SettingsStore;
-use milagre_gpui_spike::settings::store::{EditorChoice, ToolCallDisplay};
 use milagre_gpui_spike::settings::appearance::{AppearanceOptions, AppearanceState, ThemePreference};
+use milagre_gpui_spike::settings::store::{EditorChoice, ToolCallDisplay};
 use serde_json::{Value, json};
 
 pub const FILE: &str = "preferences.json";
@@ -194,4 +194,43 @@ fn write(path: &Path, value: &Value) -> std::io::Result<()> {
     let temp = path.with_extension("json.tmp");
     std::fs::write(&temp, serde_json::to_vec_pretty(value).unwrap_or_default())?;
     std::fs::rename(temp, path)
+}
+
+/// Electron's preferences file, for what the composer reads from it ([`composer_effort`]).
+pub struct ElectronPrefs(pub PathBuf);
+
+impl gpui::Global for ElectronPrefs {}
+
+/// The thinking effort Electron's composer shows for Chat `key` (`useComposerPreferences`): the Chat's own choice in
+/// `milagre.composer-preferences`, else the last one picked anywhere (`milagre.effort`), else `high`. The model chip
+/// then keeps it to what the model offers (`effortFor`).
+pub fn composer_effort(electron: &Path, key: &str) -> String {
+    let file = std::fs::read(electron).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).unwrap_or(Value::Null);
+    effort_from(&file, key)
+}
+
+/// [`composer_effort`] over the file's JSON.
+pub fn effort_from(file: &Value, key: &str) -> String {
+    let own = file["milagre.composer-preferences"]
+        .as_str()
+        .and_then(|prefs| serde_json::from_str::<Value>(prefs).ok())
+        .and_then(|prefs| prefs[key]["effort"].as_str().map(str::to_owned));
+    own.or_else(|| file["milagre.effort"].as_str().map(str::to_owned)).unwrap_or_else(|| "high".to_owned())
+}
+
+#[cfg(test)]
+mod effort_tests {
+    use super::effort_from;
+    use serde_json::json;
+
+    #[test]
+    fn a_chats_effort_then_the_last_picked_then_high() {
+        let prefs = json!({
+            "milagre.composer-preferences": "{\"/p#1\":{\"effort\":\"xhigh\"},\"/p#2\":{\"permissionMode\":\"full\"}}",
+            "milagre.effort": "medium",
+        });
+        assert_eq!(effort_from(&prefs, "/p#1"), "xhigh");
+        assert_eq!(effort_from(&prefs, "/p#2"), "medium", "no effort of its own");
+        assert_eq!(effort_from(&json!({}), "/p#1"), "high");
+    }
 }

@@ -32,6 +32,25 @@ impl Entry {
 /// tool steps and the text between them) and the answer, the reply's last text. Setup, image and artifact steps
 /// are the cards' and the setup row's (other packages), so they stay out.
 pub fn reply_activity(body: &str, steps: &[ChatStep]) -> (Vec<Entry>, String) {
+    let split = reply_split(body, steps);
+    let mut activity = split.before;
+    activity.extend(split.after);
+    (activity, split.answer)
+}
+
+/// A reply as `ReplyContent` (`ChatComposer.tsx`) lays it out: the activity before its answer (one fold), the
+/// answer, and the activity after it (`answerAt`: a call the text led into, a second fold under the answer).
+/// With no answer every entry is `before`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReplySplit {
+    pub before: Vec<Entry>,
+    pub answer: String,
+    pub after: Vec<Entry>,
+}
+
+/// `replyParts` then `replyActivity`'s `activity`, `answer` and `answerAt`: steps next to each other form one group,
+/// each at its offset in the text; text that is only whitespace is left out; the last text is the answer.
+pub fn reply_split(body: &str, steps: &[ChatStep]) -> ReplySplit {
     enum Part {
         Text(String),
         Steps(Vec<ChatStep>),
@@ -58,16 +77,17 @@ pub fn reply_activity(body: &str, steps: &[ChatStep]) -> (Vec<Entry>, String) {
         parts.push(Part::Text(rest.to_string()));
     }
     let answer_at = parts.iter().rposition(|part| matches!(part, Part::Text(_)));
-    let mut activity = Vec::new();
-    let mut answer = String::new();
+    let mut split = ReplySplit::default();
     for (index, part) in parts.into_iter().enumerate() {
+        let after = answer_at.is_some_and(|at| index > at);
+        let side = if after { &mut split.after } else { &mut split.before };
         match part {
-            Part::Text(text) if Some(index) == answer_at => answer = text,
-            Part::Text(text) => activity.push(Entry::Text(text.into())),
-            Part::Steps(group) => activity.extend(group.into_iter().map(Entry::Step)),
+            Part::Text(text) if Some(index) == answer_at => split.answer = text,
+            Part::Text(text) => side.push(Entry::Text(text.into())),
+            Part::Steps(group) => side.extend(group.into_iter().map(Entry::Step)),
         }
     }
-    (activity, answer)
+    split
 }
 
 /// `count`: `one` for 1, else `many` with `#` replaced.

@@ -59,7 +59,7 @@ use gpui_component::input::{
     Cut, Enter, Escape, IndentInline, InputEvent, MoveDown, MoveUp, OutdentInline, Paste, Redo, Textarea, TextareaState, Undo,
 };
 
-pub use attachments::{Attachment, AttachmentKind, ERROR_PASTE, ERROR_SIZE, ERROR_TYPE, MAX_ATTACHMENT_BYTES, Tray};
+pub use attachments::{Attachment, AttachmentKind, ERROR_PASTE, ERROR_SIZE, ERROR_TYPE, MAX_ATTACHMENT_BYTES, Tray, pasted_images};
 pub use bar::{BarState, permission_label};
 pub use chips::{CHIP_EM, ChipKind};
 pub use history::EditKind;
@@ -169,6 +169,12 @@ pub struct Composer {
     /// `MILAGRE_GPUI_COMPOSER_BAR`: a snapshot's seeded bar state (`bar.rs` `seed_demo`).
     demo: Option<String>,
     tray: attachments::Tray,
+    /// The images of the last send, for the sent message's strip (pasted ones written to a temporary file).
+    sent_images: Vec<crate::workspace::chat::transcript::cards::images::ImageRef>,
+    /// Past [`MAX_ROWS`] the prompt scrolls in this box, which reaches up through the composer's top padding to its edge
+    /// (`input_scroll`); the caret (and text length) it last kept in view.
+    input_scroll: gpui::ScrollHandle,
+    input_caret: Option<(usize, usize)>,
     queue: queue::Queue,
     bar: bar::BarState,
     new_chat: Option<new_chat::NewChat>,
@@ -279,6 +285,9 @@ impl Composer {
             prefill_active: env("MILAGRE_GPUI_COMPOSER_ACTIVE").and_then(|row| row.parse().ok()),
             demo: env("MILAGRE_GPUI_COMPOSER_BAR"),
             tray: attachments::Tray::default(),
+            sent_images: Vec::new(),
+            input_scroll: gpui::ScrollHandle::new(),
+            input_caret: None,
             queue: queue::Queue::default(),
             bar,
             new_chat,
@@ -592,7 +601,10 @@ impl Composer {
         }
     }
 
-    /// Images and files on the clipboard go to the tray; text pastes as plain text with its line endings as `\n`.
+    /// `usePastedImages.onPaste`: the clipboard's images (picture data, and image files copied as files, CleanShot's
+    /// way) go to the tray as pasted images, one tile each in the same tray, their `[Image #N]` chips at the caret.
+    /// Anything else pastes as plain text with its line endings as `\n` (a copied file that is not an image pastes
+    /// its path, as Electron's paste does).
     fn on_paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else { return };
         let mut images = Vec::new();
@@ -604,12 +616,16 @@ impl Composer {
                 ClipboardEntry::String(_) => {}
             }
         }
-        if (!images.is_empty() || !paths.is_empty()) && self.limits.attachments {
+        if paths.is_empty() {
+            paths = crate::platform::pasteboard::file_urls();
+        }
+        let pasted = attachments::pasted_images(images, &paths);
+        if !pasted.is_empty() && self.limits.attachments {
             cx.stop_propagation();
             let at = self.selected_range();
-            cx.emit(ComposerAttachment::Pasted { images: images.clone(), paths: paths.clone(), at: at.clone() });
-            self.attach_pasted(images, at.clone(), window, cx);
-            self.attach_paths(paths, at, window, cx);
+            let (images, _): (Vec<_>, Vec<_>) = pasted.iter().cloned().unzip();
+            cx.emit(ComposerAttachment::Pasted { images, paths: Vec::new(), at: at.clone() });
+            self.attach_pasted_named(pasted, at, window, cx);
             return;
         }
         let Some(editor) = self.editor.as_mut() else { return };
@@ -773,6 +789,7 @@ impl Composer {
             self.prompt_history.push(message.clone());
         }
         let quote_chips = std::mem::take(&mut self.quotes);
+        self.sent_images = if action == SendAction::Queue { Vec::new() } else { self.tray.sent_images() };
         if action == SendAction::Queue {
             self.enqueue(outgoing, quote_chips, cx);
             cx.emit(ComposerEvent::Queued(message.into()));
@@ -882,8 +899,43 @@ impl Composer {
 
     /// The prompt box's height: its rows and insets, from 68 up to 100.
     fn editor_height(&self, cx: &App) -> Pixels {
+        px(self.content_height(cx).clamp(EDITOR_MIN_HEIGHT, EDITOR_MAX_HEIGHT))
+    }
+
+    /// The prompt's whole height: every row and the insets.
+    fn content_height(&self, cx: &App) -> f32 {
         let rows = self.editor.as_ref().map_or(1, |editor| editor.state.read(cx).display_map().display_row_count().max(1));
-        px((rows as f32 * PROMPT_LINE_HEIGHT + 2.0 * EDITOR_PAD_Y).clamp(EDITOR_MIN_HEIGHT, EDITOR_MAX_HEIGHT))
+        rows as f32 * PROMPT_LINE_HEIGHT + 2.0 * EDITOR_PAD_Y
+    }
+
+    /// The caret's display row, and the text's length (what moved since the box last followed it).
+    fn caret_row(&self, cx: &App) -> Option<(usize, usize)> {
+        let state = self.editor.as_ref()?.state.read(cx);
+        let position = state.cursor_position();
+        let point = gpui_base::input::BufferPoint::new(position.line as usize, position.character as usize);
+        Some((state.display_map().buffer_pos_to_display_pos(point).row, state.text().len()))
+    }
+
+    /// Past [`MAX_ROWS`]: the box keeps the caret's line in view with the inset under it, as a capped field scrolls
+    /// itself (`PromptEditor`'s caret into view), once per caret move or edit; the wheel scrolls it freely between.
+    fn follow_caret(&mut self, top_room: f32, viewport: f32, cx: &App) {
+        let Some(caret) = self.caret_row(cx) else { return };
+        if self.input_caret == Some(caret) {
+            return;
+        }
+        self.input_caret = Some(caret);
+        let line_top = top_room + EDITOR_PAD_Y + caret.0 as f32 * PROMPT_LINE_HEIGHT;
+        let line_bottom = line_top + PROMPT_LINE_HEIGHT + EDITOR_PAD_Y;
+        let scrolled = -f32::from(self.input_scroll.offset().y);
+        let next = if line_bottom > scrolled + viewport {
+            line_bottom - viewport
+        } else if line_top - EDITOR_PAD_Y < scrolled {
+            (line_top - EDITOR_PAD_Y - top_room).max(0.0)
+        } else {
+            scrolled
+        };
+        let max = (top_room + self.content_height(cx) - viewport).max(0.0);
+        self.input_scroll.set_offset(gpui::point(px(0.0), px(-next.clamp(0.0, max))));
     }
 }
 
@@ -903,10 +955,22 @@ impl Render for Composer {
         let state = self.editor.as_ref().expect("made above").state.clone();
         let empty = self.shown.is_empty();
         let height = self.editor_height(cx);
+        // Past four rows the prompt scrolls. With nothing above it in the box (no quotes, no tray) its scroll area
+        // reaches up through the composer's top padding, so a scrolled line is cut at the composer's top edge, not
+        // halfway down the padding (Victor's call). The text area then takes its whole height and this box scrolls.
+        let overflow = self.content_height(cx) > EDITOR_MAX_HEIGHT;
+        let top_room =
+            if overflow && self.quotes.is_empty() && self.tray.is_empty() && self.tray.error().is_none() { FRAME_PAD } else { 0.0 };
+        if overflow {
+            self.follow_caret(top_room, EDITOR_MAX_HEIGHT + top_room, cx);
+        } else {
+            self.input_caret = None;
+        }
+        let textarea_height = if overflow { px(self.content_height(cx)) } else { height };
         let entity = cx.entity().downgrade();
         let textarea = Textarea::new(&state)
             .appearance(false)
-            .h(height)
+            .h(textarea_height)
             .text_size(px(prompt_text_size()))
             .line_height(px(PROMPT_LINE_HEIGHT))
             .text_color(theme.ink)
@@ -961,7 +1025,23 @@ impl Render for Composer {
                     .flex_none()
                     .w_full()
                     .h(height)
-                    .child(textarea)
+                    .child(if !overflow {
+                        textarea.into_any_element()
+                    } else {
+                        div()
+                            .id("composer-input-scroll")
+                            .debug_selector(|| "composer-input-scroll".into())
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .top(px(-top_room))
+                            .h(px(EDITOR_MAX_HEIGHT + top_room))
+                            .overflow_y_scroll()
+                            .track_scroll(&self.input_scroll)
+                            .child(div().h(px(top_room)))
+                            .child(textarea)
+                            .into_any_element()
+                    })
                     .when(empty && self.marked_range().is_none(), |el| el.child(self.render_placeholder(&theme))),
             )
             .child(self.render_send_row(&theme, cx))

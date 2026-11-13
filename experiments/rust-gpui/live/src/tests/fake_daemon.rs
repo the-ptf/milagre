@@ -327,7 +327,7 @@ impl World {
         self.writers.retain(|writer| writeln!(writer.lock().unwrap(), "{frame}").is_ok());
     }
 
-    fn emit_state(&mut self, path: &str) {
+    pub fn emit_state(&mut self, path: &str) {
         let state = self.state(path);
         self.emit("project:state", json!({"path":path,"state":state}));
     }
@@ -389,7 +389,24 @@ impl World {
             }
         };
         self.next_message += 1;
-        let mut message = json!({"id":self.next_message,"session_id":id,"body":body,"role":"user","model":model,"images":[],"clientMessageId":request["clientMessageId"]});
+        // Attachments as the daemon keeps them: each image's id, name and file (a pasted image's bytes land in a file).
+        let images: Vec<Value> = request["images"]
+            .as_array()
+            .map(|images| {
+                images
+                    .iter()
+                    .map(|image| {
+                        let path = image["path"]
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("/fake-uploads/{}", image["name"].as_str().unwrap_or("image.png")));
+                        json!({"id":image["id"],"name":image["name"],"path":path})
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let files = request.get("files").cloned().unwrap_or_else(|| json!([]));
+        let mut message = json!({"id":self.next_message,"session_id":id,"body":body,"role":"user","model":model,"images":images,"files":files,"clientMessageId":request["clientMessageId"]});
         if !context.is_null() {
             message["context"] = context;
         }
@@ -414,6 +431,19 @@ impl World {
             let request_id = format!("q-{n}");
             self.pending.insert(key.clone(), Pending::Question(request_id.clone()));
             self.agent(&key, json!({"type":"question-request","requestId":request_id,"questions":[{"id":"pick","header":"Pick","question":"Which one?","options":[{"label":"A"},{"label":"B"}],"multiSelect":false}]}));
+        } else if body.contains("[tools]") {
+            // A turn that thinks, then runs a command that keeps running until the test ends it.
+            self.pending.insert(key.clone(), Pending::Hold);
+            let at = now();
+            self.agent(&key, json!({"type":"step-started","step":{"id":"think-1","kind":"thinking","title":"Thinking","startedAt":at}}));
+            self.agent(
+                &key,
+                json!({"type":"step-completed","id":"think-1","status":"done","title":"Thought","durationMs":1200,"endedAt":at + 1200}),
+            );
+            self.agent(
+                &key,
+                json!({"type":"step-started","step":{"id":"cmd-1","kind":"shell","title":"Ran `npm test`","startedAt":at + 1200}}),
+            );
         } else if body.contains("[hold]") {
             self.pending.insert(key.clone(), Pending::Hold);
             self.agent(&key, json!({"type":"text-delta","text":"Working"}));
@@ -616,10 +646,19 @@ impl World {
                 {"path": "src/a.rs", "status": "modified", "added": 10, "removed": 2},
                 {"path": "src/b.rs", "status": "added", "added": 2, "removed": 1}]}),
             "pr:diff-file" => json!({"patch": format!("@@ -1 +1,2 @@\n-old {}\n+new\n+line\n", arg["path"].as_str().unwrap_or_default())}),
-            "pr:labels" => json!({"ok": true, "labels": [{"name": "perf", "color": "00ff00", "description": "Faster"}, {"name": "bug", "color": "ff0000", "description": ""}]}),
+            "pr:labels" => {
+                json!({"ok": true, "labels": [{"name": "perf", "color": "00ff00", "description": "Faster"}, {"name": "bug", "color": "ff0000", "description": ""}]})
+            }
             "pr:reviewer-candidates" => json!({"ok": true, "logins": ["reviewer", "other"]}),
-            "pr:merge" | "pr:ready" | "pr:request-reviewers" | "pr:set-labels" | "pr:reply" | "pr:comment" | "pr:resolve-thread"
-            | "pr:delete-comment" | "pr:submit-review" => match &self.pr_refuse {
+            "pr:merge"
+            | "pr:ready"
+            | "pr:request-reviewers"
+            | "pr:set-labels"
+            | "pr:reply"
+            | "pr:comment"
+            | "pr:resolve-thread"
+            | "pr:delete-comment"
+            | "pr:submit-review" => match &self.pr_refuse {
                 Some(message) => json!({"ok": false, "message": message}),
                 None => {
                     let number = arg["number"].as_u64().unwrap_or(0);
@@ -651,7 +690,13 @@ impl World {
                 {"provider":"claude","selectedId":args[1],"installed":true,"accounts":[
                     {"id":"default","provider":"claude","label":"Connected CLI account","state":"ready","email":"me@example.com"},
                     {"id":"work","provider":"claude","label":"Work","state":"ready","email":"work@example.com"}]}]}),
-            "usage:read" => if self.usage.is_null() { json!({"providers":[]}) } else { self.usage.clone() },
+            "usage:read" => {
+                if self.usage.is_null() {
+                    json!({"providers":[]})
+                } else {
+                    self.usage.clone()
+                }
+            }
             "limits:resume-at-reset:read" => json!({"resumeAtReset": true}),
             "chat:limit-switch" => json!({"continued": true, "label": "work@example.com"}),
             "chat:limit-resume" | "chat:limit-resume:cancel" => json!(true),

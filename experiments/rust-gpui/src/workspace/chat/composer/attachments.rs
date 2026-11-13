@@ -26,7 +26,7 @@ use super::{Composer, ComposerAttachment};
 use crate::logic::prompts::mentions::shift_image_mentions;
 use crate::theme::{RADIUS_CONTROL, RADIUS_INLINE, TEXT_10, TEXT_11, TEXT_12, TextStepExt, Theme};
 use crate::ui::{Icon, IconName, IconSize, Tooltip};
-use crate::workspace::chat::transcript::cards::images::THUMB;
+use crate::workspace::chat::transcript::cards::images::{ImageRef, THUMB};
 
 /// `MAX_ATTACHMENT_BYTES`: 50 MiB.
 pub const MAX_ATTACHMENT_BYTES: u64 = 50 * 1024 * 1024;
@@ -142,19 +142,86 @@ impl Tray {
         self.error = error;
     }
 
+    /// The images as the sent message's strip shows them: a file keeps its path; a pasted picture is written once to
+    /// a temporary file named by its content (Electron shows its data URL).
+    pub fn sent_images(&self) -> Vec<ImageRef> {
+        self.items
+            .iter()
+            .filter(|item| item.is_image())
+            .map(|item| {
+                let path = item.path.clone().or_else(|| {
+                    let image = item.source.as_ref()?;
+                    let dir = std::env::temp_dir().join("milagre-gpui-pasted");
+                    std::fs::create_dir_all(&dir).ok()?;
+                    let path = dir.join(format!("{:016x}.{}", image.id, format_extension(image.format)));
+                    if !path.exists() {
+                        std::fs::write(&path, &image.bytes).ok()?;
+                    }
+                    Some(path)
+                });
+                ImageRef { name: item.name.clone(), path }
+            })
+            .collect()
+    }
+
     /// The images and files as a message carries them.
     pub fn outgoing(&self) -> (Vec<OutgoingImage>, Vec<OutgoingAttachment>) {
         let mut images = Vec::new();
         let mut files = Vec::new();
         for item in &self.items {
             if item.is_image() {
-                images.push(OutgoingImage { index: images.len() as u64 + 1, name: item.name.clone(), path: item.path.clone() });
+                images.push(OutgoingImage {
+                    index: images.len() as u64 + 1,
+                    name: item.name.clone(),
+                    path: item.path.clone(),
+                    data_url: data_url(item),
+                });
             } else {
                 files.push(OutgoingAttachment { name: item.name.clone(), path: item.path.clone() });
             }
         }
         (images, files)
     }
+}
+
+/// `readImage`'s data URL: a pasted image's own bytes, else its file's.
+fn data_url(item: &Attachment) -> Option<String> {
+    use base64::Engine as _;
+    let (format, bytes) = match (&item.source, &item.path) {
+        (Some(image), _) => (image.format, image.bytes.clone()),
+        (None, Some(path)) => (extension_format(path)?, std::fs::read(path).ok()?),
+        (None, None) => return None,
+    };
+    let mime = match format {
+        ImageFormat::Jpeg => "image/jpeg",
+        ImageFormat::Webp => "image/webp",
+        ImageFormat::Gif => "image/gif",
+        _ => "image/png",
+    };
+    Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// The name a pasted picture gets (`File.name` of a clipboard image: `image.png`).
+fn pasted_name(image: &Image) -> SharedString {
+    format!("image.{}", format_extension(image.format)).into()
+}
+
+/// What a paste attaches (`onPaste`: the clipboard's `image/*` files): its pictures, then the image files it carries
+/// (by extension, read whole, named as the file). Other files attach nothing.
+pub fn pasted_images(images: Vec<Image>, paths: &[PathBuf]) -> Vec<(Image, SharedString)> {
+    let mut pasted: Vec<(Image, SharedString)> = images
+        .into_iter()
+        .map(|image| {
+            let name = pasted_name(&image);
+            (image, name)
+        })
+        .collect();
+    for path in paths {
+        let Some(format) = extension_format(path) else { continue };
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        pasted.push((Image::from_bytes(format, bytes), file_name(path)));
+    }
+    pasted
 }
 
 fn allowed_image(format: ImageFormat) -> bool {
@@ -192,6 +259,16 @@ impl Composer {
     /// The tray's items, oldest first.
     pub fn attachments(&self) -> &[Attachment] {
         self.tray.items()
+    }
+
+    /// The images the last send carried, taken (the Chat shows them over the sent message).
+    pub fn take_sent_images(&mut self) -> Vec<ImageRef> {
+        std::mem::take(&mut self.sent_images)
+    }
+
+    /// The tray as a send carries it (images with their data URLs, then files).
+    pub fn tray_outgoing(&self) -> (Vec<OutgoingImage>, Vec<OutgoingAttachment>) {
+        self.tray.outgoing()
     }
 
     pub fn attachment_error(&self) -> Option<&SharedString> {
@@ -257,10 +334,23 @@ impl Composer {
 
     /// Images on the clipboard: all of one allowed type and size, or none of them (React's all-or-nothing check).
     pub fn attach_pasted(&mut self, images: Vec<Image>, at: Range<usize>, window: &mut Window, cx: &mut Context<Self>) -> Vec<u64> {
+        let named = images.into_iter().map(|image| (image.clone(), pasted_name(&image))).collect();
+        self.attach_pasted_named(named, at, window, cx)
+    }
+
+    /// [`Composer::attach_pasted`] with each image's name (a pasted file keeps its own, as `File.name`).
+    pub fn attach_pasted_named(
+        &mut self,
+        images: Vec<(Image, SharedString)>,
+        at: Range<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<u64> {
         self.tray.error = None;
         if images.is_empty() {
             return Vec::new();
         }
+        let (images, names): (Vec<Image>, Vec<SharedString>) = images.into_iter().unzip();
         if images.iter().any(|image| !allowed_image(image.format)) {
             self.tray.error = Some(ERROR_TYPE.into());
             cx.notify();
@@ -283,8 +373,7 @@ impl Composer {
             }
         }
         let mut numbers = Vec::new();
-        for (image, decoded) in images.into_iter().zip(decoded_all) {
-            let name: SharedString = format!("image.{}", format_extension(image.format)).into();
+        for ((image, decoded), name) in images.into_iter().zip(decoded_all).zip(names) {
             let bytes = image.bytes.len() as u64;
             self.tray.push(name, None, bytes, AttachmentKind::Image { decoded: Some(decoded) }, Some(image));
             numbers.push(self.tray.image_count() as u64);

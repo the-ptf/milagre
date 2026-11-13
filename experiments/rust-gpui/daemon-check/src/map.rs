@@ -586,6 +586,8 @@ pub(crate) fn step(value: &Value, path: &str) -> Result<ChatStep> {
             .transpose()?,
         tool: o.opt_str("tool")?,
         agent: o.opt_str("agent")?,
+        image_origin: o.opt_str("imageOrigin")?,
+        source_file: o.opt_str("sourceFile")?,
     })
 }
 

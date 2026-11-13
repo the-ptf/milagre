@@ -193,11 +193,11 @@ fn push_turn(turn: usize, rng: &mut Rng, items: &mut Vec<Item>) {
             3_000,
         )));
     }
-    items.push(Item::Activity(Activity::new(entries, NOW)));
-
+    // Consecutive calls share one fold, as Electron's `replyParts` groups them: the tools join the reads.
     for n in 0..1 + rng.below(4) {
-        items.push(Item::Step(StepItem::new(tool(turn * 10 + n, rng), NOW)));
+        entries.push(Entry::Step(tool(turn * 10 + n, rng)));
     }
+    items.push(Item::Activity(Activity::new(entries, NOW)));
     if turn % 7 == 3 {
         let (label, command) = APPROVALS[rng.below(APPROVALS.len())];
         let state = if rng.below(5) == 0 { ApprovalState::Denied } else { ApprovalState::Allowed };
@@ -552,6 +552,7 @@ pub fn cards_demo() -> Vec<Item> {
         "I looked at the frame and at two reference shots, then drew a placeholder for the star layer.",
         None,
     );
+    // As Claude reports a look at an image: the Read row in the activity, and the image step the strip shows.
     let read = |id: &str, file: &str| ChatStep {
         id: id.into(),
         kind: Some(StepKind::Read),
@@ -559,9 +560,20 @@ pub fn cards_demo() -> Vec<Item> {
         file: Some(test_image(file).into()),
         ..ChatStep::default()
     };
+    let viewed = |id: &str, file: &str| ChatStep {
+        id: id.into(),
+        kind: Some(StepKind::Image),
+        title: "Viewed an image".into(),
+        status: StepStatus::Done,
+        file: Some(test_image(file).into()),
+        image_origin: Some("viewed".into()),
+        ..ChatStep::default()
+    };
     reply.steps = vec![
         read("v1", "viewed-checker.png"),
+        viewed("v1-image", "viewed-checker.png"),
         read("v2", "viewed-wide.png"),
+        viewed("v2-image", "viewed-wide.png"),
         ChatStep {
             id: "g1".into(),
             kind: Some(StepKind::Image),

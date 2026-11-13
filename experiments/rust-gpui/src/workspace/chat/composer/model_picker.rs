@@ -50,6 +50,15 @@ impl Composer {
         cx.notify();
     }
 
+    /// The chip's effort for the model it shows, from a saved choice (`effortFor`): `preferred` when the model offers
+    /// it, else the model's default level; none for a model without efforts or one the catalog does not know.
+    pub fn settle_effort(&mut self, preferred: Option<&str>, cx: &mut gpui::Context<Self>) {
+        let effort = models::find(self.bar.provider, &self.bar.model_id).and_then(|model| effort_for(&capability(&model), preferred));
+        self.bar.effort_id = effort;
+        self.bar.effort = effort.map(|effort| effort_copy(effort).name.into());
+        cx.notify();
+    }
+
     pub fn set_effort(&mut self, effort: &'static str, cx: &mut gpui::Context<Self>) {
         self.bar.effort_id = Some(effort);
         self.bar.effort = Some(effort_copy(effort).name.into());
@@ -70,22 +79,13 @@ impl Composer {
         let (provider, name, effort) = (self.bar.provider, self.bar.model_name.clone(), self.bar.effort.clone());
         let (dim, warn) = (theme.ink3, theme.orange_ink);
         let fast = self.bar.fast;
-        // Full access shows on the chip itself (`data-permission-full`): the shield in orange, before the mark.
-        let full = self.bar.permission == crate::data::PermissionMode::Full;
+        // No permission glyph on the chip (Victor's call): the mode shows in the picker's menu.
         let composer = cx.entity();
         let open = matches!(self.bar.open, Some("composer-model" | "composer-permission"));
         super::pick_list::popup(&composer, "composer-model", open)
             .trigger(move |open| {
                 Chip::new("composer-model-chip")
                     .on(open)
-                    .when(full, |chip| {
-                        chip.child(
-                            div()
-                                .debug_selector(|| "composer-permission-full".into())
-                                .flex_none()
-                                .child(Icon::new(IconName::ShieldAlert).size(IconSize::S14).color(warn)),
-                        )
-                    })
                     .child(ProviderLogo::new(provider).size(14.0))
                     .child(div().min_w_0().max_w(px(112.0)).truncate().child(name.clone()))
                     .when_some(effort.clone(), |chip, effort| {

@@ -92,6 +92,11 @@ pub struct ChatStep {
     pub tool: Option<SharedString>,
     /// For a step a subagent made, the subagent's id.
     pub agent: Option<SharedString>,
+    /// An image step's origin: `"viewed"` for an image the agent looked at (a strip of thumbnails), anything else (or
+    /// none) for one it made (a large card). `ChatStep.imageOrigin`.
+    pub image_origin: Option<SharedString>,
+    /// A viewed image's original file, the name its thumbnail shows (`sourceFile`).
+    pub source_file: Option<SharedString>,
 }
 
 /// `HandoffContext.status` and `CompactionContext.status`.

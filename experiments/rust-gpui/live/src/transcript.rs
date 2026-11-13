@@ -1,13 +1,18 @@
 //! Saved messages and live requests as the base transcript's items.
 //!
-//! A user message is `Item::User`; a reply is its tool steps (`Item::Step`, oldest first) then its text
-//! (`Item::Prose`, left out when empty). Message contexts have no card of their own here yet: their body shows as
-//! the user's text. A live approval is `Item::Approval` (its step from the run when the run has it), a live
-//! question the question card.
+//! A user message is `cards::build::items_for` (its attachments as one strip of tiles over the bubble, and the cards
+//! of the kinds that module knows); a PR pill's message is its action card. A reply is laid out as Electron's
+//! `ReplyContent` (`cards::build::reply_items`): consecutive tool steps and thoughts fold into one activity line
+//! ("Thought for 12s · ran 3 commands") that opens to the steps, the images it viewed or made, then the answer
+//! (`Item::Prose`, left out when empty) and any calls after it. A live approval is `Item::Approval` (its step from the
+//! run when the run has it), a live question the question card; the live run's steps are folds of their own
+//! ([`run_folds`]).
 
-use milagre_gpui_spike::data::{ChatStep, MessagePage, PermissionRequest, QuestionRequest, Role, StepStatus};
+use gpui::SharedString;
+use milagre_gpui_spike::data::{ChatStep, MessagePage, PermissionRequest, QuestionRequest, Role, StepKind, StepStatus};
+use milagre_gpui_spike::workspace::chat::transcript::cards::build::{items_for, reply_items};
 use milagre_gpui_spike::workspace::chat::transcript::cards::{Card, QuestionCard};
-use milagre_gpui_spike::workspace::chat::transcript::{Approval, ApprovalState, Item, Prose, StepItem};
+use milagre_gpui_spike::workspace::chat::transcript::{Activity, Approval, ApprovalState, Entry, Item};
 
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
@@ -40,13 +45,12 @@ pub fn saved_items_with(page: &MessagePage, info: &LimitInfo) -> Vec<Item> {
             Role::User => match message.context.as_ref().and_then(pr_action_card) {
                 // A PR pill's message: Electron's action card ("Update branch" · "Pull request #177"), not its prompt.
                 Some(card) => items.push(Item::Card(card)),
-                None => items.push(Item::User(message.body.clone())),
+                // Its attachments as one strip of tiles over the bubble (and the other kinds' cards), as `MessageSection`.
+                None => items.extend(items_for(message)),
             },
             Role::Assistant => {
-                items.extend(message.steps.iter().cloned().map(|step| Item::Step(StepItem::new(step, now))));
-                if !message.body.trim().is_empty() {
-                    items.push(Item::Prose(Prose::new(message.body.clone())));
-                }
+                // `ReplyContent`: setup rows, the activity before the answer as one fold, the answer, the fold after.
+                items.extend(reply_items(message, now));
                 // A reply the plan's usage limit stopped: the limit card under it.
                 if let Some(mut card) = message.context.as_ref().and_then(|context| crate::usage::limit_card(context, now)) {
                     card.message = Some(message.id);
@@ -90,6 +94,72 @@ pub fn pr_action_card(context: &milagre_gpui_spike::data::ChatContext) -> Option
     }))
 }
 
+/// What a run's new step does to its folds ([`run_folds`]), in the order the steps started.
+#[derive(Debug, PartialEq)]
+pub enum FoldOp {
+    /// It joins fold `n` (its place in the list): no text was written between it and that fold's last step.
+    Join(usize, SharedString),
+    /// It opens a new fold, under the reply's text up to `text_at` (bytes of the run's text), which shows first.
+    New(SharedString, usize),
+}
+
+/// The byte index in `text` of a step's `offset` (UTF-16 units, as the daemon counts), clamped to the text.
+pub fn byte_offset(text: &str, offset: Option<usize>) -> usize {
+    let Some(offset) = offset else { return text.len() };
+    let mut units = 0;
+    for (at, ch) in text.char_indices() {
+        if units >= offset {
+            return at;
+        }
+        units += ch.len_utf16();
+    }
+    text.len()
+}
+
+/// The live run's steps as folds, by Electron's `replyParts` rule: steps with no text between them form one group.
+/// A new step joins the last fold when the run's text between that fold's last step and it is only whitespace;
+/// otherwise it opens a fold of its own under that text (the calls the text led into). Setup, image and artifact
+/// steps are cards, and a step with its own approval card (`carded`) stays out. The saved reply replaces all of it
+/// when the turn ends.
+pub fn run_folds(steps: &[ChatStep], folds: &[(usize, Vec<SharedString>)], text: &str, carded: &[SharedString]) -> Vec<FoldOp> {
+    let mut ops = Vec::new();
+    let mut groups: Vec<Vec<SharedString>> = folds.iter().map(|(_, ids)| ids.clone()).collect();
+    let at = |id: &SharedString| byte_offset(text, steps.iter().find(|step| &step.id == id).and_then(|step| step.offset));
+    for step in steps {
+        if matches!(step.kind, Some(StepKind::Setup | StepKind::Image | StepKind::Artifact))
+            || carded.contains(&step.id)
+            || groups.iter().any(|ids| ids.contains(&step.id))
+        {
+            continue;
+        }
+        let here = byte_offset(text, step.offset);
+        let joins = groups.last().and_then(|ids| ids.last()).is_some_and(|last| {
+            let from = at(last).min(here);
+            text[from..here].trim().is_empty()
+        });
+        if joins {
+            ops.push(FoldOp::Join(groups.len() - 1, step.id.clone()));
+            groups.last_mut().expect("a fold").push(step.id.clone());
+        } else {
+            ops.push(FoldOp::New(step.id.clone(), here));
+            groups.push(vec![step.id.clone()]);
+        }
+    }
+    ops
+}
+
+/// A fold's steps as they are now in the run, in the fold's order.
+pub fn fold_entries(steps: &[ChatStep], ids: &[SharedString]) -> Vec<Entry> {
+    ids.iter().filter_map(|id| steps.iter().find(|step| &step.id == id)).cloned().map(Entry::Step).collect()
+}
+
+/// A new, empty live fold (its steps arrive with `Transcript::update_activity`).
+pub fn live_fold(now: i64) -> Item {
+    let mut activity = Activity::new(Vec::new(), now);
+    activity.streaming = true;
+    Item::Activity(activity)
+}
+
 /// The approval card for `request`, on its step when the run has one.
 pub fn approval_item(request: &PermissionRequest, steps: &[ChatStep]) -> Item {
     let step = request.step_id.as_ref().and_then(|id| steps.iter().find(|step| &step.id == id).cloned()).unwrap_or_else(|| ChatStep {
@@ -112,6 +182,11 @@ pub fn describe(item: &Item) -> String {
         Item::User(text) => format!("user: {text}"),
         Item::Prose(prose) => format!("reply: {}", prose.text),
         Item::Step(step) => format!("step: {}", step.step.title),
+        Item::Activity(activity) => {
+            let steps = activity.steps();
+            let (summary, _) = milagre_gpui_spike::workspace::chat::transcript::summary::activity_summary(&steps, activity.credits);
+            format!("activity ({} steps): {summary}", steps.len())
+        }
         Item::Approval(approval) => format!("approval {:?}: {}", approval.state, approval.step.title),
         Item::Card(Card::Question(card)) => format!("question {}: {:?}", card.request_id, card.status),
         Item::Card(Card::PrAction(card)) => format!("pr action {} #{}", card.blocker.key(), card.pr),

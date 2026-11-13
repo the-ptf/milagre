@@ -9,7 +9,9 @@
 //!   receipts kept), interrupt, respond to a permission (Allow once, Always allow in this Chat → `AllowForChat`, Deny),
 //!   answer a question, set the permission mode, send or remove a queued message, mark unread.
 //! - A new Project Chat is made by its first send from the empty new-Chat screen; the Chat its receipt names opens.
-//! - Not available here, so off or refused: attachments, steering (follow-ups queue), compact, Worktree and computer
+//! - Attachments (pasted, chosen or dropped images and files) go with `chat:send` on Milagre's daemon; the owned
+//!   runtime refuses them.
+//! - Not available here, so off or refused: steering (follow-ups queue), compact, Worktree and computer
 //!   creation (the sidebar records those calls and sends nothing). On the owned runtime the model is fixed too.
 //! - Milagre's daemon: the composer's picker lists the daemon's models (`agent:models`) and an open Chat's chip shows
 //!   the model its next send names (picked here, else its last one, else its provider's recommended one); a pick on
@@ -276,6 +278,7 @@ pub fn install_daemon_app(session: &DaemonSession, prefs: std::path::PathBuf, el
         cx.global_mut::<milagre_gpui_spike::settings::SettingsStore>().daemon_note = Some(crate::daemon::BUNDLED_NOTE.to_owned());
     }
     crate::prefs::install_with(prefs, electron, session.daemon.read_only(), cx);
+    cx.set_global(crate::prefs::ElectronPrefs(electron.to_path_buf()));
     install_daemon_globals(session, cx)
 }
 
@@ -321,6 +324,10 @@ struct OpenChat {
     approvals: Vec<(String, usize)>,
     /// Question request id → item.
     questions: Vec<(String, usize)>,
+    /// The run's activity folds, oldest first: each one's item and the ids of the steps it holds ([`run_folds`]).
+    folds: Vec<(usize, Vec<gpui::SharedString>)>,
+    /// Steps that have an approval card of their own: they stay out of the folds.
+    approval_steps: Vec<gpui::SharedString>,
 }
 
 pub struct LiveController {
@@ -359,6 +366,8 @@ pub struct LiveController {
     preloaded: Option<(String, milagre_gpui_spike::data::MessagePage)>,
     /// Milagre's daemon: a model picked for an open Chat (by Chat key), sent with its next message.
     picked: HashMap<String, (Provider, String)>,
+    /// Milagre's daemon: an effort picked for an open Chat (by Chat key).
+    picked_effort: HashMap<String, &'static str>,
     /// Milagre's daemon: each Project's `agent:models`, its `pull-requests:snapshot`, and every Chat's ports.
     catalogs: HashMap<String, Value>,
     prs: HashMap<String, Value>,
@@ -396,6 +405,8 @@ pub struct LiveController {
     pr_snapshot_opened: bool,
     /// Milagre's daemon: the accounts writes and the usage-limit card ([`crate::accounts`]).
     accounts: Option<Entity<crate::accounts::LiveAccounts>>,
+    /// Ticks the running steps' durations in the live folds once a second while a turn runs.
+    fold_clock: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -546,7 +557,7 @@ impl LiveController {
                     composer.set_model(Provider::Claude, model, model, None, cx);
                 }
                 // Milagre's daemon: a new Chat picks its model; an open Chat shows (and keeps) its own.
-                None => composer.set_limits(ComposerLimits { attachments: false, model_locked: false }, cx),
+                None => composer.set_limits(ComposerLimits { attachments: true, model_locked: false }, cx),
             }
             // No steering on this runtime: a message during a turn waits in the runtime's queue.
             composer.set_follow_ups(Delivery::Queue, cx);
@@ -690,6 +701,7 @@ impl LiveController {
                 store,
                 sink,
                 open: None,
+                fold_clock: None,
                 pending_open: None,
                 answered: HashSet::new(),
                 receipts: Vec::new(),
@@ -705,6 +717,7 @@ impl LiveController {
                 open_loaded: None,
                 preloaded,
                 picked: HashMap::new(),
+                picked_effort: HashMap::new(),
                 catalogs: HashMap::new(),
                 prs: HashMap::new(),
                 ports: Value::Null,
@@ -1321,9 +1334,8 @@ impl LiveController {
         if daemon.read_only() || !self.loading.is_empty() {
             return;
         }
-        let any_loaded = self.store.read(|reducer| {
-            reducer.state().is_ok_and(|applied| applied.projects.iter().any(|o| !o.project.is_chats_home()))
-        });
+        let any_loaded =
+            self.store.read(|reducer| reducer.state().is_ok_and(|applied| applied.projects.iter().any(|o| !o.project.is_chats_home())));
         if any_loaded {
             return;
         }
@@ -1493,7 +1505,8 @@ impl LiveController {
     /// on the new-Chat screen, the picker's choice. The picker stays open: a pick on an open Chat is kept for it.
     fn follow_model(&mut self, new_chat: bool, at: Option<&ChatRef>, cx: &mut Context<Self>) {
         let composer = self.workspace.read(cx).chat.read(cx).composer.clone();
-        composer.update(cx, |c, cx| c.set_limits(ComposerLimits { attachments: false, model_locked: false }, cx));
+        // Images and files go with `chat:send` as Electron sends them ([`crate::sinks::Attachments`]).
+        composer.update(cx, |c, cx| c.set_limits(ComposerLimits { attachments: true, model_locked: false }, cx));
         if new_chat || at.is_none() {
             let model = composer.read(cx).model();
             *self.sink.model.borrow_mut() = (model.0, model.1.to_string());
@@ -1522,10 +1535,18 @@ impl LiveController {
         self.mode = mode;
         self.sink.mode.set(mode);
         *self.sink.model.borrow_mut() = (provider, id.clone());
+        // The effort the chip shows from the start, as Electron's: picked here for this Chat, else Electron's own
+        // choice for it (or its last), kept to what the model offers.
+        let effort = self.picked_effort.get(&at.key()).map(|effort| effort.to_string()).unwrap_or_else(|| {
+            cx.try_global::<crate::prefs::ElectronPrefs>()
+                .map_or_else(|| "high".to_owned(), |prefs| crate::prefs::composer_effort(&prefs.0, &at.key()))
+        });
         composer.update(cx, |c, cx| {
             c.set_model(provider, &id, &name, None, cx);
+            c.settle_effort(Some(&effort), cx);
             c.set_permission_mode(mode, cx);
         });
+        self.sink.effort.set(composer.read(cx).effort_id());
     }
 
     /// Milagre's daemon: the Project's model lists, PR poll and every Chat's ports, read (at most every few seconds
@@ -1630,6 +1651,8 @@ impl LiveController {
         // `updateBlockerDismissals`: the pill hides once its fix is asked for, until GitHub says the blocker cleared.
         let next = milagre_gpui_spike::logic::prs::blockers::update_blocker_dismissals(&dismissed, Some(&pr), Some(blocker));
         self.pr_dismissed.insert(key.clone(), next);
+        let pills = self.workspace.read(cx).chat.read(cx).pills.clone();
+        pills.update(cx, |p, cx| p.clear_pr_action(cx));
         // At once, as Electron's optimistic message: the action card and the running row; the saved message replaces it.
         let card = milagre_gpui_spike::workspace::chat::transcript::cards::PrActionCard {
             blocker: context.action,
@@ -1639,9 +1662,12 @@ impl LiveController {
         };
         let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
         transcript.update(cx, |t, cx| {
-            t.push(milagre_gpui_spike::workspace::chat::transcript::Item::Card(
-                milagre_gpui_spike::workspace::chat::transcript::cards::Card::PrAction(card),
-            ), cx);
+            t.push(
+                milagre_gpui_spike::workspace::chat::transcript::Item::Card(
+                    milagre_gpui_spike::workspace::chat::transcript::cards::Card::PrAction(card),
+                ),
+                cx,
+            );
             t.set_running_row(true, cx);
             t.scroll_to_bottom(cx);
         });
@@ -1775,16 +1801,27 @@ impl LiveController {
             crate::panels::pills(&applied.projects, &key, &prs, now, &inputs)
         });
         if let Some(pills_data) = pills_data {
-            pills.update(cx, |p, cx| p.set_live(&key, pills_data, cx));
+            pills.update(cx, |p, cx| {
+                // The PR tab showing hides the PR pills on purpose: at once, not held over like a dropped state.
+                if pr_shown {
+                    p.clear_pr_action(cx);
+                }
+                p.set_live(&key, pills_data, cx)
+            });
         }
     }
 
     fn follow_composer(&mut self, composer: &Entity<milagre_gpui_spike::workspace::chat::composer::Composer>, cx: &mut Context<Self>) {
         let (mode, effort, model) = composer.read_with(cx, |c, _| (c.permission_mode(), c.effort_id(), c.model()));
         self.sink.mode.set(mode);
+        let changed_effort = self.sink.effort.get() != effort;
         self.sink.effort.set(effort);
         if matches!(self.backend, Backend::Daemon(_)) {
             let target = self.sink.target.borrow().clone();
+            // An effort picked on an open Chat stays its own in this window.
+            if let (Target::Existing(at), Some(effort), true) = (&target, effort, changed_effort) {
+                self.picked_effort.insert(at.key(), effort);
+            }
             let model = (model.0, model.1.to_string());
             match target {
                 Target::NewChat => *self.sink.model.borrow_mut() = model,
@@ -1828,9 +1865,9 @@ impl LiveController {
         if let Backend::Daemon(daemon) = &self.backend
             && let Some((computer, _)) = at.project.split_once('|')
         {
-            return daemon.remote(computer).is_some_and(|remote| {
-                remote.states.get(&at.project).is_some_and(|state| state.state.sessions.contains_key(&at.id))
-            });
+            return daemon
+                .remote(computer)
+                .is_some_and(|remote| remote.states.get(&at.project).is_some_and(|state| state.state.sessions.contains_key(&at.id)));
         }
         self.store.read(|reducer| {
             reducer.state().ok().is_some_and(|applied| {
@@ -1993,6 +2030,9 @@ impl LiveController {
             let id = request.request_id.to_string();
             if !open.approvals.iter().any(|(r, _)| *r == id) {
                 let item = crate::transcript::approval_item(request, &run.steps);
+                if let milagre_gpui_spike::workspace::chat::transcript::Item::Approval(approval) = &item {
+                    open.approval_steps.push(approval.step.id.clone());
+                }
                 let ix = transcript.update(cx, |t, cx| {
                     t.push(item, cx);
                     t.items().len() - 1
@@ -2024,6 +2064,51 @@ impl LiveController {
             };
             settle.push((request.clone(), *ix, state));
         }
+        // The run's tool calls as they start, run and end: folds, as Electron's streaming `ActivityBlock`. A fold
+        // that opens under new text shows that text first.
+        let now = crate::transcript::now_ms();
+        let run_text = run.text.to_string();
+        for op in crate::transcript::run_folds(&run.steps, &open.folds, &run_text, &open.approval_steps) {
+            match op {
+                crate::transcript::FoldOp::Join(n, id) => open.folds[n].1.push(id),
+                crate::transcript::FoldOp::New(id, text_at) => {
+                    let shown = open.stream.map_or(0, |(_, shown)| shown);
+                    if text_at > shown && run_text.is_char_boundary(shown) && !run_text[shown..text_at].trim().is_empty() {
+                        let ix = match open.stream {
+                            Some((ix, _)) => ix,
+                            None => transcript.update(cx, |t, cx| t.begin_stream(cx)),
+                        };
+                        transcript.update(cx, |t, cx| t.stream(ix, &run_text[shown..text_at], cx));
+                        open.stream = Some((ix, text_at));
+                    }
+                    let ix = transcript.update(cx, |t, cx| {
+                        t.push(crate::transcript::live_fold(now), cx);
+                        t.items().len() - 1
+                    });
+                    open.folds.push((ix, vec![id]));
+                }
+            }
+        }
+        let last = open.folds.len();
+        let waiting: Vec<gpui::SharedString> = run.approvals.iter().filter_map(|r| r.step_id.clone()).collect();
+        let running = run.steps.iter().any(|step| step.status == milagre_gpui_spike::data::StepStatus::Running);
+        for (n, (ix, ids)) in open.folds.iter().enumerate() {
+            let entries = crate::transcript::fold_entries(&run.steps, ids);
+            let (ix, waiting) = (*ix, waiting.clone());
+            transcript.update(cx, |t, cx| t.update_activity(ix, entries, n + 1 == last, waiting, now, cx));
+        }
+        if running && self.fold_clock.is_none() {
+            self.fold_clock = Some(cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(Duration::from_secs(1)).await;
+                    let Ok(going) = this.update(cx, |this, cx| this.tick_folds(cx)) else { break };
+                    if !going {
+                        break;
+                    }
+                }
+            }));
+        }
+        let open = self.open.as_mut().expect("open");
         let text = run.text.to_string();
         let (stream, shown) = match open.stream {
             Some((ix, shown)) => (Some(ix), shown),
@@ -2042,6 +2127,22 @@ impl LiveController {
             transcript.update(cx, |t, cx| t.stream(ix, &text[shown..], cx));
             self.open.as_mut().expect("open").stream = Some((ix, text.len()));
         }
+    }
+
+    /// One tick of the live folds' clock: running steps count on. False (and the clock stops) once nothing runs.
+    fn tick_folds(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(open) = self.open.as_ref().filter(|open| open.live && !open.folds.is_empty()) else {
+            self.fold_clock = None;
+            return false;
+        };
+        let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
+        let now = crate::transcript::now_ms();
+        let folds: Vec<usize> = open.folds.iter().map(|(ix, _)| *ix).collect();
+        let running = transcript.update(cx, |t, cx| t.tick_activities(&folds, now, cx));
+        if !running {
+            self.fold_clock = None;
+        }
+        running
     }
 
     fn set_running(&mut self, elapsed: Option<Duration>, cx: &mut Context<Self>) {
@@ -2165,7 +2266,8 @@ impl LiveController {
             _ => None,
         });
         let interactive = if running { None } else { chat.limit_turn.or(last) };
-        let choices = limit.map(|limit| crate::accounts::choices(accounts.groups(), &limit, crate::transcript::now_ms())).unwrap_or_default();
+        let choices =
+            limit.map(|limit| crate::accounts::choices(accounts.groups(), &limit, crate::transcript::now_ms())).unwrap_or_default();
         let resume = (accounts.resume_supported() && chat.queued.is_empty()).then_some(chat.limit_turn).flatten();
         crate::transcript::LimitInfo {
             interactive,
@@ -2223,10 +2325,63 @@ impl LiveController {
         let backend = self.backend.clone();
         Some(match command {
             // Milagre's daemon: a new Chat goes where the tray says (`new_chat.rs`).
-            Command::Send { target: Target::NewChat, text, queue, mode, effort, model, new_chat: Some(choice) }
+            Command::Send { target: Target::NewChat, text, queue, mode, effort, model, new_chat: Some(choice), attachments }
                 if matches!(backend, Backend::Daemon(_)) =>
             {
-                return self.new_chat_job(*choice, text, queue, mode, effort, model, cx);
+                return self.new_chat_job(*choice, text, queue, mode, effort, model, attachments, cx);
+            }
+            Command::Send { attachments, .. } if !attachments.is_empty() && !matches!(backend, Backend::Daemon(_)) => {
+                self.error("Attachments are not available on this runtime yet".into());
+                return None;
+            }
+            Command::Send { target: Target::Existing(chat), text, queue, mode, effort, model, attachments, .. }
+                if !attachments.is_empty() && !chat.project.contains('|') =>
+            {
+                // Electron's `chat:send` with its images, files and prompt (the client's send takes text only).
+                let Backend::Daemon(daemon) = backend else { return None };
+                self.sent += 1;
+                let id = format!("gpui-{}-{}-{}", std::process::id(), crate::transcript::now_ms(), self.sent);
+                let worktree = self.store.read(|reducer| {
+                    let applied = reducer.state().ok()?;
+                    let (_, session) = crate::panels::find(&applied.projects, &chat.key())?;
+                    Some(session.worktree_id)
+                });
+                let mut request = serde_json::json!({
+                    "projectPath": chat.project,
+                    "worktreeId": worktree.unwrap_or(1),
+                    "sessionId": chat.id,
+                    "provider": model.0.id(),
+                    "model": model.1,
+                    "body": text,
+                    "clientMessageId": id,
+                    "permissionMode": crate::sinks::wire_name(mode),
+                    "replies": "concise",
+                    "tldrEnabled": true,
+                    "ultracode": false,
+                    "fastMode": false,
+                });
+                if let Some(effort) = effort {
+                    request["effort"] = serde_json::json!(effort);
+                }
+                if queue {
+                    request["delivery"] = serde_json::json!("queue");
+                }
+                attachments.apply(&mut request, &text);
+                let (daemon, provider) = (daemon.clone(), model.0);
+                Box::pin(async move {
+                    let writer = daemon.writer(&chat.project).await.map_err(|e| format!("{e:#}"))?;
+                    if request["model"].as_str().is_none_or(str::is_empty) {
+                        let model = writer
+                            .recommended_model(provider.id())
+                            .await
+                            .map_err(|e| format!("{e:#}"))?
+                            .ok_or_else(|| format!("Milagre recommends no {} model: nothing was sent", provider.name()))?;
+                        request["model"] = Value::String(model);
+                    }
+                    let receipt = writer.call("chat:send", serde_json::json!([request])).await.map_err(|e| format!("send {id}: {e:#}"))?;
+                    drop(writer);
+                    Ok(Some(Done::Sent { id, receipt, open: None }))
+                })
             }
             Command::Send { target, text, queue, mode, effort, model, .. } => {
                 let (project, send_target) = match target {
@@ -2418,20 +2573,20 @@ fn chat_info(store: &LiveStore, key: &str, cx: &App) -> crate::notify::ChatInfo 
 /// The newest Chat whose PR poll names a PR: its key, Worktree folder and the PR its panel shows.
 pub fn newest_with_pr(store: &LiveStore, prs: &HashMap<String, Value>) -> Option<(String, String, u32)> {
     store.read(|reducer| {
-            let applied = reducer.state().ok()?;
-            applied
-                .projects
-                .iter()
-                .filter_map(|open| Some((open, open.state.as_ref()?, prs.get(open.project.path.as_ref())?)))
-                .flat_map(|(open, state, prs)| {
-                    state.sessions.values().filter(|chat| !chat.archived).filter_map(move |chat| {
-                        let folder = state.worktree_of(chat)?.path.to_string();
-                        let number = crate::panels::panel_pull_request(prs, &folder, chat, None)?;
-                        let at = chat.summary.as_ref().and_then(|s| s.last_at).unwrap_or(0);
-                        Some((at, (open.project.scope().chat_key(chat.id), folder, number)))
-                    })
+        let applied = reducer.state().ok()?;
+        applied
+            .projects
+            .iter()
+            .filter_map(|open| Some((open, open.state.as_ref()?, prs.get(open.project.path.as_ref())?)))
+            .flat_map(|(open, state, prs)| {
+                state.sessions.values().filter(|chat| !chat.archived).filter_map(move |chat| {
+                    let folder = state.worktree_of(chat)?.path.to_string();
+                    let number = crate::panels::panel_pull_request(prs, &folder, chat, None)?;
+                    let at = chat.summary.as_ref().and_then(|s| s.last_at).unwrap_or(0);
+                    Some((at, (open.project.scope().chat_key(chat.id), folder, number)))
                 })
-                .max_by_key(|(at, _)| *at)
-                .map(|(_, found)| found)
+            })
+            .max_by_key(|(at, _)| *at)
+            .map(|(_, found)| found)
     })
 }

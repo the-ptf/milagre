@@ -7,34 +7,50 @@
 //! ordinary message, as the app does: its text shows as a bubble or as the answer, and a message with no text and
 //! no attachments adds nothing.
 //!
-//! A reply's tool calls are WP-22's activity fold; only the steps that are cards here (generated and viewed images)
-//! are read.
+//! A reply's tool calls are WP-22's activity fold (`reply_items`): consecutive steps fold into one line, as
+//! `ActivityBlock` does; generated and viewed images are cards.
 
 use std::path::PathBuf;
 
 use gpui::SharedString;
 
-use super::images::{GeneratedImage, ImageRef, ImageStrip, StripKind, is_image_path};
+use super::images::{GeneratedImage, ImageRef, ImageStrip, StripKind};
 use super::small::{LimitCard, LinearCard, NoteLine, PrActionCard, ReportCard};
 use super::{Card, Divider};
-use crate::data::{ChatContext, ChatMessage, ChatStep, ImageAttachment, Role, StepKind};
+use crate::data::{ChatContext, ChatMessage, ChatStep, ImageAttachment, Millis, Role, StepKind};
 use crate::logic::activity::subchat_states::{ReportContext, report_marker};
 use crate::logic::prs::action::pull_request_action_context;
 use crate::logic::usage::limit::UsageLimit;
-use crate::workspace::chat::transcript::{Item, Prose};
-
-fn file_name(path: &str) -> SharedString {
-    path.rsplit('/').next().filter(|name| !name.is_empty()).unwrap_or(path).to_string().into()
-}
+use crate::workspace::chat::transcript::summary::reply_split;
+use crate::workspace::chat::transcript::{Activity, Entry, Item, Prose, StepItem};
 
 fn attachment(image: &ImageAttachment) -> ImageRef {
     ImageRef { name: image.name.clone(), path: image.path.as_ref().map(|path| PathBuf::from(path.as_ref())) }
 }
 
-/// The image a viewed (Read) step shows: its file when that is an image.
-fn viewed(step: &ChatStep) -> Option<ImageRef> {
-    let file = step.file.as_ref().filter(|file| is_image_path(file))?;
-    Some(ImageRef { name: file_name(file), path: Some(PathBuf::from(file.as_ref())) })
+/// `replyImageFile`: the file a reply's image step shows. Only `step.file` selects it; a durable copy among the
+/// message's attachments (`sourcePath` equal to the file) wins over the transient file.
+pub fn reply_image_file(step: &ChatStep, attachments: &[ImageAttachment]) -> Option<SharedString> {
+    let file = step.file.as_ref()?;
+    Some(
+        attachments
+            .iter()
+            .find(|image| image.source_path.as_ref() == Some(file))
+            .and_then(|image| image.path.clone().filter(|path| !path.is_empty()))
+            .unwrap_or_else(|| file.clone()),
+    )
+}
+
+/// `viewedImageName`: the original file's name, else the step's file's, else "Viewed image".
+fn viewed_name(step: &ChatStep) -> SharedString {
+    let file = step.source_file.as_ref().or(step.file.as_ref()).map(|file| file.to_string()).unwrap_or_default();
+    let name = file.rsplit(['/', '\\']).next().unwrap_or_default();
+    if name.is_empty() { "Viewed image".into() } else { name.to_string().into() }
+}
+
+/// An image the agent looked at (`imageOrigin: "viewed"`), shown in a strip of thumbnails (`ViewedImages.tsx`).
+fn is_viewed(step: &ChatStep) -> bool {
+    step.kind == Some(StepKind::Image) && step.image_origin.as_deref() == Some("viewed")
 }
 
 /// The cards a usage limit leaves under its reply; the Chat's last message gets the actions (`interactive`).
@@ -52,6 +68,51 @@ pub fn limit_card(limit: UsageLimit, now: i64) -> LimitCard {
         error: None,
         message: None,
     }
+}
+
+/// A reply as `ReplyContent` (`ChatComposer.tsx`) lays it out: its setup rows, the activity before the answer as one
+/// fold (a lone step is its own row), the images it viewed and made, the answer, then the activity after the answer
+/// (a call the text led into) as a second fold. Steps next to each other always share a fold; nothing is flat.
+/// `now` is the clock a running step counts from.
+pub fn reply_items(message: &ChatMessage, now: Millis) -> Vec<Item> {
+    let mut items = Vec::new();
+    for step in message.steps.iter().filter(|step| step.kind == Some(StepKind::Setup)) {
+        items.push(Item::Step(StepItem::new(step.clone(), now)));
+    }
+    let split = reply_split(&message.body, &message.steps);
+    let fold = |entries: Vec<Entry>, credits: Option<f64>| {
+        let mut activity = Activity::new(entries, now);
+        activity.credits = credits;
+        Item::Activity(activity)
+    };
+    let after = !split.after.is_empty();
+    if !split.before.is_empty() {
+        items.push(fold(split.before, if after { None } else { message.credits }));
+    }
+    // `ViewedImages`: one strip for the images it looked at; a durable copy among the attachments wins.
+    let seen: Vec<ImageRef> = message
+        .steps
+        .iter()
+        .filter(|step| is_viewed(step))
+        .map(|step| ImageRef {
+            name: viewed_name(step),
+            path: reply_image_file(step, &message.images).map(|file| PathBuf::from(file.as_ref())),
+        })
+        .collect();
+    if !seen.is_empty() {
+        items.push(Item::Card(Card::Images(ImageStrip { kind: StripKind::Viewed, images: seen })));
+    }
+    // `GeneratedImage`: each image it made, large.
+    for step in message.steps.iter().filter(|step| step.kind == Some(StepKind::Image) && !is_viewed(step)) {
+        items.push(Item::Card(Card::Generated(GeneratedImage::new(step.clone()))));
+    }
+    if !split.answer.trim().is_empty() {
+        items.push(Item::Prose(Prose::new(split.answer)));
+    }
+    if after {
+        items.push(fold(split.after, message.credits));
+    }
+    items
 }
 
 /// `MessageSection` for one message.
@@ -115,16 +176,7 @@ pub fn items_for(message: &ChatMessage) -> Vec<Item> {
         }
         return items;
     }
-    let seen: Vec<ImageRef> = message.steps.iter().filter(|step| step.kind == Some(StepKind::Read)).filter_map(viewed).collect();
-    if !seen.is_empty() {
-        items.push(Item::Card(Card::Images(ImageStrip { kind: StripKind::Viewed, images: seen })));
-    }
-    for step in message.steps.iter().filter(|step| step.kind == Some(StepKind::Image)) {
-        items.push(Item::Card(Card::Generated(GeneratedImage::new(step.clone()))));
-    }
-    if !message.body.trim().is_empty() {
-        items.push(Item::Prose(Prose::new(message.body.clone())));
-    }
+    items.extend(reply_items(message, crate::workspace::chat::fixture::NOW));
     if let Some(ChatContext::Limit { provider, account_id, resets_at, .. }) = &message.context {
         let limit = UsageLimit {
             provider: *provider,

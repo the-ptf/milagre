@@ -120,6 +120,9 @@ pub struct OutgoingImage {
     pub index: u64,
     pub name: SharedString,
     pub path: Option<PathBuf>,
+    /// The picture as `ImageAttachment.dataUrl` (`data:image/png;base64,...`), what `chat:send` carries; `None`
+    /// when its bytes could not be read.
+    pub data_url: Option<String>,
 }
 
 /// The one value a send produces.

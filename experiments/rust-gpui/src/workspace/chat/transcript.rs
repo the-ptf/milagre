@@ -425,6 +425,18 @@ impl Transcript {
         self.list.scroll_to(ListOffset { item_ix: self.items.len(), offset_in_item: px(0.0) });
     }
 
+    /// A sent message: its images' strip (when it has any) over its bubble (when it has text), scrolled to.
+    pub fn push_sent(&mut self, text: SharedString, images: Vec<cards::images::ImageRef>, cx: &mut Context<Self>) {
+        if !images.is_empty() {
+            let strip = cards::images::ImageStrip { kind: cards::images::StripKind::Attachments, images };
+            self.push(Item::Card(Card::Images(strip)), cx);
+        }
+        if !text.is_empty() {
+            self.push(Item::User(text), cx);
+        }
+        self.list.scroll_to(ListOffset { item_ix: self.items.len(), offset_in_item: px(0.0) });
+    }
+
     /// Settles the approval at `ix`. The row changes height, so the list re-measures that item.
     pub fn resolve(&mut self, ix: usize, state: ApprovalState, cx: &mut Context<Self>) {
         if let Some(Item::Approval(approval)) = self.items.get_mut(ix)

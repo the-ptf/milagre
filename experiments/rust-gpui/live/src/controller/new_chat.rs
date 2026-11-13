@@ -86,6 +86,7 @@ impl LiveController {
         mode: PermissionMode,
         effort: Option<&'static str>,
         model: (Provider, String),
+        attachments: crate::sinks::Attachments,
         cx: &App,
     ) -> Option<Job> {
         let Backend::Daemon(daemon) = &self.backend else { return None };
@@ -110,6 +111,7 @@ impl LiveController {
             mode: crate::sinks::wire_name(mode),
             effort: effort.map(str::to_owned),
             queue,
+            attachments,
         };
         Some(Box::pin(async move {
             let (receipt, chat) = live::send(&daemon, choice, send).await?;

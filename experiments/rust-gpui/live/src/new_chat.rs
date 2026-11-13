@@ -92,6 +92,7 @@ pub struct Send {
     pub mode: &'static str,
     pub effort: Option<String>,
     pub queue: bool,
+    pub attachments: crate::sinks::Attachments,
 }
 
 /// The `worktree:create` request a choice needs, if any: a new Worktree, or any Chat started from an issue.
@@ -139,6 +140,7 @@ pub fn send_request(choice: &NewChatChoice, send: &Send, session: Option<u64>, w
     if send.queue {
         request["delivery"] = json!("queue");
     }
+    send.attachments.apply(&mut request, &send.text);
     if let Some(issue) = &choice.issue {
         let mut linear = json!({"key": issue.key});
         if let Some(workspace) = &issue.workspace {
@@ -223,6 +225,7 @@ mod tests {
             mode: "full",
             effort: Some("high".into()),
             queue: false,
+            attachments: Default::default(),
         };
         let request = send_request(&choice(Isolation::Local, true), &send, Some(9), 4);
         assert_eq!((request["sessionId"].as_u64(), request["worktreeId"].as_u64()), (Some(9), Some(4)));

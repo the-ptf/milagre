@@ -162,6 +162,49 @@ impl Transcript {
         self.changed(ix, cx);
     }
 
+    /// A live run's fold at `ix` with its steps as they are now (`streaming`: it is the run's last fold, whose line
+    /// says what runs now), `waiting` the steps on an approval and `now` the clock running steps count from. What the
+    /// reader opened stays open. Re-measured only when something it shows changed.
+    pub fn update_activity(
+        &mut self,
+        ix: usize,
+        entries: Vec<Entry>,
+        streaming: bool,
+        waiting: Vec<SharedString>,
+        now: Millis,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Item::Activity(activity)) = self.items.get_mut(ix) else { return };
+        let running = entries.iter().filter_map(Entry::step).any(|step| step.status == StepStatus::Running);
+        if activity.entries == entries
+            && activity.streaming == streaming
+            && activity.waiting == waiting
+            && !(running && activity.now != now)
+        {
+            return;
+        }
+        activity.entries = entries;
+        activity.streaming = streaming;
+        activity.waiting = waiting;
+        activity.now = now;
+        self.changed(ix, cx);
+    }
+
+    /// The display clock (`useDisplayValue`, once a second) for the live folds at `ixs`: a fold with a running step is
+    /// drawn again at `now`. Whether any of them still runs.
+    pub fn tick_activities(&mut self, ixs: &[usize], now: Millis, cx: &mut Context<Self>) -> bool {
+        let mut any = false;
+        for &ix in ixs {
+            let Some(Item::Activity(activity)) = self.items.get_mut(ix) else { continue };
+            if activity.steps().iter().any(|step| step.status == StepStatus::Running) {
+                activity.now = now;
+                any = true;
+                self.changed(ix, cx);
+            }
+        }
+        any
+    }
+
     /// Reveals every earlier entry of a long fold.
     pub fn show_earlier(&mut self, ix: usize, cx: &mut Context<Self>) {
         if let Some(Item::Activity(activity)) = self.items.get_mut(ix) {

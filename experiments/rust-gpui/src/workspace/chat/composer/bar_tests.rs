@@ -365,13 +365,32 @@ fn a_linear_issue_starts_the_chat_at_once(cx: &mut TestAppContext) {
     assert!(composer.read_with(cx, |c, cx| c.new_chat_choice(cx).is_some_and(|c| c.issue.is_none())), "a new screen starts without it");
 }
 
-/// Full access shows its orange shield on the model chip, as the desktop's `data-permission-full`.
+/// No permission glyph on the model chip, not even for Full access (Victor's call): the chip is the model and effort.
 #[gpui::test]
-fn full_access_shows_on_the_model_chip(cx: &mut TestAppContext) {
+fn the_model_chip_has_no_permission_glyph(cx: &mut TestAppContext) {
     let (rig, cx) = mount(cx);
     cx.run_until_parked();
     assert!(cx.debug_bounds("composer-permission-full").is_none());
     rig.composer.update(cx, |c, cx| c.set_permission_mode(crate::data::PermissionMode::Full, cx));
     cx.run_until_parked();
-    assert!(cx.debug_bounds("composer-permission-full").is_some());
+    assert!(cx.debug_bounds("composer-permission-full").is_none(), "Full access adds no shield to the chip");
+}
+
+/// The chip shows the Chat's effort from the start (`effortFor`): the saved level when the model offers it, else the
+/// model's default, and none for a model without efforts.
+#[gpui::test]
+fn the_model_chip_settles_the_chats_effort_on_load(cx: &mut TestAppContext) {
+    let (rig, cx) = mount(cx);
+    rig.composer.update(cx, |c, cx| {
+        c.set_model(crate::data::Provider::Claude, "claude-opus-5-5", "Opus 5.5", None, cx);
+        c.settle_effort(Some("medium"), cx);
+    });
+    assert_eq!(rig.composer.read_with(cx, |c, _| c.effort_id()), Some("medium"));
+    rig.composer.update(cx, |c, cx| c.settle_effort(Some("no-such-level"), cx));
+    assert_eq!(rig.composer.read_with(cx, |c, _| c.effort_id()), Some("high"), "the model's default");
+    rig.composer.update(cx, |c, cx| {
+        c.set_model(crate::data::Provider::Claude, "unknown-model", "Unknown", None, cx);
+        c.settle_effort(Some("medium"), cx);
+    });
+    assert_eq!(rig.composer.read_with(cx, |c, _| c.effort_id()), None, "a model the catalog does not know shows none");
 }

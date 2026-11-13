@@ -121,10 +121,12 @@ impl ChatView {
             }
             // From the empty new-Chat screen the window makes the Chat first.
             ComposerEvent::Send(text) if !text.is_empty() && this.new_chat => cx.emit(ChatEvent::StartChat(text.to_string())),
-            ComposerEvent::Send(text) if !text.is_empty() => {
-                this.transcript.update(cx, |transcript, cx| transcript.push_user(text.clone(), cx))
+            ComposerEvent::Send(text) => {
+                // `MessageSection`: the attachments' strip over the bubble.
+                let images = composer.update(cx, |composer, _| composer.take_sent_images());
+                this.transcript.update(cx, |transcript, cx| transcript.push_sent(text.clone(), images, cx))
             }
-            ComposerEvent::Send(_) | ComposerEvent::Queued(_) | ComposerEvent::Compact => {}
+            ComposerEvent::Queued(_) | ComposerEvent::Compact => {}
             // Stop ends the fixture's turn: the running row goes and the send button is Send again.
             ComposerEvent::Stop => {
                 this.running = None;
@@ -392,7 +394,9 @@ impl Render for ChatView {
         });
         let header = chrome::top_row("chat-header")
             .debug_selector(|| "chat-header".into())
-            .pl(self.header_insets.0)
+            // A negative leading inset reaches back over the card's border: the title stands on the card's edge.
+            .ml(self.header_insets.0.min(px(0.0)))
+            .pl(self.header_insets.0.max(px(0.0)))
             .pr(self.header_insets.1)
             .gap_2()
             .relative()

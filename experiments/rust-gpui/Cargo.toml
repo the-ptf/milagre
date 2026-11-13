@@ -92,7 +92,8 @@ raw-window-handle = "0.6"
 # The web content host's AppKit side (src/platform/webview.rs): the clipping NSView around the webview, its
 # appearance and first responder. All three are wry's own (MIT; Zlib OR Apache-2.0 OR MIT), no new crate.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSResponder", "NSView", "NSWindow"] }
+# NSPasteboard and NSPasteboardItem: a paste's file URLs (src/platform/pasteboard.rs), already compiled in GPUI's tree.
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString"] }
 # The cutouts GPUI controls float in over the page (src/platform/webview.rs): a shape-layer mask on the container.
 # objc2-app-kit's own dependencies, already in the tree at these versions, so no new crate.
