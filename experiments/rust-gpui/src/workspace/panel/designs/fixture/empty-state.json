@@ -1,0 +1,91 @@
+{
+ "id": "empty-state",
+ "title": "Empty inbox",
+ "versions": [
+  {
+   "schemaVersion": 1,
+   "width": 480,
+   "height": 360,
+   "background": "#ffffff",
+   "nodes": [
+    {
+     "id": "ring",
+     "type": "ellipse",
+     "x": 196,
+     "y": 52,
+     "width": 88,
+     "height": 88,
+     "fill": "rgba(59, 91, 219, 0.1)",
+     "stroke": "#3b5bdb",
+     "strokeWidth": 2
+    },
+    {
+     "id": "inbox",
+     "type": "icon",
+     "icon": "inbox",
+     "x": 220,
+     "y": 76,
+     "width": 40,
+     "height": 40,
+     "fill": "#3b5bdb",
+     "strokeWidth": 1.5
+    },
+    {
+     "id": "headline",
+     "type": "text",
+     "text": "Nothing waiting for you",
+     "x": 40,
+     "y": 164,
+     "width": 400,
+     "height": 30,
+     "heightMode": "hug",
+     "fontFamily": "Georgia, serif",
+     "fontSize": 24,
+     "textAlign": "center",
+     "fill": "#1b1d1c"
+    },
+    {
+     "id": "detail",
+     "type": "text",
+     "text": "New messages land here. Café hours, reçus and naïve questions alike.",
+     "x": 70,
+     "y": 206,
+     "width": 340,
+     "height": 40,
+     "heightMode": "hug",
+     "fontSize": 14,
+     "lineHeight": 1.5,
+     "textAlign": "center",
+     "fill": "#6b706d"
+    },
+    {
+     "id": "cta",
+     "type": "frame",
+     "x": 170,
+     "y": 282,
+     "width": 140,
+     "height": 40,
+     "layout": "horizontal",
+     "align": "center",
+     "justify": "center",
+     "stroke": "#1b1d1c",
+     "strokeWidth": 1.5,
+     "radius": 10
+    },
+    {
+     "id": "cta-label",
+     "parentId": "cta",
+     "type": "text",
+     "text": "Refresh",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 14,
+     "fontWeight": 600,
+     "fill": "#1b1d1c"
+    }
+   ]
+  }
+ ]
+}

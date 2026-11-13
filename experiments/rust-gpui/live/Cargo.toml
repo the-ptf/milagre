@@ -1,0 +1,52 @@
+[package]
+name = "milagre-gpui-live"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Off-by-default live GPUI app: the base crate's UI on the backend's owned dedicated Chat runtime"
+
+# Its own workspace: the base GPUI crate's manifest, lock and default build do not know this crate exists.
+[workspace]
+
+[[bin]]
+name = "milagre-gpui-live"
+path = "src/main.rs"
+
+[dependencies]
+milagre-gpui-spike = { path = ".." }
+# The backend's shared client at d97f452d (1ed6ff33's computer-vault unlock, `DaemonLaunch::bundle` for the Preview's own daemon, the first vault key created without Electron, the real Keychain kept to the installed profile, and only Electron's Milagre.app taken for its daemon) with its off-by-default `installed-owner` feature (the installed Milagre's
+# running Node daemon, the Preview's default; it implies `owned-chat`, the owned runtime behind `--owned`/`--root`),
+# exported (never edited) by ../daemon-check/scripts/check-gpui-live.py into the GPUI crate's ignored target/ directory.
+milagre-daemon-client = { path = "../target/daemon-client-d97f452d/experiments/rust-daemon-client", features = ["installed-owner"] }
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
+gpui-component = "=0.9.1"
+anyhow = "1"
+serde_json = "1"
+futures = "0.3"
+# SIGTERM/SIGINT go through the app's quit path (main.rs). Already in the tree.
+libc = "0.2"
+# The remote Terminal's output channel (the base crate's terminal seam). Already in the tree.
+async-channel = "2"
+# Project pictures (`images.rs`): `project:image`'s data URLs, and a check that a picture decodes before it replaces
+# the letter tile. Both already in the tree (gpui's own image decoding; base64 through its dependencies).
+base64 = "0.22"
+image = { version = "0.25", default-features = false }
+
+# The Preview's own notifications, dock badge and Electron check (`notify.rs`). Already in the tree (gpui's platform).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSObject", "NSError", "NSArray"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSDockTile", "NSRunningApplication", "NSResponder"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationSound", "UNNotificationTrigger"] }
+
+[dev-dependencies]
+# Reading the Terminal grid in the staged test (the base crate's emulator).
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+
+# The base crate's patched gpui-pre-apple (its vendor/), as its own workspace applies it.
+[patch.crates-io]
+gpui-pre-apple = { path = "../vendor/gpui-pre-apple" }

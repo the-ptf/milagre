@@ -1,0 +1,120 @@
+{
+  "path": "/private/tmp/milagre-rust-wire-FIXTURE/fixture",
+  "state": {
+    "next_id": 16,
+    "name": "actor",
+    "worktrees": {
+      "1": {
+        "id": 1,
+        "path": "/private/tmp/milagre-rust-wire-FIXTURE/fixture",
+        "name": "fixture",
+        "project_id": 1
+      }
+    },
+    "sessions": {
+      "1": {
+        "id": 1,
+        "worktree_id": 1,
+        "agent_name": "fixture",
+        "summary": {
+          "count": 4,
+          "firstId": 10,
+          "lastId": 13,
+          "titleLine": "Fixture history: first turn",
+          "lastOutcome": "completed",
+          "lastModel": "scripted",
+          "lastAt": 1794417879092,
+          "firstAt": 1794417878786
+        },
+        "provider": "kiro",
+        "permissionMode": "ask",
+        "titlePending": true,
+        "native_session_id": "fixture-/private/tmp/milagre-rust-wire-FIXTURE/fixture#1",
+        "unread": true
+      },
+      "2": {
+        "id": 2,
+        "worktree_id": 1,
+        "agent_name": "fixture",
+        "summary": {
+          "count": 2,
+          "firstId": 14,
+          "lastId": 15,
+          "titleLine": "Fixture history: another Chat",
+          "lastOutcome": "completed",
+          "lastModel": "scripted",
+          "lastAt": 1794417879244,
+          "firstAt": 1794417879092
+        },
+        "provider": "kiro",
+        "permissionMode": "ask",
+        "titlePending": true,
+        "native_session_id": "fixture-/private/tmp/milagre-rust-wire-FIXTURE/fixture#2",
+        "unread": true
+      }
+    },
+    "messages": [
+      {
+        "id": 10,
+        "session_id": 1,
+        "body": "Fixture history: first turn",
+        "images": [],
+        "context": null,
+        "role": "user",
+        "model": "scripted"
+      },
+      {
+        "id": 11,
+        "session_id": 1,
+        "body": "Scripted isolated reply",
+        "context": null,
+        "role": "assistant",
+        "model": "scripted",
+        "outcome": "completed"
+      },
+      {
+        "id": 12,
+        "session_id": 1,
+        "body": "Fixture history: second turn",
+        "images": [],
+        "context": null,
+        "role": "user",
+        "model": "scripted"
+      },
+      {
+        "id": 13,
+        "session_id": 1,
+        "body": "Scripted isolated reply",
+        "context": null,
+        "role": "assistant",
+        "model": "scripted",
+        "outcome": "completed"
+      },
+      {
+        "id": 14,
+        "session_id": 2,
+        "body": "Fixture history: another Chat",
+        "images": [],
+        "context": null,
+        "role": "user",
+        "model": "scripted"
+      },
+      {
+        "id": 15,
+        "session_id": 2,
+        "body": "Scripted isolated reply",
+        "context": null,
+        "role": "assistant",
+        "model": "scripted",
+        "outcome": "completed"
+      }
+    ],
+    "projects": {
+      "1": {
+        "id": 1,
+        "name": "fixture"
+      }
+    },
+    "tasks": {}
+  }
+}

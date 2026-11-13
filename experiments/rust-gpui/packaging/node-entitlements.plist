@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	The Preview's bundled Node (Contents/Resources/milagre-daemon/bin/node), signed by scripts/dist-macos.sh with the
+	hardened runtime. The same three keys Milagre.app's Electron executable carries for running its daemon in Node mode:
+	- allow-jit and allow-unsigned-executable-memory: V8 compiles JavaScript to machine code at run time.
+	- disable-library-validation: Node loads native modules (node-pty's pty.node, expo-device-hub's serve-sim) with
+	  dlopen; they are re-signed with the same identity, but a module the daemon or a user tool rebuilds would not be.
+	The app's own executable keeps packaging/entitlements.plist (no exceptions).
+	-->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

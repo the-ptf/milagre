@@ -1,0 +1,24 @@
+{
+  "messages": [
+    {
+      "id": 14,
+      "session_id": 2,
+      "body": "Fixture history: another Chat",
+      "images": [],
+      "context": null,
+      "role": "user",
+      "model": "scripted"
+    },
+    {
+      "id": 15,
+      "session_id": 2,
+      "body": "Scripted isolated reply",
+      "context": null,
+      "role": "assistant",
+      "model": "scripted",
+      "outcome": "completed"
+    }
+  ],
+  "hasMore": false,
+  "total": 2
+}

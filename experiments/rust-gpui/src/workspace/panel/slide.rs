@@ -1,0 +1,145 @@
+//! The Terminals drawer opening and closing (`TerminalSlide.tsx`): the drawer rises from its bottom edge, fading in, and
+//! goes the same way, over `--duration-slow` (it closes in `--duration-base`) at the Appearance "Motion" speed (Off
+//! lands at once). The side panel does not slide: it opens and closes at once.
+//!
+//! On the desktop the slot's height springs and the Chat reflows every frame. Here a reflow would lay the transcript out
+//! again each frame (a cached view whose bounds change renders again). So the columns take their new sizes at once, the
+//! drawer stays where it lands, and a [`SlideCover`] (a small view of its own, over the slot) draws the motion: the
+//! page colour drawn back towards the edge it comes from, and over the drawer a veil that thins as it comes in. Each
+//! frame renders the cover alone; the drawer, the transcript and the sidebar's rows are reused (`ui::motion_tests`).
+//! Closing keeps the drawer laid out under the cover until the cover is done.
+//!
+//! A Chat switch is not an opening: a drawer the next Chat has open lands at once, as on the desktop.
+
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use gpui::{AnyElement, AnyView, App, Context, Entity, Global, Hsla, StyleRefinement, Window, div, prelude::*, relative};
+
+use crate::theme::ActiveTheme;
+use crate::ui::ease::{ease_out, progress};
+
+/// Which way a slide runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Opening,
+    Closing,
+}
+
+/// What a slot lays out this frame.
+pub struct Slide {
+    /// The cover over the slot, while a slide runs.
+    pub cover: Option<AnyElement>,
+    /// A closing slot still on screen under its cover: lay it out as open.
+    pub held: bool,
+}
+
+/// One slot's last state and its slide in progress.
+#[derive(Default)]
+struct Slot {
+    /// The Chat and whether the slot showed the last time it was laid out.
+    last: Option<(String, bool)>,
+    running: Option<Running>,
+}
+
+struct Running {
+    cover: Entity<SlideCover>,
+    direction: Direction,
+    until: Instant,
+}
+
+/// Every slot's state, kept between frames (one window), by slot name.
+#[derive(Default)]
+struct SlideState(HashMap<&'static str, Slot>);
+
+impl Global for SlideState {}
+
+/// How long a slot's slide takes each way, before the Motion speed.
+#[derive(Clone, Copy)]
+pub struct Timing {
+    pub opening: Duration,
+    pub closing: Duration,
+}
+
+/// Notes whether `slot` shows now for `chat`, starts a slide when the same Chat's slot opened or closed, and says what
+/// to lay out. Called every time the Workspace lays the slot out.
+pub fn track(slot: &'static str, chat: &str, shown: bool, timing: Timing, cx: &mut App) -> Slide {
+    let now = Instant::now();
+    let state = cx.default_global::<SlideState>().0.entry(slot).or_default();
+    let previous = state.last.replace((chat.to_string(), shown));
+    if state.running.as_ref().is_some_and(|running| now >= running.until) {
+        state.running = None;
+    }
+    let same_chat = previous.as_ref().is_some_and(|(last, _)| last == chat);
+    if !same_chat {
+        state.running = None;
+    }
+    let toggled = same_chat && previous.as_ref().is_some_and(|(_, was)| *was != shown);
+    if toggled {
+        let direction = if shown { Direction::Opening } else { Direction::Closing };
+        let duration = crate::ui::scaled(if shown { timing.opening } else { timing.closing });
+        let running = (!duration.is_zero()).then(|| Running {
+            cover: cx.new(|_| SlideCover::new(direction, now, duration)),
+            direction,
+            until: now + duration,
+        });
+        cx.default_global::<SlideState>().0.entry(slot).or_default().running = running;
+    }
+    match &cx.default_global::<SlideState>().0.entry(slot).or_default().running {
+        Some(running) if (running.direction == Direction::Opening) == shown => Slide {
+            cover: Some(
+                AnyView::from(running.cover.clone())
+                    .cached(StyleRefinement::default().absolute().top_0().left_0().size_full())
+                    .into_any_element(),
+            ),
+            held: running.direction == Direction::Closing,
+        },
+        _ => Slide { cover: None, held: false },
+    }
+}
+
+/// The page colour over the drawer while it slides: solid from the top to where the drawer has come in, then a veil
+/// over the drawer that thins to nothing.
+pub struct SlideCover {
+    direction: Direction,
+    start: Instant,
+    duration: Duration,
+    renders: usize,
+}
+
+impl SlideCover {
+    fn new(direction: Direction, start: Instant, duration: Duration) -> Self {
+        Self { direction, start, duration, renders: 0 }
+    }
+
+    /// How far the drawer is in, 0 (gone) to 1 (landed).
+    fn shown(&self, now: Instant) -> f32 {
+        let t = progress(now.saturating_duration_since(self.start), self.duration, ease_out);
+        match self.direction {
+            Direction::Opening => t,
+            Direction::Closing => 1.0 - t,
+        }
+    }
+}
+
+/// How many times a slot's running cover has rendered (each frame of a slide is one), for the tests.
+pub fn cover_renders(slot: &str, cx: &App) -> Option<usize> {
+    cx.try_global::<SlideState>()?.0.get(slot)?.running.as_ref().map(|running| running.cover.read(cx).renders)
+}
+
+impl Render for SlideCover {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.renders += 1;
+        let now = Instant::now();
+        let shown = self.shown(now);
+        // One more frame after the end, so the Workspace lays the slot out without the cover (and a closed slot goes).
+        if now < self.start + self.duration + Duration::from_millis(17) {
+            window.request_animation_frame();
+        }
+        let theme = cx.theme();
+        let page: Hsla = theme.page.into();
+        let (solid, veil) = (div().flex_none().bg(page), div().flex_1().bg(page.opacity(1.0 - shown)));
+        let cover = div().relative().size_full().debug_selector(|| "slide-cover".into()).flex();
+        cover.flex_col().child(solid.w_full().h(relative(1.0 - shown))).child(veil.w_full())
+    }
+}

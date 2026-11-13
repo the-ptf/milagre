@@ -1,0 +1,997 @@
+[
+ {
+  "name": "free layout keeps x and y",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "f",
+     "type": "frame",
+     "x": 20,
+     "y": 30,
+     "width": 200,
+     "height": 150
+    },
+    {
+     "id": "r",
+     "parentId": "f",
+     "type": "rectangle",
+     "x": 10,
+     "y": -5,
+     "width": 50,
+     "height": 40
+    },
+    {
+     "id": "e",
+     "parentId": "f",
+     "type": "ellipse",
+     "x": 180,
+     "y": 120,
+     "width": 60,
+     "height": 60
+    }
+   ]
+  },
+  "points": [
+   [
+    35,
+    30
+   ],
+   [
+    215,
+    160
+   ],
+   [
+    205,
+    185
+   ]
+  ]
+ },
+ {
+  "name": "hug frame around free children",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "f",
+     "type": "frame",
+     "x": 5,
+     "y": 5,
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "padding": 30
+    },
+    {
+     "id": "a",
+     "parentId": "f",
+     "type": "rectangle",
+     "x": 12,
+     "y": 8,
+     "width": 40,
+     "height": 30
+    },
+    {
+     "id": "b",
+     "parentId": "f",
+     "type": "rectangle",
+     "x": 60,
+     "y": 50,
+     "width": 25,
+     "height": 25
+    }
+   ]
+  }
+ },
+ {
+  "name": "horizontal hug with gap and padding",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "row",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "padding": 12,
+     "gap": 8
+    },
+    {
+     "id": "a",
+     "parentId": "row",
+     "type": "rectangle",
+     "width": 40,
+     "height": 20
+    },
+    {
+     "id": "b",
+     "parentId": "row",
+     "type": "rectangle",
+     "width": 30,
+     "height": 44
+    },
+    {
+     "id": "c",
+     "parentId": "row",
+     "type": "text",
+     "text": "Label",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug"
+    }
+   ]
+  }
+ },
+ {
+  "name": "vertical fill shares height with minHeight",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "col",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 200,
+     "height": 300,
+     "layout": "vertical",
+     "padding": 10,
+     "gap": 10
+    },
+    {
+     "id": "head",
+     "parentId": "col",
+     "type": "rectangle",
+     "width": 180,
+     "height": 40
+    },
+    {
+     "id": "a",
+     "parentId": "col",
+     "type": "rectangle",
+     "width": 180,
+     "height": 20,
+     "heightMode": "fill"
+    },
+    {
+     "id": "b",
+     "parentId": "col",
+     "type": "rectangle",
+     "width": 180,
+     "height": 20,
+     "heightMode": "fill",
+     "minHeight": 150
+    },
+    {
+     "id": "c",
+     "parentId": "col",
+     "type": "rectangle",
+     "width": 50,
+     "height": 20,
+     "heightMode": "fill",
+     "widthMode": "fill"
+    }
+   ]
+  }
+ },
+ {
+  "name": "horizontal fill with minWidth and space-between",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "row",
+     "type": "frame",
+     "x": 10,
+     "y": 10,
+     "width": 380,
+     "height": 80,
+     "layout": "horizontal",
+     "padding": 6,
+     "gap": 4,
+     "align": "end",
+     "justify": "space-between"
+    },
+    {
+     "id": "a",
+     "parentId": "row",
+     "type": "rectangle",
+     "width": 10,
+     "height": 30,
+     "widthMode": "fill"
+    },
+    {
+     "id": "b",
+     "parentId": "row",
+     "type": "rectangle",
+     "width": 10,
+     "height": 50,
+     "widthMode": "fill",
+     "minWidth": 200,
+     "heightMode": "fill"
+    },
+    {
+     "id": "c",
+     "parentId": "row",
+     "type": "rectangle",
+     "width": 60,
+     "height": 20
+    }
+   ]
+  }
+ },
+ {
+  "name": "justify center and end, align center",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "a",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 300,
+     "height": 60,
+     "layout": "horizontal",
+     "gap": 10,
+     "align": "center",
+     "justify": "center"
+    },
+    {
+     "id": "a1",
+     "parentId": "a",
+     "type": "rectangle",
+     "width": 40,
+     "height": 20
+    },
+    {
+     "id": "a2",
+     "parentId": "a",
+     "type": "rectangle",
+     "width": 40,
+     "height": 33
+    },
+    {
+     "id": "b",
+     "type": "frame",
+     "x": 0,
+     "y": 100,
+     "width": 300,
+     "height": 120,
+     "layout": "vertical",
+     "gap": 5,
+     "align": "end",
+     "justify": "end",
+     "padding": 7
+    },
+    {
+     "id": "b1",
+     "parentId": "b",
+     "type": "rectangle",
+     "width": 40,
+     "height": 20
+    },
+    {
+     "id": "b2",
+     "parentId": "b",
+     "type": "rectangle",
+     "width": 70,
+     "height": 20
+    },
+    {
+     "id": "b3",
+     "parentId": "b",
+     "type": "rectangle",
+     "width": 20,
+     "height": 20,
+     "widthMode": "fill"
+    }
+   ]
+  }
+ },
+ {
+  "name": "fill inside a hug parent uses its stored size",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "row",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 10,
+     "height": 50,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "gap": 6
+    },
+    {
+     "id": "a",
+     "parentId": "row",
+     "type": "rectangle",
+     "width": 70,
+     "height": 20,
+     "widthMode": "fill"
+    },
+    {
+     "id": "b",
+     "parentId": "row",
+     "type": "rectangle",
+     "width": 30,
+     "height": 20
+    }
+   ]
+  }
+ },
+ {
+  "name": "nested hug and fill",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "card",
+     "type": "frame",
+     "x": 20,
+     "y": 20,
+     "width": 300,
+     "height": 10,
+     "heightMode": "hug",
+     "layout": "vertical",
+     "padding": 16,
+     "gap": 12
+    },
+    {
+     "id": "title",
+     "parentId": "card",
+     "type": "text",
+     "text": "A heading that is long enough to wrap onto two lines here",
+     "width": 10,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "fontSize": 20,
+     "fontWeight": 700
+    },
+    {
+     "id": "row",
+     "parentId": "card",
+     "type": "frame",
+     "width": 10,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "gap": 8,
+     "align": "center"
+    },
+    {
+     "id": "icon",
+     "parentId": "row",
+     "type": "icon",
+     "icon": "check",
+     "width": 16,
+     "height": 16
+    },
+    {
+     "id": "label",
+     "parentId": "row",
+     "type": "text",
+     "text": "Done",
+     "width": 10,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "hug"
+    },
+    {
+     "id": "count",
+     "parentId": "row",
+     "type": "frame",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "padding": 4,
+     "layout": "horizontal"
+    },
+    {
+     "id": "count-text",
+     "parentId": "count",
+     "type": "text",
+     "text": "12",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 11
+    }
+   ]
+  }
+ },
+ {
+  "name": "hidden layers and their children are skipped",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "f",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "layout": "horizontal",
+     "gap": 10
+    },
+    {
+     "id": "a",
+     "parentId": "f",
+     "type": "rectangle",
+     "width": 40,
+     "height": 40
+    },
+    {
+     "id": "h",
+     "parentId": "f",
+     "type": "frame",
+     "width": 40,
+     "height": 40,
+     "hidden": true
+    },
+    {
+     "id": "hc",
+     "parentId": "h",
+     "type": "rectangle",
+     "width": 10,
+     "height": 10
+    },
+    {
+     "id": "b",
+     "parentId": "f",
+     "type": "rectangle",
+     "width": 40,
+     "height": 40
+    }
+   ]
+  }
+ },
+ {
+  "name": "text wrapping, strokes and stroke hug",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "plain",
+     "type": "text",
+     "text": "Hello world",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "stroked",
+     "type": "text",
+     "text": "Outlined",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 40,
+     "stroke": "#000",
+     "strokeWidth": 3
+    },
+    {
+     "id": "wrap",
+     "type": "text",
+     "text": "The quick brown fox jumps over the lazy dog, twice over.",
+     "x": 0,
+     "y": 80,
+     "width": 120,
+     "height": 10,
+     "heightMode": "hug",
+     "fontSize": 14
+    },
+    {
+     "id": "long",
+     "type": "text",
+     "text": "Supercalifragilisticexpialidocious",
+     "x": 0,
+     "y": 200,
+     "width": 60,
+     "height": 10,
+     "heightMode": "hug",
+     "fontSize": 16
+    },
+    {
+     "id": "lines",
+     "type": "text",
+     "text": "First\r\nSecond\tTabbed\n\nAfter blank",
+     "x": 200,
+     "y": 0,
+     "width": 180,
+     "height": 10,
+     "heightMode": "hug",
+     "lineHeight": 1.6
+    },
+    {
+     "id": "spaces",
+     "type": "text",
+     "text": "Trailing spaces   then words   ",
+     "x": 200,
+     "y": 120,
+     "width": 90,
+     "height": 10,
+     "heightMode": "hug",
+     "fontSize": 13
+    }
+   ]
+  }
+ },
+ {
+  "name": "fonts: Inter weights, generic kinds and a catalog family",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "w300",
+     "type": "text",
+     "text": "Weight light",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 0,
+     "fontWeight": 300
+    },
+    {
+     "id": "w550",
+     "type": "text",
+     "text": "Weight between",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 20,
+     "fontWeight": 550
+    },
+    {
+     "id": "w900",
+     "type": "text",
+     "text": "Weight black",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 40,
+     "fontWeight": 900
+    },
+    {
+     "id": "arial",
+     "type": "text",
+     "text": "Arial text",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 60,
+     "fontFamily": "Arial, sans-serif",
+     "fontWeight": 600
+    },
+    {
+     "id": "georgia",
+     "type": "text",
+     "text": "Georgia text",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 80,
+     "fontFamily": "Georgia"
+    },
+    {
+     "id": "times",
+     "type": "text",
+     "text": "Times text",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 100,
+     "fontFamily": "Times New Roman",
+     "fontWeight": 700
+    },
+    {
+     "id": "mono",
+     "type": "text",
+     "text": "Mono text 123",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 120,
+     "fontFamily": "JetBrains Mono, monospace"
+    },
+    {
+     "id": "sansserif",
+     "type": "text",
+     "text": "Sans serif",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 140,
+     "fontFamily": "sans-serif"
+    },
+    {
+     "id": "serif",
+     "type": "text",
+     "text": "Plain serif",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 160,
+     "fontFamily": "serif"
+    },
+    {
+     "id": "albert",
+     "type": "text",
+     "text": "Albert Sans text",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 180,
+     "fontFamily": "Albert Sans",
+     "fontWeight": 500
+    },
+    {
+     "id": "later-inter",
+     "type": "text",
+     "text": "Inter second",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 200,
+     "fontFamily": "Helvetica, Inter"
+    }
+   ]
+  }
+ },
+ {
+  "name": "non-ASCII advances",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "latin1",
+     "type": "text",
+     "text": "Café naïve reçu — “quoted” …",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "extended",
+     "type": "text",
+     "text": "Łódź Ősz Ŵales ẞ",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 30
+    },
+    {
+     "id": "cjk",
+     "type": "text",
+     "text": "日本語のテキスト",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 60
+    },
+    {
+     "id": "emoji",
+     "type": "text",
+     "text": "Hi 👋🏽 there 👩‍👩‍👧",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 90
+    },
+    {
+     "id": "catalog-latin",
+     "type": "text",
+     "text": "Ångström façade",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 120,
+     "fontFamily": "Albert Sans"
+    },
+    {
+     "id": "greek",
+     "type": "text",
+     "text": "Αλφα βήτα",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "x": 0,
+     "y": 150,
+     "fontFamily": "Georgia"
+    },
+    {
+     "id": "nbsp",
+     "type": "text",
+     "text": "no break space here and more words",
+     "x": 0,
+     "y": 180,
+     "width": 90,
+     "height": 10,
+     "heightMode": "hug"
+    }
+   ]
+  }
+ },
+ {
+  "name": "kit text styles, bindings and tokens",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "card",
+     "type": "frame",
+     "x": 10,
+     "y": 10,
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "layout": "vertical",
+     "fill": "$surface",
+     "bindings": {
+      "padding": "l",
+      "gap": "s",
+      "radius": "card"
+     }
+    },
+    {
+     "id": "h",
+     "parentId": "card",
+     "type": "text",
+     "text": "Kit heading",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "heading",
+     "fontSize": 40
+    },
+    {
+     "id": "b",
+     "parentId": "card",
+     "type": "text",
+     "text": "Kit body text",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "textStyle": "body"
+    }
+   ],
+   "kit": {
+    "id": "k",
+    "version": 2,
+    "title": "Kit",
+    "colors": {
+     "surface": "#ffffff",
+     "ink": "#111111"
+    },
+    "textStyles": {
+     "heading": {
+      "fontSize": 22,
+      "fontWeight": 600,
+      "lineHeight": 1.2
+     },
+     "body": {
+      "fontFamily": "Georgia",
+      "fontSize": 15
+     }
+    },
+    "spacing": {
+     "s": 6,
+     "l": 20
+    },
+    "radii": {
+     "card": 14
+    }
+   },
+   "tokens": {
+    "ink": "#222222"
+   }
+  }
+ },
+ {
+  "name": "min sizes and bounds clamp",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "tiny",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 1,
+     "height": 1,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "minWidth": 50,
+     "minHeight": 30,
+     "layout": "horizontal"
+    },
+    {
+     "id": "neg",
+     "type": "rectangle",
+     "x": -40,
+     "y": -20,
+     "width": 100,
+     "height": 60
+    },
+    {
+     "id": "fillroot",
+     "type": "rectangle",
+     "x": 0,
+     "y": 100,
+     "width": 10,
+     "height": 10,
+     "widthMode": "fill",
+     "heightMode": "fill"
+    }
+   ]
+  },
+  "points": [
+   [
+    10,
+    10
+   ],
+   [
+    399,
+    299
+   ],
+   [
+    0,
+    0
+   ]
+  ]
+ },
+ {
+  "name": "overlapping hits and clipped children",
+  "document": {
+   "schemaVersion": 1,
+   "width": 400,
+   "height": 300,
+   "nodes": [
+    {
+     "id": "clip",
+     "type": "frame",
+     "x": 50,
+     "y": 50,
+     "width": 100,
+     "height": 100,
+     "fill": "#eee"
+    },
+    {
+     "id": "inside",
+     "parentId": "clip",
+     "type": "rectangle",
+     "x": 10,
+     "y": 10,
+     "width": 50,
+     "height": 50
+    },
+    {
+     "id": "outside",
+     "parentId": "clip",
+     "type": "rectangle",
+     "x": 80,
+     "y": 80,
+     "width": 80,
+     "height": 80
+    },
+    {
+     "id": "top",
+     "type": "ellipse",
+     "x": 100,
+     "y": 100,
+     "width": 40,
+     "height": 40
+    }
+   ]
+  },
+  "points": [
+   [
+    70,
+    70
+   ],
+   [
+    120,
+    120
+   ],
+   [
+    170,
+    170
+   ],
+   [
+    145,
+    145
+   ],
+   [
+    10,
+    10
+   ]
+  ]
+ }
+]

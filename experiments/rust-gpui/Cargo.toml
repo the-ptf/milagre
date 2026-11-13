@@ -1,0 +1,120 @@
+[package]
+name = "milagre-gpui-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "GPUI spike: Milagre's desktop shell (sidebar, Chat, side panel) drawn with Zed's UI framework"
+
+[workspace]
+# vendor/ holds patched copies of published crates (vendor/PATCHES.md), path dependencies but not members.
+exclude = ["vendor"]
+
+[[bin]]
+name = "milagre-gpui-spike"
+path = "src/main.rs"
+
+[features]
+# Code blocks in the transcript are highlighted (src/ui/markdown/highlight.rs maps the colours).
+default = ["syntect"]
+# WP-01's fit-check gallery (src/fitcheck/gallery.rs) for snapshots: MILAGRE_GPUI_FITCHECK=<page>.
+# Probe code only; the app never turns it on. The fit-check tests themselves build under `cargo test`.
+fitcheck = []
+# The D1 webview probe: gpui-webview (wry on WKWebView) behind a feature, off by default.
+webview = ["fitcheck", "dep:gpui-webview"]
+# gpui-component's syntect highlighter (and two-face's grammars): code colours in markdown, on by default.
+syntect = ["gpui-component/syntect"]
+# Snapshots with no window (src/snapshot/headless.rs): gpui-pre's HeadlessAppContext and Metal headless renderer,
+# which live behind its `test-support`. Off in the app; with it on, `MILAGRE_GPUI_SNAPSHOT` renders headless unless
+# `MILAGRE_GPUI_SNAPSHOT_HEADLESS=0`. No gpui-pre patch.
+headless-snapshot = ["gpui/test-support", "gpui_platform/test-support"]
+
+[dependencies]
+# GPUI from `gpui-pre`: weekly crates.io snapshots of zed-industries/zed's own `gpui` crates (0.3.12 is
+# zed@d2a4fb6, 2026-11-08). Exact pins; see README.md "GPUI version decision". Imported under the
+# names upstream uses (`gpui`, `gpui_platform`), so moving to a zed git rev changes only this file.
+gpui = { package = "gpui-pre", version = "=0.3.12" }
+# The platform (AppKit window, Metal renderer, CoreText) lives in its own crates upstream.
+# `font-kit` is the macOS text system (CoreText); without it gpui_macos falls back to a no-op text
+# system and draws no text at all. `runtime_shaders` compiles the Metal shaders when the app starts
+# instead of at build time, so the build does not need Xcode's separately downloaded Metal Toolchain
+# (absent on this Mac).
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders"] }
+# Longbridge's component library (Apache-2.0), built on the same gpui-pre snapshot: text input and
+# editor, selectable text and markdown, dock, resizable panels, scrollbars, menus, dialogs, tooltips.
+# Available to views; the spike's own sidebar, transcript and composer do not use it yet (README.md).
+gpui-component = "=0.9.1"
+# Lucide icons gpui-component's widgets load by path; our AssetSource falls back to it.
+gpui-kit-assets = "=0.9.1"
+# gpui-component's behaviour layer (already in its tree, so no new crate): the rich text view, its
+# window-wide selection and markdown extensions are defined here and only partly re-exported by
+# gpui-component. Used by the fit check (src/fitcheck/) and the theme bridge.
+gpui-base = "=0.9.1"
+# The D1 probe (feature `webview`): a wry child webview in a GPUI window. Same release train as
+# gpui-component; `lb-wry` is Longbridge's wry fork that gpui-webview builds on.
+gpui-webview = { version = "=0.9.1", optional = true }
+# The web content host (src/platform/webview.rs, WP-34): Artifact pages in a WKWebView child view.
+# Apache-2.0 OR MIT. Was the probe's optional dependency; its tree was already in Cargo.lock.
+wry = { package = "lb-wry", version = "=0.53.3" }
+# Errors in the asset source and the data layer. Already in GPUI's tree (its `Result` is anyhow's).
+anyhow = "1"
+# A message context kind src/data does not type (`ChatContext::Other`) keeps its whole JSON object. Already in
+# GPUI's tree (Cargo.lock), so it adds no new crate.
+serde_json = "1"
+# Transcript markdown (src/workspace/chat/markdown.rs): CommonMark events, turned into GPUI blocks by hand.
+pulldown-cmark = { version = "0.13", default-features = false }
+# Composer caret movement and backspace by grapheme cluster, as GPUI's own `input` example does.
+# Already in GPUI's dependency tree (Cargo.lock), so it adds no new crate.
+unicode-segmentation = "1.10"
+# Mermaid diagrams in the transcript (src/diagram/, WP-38): parse, layout and SVG in pure Rust (MIT). No CLI, no PNG
+# writer: GPUI's own SVG rasteriser draws the picture. Its tree is regex, json5, fontdb and a few small crates.
+mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
+# The Terminal panel (src/workspace/panel/terminal/): VT parser, grid, scrollback and a local PTY (Apache-2.0).
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+# Wakes the Terminal view from alacritty's PTY thread. Already in GPUI's tree (Cargo.lock), so no new crate.
+async-channel = "2"
+# Which process a Terminal runs in front (`tcgetpgrp`, `proc_name`), so closing a busy one asks first. Already in the tree.
+libc = "0.2"
+# Diff rows (src/workspace/panel/diff/highlight.rs): syntect over each hunk side, with two-face's grammars. The same
+# versions and features gpui-component's `syntect` feature already builds, so no new crate; its own highlighter
+# function is crate-private.
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
+two-face = { version = "0.4.5", default-features = false, features = ["syntect-fancy"] }
+# Simulator frames (src/workspace/panel/simulator/frames.rs): decode the host's PNG and JPEG frames and turn them for
+# landscape. GPUI already builds this version with these formats (Cargo.lock), so no new crate.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# The Browser spike's screencast frames arrive as base64 JPEG (src/workspace/panel/browser/spike.rs). Already in the tree.
+base64 = "0.22"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Already in GPUI's tree at this version; used by src/snapshot.rs to find the window's NSView.
+raw-window-handle = "0.6"
+# The web content host's AppKit side (src/platform/webview.rs): the clipping NSView around the webview, its
+# appearance and first responder. All three are wry's own (MIT; Zlib OR Apache-2.0 OR MIT), no new crate.
+objc2 = "0.6"
+# NSPasteboard and NSPasteboardItem: a paste's file URLs (src/platform/pasteboard.rs), already compiled in GPUI's tree.
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString"] }
+# The cutouts GPUI controls float in over the page (src/platform/webview.rs): a shape-layer mask on the container.
+# objc2-app-kit's own dependencies, already in the tree at these versions, so no new crate.
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "CATransaction", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGPath"] }
+# The unguessable address of each Artifact preview (src/workspace/panel/artifacts/protocol.rs). Already in the tree.
+getrandom = "0.3"
+# The headless snapshot's text system (CoreText, `AppleTextSystem`), built without a `MacPlatform` (which must be made on
+# the main thread), and the backdrop blur's quad marker (`backdrop_blur_marker`, src/ui/glass.rs; the patched copy in
+# vendor/). Already in the tree under gpui-pre-platform.
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"] }
+
+[dev-dependencies]
+# `test-support` adds GPUI's headless test platform (`#[gpui::test]`, `TestAppContext`, `debug_selector`).
+gpui = { package = "gpui-pre", version = "=0.3.12", features = ["test-support"] }
+# CoreText itself for the bundled-font tests (`theme/fonts.rs`); already in the tree under gpui-pre-platform.
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12", features = ["font-kit"] }
+# The headless snapshot module builds under `cargo test` too (src/snapshot/headless.rs): the Metal headless renderer.
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "runtime_shaders", "test-support"] }
+
+# gpui-pre-apple 0.3.12 with backdrop blur in its Metal renderer, ported from MonoCode (vendor/PATCHES.md). Same
+# version, so gpui-pre-platform and everything else that depends on it gets the patched copy.
+[patch.crates-io]
+gpui-pre-apple = { path = "vendor/gpui-pre-apple" }

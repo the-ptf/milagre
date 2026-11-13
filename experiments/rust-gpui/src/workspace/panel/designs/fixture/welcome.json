@@ -1,0 +1,571 @@
+{
+ "id": "welcome",
+ "title": "Welcome",
+ "group": "Onboarding",
+ "versions": [
+  {
+   "schemaVersion": 1,
+   "width": 390,
+   "height": 844,
+   "background": "$bg",
+   "tokens": {
+    "bg": "#f6f3ee",
+    "ink": "#1d2420",
+    "muted": "#5d6a62",
+    "brand": "#2f6b4f",
+    "soft": "#dfe9e2"
+   },
+   "nodes": [
+    {
+     "id": "status",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 390,
+     "height": 48,
+     "layout": "horizontal",
+     "padding": 16,
+     "align": "center",
+     "justify": "space-between",
+     "fill": "transparent"
+    },
+    {
+     "id": "clock",
+     "parentId": "status",
+     "type": "text",
+     "text": "9:41",
+     "width": 40,
+     "height": 20,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 15,
+     "fontWeight": 600,
+     "fill": "$ink"
+    },
+    {
+     "id": "bars",
+     "parentId": "status",
+     "type": "frame",
+     "width": 60,
+     "height": 16,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "gap": 6,
+     "align": "center"
+    },
+    {
+     "id": "signal",
+     "parentId": "bars",
+     "type": "icon",
+     "icon": "signal",
+     "width": 16,
+     "height": 16,
+     "fill": "$ink"
+    },
+    {
+     "id": "wifi",
+     "parentId": "bars",
+     "type": "icon",
+     "icon": "wifi",
+     "width": 16,
+     "height": 16,
+     "fill": "$ink"
+    },
+    {
+     "id": "battery",
+     "parentId": "bars",
+     "type": "icon",
+     "icon": "battery-full",
+     "width": 20,
+     "height": 16,
+     "fill": "$ink"
+    },
+    {
+     "id": "blob",
+     "type": "ellipse",
+     "x": 210,
+     "y": 70,
+     "width": 260,
+     "height": 220,
+     "fill": "$soft"
+    },
+    {
+     "id": "blob2",
+     "type": "ellipse",
+     "x": -60,
+     "y": 260,
+     "width": 180,
+     "height": 180,
+     "fill": "$soft",
+     "opacity": 0.6
+    },
+    {
+     "id": "hero",
+     "type": "image",
+     "name": "Hero",
+     "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAQCAYAAAAMJL+VAAADqElEQVR4nBXNMQfsMADA8fc533JLly5dunTp0qVLeMIJJ1SoUKFChRNOOKGyZOnSj/N/7vcFfn/+isJDnDQi04ovnUj04sMgIqN4M4nALA6E8Eixo4RDiw0jLFasOGHwYiEITRQvklBk8aQISRX/+PNXFh7ypJGZVn7pZKKXHwYZGeWbSQZmeSCkR8odJR1abhhpsXLFSYOXC0FqonyRpCLLJ0VKqvwFqvBQJ43KtOpLpxK9+jCoyKjeTCowqwOhPFLtKOXQasMoi1UrThm8WghKE9WLpBRZPSlKUtUv0IWHPml0ptVfOp3o9YdBR0b9ZtKBWR8I7ZF6R2mH1htGW6xecdrg9ULQmqhfJK3I+knRkqp/gSk8zEljMq350plEbz4MJjKaN5MJzOZAGI80O8o4tNkwxmLNijMGbxaC0UTzIhlFNk+KkVTzC2zhYU8am2ntl84mevthsJHRvplsYLYHwnqk3VHWoe2GsRZrV5w1eLsQrCbaF8kqsn1SrKTaX+AKD3fSuEzrvnQu0bsPg4uM7s3kArM7EM4j3Y5yDu02jLNYt+KcwbuF4DTRvUhOkd2T4iTV/QJfePiTxmda/6Xzid5/GHxk9G8mH5j9gfAe6XeUd2i/YbzF+hXnDd4vBK+J/kXyiuyfFC+p/heEwiOcNCHThi9dSPThwxAiY3gzhcAcDkTwyLCjgkOHDRMsNqy4YPBhIQRNDC9SUOTwpARJDb8gFh7xpImZNn7pYqKPH4YYGeObKQbmeCCiR8YdFR06bphosXHFRYOPCyFqYnyRoiLHJyVKavwFqfBIJ03KtOlLlxJ9+jCkyJjeTCkwpwORPDLtqOTQacMki00rLhl8WghJE9OLlBQ5PSlJUtMvyIVHPmlyps1fupzo84chR8b8ZsqBOR+I7JF5R2WHzhsmW2xecdng80LImphfpKzI+UnJkpp/QSk8yklTMm350pVEXz4MJTKWN1MJzOVAFI8sO6o4dNkwxWLLiisGXxZC0cTyIhVFLk9KkdTyC2rhUU+ammnrl64m+vphqJGxvplqYK4Honpk3VHVoeuGqRZbV1w1+LoQqibWF6kqcn1SqqTWX3AVHtdJc2Xa60t3Jfrrw3BFxuvNdAXm60BcHnntqMuhrw1zWey14i6DvxbCpYnXi3Qp8vWkXJJ6/YK78LhPmjvT3l+6O9HfH4Y7Mt5vpjsw3wfi9sh7R90OfW+Y22LvFXcb/L0Qbk28X6Rbke8n5ZbU+x//AaRHZ30SfQY6AAAAAElFTkSuQmCC",
+     "x": 24,
+     "y": 96,
+     "width": 342,
+     "height": 300,
+     "radius": 28
+    },
+    {
+     "id": "badge",
+     "type": "frame",
+     "x": 40,
+     "y": 340,
+     "width": 120,
+     "height": 36,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 6,
+     "align": "center",
+     "fill": "#ffffff",
+     "radius": 18,
+     "stroke": "#e2e6e3"
+    },
+    {
+     "id": "badge-icon",
+     "parentId": "badge",
+     "type": "icon",
+     "icon": "sparkles",
+     "width": 16,
+     "height": 16,
+     "fill": "$brand"
+    },
+    {
+     "id": "badge-text",
+     "parentId": "badge",
+     "type": "text",
+     "text": "New this week",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 13,
+     "fontWeight": 500,
+     "fill": "$ink"
+    },
+    {
+     "id": "copy",
+     "type": "frame",
+     "x": 24,
+     "y": 432,
+     "width": 342,
+     "height": 200,
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 12
+    },
+    {
+     "id": "title",
+     "parentId": "copy",
+     "type": "text",
+     "text": "Train with a plan that adapts to you",
+     "width": 342,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "fontSize": 32,
+     "fontWeight": 700,
+     "lineHeight": 1.15,
+     "fill": "$ink"
+    },
+    {
+     "id": "body",
+     "parentId": "copy",
+     "type": "text",
+     "text": "Every session adjusts to how the last one went, so you keep progressing without guessing weights.",
+     "width": 342,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "fontSize": 16,
+     "lineHeight": 1.45,
+     "fill": "$muted"
+    },
+    {
+     "id": "dots",
+     "type": "frame",
+     "x": 24,
+     "y": 660,
+     "width": 80,
+     "height": 8,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "gap": 6
+    },
+    {
+     "id": "dot1",
+     "parentId": "dots",
+     "type": "rectangle",
+     "width": 22,
+     "height": 8,
+     "radius": 4,
+     "fill": "$brand"
+    },
+    {
+     "id": "dot2",
+     "parentId": "dots",
+     "type": "ellipse",
+     "width": 8,
+     "height": 8,
+     "fill": "#c9d1cb"
+    },
+    {
+     "id": "dot3",
+     "parentId": "dots",
+     "type": "ellipse",
+     "width": 8,
+     "height": 8,
+     "fill": "#c9d1cb"
+    },
+    {
+     "id": "actions",
+     "type": "frame",
+     "x": 24,
+     "y": 700,
+     "width": 342,
+     "height": 120,
+     "layout": "vertical",
+     "gap": 10
+    },
+    {
+     "id": "primary",
+     "parentId": "actions",
+     "type": "frame",
+     "width": 342,
+     "height": 54,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "gap": 8,
+     "align": "center",
+     "justify": "center",
+     "fill": "$brand",
+     "radius": 16
+    },
+    {
+     "id": "primary-label",
+     "parentId": "primary",
+     "type": "text",
+     "text": "Get started",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 17,
+     "fontWeight": 600,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "primary-icon",
+     "parentId": "primary",
+     "type": "icon",
+     "icon": "arrow-right",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff",
+     "strokeWidth": 2.25
+    },
+    {
+     "id": "secondary",
+     "parentId": "actions",
+     "type": "text",
+     "text": "I already have an account",
+     "width": 342,
+     "height": 22,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "fontSize": 15,
+     "fontWeight": 500,
+     "textAlign": "center",
+     "fill": "$ink"
+    }
+   ]
+  },
+  {
+   "schemaVersion": 1,
+   "width": 390,
+   "height": 844,
+   "background": "$bg",
+   "tokens": {
+    "bg": "#f3f6f1",
+    "ink": "#1d2420",
+    "muted": "#5d6a62",
+    "brand": "#d0573a",
+    "soft": "#f7e1d8"
+   },
+   "nodes": [
+    {
+     "id": "status",
+     "type": "frame",
+     "x": 0,
+     "y": 0,
+     "width": 390,
+     "height": 48,
+     "layout": "horizontal",
+     "padding": 16,
+     "align": "center",
+     "justify": "space-between",
+     "fill": "transparent"
+    },
+    {
+     "id": "clock",
+     "parentId": "status",
+     "type": "text",
+     "text": "9:41",
+     "width": 40,
+     "height": 20,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 15,
+     "fontWeight": 600,
+     "fill": "$ink"
+    },
+    {
+     "id": "bars",
+     "parentId": "status",
+     "type": "frame",
+     "width": 60,
+     "height": 16,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "gap": 6,
+     "align": "center"
+    },
+    {
+     "id": "signal",
+     "parentId": "bars",
+     "type": "icon",
+     "icon": "signal",
+     "width": 16,
+     "height": 16,
+     "fill": "$ink"
+    },
+    {
+     "id": "wifi",
+     "parentId": "bars",
+     "type": "icon",
+     "icon": "wifi",
+     "width": 16,
+     "height": 16,
+     "fill": "$ink"
+    },
+    {
+     "id": "battery",
+     "parentId": "bars",
+     "type": "icon",
+     "icon": "battery-full",
+     "width": 20,
+     "height": 16,
+     "fill": "$ink"
+    },
+    {
+     "id": "blob",
+     "type": "ellipse",
+     "x": 210,
+     "y": 70,
+     "width": 260,
+     "height": 220,
+     "fill": "$soft"
+    },
+    {
+     "id": "blob2",
+     "type": "ellipse",
+     "x": -60,
+     "y": 260,
+     "width": 180,
+     "height": 180,
+     "fill": "$soft",
+     "opacity": 0.6
+    },
+    {
+     "id": "hero",
+     "type": "image",
+     "name": "Hero",
+     "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAQCAYAAAAMJL+VAAADqElEQVR4nBXNMQfsMADA8fc533JLly5dunTp0qVLeMIJJ1SoUKFChRNOOKGyZOnSj/N/7vcFfn/+isJDnDQi04ovnUj04sMgIqN4M4nALA6E8Eixo4RDiw0jLFasOGHwYiEITRQvklBk8aQISRX/+PNXFh7ypJGZVn7pZKKXHwYZGeWbSQZmeSCkR8odJR1abhhpsXLFSYOXC0FqonyRpCLLJ0VKqvwFqvBQJ43KtOpLpxK9+jCoyKjeTCowqwOhPFLtKOXQasMoi1UrThm8WghKE9WLpBRZPSlKUtUv0IWHPml0ptVfOp3o9YdBR0b9ZtKBWR8I7ZF6R2mH1htGW6xecdrg9ULQmqhfJK3I+knRkqp/gSk8zEljMq350plEbz4MJjKaN5MJzOZAGI80O8o4tNkwxmLNijMGbxaC0UTzIhlFNk+KkVTzC2zhYU8am2ntl84mevthsJHRvplsYLYHwnqk3VHWoe2GsRZrV5w1eLsQrCbaF8kqsn1SrKTaX+AKD3fSuEzrvnQu0bsPg4uM7s3kArM7EM4j3Y5yDu02jLNYt+KcwbuF4DTRvUhOkd2T4iTV/QJfePiTxmda/6Xzid5/GHxk9G8mH5j9gfAe6XeUd2i/YbzF+hXnDd4vBK+J/kXyiuyfFC+p/heEwiOcNCHThi9dSPThwxAiY3gzhcAcDkTwyLCjgkOHDRMsNqy4YPBhIQRNDC9SUOTwpARJDb8gFh7xpImZNn7pYqKPH4YYGeObKQbmeCCiR8YdFR06bphosXHFRYOPCyFqYnyRoiLHJyVKavwFqfBIJ03KtOlLlxJ9+jCkyJjeTCkwpwORPDLtqOTQacMki00rLhl8WghJE9OLlBQ5PSlJUtMvyIVHPmlyps1fupzo84chR8b8ZsqBOR+I7JF5R2WHzhsmW2xecdng80LImphfpKzI+UnJkpp/QSk8yklTMm350pVEXz4MJTKWN1MJzOVAFI8sO6o4dNkwxWLLiisGXxZC0cTyIhVFLk9KkdTyC2rhUU+ammnrl64m+vphqJGxvplqYK4Honpk3VHVoeuGqRZbV1w1+LoQqibWF6kqcn1SqqTWX3AVHtdJc2Xa60t3Jfrrw3BFxuvNdAXm60BcHnntqMuhrw1zWey14i6DvxbCpYnXi3Qp8vWkXJJ6/YK78LhPmjvT3l+6O9HfH4Y7Mt5vpjsw3wfi9sh7R90OfW+Y22LvFXcb/L0Qbk28X6Rbke8n5ZbU+x//AaRHZ30SfQY6AAAAAElFTkSuQmCC",
+     "x": 24,
+     "y": 96,
+     "width": 342,
+     "height": 300,
+     "radius": 28
+    },
+    {
+     "id": "badge",
+     "type": "frame",
+     "x": 40,
+     "y": 340,
+     "width": 120,
+     "height": 36,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "padding": 10,
+     "gap": 6,
+     "align": "center",
+     "fill": "#ffffff",
+     "radius": 18,
+     "stroke": "#e2e6e3"
+    },
+    {
+     "id": "badge-icon",
+     "parentId": "badge",
+     "type": "icon",
+     "icon": "sparkles",
+     "width": 16,
+     "height": 16,
+     "fill": "$brand"
+    },
+    {
+     "id": "badge-text",
+     "parentId": "badge",
+     "type": "text",
+     "text": "Fresh plans",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 13,
+     "fontWeight": 500,
+     "fill": "$ink"
+    },
+    {
+     "id": "copy",
+     "type": "frame",
+     "x": 24,
+     "y": 432,
+     "width": 342,
+     "height": 200,
+     "heightMode": "hug",
+     "layout": "vertical",
+     "gap": 12
+    },
+    {
+     "id": "title",
+     "parentId": "copy",
+     "type": "text",
+     "text": "Plans that move\nwhen you do",
+     "width": 342,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "fontSize": 32,
+     "fontWeight": 700,
+     "lineHeight": 1.15,
+     "fill": "$ink"
+    },
+    {
+     "id": "body",
+     "parentId": "copy",
+     "type": "text",
+     "text": "Every session adjusts to how the last one went, so you keep progressing without guessing weights.",
+     "width": 342,
+     "height": 40,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "fontSize": 16,
+     "lineHeight": 1.45,
+     "fill": "$muted"
+    },
+    {
+     "id": "dots",
+     "type": "frame",
+     "x": 24,
+     "y": 660,
+     "width": 80,
+     "height": 8,
+     "widthMode": "hug",
+     "layout": "horizontal",
+     "gap": 6
+    },
+    {
+     "id": "dot1",
+     "parentId": "dots",
+     "type": "rectangle",
+     "width": 22,
+     "height": 8,
+     "radius": 4,
+     "fill": "$brand"
+    },
+    {
+     "id": "dot2",
+     "parentId": "dots",
+     "type": "ellipse",
+     "width": 8,
+     "height": 8,
+     "fill": "#c9d1cb"
+    },
+    {
+     "id": "dot3",
+     "parentId": "dots",
+     "type": "ellipse",
+     "width": 8,
+     "height": 8,
+     "fill": "#c9d1cb"
+    },
+    {
+     "id": "actions",
+     "type": "frame",
+     "x": 24,
+     "y": 700,
+     "width": 342,
+     "height": 120,
+     "layout": "vertical",
+     "gap": 10
+    },
+    {
+     "id": "primary",
+     "parentId": "actions",
+     "type": "frame",
+     "width": 342,
+     "height": 54,
+     "widthMode": "fill",
+     "layout": "horizontal",
+     "gap": 8,
+     "align": "center",
+     "justify": "center",
+     "fill": "$brand",
+     "radius": 16
+    },
+    {
+     "id": "primary-label",
+     "parentId": "primary",
+     "type": "text",
+     "text": "Get started",
+     "width": 10,
+     "height": 10,
+     "widthMode": "hug",
+     "heightMode": "hug",
+     "fontSize": 17,
+     "fontWeight": 600,
+     "fill": "#ffffff"
+    },
+    {
+     "id": "primary-icon",
+     "parentId": "primary",
+     "type": "icon",
+     "icon": "arrow-right",
+     "width": 18,
+     "height": 18,
+     "fill": "#ffffff",
+     "strokeWidth": 2.25
+    },
+    {
+     "id": "secondary",
+     "parentId": "actions",
+     "type": "text",
+     "text": "I already have an account",
+     "width": 342,
+     "height": 22,
+     "widthMode": "fill",
+     "heightMode": "hug",
+     "fontSize": 15,
+     "fontWeight": 500,
+     "textAlign": "center",
+     "fill": "$ink"
+    }
+   ]
+  }
+ ]
+}
