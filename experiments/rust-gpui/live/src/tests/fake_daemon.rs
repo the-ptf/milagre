@@ -381,6 +381,11 @@ impl World {
         self.agent(key, json!({"type":kind}));
     }
 
+    /// Holds `key`'s run until the test ends it (Stop interrupts it as a cancelled turn).
+    pub fn pending_hold(&mut self, key: &str) {
+        self.pending.insert(key.to_owned(), Pending::Hold);
+    }
+
     /// `chat:send` as a client sends it (tests: a message from another window, or one that steers a running turn).
     pub fn send_as(&mut self, request: &Value) -> Result<Value, String> {
         self.send(request)
@@ -474,6 +479,10 @@ impl World {
         project.messages.entry(id).or_default().push(message);
         self.summarize(&path, id);
         self.emit_state(&path);
+        if body.contains("[silent]") {
+            // A daemon slow to start the turn: the message is saved, its run comes later (the test sends it).
+            return Ok(json!({"sessionId":id,"clientMessageId":request["clientMessageId"],"status":"accepted"}));
+        }
         self.runs
             .insert(key.clone(), json!({"text":"","model":model,"startedAt":now(),"steps":[],"approvals":[],"questions":[],"answered":{}}));
         self.agent(&key, json!({"type":"message-sent","model":model,"permissionMode":request["permissionMode"]}));
