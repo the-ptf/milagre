@@ -114,7 +114,8 @@ export function linkWorktreeProject(step) {
 }
 
 /**
- * Current work beside the running mark and turn timer. Worktree creation and setup lead ordinary tool activity.
+ * Words beside the running mark and turn timer, only for Worktree creation and setup. Tool calls and thinking already
+ * name themselves in the transcript's activity row, so repeating them here showed the same title twice.
  */
 export function runStatusLabel(steps = []) {
   const running = steps.filter((step) => step.status === "running");
@@ -122,9 +123,7 @@ export function runStatusLabel(steps = []) {
   const project = creating ? linkWorktreeProject(creating) : null;
   if (running.some((step) => step.kind === "setup")) return project ? `Running setup in ${project}` : "Running Worktree setup";
   if (creating) return project ? `Creating Worktree in ${project}` : "Creating Worktree";
-  const current = currentActivityStep(steps);
-  if (current?.kind === "shell") return current.description || "Running a command";
-  return current ? stepDisplayTitle(current, true).replace(/`/g, "") : null;
+  return null;
 }
 
 /** What a send waits on before its turn starts: its new Worktree, the host taking the message, then the agent starting. */

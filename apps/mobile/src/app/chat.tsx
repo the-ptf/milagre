@@ -1168,7 +1168,8 @@ function ChatPane({
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
-  // The send's progress, then the current tool or thinking heading beside the running mark and timer, as on desktop.
+  // The send's progress, or Worktree creation and setup, beside the running mark and timer, as on desktop. Tool calls and
+  // thinking name themselves in the transcript's activity row.
   const phase =
     pending && !run
       ? sendStatusLabel({
