@@ -2,6 +2,165 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { PortWatcher, chatPorts, chatProcesses, parseLsof, parsePs, parseTaskOutputs } = require("./ports.cjs");
 
+test("Windows stops preserve the Terminal shell and sibling commands", async (t) => {
+  const killed = [];
+  const rows = "10 1 10 @100 agent.exe\n20 1 20 @200 pwsh.exe\n30 20 30 @300 cmd.exe\n40 30 40 @400 node.exe\n50 20 50 @500 node.exe";
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => new Map([["chat", { pid: 10, shells: [20] }]]),
+    publish() {},
+    exec: async (command) => (command === "ps" ? rows : "p40\ncnode\nn*:3000\np50\ncnode\nn*:4000"),
+    stopWindowsTree: async (pid, _exec, options) => {
+      killed.push({ pid, options });
+      return true;
+    },
+  });
+  t.after(() => watcher.close());
+  await watcher.poll();
+  assert.equal(await watcher.stopPort("chat", 40), true);
+  assert.deepEqual(killed, [{ pid: 30, options: { expectedStartTime: "300" } }]);
+});
+
+test("Windows reports a refused stop and refreshes the live listener", async (t) => {
+  let reads = 0;
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => new Map([["chat", { pid: 10 }]]),
+    publish() {},
+    exec: async (command) => {
+      if (command === "ps") return "10 1 10 @100 agent.exe\n20 10 20 @200 cmd.exe\n30 20 30 @300 node.exe";
+      reads++;
+      return `p30\ncnode\nn*:30${reads}0`;
+    },
+    stopWindowsTree: async () => false,
+  });
+  t.after(() => watcher.close());
+  await watcher.poll();
+  assert.equal(await watcher.stopPort("chat", 30), false);
+  assert.equal(reads, 3);
+  assert.equal(watcher.snapshot().chat[0].port, 3030);
+});
+
+test("Windows command ownership excludes CLI, keeper and direct MCP listeners", async (t) => {
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => new Map([["chat", { pid: 20 }]]),
+    publish() {},
+    exec: async (command) =>
+      command === "ps"
+        ? "10 1 10 @100 powershell.exe\n20 10 20 @200 node.exe\n30 20 30 @300 node.exe\n40 20 40 @400 cmd.exe\n50 40 50 @500 node.exe"
+        : [10, 20, 30, 50].map((pid) => `p${pid}\ncnode\nn*:30${pid}`).join("\n"),
+    stopWindowsTree: async () => assert.fail("infrastructure must never be stopped"),
+  });
+  t.after(() => watcher.close());
+  await watcher.poll();
+  assert.deepEqual(
+    watcher.snapshot().chat.map((port) => port.pid),
+    [50],
+  );
+  for (const pid of [10, 20, 30]) assert.equal(await watcher.stopPort("chat", pid), false);
+});
+
+test("Windows refuses a listener PID reused during the stop preflight", async (t) => {
+  let created = "300";
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => new Map([["chat", { pid: 10 }]]),
+    publish() {},
+    exec: async (command) => (command === "ps" ? `10 1 10 @100 agent.exe\n20 10 20 @200 cmd.exe\n30 20 30 @${created} node.exe` : "p30\ncnode\nn*:3000"),
+    stopWindowsTree: async () => assert.fail("a replacement listener is not the requested process"),
+  });
+  t.after(() => watcher.close());
+  await watcher.poll();
+  created = "999";
+  assert.equal(await watcher.stopPort("chat", 30), false);
+});
+
+test("Windows never climbs into a reused parent PID newer than its surviving child", async (t) => {
+  let rows = "10 1 10 @100 agent.exe\n20 10 20 @200 cmd.exe\n30 20 30 @300 node.exe";
+  const killed = [];
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => new Map([["chat", { pid: 10 }]]),
+    publish() {},
+    exec: async (command) => (command === "ps" ? rows : "p30\ncnode\nn*:3000"),
+    stopWindowsTree: async (pid, _exec, options) => {
+      killed.push({ pid, options });
+      return true;
+    },
+  });
+  t.after(() => watcher.close());
+  await watcher.poll();
+  rows = rows.replace("@200", "@999");
+  assert.equal(await watcher.stopPort("chat", 30), true);
+  assert.deepEqual(killed, [{ pid: 30, options: { expectedStartTime: "300" } }]);
+});
+
+test("Windows binds a stop to the published identity while a poll reads a replacement PID", async (t) => {
+  let created = "300";
+  let hold = false;
+  let release;
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => new Map([["chat", { pid: 10 }]]),
+    publish() {},
+    exec: async (command) => {
+      if (command === "ps") return `10 1 10 @100 agent.exe\n20 10 20 @200 cmd.exe\n30 20 30 @${created} node.exe`;
+      if (hold) {
+        hold = false;
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return "p30\ncnode\nn*:3000";
+    },
+    stopWindowsTree: async () => assert.fail("the in-flight process table must not replace the published listener's identity"),
+  });
+  t.after(() => {
+    release?.();
+    watcher.close();
+  });
+  await watcher.poll();
+  created = "999";
+  hold = true;
+  const polling = watcher.poll({ fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(watcher.windowsIdentities.get(30), "999");
+  const stopping = watcher.stopPort("chat", 30);
+  release();
+  assert.equal(await stopping, false);
+  await polling;
+});
+
+test("Windows excludes missing creation identities and protects every agent and Terminal root", async (t) => {
+  const rows =
+    "10 1 10 @100 agent.exe\n20 10 20 @200 cmd.exe\n30 20 30 @300 node.exe\n40 30 40 @400 cmd.exe\n50 40 50 @500 node.exe\n60 20 60 @600 pwsh.exe\n70 60 70 @700 node.exe\n80 20 80 node.exe";
+  const roots = new Map([
+    ["chat", { pid: 10, agents: [30], shells: [60] }],
+    ["other", { pid: 50 }],
+  ]);
+  const killed = [];
+  const watcher = new PortWatcher({
+    platform: "win32",
+    roots: () => roots,
+    publish() {},
+    exec: async (command) => (command === "ps" ? rows : [10, 20, 30, 40, 50, 60, 70, 80].map((pid) => `p${pid}\ncnode\nn*:30${pid}`).join("\n")),
+    stopWindowsTree: async (pid) => {
+      killed.push(pid);
+      return true;
+    },
+  });
+  t.after(() => watcher.close());
+  await watcher.poll();
+  assert.deepEqual(
+    watcher.snapshot().chat.map((port) => port.pid),
+    [20, 40, 70],
+  );
+  for (const pid of [10, 20, 30, 40, 50, 60, 80]) assert.equal(await watcher.stopPort("chat", pid), false);
+  assert.equal(await watcher.stopPort("chat", 70), true);
+  assert.deepEqual(killed, [70], "a stop cannot terminate a nested agent or Terminal root");
+});
+
 test("execution-agent listeners belong to their parent Chat alongside its main provider", () => {
   const processes = [
     { pid: 10, ppid: 1, pgid: 10, command: "codex" },
@@ -147,6 +306,7 @@ test("Chats sharing a Worktree never acquire each other's orphaned ports", async
   ]);
   const signals = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => roots,
     publish() {},
     kill: (...args) => signals.push(args),
@@ -175,6 +335,7 @@ test("the watcher publishes changes and stops once nothing runs", async () => {
   const published = [];
   const calls = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => roots,
     publish: (ports) => published.push(ports),
     pollMs: 60_000,
@@ -204,6 +365,7 @@ test("stopping a port ends its command's group, and only a pid the chat shows", 
   const signals = [];
   let alive = true;
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: () => {},
     pollMs: 60_000,
@@ -231,6 +393,7 @@ test("a stop during a poll waits for it and reads again, so the stopped server i
   let release;
   const published = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: (ports) => published.push(ports),
     pollMs: 60_000,
@@ -263,6 +426,7 @@ test("a stop during a poll waits for it and reads again, so the stopped server i
 test("a port that ignores SIGTERM gets SIGKILL", async () => {
   const signals = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: () => {},
     pollMs: 60_000,
@@ -281,6 +445,7 @@ test("idle agent ports poll every 15 seconds and wake immediately for a new turn
   let running = false,
     calls = 0;
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     isRunning: () => running,
     publish: () => {},
@@ -316,6 +481,7 @@ test("closing during a port poll does not publish or restart polling", async () 
   const result = new Promise((resolve) => (release = resolve));
   const published = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: (p) => published.push(p),
     exec: async (command) => (command === "ps" ? result : LSOF),
@@ -334,6 +500,7 @@ test("lsof runs when a chat's pids change or every 10 seconds, ps on every poll"
   const calls = [];
   const published = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: (ports) => published.push(ports),
     pollMs: 60_000,
@@ -369,6 +536,7 @@ test("a chat with no processes needs no lsof, and stopping a port reads the list
   let alive = true;
   const calls = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: () => {},
     pollMs: 60_000,
@@ -391,6 +559,7 @@ test("a chat with no processes needs no lsof, and stopping a port reads the list
   watcher.close();
   const none = [];
   const idle = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/z#1", { pid: 100 }]]),
     publish: () => {},
     exec: async (command) => {
@@ -407,6 +576,7 @@ test("ports compare by value without serializing", async () => {
   const published = [];
   let reads = 0;
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: (ports) => published.push(ports),
     pollMs: 60_000,
@@ -425,6 +595,7 @@ test("a port served by an agent's background command names its task", async () =
   const published = [];
   const asked = [];
   const watcher = new PortWatcher({
+    platform: "darwin",
     roots: () => new Map([["/a#1", { pid: 100 }]]),
     publish: (ports) => published.push(ports),
     pollMs: 60_000,
