@@ -79,6 +79,8 @@ pub struct DevicesStore {
     pub computer_use: ComputerUse,
     /// The toast a cleanup ended with.
     pub last_toast: Option<String>,
+    /// What a data layer's host answered besides the fields above ([`super::hosted`]).
+    pub hosted: super::hosted::Hosted,
 }
 
 impl Global for DevicesStore {}
@@ -270,7 +272,29 @@ impl DevicesStore {
                 version: "0.1.4".into(),
             },
             last_toast: None,
+            hosted: super::hosted::Hosted::default(),
         }
+    }
+
+    /// A data layer backs the pages: nothing from the fixture shows before its first answers.
+    pub fn forget_fixture(&mut self) {
+        self.phone = PhoneStatus {
+            enabled: false,
+            state: PhoneState::Off,
+            error: None,
+            remote: Remote::None,
+            relay: None,
+            pairing_until: None,
+            local_host: "127.0.0.1".into(),
+            public_host: None,
+            pairing_link: String::new(),
+            pairing_options: Vec::new(),
+            lan: None,
+        };
+        self.devices.clear();
+        self.fresh.clear();
+        self.resources.remove("this-mac");
+        self.hosted.on = true;
     }
 
     pub fn computer(&self, id: &str) -> Option<&ComputerView> {

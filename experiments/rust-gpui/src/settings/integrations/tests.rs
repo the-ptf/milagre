@@ -228,3 +228,33 @@ fn reset_all_puts_every_default_back_and_empties_the_fields(cx: &mut TestAppCont
     assert_eq!(cx.update(|_, app| area.read(app).value().to_string()), "");
     assert_eq!(view.read_with(cx, |v, _| v.babysit.field_state(Field::Instructions)), SaveState::Idle);
 }
+
+#[test]
+fn a_hosts_linear_status_and_babysit_settings_read_as_electron_reads_them() {
+    use super::linear::workspaces_of;
+    let status = serde_json::json!({"connected": true, "viewer": {"name": "Ana"}, "organization": {"name": "Acme", "urlKey": "ACME"},
+        "workspaces": [{"id": "acme", "viewer": {"name": "Ana"}, "organization": {"name": "Acme"}},
+            {"id": "beta", "viewer": {"name": "Ana"}, "organization": {"name": "Beta"}, "canWrite": false}]});
+    let read = workspaces_of(&status);
+    assert_eq!(read.iter().map(|w| (w.id.as_str(), w.can_write)).collect::<Vec<_>>(), [("acme", true), ("beta", false)]);
+    assert_eq!(status_line(&read), "Connected to 2 workspaces");
+    // A host that predates workspaces: its one organization, by its URL key.
+    let old = workspaces_of(
+        &serde_json::json!({"connected": true, "viewer": {"name": "Ana"}, "organization": {"name": "Acme", "urlKey": "ACME"}}),
+    );
+    assert_eq!((old[0].id.as_str(), old[0].organization.as_str(), old[0].viewer.as_str()), ("acme", "Acme", "Ana"));
+    assert!(workspaces_of(&serde_json::json!({"connected": false})).is_empty());
+
+    // Babysit PRs: the host's settings normalised, and a save sends only what changed.
+    let saved = Babysit::from_json(&serde_json::json!({"enabled": true, "intervalMinutes": 7, "wake": ["checks", "nope", "comments"],
+        "level": 4, "stopAfterDays": {"on": false, "days": 14}, "stopAfterFailures": {"times": 5}}));
+    assert_eq!((saved.enabled, saved.interval_minutes, saved.level), (true, 1, 4));
+    assert_eq!(saved.wake, [Wake::Comments, Wake::Checks]);
+    assert_eq!((saved.stop_after_days, saved.stop_after_failures), (Rule { on: false, value: 14 }, Rule { on: false, value: 5 }));
+    assert_eq!(Babysit::from_json(&saved.to_json()), saved);
+    let mut next = saved.clone();
+    next.level = 2;
+    next.stop_after_days.on = true;
+    let patch = next.patch_from(&saved);
+    assert_eq!(serde_json::Value::Object(patch), serde_json::json!({"level": 2, "stopAfterDays": {"on": true, "days": 14}}));
+}

@@ -36,6 +36,10 @@ use crate::ui::{
     Button, ButtonSize, ButtonVariant, Dialog, DialogAction, InlineError, Input, ProjectAvatar, ProviderLogo, SectionLabel, Select,
     SelectOption, TextArea,
 };
+use crate::workspace::preview::settings_row_shows;
+
+/// How long typing in Files to copy must pause before a host previews what it matches.
+const PREVIEW_DELAY_MS: u64 = 300;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Save {
@@ -63,6 +67,9 @@ pub struct ProjectView {
     generation: [u64; 3],
     pending: [bool; 3],
     icon_error: String,
+    /// A data layer's host: the visit and Project last read, and the entry's `loaded` the fields were made from.
+    seen: Option<(u64, String)>,
+    made_from: u64,
 }
 
 fn slot(save: Save) -> usize {
@@ -87,6 +94,19 @@ impl ProjectView {
             generation: [0; 3],
             pending: [false; 3],
             icon_error: String::new(),
+            seen: None,
+            made_from: 0,
+        }
+    }
+
+    /// Reads the Project's settings from a data layer's host when Settings opened, came to this page or went to another
+    /// Project since the last read ([`super::hosted`]).
+    pub fn visit(&mut self, cx: &mut Context<Self>) {
+        let (Some(visit), Some(path)) = (crate::settings::host::visit(cx), self.path.clone()) else { return };
+        let seen = Some((visit, path.clone()));
+        if self.seen != seen {
+            self.seen = seen;
+            super::hosted::read(&path, cx);
         }
     }
 
@@ -100,6 +120,7 @@ impl ProjectView {
             self.inputs = None;
             self.subs.clear();
             self.icon_error.clear();
+            self.made_from = cx.global::<ProjectsStore>().get(path).loaded;
             self.path = Some(path.to_string());
             self.name = name.to_string();
             changed = true;
@@ -198,6 +219,21 @@ impl ProjectView {
         }
         self.pending[ix] = true;
         let generation = self.generation[ix];
+        // A host previews what the patterns match shortly after typing stops (`FilesToCopy`'s 300 ms).
+        if save == Save::Files && super::hosted::hosted(cx) {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(PREVIEW_DELAY_MS)).await;
+                this.update(cx, |this, cx| {
+                    let (Some(path), Some(inputs)) = (this.path.clone(), this.inputs.as_ref()) else { return };
+                    if this.generation[ix] == generation {
+                        let text = inputs.files.read(cx).value().to_string();
+                        super::hosted::preview_files(&path, &text, cx);
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(SAVE_DELAY_MS as u64)).await;
             this.update(cx, |this, cx| {
@@ -223,16 +259,31 @@ impl ProjectView {
             Save::Branch => {
                 if let Some(draft) = self.draft(cx) {
                     cx.update_global::<ProjectsStore, _>(|store, _| store.save_branch(&path, &draft));
+                    self.save_branch_on_host(&path, cx);
                 }
             }
             Save::Files => {
                 let text = inputs.files.read(cx).value().to_string();
                 cx.update_global::<ProjectsStore, _>(|store, _| store.save_files(&path, &text));
+                if super::hosted::hosted(cx) {
+                    super::hosted::save_files(&path, &text, cx);
+                }
             }
             Save::Setup => {
                 let text = inputs.setup.read(cx).value().to_string();
                 cx.update_global::<ProjectsStore, _>(|store, _| store.save_setup(&path, &text));
+                if super::hosted::hosted(cx) {
+                    super::hosted::save_setup(&path, &text, cx);
+                }
             }
+        }
+    }
+
+    /// The personal overrides the store just worked out, to a data layer's host (`project-git:save`).
+    fn save_branch_on_host(&mut self, path: &str, cx: &mut Context<Self>) {
+        if super::hosted::hosted(cx) {
+            let local = cx.global::<ProjectsStore>().get(path).branch.local;
+            super::hosted::save_branch(path, &local, cx);
         }
     }
 
@@ -246,6 +297,7 @@ impl ProjectView {
         }
         self.pending[0] = false;
         cx.update_global::<ProjectsStore, _>(|store, _| store.save_branch(&path, &draft));
+        self.save_branch_on_host(&path, cx);
     }
 
     /// "Reset to defaults": drops the personal overrides and shows what applies again.
@@ -254,6 +306,7 @@ impl ProjectView {
         self.pending[0] = false;
         self.generation[0] += 1;
         cx.update_global::<ProjectsStore, _>(|store, _| store.reset_branch(&path));
+        self.save_branch_on_host(&path, cx);
         let effective = cx.global::<ProjectsStore>().get(&path).branch.effective();
         if let Some(inputs) = &self.inputs {
             inputs.template.update(cx, |s, cx| s.set_value(effective.template.clone(), window, cx));
@@ -361,6 +414,15 @@ fn tile_color(hue: u32) -> gpui::Rgba {
 
 impl Render for ProjectView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A host's read landed: the fields are made again from it, unless something typed is still waiting to save.
+        if let Some(path) = self.path.clone() {
+            let loaded = cx.global::<ProjectsStore>().get(&path).loaded;
+            if loaded != self.made_from && !self.pending.iter().any(|p| *p) {
+                self.made_from = loaded;
+                self.inputs = None;
+                self.subs.clear();
+            }
+        }
         self.ensure_inputs(window, cx);
         let Some(path) = self.path.clone() else { return div().into_any_element() };
         let theme = *cx.theme();
@@ -429,6 +491,9 @@ impl Render for ProjectView {
                 move |show, _, cx| {
                     let path = path.clone();
                     cx.update_global::<ProjectsStore, _>(|store, _| store.set_hidden(&path, !show));
+                    if super::hosted::hosted(cx) {
+                        super::hosted::set_hidden(&path, !show, cx);
+                    }
                 }
             });
 
@@ -444,6 +509,9 @@ impl Render for ProjectView {
                     let choice = MainSyncChoice::parse(value);
                     let path = path.clone();
                     cx.update_global::<ProjectsStore, _>(|store, _| store.set_main_sync(&path, choice));
+                    if super::hosted::hosted(cx) {
+                        super::hosted::save_main_sync(&path, choice, cx);
+                    }
                 }
             }));
 
@@ -465,18 +533,41 @@ impl Render for ProjectView {
         );
 
         let hl = found.map(|f| SharedString::from(f.to_string()));
+        // A data layer lists only the groups it backs (`preview::settings_row_shows`); a host's refusal shows under its group.
+        let shows = |title: &str| settings_row_shows(cx, SettingsSectionId::Project, title);
+        let error = |group: &str| {
+            entry.errors.get(group).map(|message| {
+                div()
+                    .debug_selector({
+                        let group = group.to_string();
+                        move || format!("project-error-{group}")
+                    })
+                    .mt(px(-12.0))
+                    .mb(px(20.0))
+                    .px(px(4.0))
+                    .text_step(TEXT_12)
+                    .text_color(theme.red_ink)
+                    .child(message.clone())
+            })
+        };
+        let (show_appearance, show_accounts, show_remove) = (shows("Appearance"), shows("Accounts"), shows("Remove Project"));
         div()
             .debug_selector(move || format!("settings-section-project-{slug}"))
             .flex()
             .flex_col()
             .child(page_header(self.name.clone(), None, cx))
-            .child(SettingsGroup::new().title("Appearance").highlighted_row(hl.clone()).row(icon_row))
+            .when(show_appearance, |d| d.child(SettingsGroup::new().title("Appearance").highlighted_row(hl.clone()).row(icon_row)))
             .child(SettingsGroup::new().title("Sidebar").highlighted_row(hl.clone()).row(sidebar_row))
-            .when(!remote, |d| d.child(self.accounts_group(&path, &theme, cx)))
+            .children(error("sidebar"))
+            .when(!remote && show_accounts, |d| d.child(self.accounts_group(&path, &theme, cx)))
             .child(SettingsGroup::new().title("Worktrees").highlighted_row(hl.clone()).row(sync_row))
+            .children(error("sync"))
             .child(branches)
+            .children(error("branch"))
             .child(SettingsGroup::new().title("New worktrees").highlighted_row(hl).row(files).row(setup))
-            .child(remove)
+            .children(error("files"))
+            .children(error("setup"))
+            .when(show_remove, |d| d.child(remove))
             .into_any_element()
     }
 }

@@ -6,6 +6,8 @@
 //! - `logic.rs`: the rules ported from `packages/shared` and `lib/*`: gauges, storage words, device and phone lines.
 //! - `model.rs`: [`DevicesStore`], the fixture the host would answer, and the actions on it. Nothing here pairs a
 //!   phone, reaches a network or reads the machine.
+//! - `hosted.rs`: Phone & sharing and This Mac on a data layer's host (`phone:*`, `devices:*`,
+//!   `computer:resources:read`), when there is one.
 //! - `view.rs`: [`DevicesView`], the entity; `phone.rs`, `mac.rs`, `computer.rs`, `worktrees.rs`: the pages;
 //!   `resources.rs`: the memory and disk rows; `cleanup.rs`: the Clean up worktrees dialog; `qr.rs`: the pairing code.
 //!
@@ -16,6 +18,7 @@
 
 pub mod cleanup;
 mod computer;
+pub mod hosted;
 pub mod logic;
 mod mac;
 pub mod model;
@@ -67,6 +70,9 @@ pub fn section_body(selected: &SelectedSection, highlighted: Option<&str>, view:
         SelectedSection::Computer { id, .. } => Target::Computer { id: id.clone() },
         _ => return None,
     };
-    view.update(cx, |view, cx| view.set_target(target, highlighted, cx));
+    view.update(cx, |view, cx| {
+        view.set_target(target, highlighted, cx);
+        view.visit(cx);
+    });
     Some(view.clone().into_any_element())
 }

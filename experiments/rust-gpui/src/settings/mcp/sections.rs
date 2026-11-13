@@ -85,21 +85,30 @@ pub fn section_body(
             Some(views.mcp.clone().into_any_element())
         }
         SelectedSection::Section(SettingsSectionId::Skills) => {
-            // The open Project: the fixture's, else the first the sidebar lists.
-            let project = projects
-                .iter()
-                .find(|(path, _)| path == PROJECT_PATH)
-                .or_else(|| projects.first())
-                .cloned()
-                .or_else(|| Some((PROJECT_PATH.to_string(), "milagre-ade".to_string())));
+            // The open Project: a data layer's ([`crate::settings::host::project`]), else the fixture's, else the first
+            // the sidebar lists.
+            let project = if cx.has_global::<crate::settings::host::SettingsHost>() {
+                crate::settings::host::project(cx)
+            } else {
+                projects
+                    .iter()
+                    .find(|(path, _)| path == PROJECT_PATH)
+                    .or_else(|| projects.first())
+                    .cloned()
+                    .or_else(|| Some((PROJECT_PATH.to_string(), "milagre-ade".to_string())))
+            };
             views.skills.update(cx, |view, cx| {
                 view.set_project(project, cx);
+                view.visit(cx);
                 view.set_found(highlighted, cx);
             });
             Some(views.skills.clone().into_any_element())
         }
         SelectedSection::Section(SettingsSectionId::Connections) => {
-            views.integrations.update(cx, |view, cx| view.set_found(highlighted, cx));
+            views.integrations.update(cx, |view, cx| {
+                view.visit(cx);
+                view.set_found(highlighted, cx);
+            });
             Some(views.integrations.clone().into_any_element())
         }
         _ => None,

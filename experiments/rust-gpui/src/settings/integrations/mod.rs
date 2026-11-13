@@ -3,8 +3,11 @@
 //! Milagre signs in to (Linear: a switch, one row per workspace, Move issues to In Progress, Add workspace) and
 //! Babysit PRs, which opens its own page with an autosaving form.
 //!
-//! Nothing talks to the daemon yet: [`linear::LinearState`] and [`babysit::BabysitHost`] stand in for
-//! `linear:*` and `babysit:settings:*`.
+//! Without a data layer [`linear::LinearState`] and [`babysit::BabysitHost`] stand in for `linear:*` and
+//! `babysit:settings:*`. With one ([`crate::settings::host::SettingsHost`]) the page reads `linear:enabled:read`,
+//! `linear:status` and `babysit:settings:read` each time it shows, and writes with Electron's commands: `linear:enabled:save
+//! [bool]`, `linear:move-to-started:save [bool]`, `linear:connect [{window: false}]` (the host opens the sign-in in the
+//! system browser), `linear:disconnect [{workspace}]` and `babysit:settings:save [patch]`.
 
 pub mod babysit;
 pub mod babysit_model;
@@ -33,6 +36,8 @@ pub struct IntegrationsView {
     pub(crate) linear: LinearState,
     pub(crate) babysit: BabysitState,
     found: Option<String>,
+    /// The host's visit this page last read at ([`crate::settings::host::visit`]).
+    seen_visit: Option<u64>,
 }
 
 impl IntegrationsView {
@@ -42,7 +47,23 @@ impl IntegrationsView {
             linear: LinearState::default(),
             babysit: BabysitState::default(),
             found: None,
+            seen_visit: None,
         }
+    }
+
+    /// Reads the page from the data layer's host when Settings opened or came to it since the last read.
+    pub fn visit(&mut self, cx: &mut Context<Self>) {
+        let Some(visit) = crate::settings::host::visit(cx) else { return };
+        if self.seen_visit == Some(visit) {
+            return;
+        }
+        if self.seen_visit.is_none() {
+            // Nothing from the fixture shows while the first read is on its way.
+            self.linear = LinearState::unread();
+        }
+        self.seen_visit = Some(visit);
+        self.read_linear(cx);
+        self.read_babysit(cx);
     }
 
     /// The row a Settings search result lit up. A result inside Babysit PRs opens its page.
@@ -66,6 +87,14 @@ impl IntegrationsView {
         self.flush_all(cx);
         self.page = Page::Integrations;
         cx.notify();
+    }
+
+    pub fn linear(&self) -> &LinearState {
+        &self.linear
+    }
+
+    pub fn babysit_settings(&self) -> &babysit_model::Babysit {
+        &self.babysit.settings
     }
 
     pub fn babysit_error(&self) -> &str {

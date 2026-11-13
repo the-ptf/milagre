@@ -135,6 +135,37 @@ pub fn overrides_text(count: usize) -> String {
     format!("Overrides {count} other{}", if count == 1 { "" } else { "s" })
 }
 
+/// `skills:list`'s answer (`SkillCatalog`: `{skills, shadowed?, warnings}`); a skill of an unknown scope is left out.
+pub fn catalog(value: &serde_json::Value) -> (Vec<Skill>, Vec<Shadowed>, Vec<String>) {
+    let text = |item: &serde_json::Value, key: &str| item[key].as_str().unwrap_or_default().to_string();
+    let list = |key: &str| value[key].as_array().cloned().unwrap_or_default();
+    let skills = list("skills")
+        .iter()
+        .filter_map(|item| {
+            Some(Skill {
+                name: item["name"].as_str()?.to_string(),
+                description: text(item, "description"),
+                path: text(item, "path"),
+                provider: text(item, "provider"),
+                scope: Scope::from_id(item["scope"].as_str()?)?,
+            })
+        })
+        .collect();
+    let shadowed = list("shadowed")
+        .iter()
+        .filter_map(|item| {
+            Some(Shadowed {
+                path: item["path"].as_str()?.to_string(),
+                provider: text(item, "provider"),
+                scope: Scope::from_id(item["scope"].as_str()?)?,
+                shadowed_by: item["shadowedBy"].as_str()?.to_string(),
+            })
+        })
+        .collect();
+    let warnings = list("warnings").iter().filter_map(|w| w.as_str().map(str::to_string)).collect();
+    (skills, shadowed, warnings)
+}
+
 // ---- fixture ------------------------------------------------------------------------------------------------------
 
 pub const PROJECT_PATH: &str = "/Users/victor/Code/personal/milagre-ade";

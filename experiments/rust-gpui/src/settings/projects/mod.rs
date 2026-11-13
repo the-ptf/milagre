@@ -4,8 +4,11 @@
 //! - `logic.rs`: the Branches rules from `packages/shared/src/branch-policy.mjs`, the Files to copy matching and
 //!   sentence, the icon size rule and the autosave debounce.
 //! - `model.rs`: [`ProjectsStore`], one fixture entry per Project path and the saves that change it.
+//! - `hosted.rs`: the same page on a data layer's host (`project-git:*`, `files-to-copy:*`, `worktree-setup:*`,
+//!   `main-sync:*`, `project:set-hidden`), when there is one.
 //! - `view.rs`: [`ProjectView`], the page.
 
+pub mod hosted;
 pub mod logic;
 pub mod model;
 pub mod view;
@@ -29,6 +32,9 @@ pub fn init(cx: &mut App) {
 /// result lit up.
 pub fn section_body(selected: &SelectedSection, highlighted: Option<&str>, view: &Entity<ProjectView>, cx: &mut App) -> Option<AnyElement> {
     let SelectedSection::Project { path, name } = selected else { return None };
-    view.update(cx, |view, cx| view.set_target(path, name, highlighted, cx));
+    view.update(cx, |view, cx| {
+        view.set_target(path, name, highlighted, cx);
+        view.visit(cx);
+    });
     Some(view.clone().into_any_element())
 }

@@ -45,6 +45,10 @@ pub struct DevicesView {
     pub(super) update_confirming: bool,
     pub(super) error: String,
     pub(super) subs: Vec<Subscription>,
+    /// The host's visit and page this view last read ([`crate::settings::host::visit`]), and the pairing code drawn
+    /// from the host's SVG, kept by its text.
+    seen_visit: Option<(u64, Target)>,
+    pub(super) qr: Option<(String, Option<std::sync::Arc<gpui::RenderImage>>)>,
 }
 
 impl DevicesView {
@@ -67,7 +71,39 @@ impl DevicesView {
             update_confirming: false,
             error: String::new(),
             subs: Vec::new(),
+            seen_visit: None,
+            qr: None,
         }
+    }
+
+    /// Reads Phone & sharing or This Mac from a data layer's host when Settings opened or came to the page since the
+    /// last read ([`super::hosted`]).
+    pub fn visit(&mut self, cx: &mut Context<Self>) {
+        let Some(visit) = crate::settings::host::visit(cx) else { return };
+        if !matches!(self.target, Target::Devices | Target::ThisMac { .. }) {
+            return;
+        }
+        let seen = Some((visit, self.target.clone()));
+        if self.seen_visit == seen {
+            return;
+        }
+        self.seen_visit = seen;
+        if !cx.global::<DevicesStore>().hosted.on {
+            cx.update_global::<DevicesStore, _>(|store, _| store.forget_fixture());
+        }
+        match self.target {
+            Target::Devices => super::hosted::read_devices_page(visit, cx),
+            _ => super::hosted::read_this_mac(visit, cx),
+        }
+    }
+
+    /// The host's pairing code (an SVG), drawn once for each text.
+    pub(super) fn qr_image(&mut self, svg: &str, cx: &App) -> Option<std::sync::Arc<gpui::RenderImage>> {
+        if self.qr.as_ref().map(|(text, _)| text.as_str()) != Some(svg) {
+            let image = gpui::Image::from_bytes(gpui::ImageFormat::Svg, svg.as_bytes().to_vec()).to_image_data(cx.svg_renderer()).ok();
+            self.qr = Some((svg.to_string(), image));
+        }
+        self.qr.as_ref().and_then(|(_, image)| image.clone())
     }
 
     /// The page to draw and the row a Settings search result lit up.

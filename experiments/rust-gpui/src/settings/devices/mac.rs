@@ -13,8 +13,10 @@ use super::resources::ResourceRow;
 use super::view::{DevicesView, MacPage, lit, open_link};
 use super::widgets::{group_footer, hover_half_color};
 use crate::settings::group::{CheckboxRow, SettingRow, SettingsGroup, page_header};
+use crate::settings::search::SettingsSectionId as S;
 use crate::theme::{ActiveTheme, TEXT_12, TEXT_13, TEXT_17, TextStepExt};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconName, IconSize};
+use crate::workspace::preview::settings_row_shows;
 
 const AGENT_DESKTOP_URL: &str = "https://github.com/vercel-labs/agent-desktop";
 
@@ -36,7 +38,8 @@ impl DevicesView {
 
         let mut rows =
             vec![ResourceRow { id: "this-mac".into(), name: title.clone(), detail: "This Mac".into(), online: true, seen: None }];
-        if store.other_computers {
+        // A data layer reads this computer's memory and disk only; its paired computers' are theirs to read.
+        if store.other_computers && !store.hosted.on {
             rows.extend(store.computers.iter().map(|c| ResourceRow {
                 id: c.id.clone(),
                 name: c.name.clone(),
@@ -117,13 +120,18 @@ impl DevicesView {
             .flex_col()
             .child(page_header(title, None, cx))
             .child(SettingsGroup::new().rows(resource_rows))
-            .child(SettingsGroup::new().rows(drive))
-            .child(SettingsGroup::new().title("Automation").highlighted_row(found.map(|f| SharedString::from(f.to_string()))).row(lit(
-                computer_use_row,
-                found,
-                "Computer use",
-                cx,
-            )))
+            // A data layer lists only what it backs (`preview::settings_row_shows`).
+            .when(settings_row_shows(cx, S::ThisMac, "Drive other computers"), |d| d.child(SettingsGroup::new().rows(drive)))
+            .when(settings_row_shows(cx, S::ThisMac, "Automation"), |d| {
+                d.child(
+                    SettingsGroup::new().title("Automation").highlighted_row(found.map(|f| SharedString::from(f.to_string()))).row(lit(
+                        computer_use_row,
+                        found,
+                        "Computer use",
+                        cx,
+                    )),
+                )
+            })
             .into_any_element()
     }
 

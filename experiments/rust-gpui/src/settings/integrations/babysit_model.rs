@@ -157,6 +157,66 @@ impl Babysit {
     }
 }
 
+impl Babysit {
+    /// The settings as `babysit.mjs` names them (`BABYSIT_DEFAULTS`).
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "enabled": self.enabled,
+            "intervalMinutes": self.interval_minutes,
+            "wake": self.wake.iter().map(|w| w.id()).collect::<Vec<_>>(),
+            "level": self.level,
+            "resolveThreads": self.resolve_threads,
+            "stopWhenGreen": self.stop_when_green,
+            "stopAfterDays": {"on": self.stop_after_days.on, "days": self.stop_after_days.value},
+            "stopAfterFailures": {"on": self.stop_after_failures.on, "times": self.stop_after_failures.value},
+            "ownRule": self.own_rule,
+            "ownRuleText": self.own_rule_text,
+            "instructions": self.instructions,
+        })
+    }
+
+    /// What the host sent, as complete valid settings (`normalizeBabysitSettings`).
+    pub fn from_json(value: &serde_json::Value) -> Self {
+        let defaults = Babysit::default();
+        let flag = |key: &str, held: bool| value[key].as_bool().unwrap_or(held);
+        let number = |v: &serde_json::Value, held: u32| v.as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(held);
+        let rule = |key: &str, field: &str, held: Rule| Rule {
+            on: value[key]["on"].as_bool().unwrap_or(held.on),
+            value: number(&value[key][field], held.value),
+        };
+        let wake = match value["wake"].as_array() {
+            Some(list) => Wake::ALL.into_iter().filter(|kind| list.iter().any(|item| item == kind.id())).collect(),
+            None => defaults.wake.clone(),
+        };
+        Babysit {
+            enabled: flag("enabled", defaults.enabled),
+            interval_minutes: number(&value["intervalMinutes"], defaults.interval_minutes),
+            wake,
+            level: value["level"].as_u64().and_then(|n| u8::try_from(n).ok()).unwrap_or(defaults.level),
+            resolve_threads: flag("resolveThreads", defaults.resolve_threads),
+            stop_when_green: flag("stopWhenGreen", defaults.stop_when_green),
+            stop_after_days: rule("stopAfterDays", "days", defaults.stop_after_days),
+            stop_after_failures: rule("stopAfterFailures", "times", defaults.stop_after_failures),
+            own_rule: flag("ownRule", defaults.own_rule),
+            own_rule_text: value["ownRuleText"].as_str().unwrap_or_default().to_string(),
+            instructions: value["instructions"].as_str().unwrap_or_default().to_string(),
+        }
+        .normalized()
+    }
+
+    /// The keys of `self` that differ from `before`: what `babysit:settings:save` is sent.
+    pub fn patch_from(&self, before: &Babysit) -> serde_json::Map<String, serde_json::Value> {
+        let (after, before) = (self.to_json(), before.to_json());
+        after
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, value)| before[key.as_str()] != **value)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+}
+
 /// One change the page makes: a patch of the settings. Values that build on the current ones (chips, number
 /// rules) are worked out from the latest settings, changes still on their way included.
 pub type Change = Box<dyn FnOnce(&mut Babysit)>;

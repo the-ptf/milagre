@@ -404,7 +404,7 @@ fn render_section_list(
         .child(nav_item(
             "settings-nav-this-mac",
             "settings-nav-this-mac".to_string(),
-            this_mac_label,
+            this_mac_label.clone(),
             this_mac_active,
             computer_dot(true, this_mac_active, cx),
             move |_, window, cx| on_select_mac(SelectedSection::Section(SettingsSectionId::ThisMac), window, cx),
@@ -435,16 +435,32 @@ fn render_section_list(
     let mut content = div().pb(px(12.0)).flex().flex_col().children(top_group).children(agents_group).children(code_group);
     if !preview {
         content = content.child(computers_group);
-    } else if make_section_item(SettingsSectionId::Devices).is_some() || (shown(SettingsSectionId::Computer) && !computers.is_empty()) {
-        // Preview: Devices when the data layer backs it, and with the computer vault unlocked the paired computers
-        // (read-only pages).
+    } else if make_section_item(SettingsSectionId::Devices).is_some()
+        || shown(SettingsSectionId::ThisMac)
+        || (shown(SettingsSectionId::Computer) && !computers.is_empty())
+    {
+        // Preview: Devices and This Mac when the data layer backs them, and with the computer vault unlocked the paired
+        // computers (read-only pages).
+        let on_select_mac = on_select.clone();
+        let this_mac = shown(SettingsSectionId::ThisMac).then(|| {
+            nav_item(
+                "settings-nav-this-mac",
+                "settings-nav-this-mac".to_string(),
+                this_mac_label.clone(),
+                this_mac_active,
+                computer_dot(true, this_mac_active, cx),
+                move |_, window, cx| on_select_mac(SelectedSection::Section(SettingsSectionId::ThisMac), window, cx),
+                cx,
+            )
+        });
         let mut paired = div()
             .px(px(8.0))
             .flex()
             .flex_col()
             .gap(px(2.0))
             .child(nav_group_heading("Computers & devices", cx))
-            .children(make_section_item(SettingsSectionId::Devices));
+            .children(make_section_item(SettingsSectionId::Devices))
+            .children(this_mac);
         for (comp_id, comp_name, connected) in computers.iter().filter(|_| shown(SettingsSectionId::Computer)) {
             let (active, id, name, is_conn) = (selected.is_computer(comp_id), comp_id.clone(), comp_name.clone(), *connected);
             let on_select_comp = on_select.clone();

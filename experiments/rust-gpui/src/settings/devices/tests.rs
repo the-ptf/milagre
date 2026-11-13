@@ -221,3 +221,44 @@ fn simlock_saves_its_gateway_and_clears_the_token_field(cx: &mut TestAppContext)
             .is_some_and(|(ok, text)| ok && text.starts_with("Connected to http://127.0.0.1:4700"))
     );
 }
+
+#[test]
+fn a_hosts_phone_status_devices_and_resources_read_as_the_pages_show_them() {
+    use super::hosted::{paired_devices, phone_status, resources};
+    use super::logic::{PartKind, Remote, Route, phone_status_line};
+    let (status, pairing) = phone_status(&serde_json::json!({"enabled": true, "state": "on", "remote": "relay", "relay": "online",
+        "pairingUntil": 1_700_000_000_000.0, "pairingLink": "https://relay/pair#k=1", "computerLink": "https://relay/pair#k=1&c",
+        "qrSvg": "<svg/>", "pairingOptions": [{"id": "automatic", "label": "Automatic", "link": "https://a", "qrSvg": "<svg a/>"},
+            {"id": "relay", "label": "Remote relay", "link": "https://r"}],
+        "lan": {"enabled": true, "addresses": ["10.0.0.2"]}, "localUrl": "http://127.0.0.1:8787/x"}));
+    assert_eq!((status.state, status.remote, status.pairing_until), (PhoneState::On, Remote::Relay, Some(1_700_000_000_000)));
+    assert_eq!(phone_status_line(Some(&status)), "On, reachable from any network");
+    assert_eq!(status.pairing_options.len(), 2);
+    assert_eq!(pairing.chosen("automatic"), (Some("<svg a/>"), Some("https://a")));
+    assert_eq!(pairing.chosen("relay"), (Some("<svg/>"), Some("https://r")), "an option without its own code shows the status's");
+    assert_eq!(pairing.chosen("gone"), (Some("<svg a/>"), Some("https://a")), "a choice no longer offered falls to the first");
+    // Off: no code to scan.
+    let (off, pairing) =
+        phone_status(&serde_json::json!({"enabled": false, "state": "off", "remote": "none", "localUrl": "http://127.0.0.1:9/"}));
+    assert!(off.pairing_link.is_empty() && pairing.chosen("automatic") == (None, None));
+    assert_eq!(off.local_host, "127.0.0.1");
+    let (tunnel, _) = phone_status(
+        &serde_json::json!({"enabled": true, "state": "on", "remote": "cloudflare", "publicUrl": "https://mac.example.com:8443/p"}),
+    );
+    assert_eq!(phone_status_line(Some(&tunnel)), "Reachable at mac.example.com:8443");
+
+    let devices =
+        paired_devices(&serde_json::json!([{"key": "p1", "kind": "phone", "name": null, "lastSeen": 5.0, "isNew": true, "route": "lan"},
+        {"key": "c1", "kind": "computer", "name": "mini", "lastSeen": null, "route": null}]));
+    assert_eq!(
+        devices.iter().map(|d| (d.key.as_str(), d.kind, d.route, d.is_new)).collect::<Vec<_>>(),
+        [("p1", DeviceKind::Phone, Some(Route::Lan), true), ("c1", DeviceKind::Computer, None, false)]
+    );
+
+    let read = resources(&serde_json::json!({"memory": {"total": 8.0, "available": 2.0, "milagre": null},
+        "disk": {"total": 10.0, "available": 4.0, "milagre": 1.0, "parts": [{"kind": "speech", "bytes": 1.0, "count": 0}], "measuring": true}})).unwrap();
+    assert!(read.memory.parts.is_empty() && read.memory.milagre.is_none());
+    let disk = read.disk.unwrap();
+    assert!(disk.measuring && disk.parts[0].kind == PartKind::Data);
+    assert!(resources(&serde_json::json!({"memory": {}})).is_none());
+}

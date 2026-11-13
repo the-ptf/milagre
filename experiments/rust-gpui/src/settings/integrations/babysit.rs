@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, Subscription, Window, div,
+    AnyElement, ClickEvent, Context, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, Subscription, Task, Window, div,
     prelude::*, px,
 };
 use gpui_component::input::{InputEvent, InputState, TextareaState};
@@ -187,9 +187,10 @@ impl IntegrationsView {
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(SAVE_MS)).await;
+            // The latest settings go, so writes that land out of order never leave an old one behind.
+            let Ok(write) = this.update(cx, |this, cx| this.write_babysit(cx)) else { return };
+            let result = write.await;
             this.update(cx, |this, cx| {
-                // The latest settings go, so writes that land out of order never leave an old one behind.
-                let result = this.babysit.host.write(&this.babysit.settings.clone());
                 let save = this.babysit.save_of(field);
                 if save.run != run {
                     return;
@@ -200,6 +201,62 @@ impl IntegrationsView {
                         save.dirty = false;
                     }
                     Err(_) => save.state = SaveState::Error,
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Writes the latest settings: to the fixture host, or with a data layer `babysit:settings:save [patch]` of what
+    /// differs from the host's copy, which its answer then replaces.
+    fn write_babysit(&mut self, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        let settings = self.babysit.settings.clone();
+        if crate::settings::host::host(cx).is_none() {
+            return Task::ready(self.babysit.host.write(&settings));
+        }
+        let patch = settings.patch_from(&self.babysit.host.saved);
+        if patch.is_empty() {
+            return Task::ready(Ok(()));
+        }
+        let Some(task) = crate::settings::host::call("babysit:settings:save", serde_json::json!([patch]), cx) else {
+            return Task::ready(Ok(()));
+        };
+        cx.spawn(async move |this, cx| {
+            let saved = Babysit::from_json(&task.await?);
+            this.update(cx, |this, _| {
+                this.babysit.host.saved = saved;
+                this.babysit.host.writes += 1;
+            })
+            .map_err(|_| "Settings closed.".to_string())
+        })
+    }
+
+    /// `babysit:settings:read` (a data layer only): the page shows what the host keeps; typed text not saved yet stays.
+    pub(super) fn read_babysit(&mut self, cx: &mut Context<Self>) {
+        let Some(task) = crate::settings::host::call("babysit:settings:read", serde_json::json!([]), cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let answer = task.await;
+            this.update(cx, |this, cx| {
+                match answer {
+                    Ok(value) => {
+                        let saved = Babysit::from_json(&value);
+                        let mut shown = saved.clone();
+                        if this.babysit.own_save.dirty {
+                            shown.own_rule_text = this.babysit.settings.own_rule_text.clone();
+                        }
+                        if this.babysit.instructions_save.dirty {
+                            shown.instructions = this.babysit.settings.instructions.clone();
+                        }
+                        this.babysit.host.saved = saved;
+                        this.babysit.settings = shown;
+                        this.babysit.error.clear();
+                        // The typed fields follow the host's text the next time they are made.
+                        this.babysit.own_rule = None;
+                        this.babysit.instructions = None;
+                    }
+                    Err(_) => this.babysit.error = "Could not read the Babysit PRs settings.".into(),
                 }
                 cx.notify();
             })
@@ -222,8 +279,10 @@ impl IntegrationsView {
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(SAVE_MS)).await;
+            let Ok(write) = this.update(cx, |this, cx| this.write_babysit(cx)) else { return };
+            let result = write.await;
             this.update(cx, |this, cx| {
-                if let Err(message) = this.babysit.host.write(&this.babysit.settings.clone()) {
+                if let Err(message) = result {
                     this.babysit.error = message;
                     let keep_text = (this.babysit.settings.own_rule_text.clone(), this.babysit.settings.instructions.clone());
                     this.babysit.settings = this.babysit.host.saved.clone();

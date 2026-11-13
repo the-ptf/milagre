@@ -16,6 +16,7 @@ pub mod church;
 pub mod devices;
 pub mod general;
 pub mod group;
+pub mod host;
 pub mod integrations;
 pub mod keybindings;
 pub mod mcp;
@@ -141,6 +142,23 @@ impl SettingsModal {
 
     pub fn appearance_view(&self) -> &Entity<appearance::AppearanceView> {
         &self.appearance
+    }
+
+    /// The views behind Skills, Integrations, Phone & sharing (with This Mac) and a Project's page (tests drive them).
+    pub fn skills_view(&self) -> &Entity<skills::SkillsView> {
+        &self.tools.skills
+    }
+
+    pub fn integrations_view(&self) -> &Entity<integrations::IntegrationsView> {
+        &self.tools.integrations
+    }
+
+    pub fn devices_view(&self) -> &Entity<devices::DevicesView> {
+        &self.devices
+    }
+
+    pub fn project_view(&self) -> &Entity<projects::ProjectView> {
+        &self.project
     }
 
     pub fn is_open(&self) -> bool {

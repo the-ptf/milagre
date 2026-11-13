@@ -1,9 +1,12 @@
 //! Settings › Skills (WP-43: `SkillsSettings.tsx`, `shared/skill-catalog.ts`; G-13): every skill the `/` menu
 //! offers for the open Project, where each comes from, which same-named ones it hides and what discovery could
-//! not read; a skill opens to its SKILL.md. Read from the fixture on open and on Reload.
+//! not read; a skill opens to its SKILL.md. Read from the fixture on open and on Reload, or, with a data layer's
+//! [`SettingsHost`](crate::settings::host::SettingsHost), from the host: `skills:list [projectPath]` when the page shows a
+//! Project and on Reload, `skills:read [projectPath, file]` for the open skill. Open in editor and Show in Finder go to
+//! the window ([`host::OPEN_FILE`], [`host::REVEAL`]) for a file the list holds, as Electron's main checks it.
 //!
-//! Not built: Open in editor and Show in Finder only record the request (the shell has no editor list or file
-//! manager hook yet); the list is a plain column inside the Settings body's scroll area.
+//! Without a host, Open in editor and Show in Finder only record the request; the list is a plain column inside the
+//! Settings body's scroll area.
 
 pub mod model;
 
@@ -20,10 +23,11 @@ use gpui_base::TextViewState;
 use gpui_component::input::{InputEvent, InputState};
 
 use self::model::{
-    PROVIDERS, Scope, Shadowed, Skill, filter_skills, fixture, group_skills, overrides_text, provider_label, read_skill, shadowed_by,
-    shorten_home, skill_body,
+    PROVIDERS, Scope, Shadowed, Skill, catalog, filter_skills, fixture, group_skills, overrides_text, provider_label, read_skill,
+    shadowed_by, shorten_home, skill_body,
 };
 use crate::settings::group::{page_header, slug};
+use crate::settings::host;
 use crate::theme::{ActiveTheme, RADIUS_CARD, TEXT_11, TEXT_12, TEXT_13, TEXT_15, TextStepExt, Theme};
 use crate::ui::markdown::{Markdown, base_extensions, open_with_system, text_view_style};
 use crate::ui::{Button, ButtonSize, ButtonVariant, EmptyState, FieldSize, Input, SectionLabel, Select, SelectOption};
@@ -58,11 +62,16 @@ pub struct SkillsView {
     copy_run: u64,
     pub(crate) last_action: Option<String>,
     found: Option<String>,
+    /// With a host: the editor Open in editor uses (`None`: none installed), and why an action failed.
+    editor: Option<String>,
+    action_error: Option<String>,
+    seen_visit: Option<u64>,
 }
 
 impl SkillsView {
-    pub fn new(_cx: &mut Context<Self>) -> Self {
-        let (skills, shadowed, warnings) = fixture();
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        // A host lists the open Project's skills when the page shows it; the fixture's are there from the start.
+        let (skills, shadowed, warnings) = if host::host(cx).is_some() { Default::default() } else { fixture() };
         Self {
             project: None,
             skills,
@@ -80,16 +89,46 @@ impl SkillsView {
             copy_run: 0,
             last_action: None,
             found: None,
+            editor: Some(EDITOR.to_string()),
+            action_error: None,
+            seen_visit: None,
         }
     }
 
-    /// The Project the page lists skills for; `None` when no Project is open.
+    /// The Project the page lists skills for; `None` when no Project is open. A host lists the new Project's skills.
     pub fn set_project(&mut self, project: Option<(String, String)>, cx: &mut Context<Self>) {
         if self.project != project {
             self.project = project;
             self.selected = None;
+            if host::host(cx).is_some() {
+                self.skills.clear();
+                self.shadowed.clear();
+                self.warnings.clear();
+                self.reload(cx);
+            }
             cx.notify();
         }
+    }
+
+    /// Lists the skills again when Settings opened or came to this page since the last list (a host only).
+    pub fn visit(&mut self, cx: &mut Context<Self>) {
+        let Some(visit) = host::visit(cx) else { return };
+        if self.seen_visit != Some(visit) {
+            let first = self.seen_visit.is_none();
+            self.seen_visit = Some(visit);
+            // `set_project` already listed a Project it just took.
+            if !first || !self.loading {
+                self.reload(cx);
+            }
+        }
+    }
+
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    pub fn action_error(&self) -> Option<&str> {
+        self.action_error.as_deref()
     }
 
     pub fn set_found(&mut self, row: Option<&str>, cx: &mut Context<Self>) {
@@ -154,6 +193,10 @@ impl SkillsView {
         self.revision += 1;
         let revision = self.revision;
         cx.notify();
+        if host::host(cx).is_some() {
+            self.list_from_host(revision, cx);
+            return;
+        }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(READ_MS)).await;
             this.update(cx, |this, cx| {
@@ -167,6 +210,78 @@ impl SkillsView {
                 cx.notify();
             })
             .ok();
+        })
+        .detach();
+    }
+
+    /// `skills:list` on the host; a failure shows as the page's one warning, as `useSkills` does.
+    fn list_from_host(&mut self, revision: u64, cx: &mut Context<Self>) {
+        let Some((path, _)) = self.project.clone() else {
+            self.loading = false;
+            return;
+        };
+        if let Some(task) = host::call("skills:list", serde_json::json!([path]), cx) {
+            cx.spawn(async move |this, cx| {
+                let answer = task.await;
+                this.update(cx, |this, cx| {
+                    if this.revision != revision {
+                        return;
+                    }
+                    this.loading = false;
+                    let selected = this.selected().map(|s| s.path.clone());
+                    match answer {
+                        Ok(value) => (this.skills, this.shadowed, this.warnings) = catalog(&value),
+                        Err(message) => {
+                            this.skills.clear();
+                            this.shadowed.clear();
+                            this.warnings = vec![message];
+                        }
+                    }
+                    // The open skill stays open while the list still has it, and is read again.
+                    this.selected = selected.and_then(|path| this.skills.iter().position(|s| s.path == path));
+                    if this.selected.is_some() {
+                        this.read_selected(cx);
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        if let Some(task) = host::call(host::EDITOR, serde_json::json!([]), cx) {
+            cx.spawn(async move |this, cx| {
+                let editor = task.await.ok().and_then(|value| value.as_str().map(str::to_string));
+                this.update(cx, |this, cx| {
+                    this.editor = editor;
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+    }
+
+    /// Open in editor or Show in Finder for the open skill, through the host (`skills:open`, `skills:reveal`).
+    pub fn file_action(&mut self, method: &'static str, cx: &mut Context<Self>) {
+        let Some(skill) = self.selected().cloned() else { return };
+        self.last_action = Some(format!("{}:{}", if method == host::REVEAL { "reveal" } else { "open" }, skill.path));
+        self.action_error = None;
+        cx.notify();
+        // Only a file the Project's catalog lists, as Electron's main checks (`checkSkillFile`).
+        let listed = self.skills.iter().map(|s| &s.path).chain(self.shadowed.iter().map(|s| &s.path)).any(|p| *p == skill.path);
+        if !listed {
+            self.action_error = Some("That skill is no longer there. Reload the list.".into());
+            return;
+        }
+        let Some(task) = host::call(method, serde_json::json!([skill.path]), cx) else { return };
+        cx.spawn(async move |this, cx| {
+            if let Err(message) = task.await {
+                this.update(cx, |this, cx| {
+                    this.action_error = Some(message);
+                    cx.notify();
+                })
+                .ok();
+            }
         })
         .detach();
     }
@@ -186,7 +301,30 @@ impl SkillsView {
     fn read_selected(&mut self, cx: &mut Context<Self>) {
         let Some(skill) = self.selected().cloned() else { return };
         self.content = Content::Reading;
+        self.action_error = None;
         let revision = self.revision;
+        if let Some((project, _)) = self.project.clone().filter(|_| host::host(cx).is_some()) {
+            let Some(task) = host::call("skills:read", serde_json::json!([project, skill.path]), cx) else { return };
+            cx.spawn(async move |this, cx| {
+                let answer = task.await;
+                this.update(cx, |this, cx| {
+                    if this.selected().map(|s| &s.path) != Some(&skill.path) || this.revision != revision {
+                        return;
+                    }
+                    this.content = match answer {
+                        Ok(value) => {
+                            let body = skill_body(value.as_str().unwrap_or_default());
+                            Content::Text(cx.new(|cx| TextViewState::markdown(&body, cx)))
+                        }
+                        Err(message) => Content::Error(message),
+                    };
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+            return;
+        }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(READ_MS)).await;
             this.update(cx, |this, cx| {
@@ -424,7 +562,10 @@ impl SkillsView {
     fn detail(&self, skill: &Skill, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
         let hidden: Vec<&Shadowed> = shadowed_by(&self.shadowed, skill);
+        // A paired computer's skill opens on that computer only (`isRemoteKey`).
         let has_file = !skill.path.is_empty();
+        let local_file = has_file && !self.project.as_ref().is_some_and(|(path, _)| path.contains('|'));
+        let hosted = host::host(cx).is_some();
         let page = cx.entity();
         let record = {
             let page = page.clone();
@@ -528,7 +669,7 @@ impl SkillsView {
                             .flex()
                             .flex_wrap()
                             .gap(px(8.0))
-                            .when(has_file, |d| {
+                            .when(local_file && !hosted, |d| {
                                 d.child(
                                     Button::new("skill-open", format!("Open in {EDITOR}"))
                                         .variant(ButtonVariant::Secondary)
@@ -542,6 +683,24 @@ impl SkillsView {
                                         .on_click(record(format!("reveal:{}", skill.path))),
                                 )
                             })
+                            .when(local_file && hosted, |d| {
+                                let open = match &self.editor {
+                                    Some(editor) => Button::new("skill-open", format!("Open in {editor}"))
+                                        .variant(ButtonVariant::Secondary)
+                                        .size(ButtonSize::S28)
+                                        .on_click(cx.listener(|this, _, _, cx| this.file_action(host::OPEN_FILE, cx))),
+                                    None => Button::new("skill-open", "Open in editor")
+                                        .variant(ButtonVariant::Secondary)
+                                        .size(ButtonSize::S28)
+                                        .disabled(true),
+                                };
+                                d.child(open).child(
+                                    Button::new("skill-reveal", "Show in Finder")
+                                        .variant(ButtonVariant::Secondary)
+                                        .size(ButtonSize::S28)
+                                        .on_click(cx.listener(|this, _, _, cx| this.file_action(host::REVEAL, cx))),
+                                )
+                            })
                             .child(
                                 Button::new("skill-copy", if self.copied { "Copied".to_string() } else { format!("Copy /{}", skill.name) })
                                     .variant(ButtonVariant::Secondary)
@@ -550,6 +709,9 @@ impl SkillsView {
                             ),
                     ),
             )
+            .when_some(self.action_error.clone(), |d, message| {
+                d.child(div().debug_selector(|| "skill-action-error".into()).text_step(TEXT_12).text_color(theme.red_ink).child(message))
+            })
             .when(!shadow_rows.is_empty(), |d| {
                 d.child(
                     div()

@@ -122,3 +122,23 @@ fn reload_reads_again_and_keeps_the_open_skill(cx: &mut TestAppContext) {
     let open = view.read_with(cx, |v, _| v.selected().map(|s| s.name.clone()));
     assert_eq!(open.as_deref(), Some("grill-me"));
 }
+
+#[test]
+fn a_hosts_catalog_reads_as_the_page_lists_it() {
+    let (skills, shadowed, warnings) = catalog(&serde_json::json!({
+        "skills": [
+            {"name": "tidy", "description": "Tidy up.", "path": "/p/.claude/skills/tidy/SKILL.md", "scope": "workspace", "provider": "claude"},
+            {"name": "odd", "description": "", "path": "", "scope": "elsewhere", "provider": "claude"},
+            {"name": "milagre-design", "description": "Designs.", "path": "", "scope": "bundled", "provider": "milagre"}],
+        "shadowed": [{"name": "tidy", "path": "/h/.claude/skills/tidy/SKILL.md", "scope": "user", "provider": "claude",
+            "shadowedBy": "/p/.claude/skills/tidy/SKILL.md"}],
+        "warnings": ["/h/.claude/skills/x: no SKILL.md"]}));
+    assert_eq!(
+        skills.iter().map(|s| (s.name.as_str(), s.scope)).collect::<Vec<_>>(),
+        [("tidy", Scope::Workspace), ("milagre-design", Scope::Bundled)]
+    );
+    assert_eq!(shadowed_by(&shadowed, &skills[0]).len(), 1);
+    assert_eq!(warnings, ["/h/.claude/skills/x: no SKILL.md"]);
+    // A host that predates the shadowed list.
+    assert!(catalog(&serde_json::json!({"skills": [], "warnings": []})).1.is_empty());
+}

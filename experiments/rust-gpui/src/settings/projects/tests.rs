@@ -177,3 +177,30 @@ fn removing_a_project_asks_first(cx: &mut TestAppContext) {
     click(cx, &workspace, "project-remove-confirm");
     assert!(entry(cx, &path).removed);
 }
+
+#[test]
+fn a_hosts_project_settings_read_as_the_page_shows_them() {
+    use super::hosted::{branch_settings, files_found, main_sync, policy_json, setup_settings};
+    use crate::settings::devices::logic::{MainSyncChoice, SyncOutcome};
+    let branch = branch_settings(&serde_json::json!({"local": {"template": "{username}/{slug}", "trackBase": true},
+        "repository": {"baseBranch": "main"}, "effective": {}}));
+    let effective = branch.effective();
+    assert_eq!((effective.template.as_str(), effective.base_branch.as_str(), effective.track_base), ("{username}/{slug}", "main", true));
+    assert_eq!(policy_json(&branch.local), serde_json::json!({"template": "{username}/{slug}", "trackBase": true}));
+    assert_eq!(policy_json(&Default::default()), serde_json::json!({}));
+
+    let (choice, last) = main_sync(&serde_json::json!({"override": false, "defaultValue": true,
+        "last": {"at": 5.0, "outcome": "up-to-date", "branch": "main"}}));
+    assert_eq!((choice, last.map(|l| l.outcome)), (MainSyncChoice::Off, Some(SyncOutcome::UpToDate)));
+    assert_eq!(main_sync(&serde_json::json!({"override": null, "last": null})), (MainSyncChoice::Default, None));
+
+    let (command, settings) =
+        setup_settings(&serde_json::json!({"setupCommand": "npm ci", "source": "repo", "command": null, "note": "x"}));
+    assert_eq!((command.as_str(), settings.repo, settings.note.as_deref()), ("npm ci", Some(None), Some("x")));
+    assert_eq!(setup_settings(&serde_json::json!({"setupCommand": "", "source": "none", "command": null})).1.repo, None);
+
+    let (include, matches) =
+        files_found(&serde_json::json!({"source": "worktreeinclude", "worktreeInclude": ".env*", "matches": [".env"]}));
+    assert_eq!((include.as_deref(), matches), (Some(".env*"), vec![".env".to_owned()]));
+    assert_eq!(files_found(&serde_json::json!({"source": "setting", "worktreeInclude": ".env*", "matches": []})).0, None);
+}

@@ -43,6 +43,11 @@ pub struct ProjectEntry {
     pub removed: bool,
     /// How many times each group was saved (the autosave tests read these).
     pub saves: Saves,
+    /// A data layer's host: how many times its reads landed (the page makes its fields again from each), the files
+    /// its last preview matched, and why a read or save failed, by group (`branch`, `files`, `setup`, `sync`, `sidebar`).
+    pub loaded: u64,
+    pub matches: Option<Vec<String>>,
+    pub errors: BTreeMap<&'static str, String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -56,6 +61,8 @@ pub struct Saves {
 pub struct ProjectsStore {
     entries: BTreeMap<String, ProjectEntry>,
     pub ignored: Vec<String>,
+    /// A data layer's host keeps the entries ([`super::hosted`]): one not read yet is blank, not the fixture's.
+    pub hosted: bool,
 }
 
 impl Global for ProjectsStore {}
@@ -80,6 +87,9 @@ pub fn default_entry(path: &str) -> ProjectEntry {
         setup_settings: SetupSettings { repo: None, note: None },
         removed: false,
         saves: Saves::default(),
+        loaded: 0,
+        matches: None,
+        errors: BTreeMap::new(),
     };
     if name.contains("ade") {
         entry.branch.local.username = Some("victor".into());
@@ -108,17 +118,42 @@ pub fn default_entry(path: &str) -> ProjectEntry {
     entry
 }
 
+/// An entry nothing has been read for yet (a host's Project before its answers).
+pub fn blank_entry() -> ProjectEntry {
+    ProjectEntry {
+        icon: None,
+        hidden: false,
+        main_sync: MainSyncChoice::Default,
+        main_sync_last: None,
+        branch: BranchSettings::default(),
+        files: String::new(),
+        worktree_include: None,
+        setup: String::new(),
+        setup_settings: SetupSettings { repo: None, note: None },
+        removed: false,
+        saves: Saves::default(),
+        loaded: 0,
+        matches: None,
+        errors: BTreeMap::new(),
+    }
+}
+
 impl ProjectsStore {
     pub fn fixture() -> Self {
-        ProjectsStore { entries: BTreeMap::new(), ignored: fixture_ignored_files() }
+        ProjectsStore { entries: BTreeMap::new(), ignored: fixture_ignored_files(), hosted: false }
+    }
+
+    fn made(&self, path: &str) -> ProjectEntry {
+        if self.hosted { blank_entry() } else { default_entry(path) }
     }
 
     pub fn get(&self, path: &str) -> ProjectEntry {
-        self.entries.get(path).cloned().unwrap_or_else(|| default_entry(path))
+        self.entries.get(path).cloned().unwrap_or_else(|| self.made(path))
     }
 
     pub fn entry(&mut self, path: &str) -> &mut ProjectEntry {
-        self.entries.entry(path.to_string()).or_insert_with(|| default_entry(path))
+        let made = self.made(path);
+        self.entries.entry(path.to_string()).or_insert(made)
     }
 
     pub fn is_removed(&self, path: &str) -> bool {
@@ -156,6 +191,10 @@ impl ProjectsStore {
     /// `files-to-copy:preview`: the ignored files the patterns (or the repository's `.worktreeinclude`) copy.
     pub fn preview_files(&self, path: &str, text: &str) -> Vec<String> {
         let entry = self.get(path);
+        // A host previews the patterns itself (`files-to-copy:preview`).
+        if self.hosted {
+            return entry.matches.unwrap_or_default();
+        }
         let source = entry.worktree_include.as_deref().unwrap_or(text);
         let mut patterns = parse_patterns(source);
         if patterns.is_empty() {

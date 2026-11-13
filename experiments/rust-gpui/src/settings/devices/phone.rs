@@ -18,8 +18,10 @@ use super::qr::qr_code;
 use super::view::{DevicesView, lit, open_link};
 use super::widgets::{card_note, icon_chip};
 use crate::settings::group::{CheckboxRow, SettingRow, SettingsGroup, page_header};
+use crate::settings::search::SettingsSectionId as S;
 use crate::theme::{ActiveTheme, RADIUS_CONTROL, TEXT_12, TEXT_13, TextStepExt};
 use crate::ui::{Button, ButtonSize, ButtonVariant, Dialog, DialogAction, IconName, Select, SelectOption};
+use crate::workspace::preview::settings_row_shows;
 
 const PRIVACY_URL: &str = "https://milagre.cloud/privacy";
 const SUPPORT_URL: &str = "https://milagre.cloud/support";
@@ -39,14 +41,22 @@ impl DevicesView {
         let found = self.found.clone();
         let found = found.as_deref();
         let status = &store.phone;
+        let hosted = &store.hosted;
         let on = status.state == PhoneState::On && !status.pairing_link.is_empty();
+        // A host's status line: what it said, "Checking…" before its first answer, or why it could not be read.
+        let status_line = match (&hosted.load_error, hosted.on && !hosted.phone_read) {
+            (Some(error), _) => error.clone(),
+            (None, true) => phone_status_line(None),
+            (None, false) => phone_status_line(Some(status)),
+        };
 
         // Access.
         let mut access: Vec<AnyElement> = vec![
             CheckboxRow::new("devices-allow", "Allow devices to connect", status.enabled)
-                .description(phone_status_line(Some(status)))
+                .description(status_line)
                 .highlighted(found)
-                .on_change(|next, _, cx| update(cx, |s| s.set_phone_enabled(next)))
+                .disabled(hosted.busy)
+                .on_change(|next, _, cx| super::hosted::set_phone_enabled(next, cx))
                 .into_any_element(),
         ];
         if let (true, Some(lan)) = (status.enabled, status.lan.as_ref()) {
@@ -54,7 +64,8 @@ impl DevicesView {
                 CheckboxRow::new("devices-lan", "Allow on local network", lan.enabled)
                     .description(phone_lan_line(status).unwrap_or_default())
                     .highlighted(found)
-                    .on_change(|next, _, cx| update(cx, |s| s.set_lan(next)))
+                    .disabled(hosted.busy)
+                    .on_change(|next, _, cx| super::hosted::set_lan(next, cx))
                     .into_any_element(),
             );
         }
@@ -70,6 +81,14 @@ impl DevicesView {
         }
         if let (PhoneState::Error, Some(error)) = (status.state, &status.error) {
             access.push(card_note(error.clone(), cx).text_color(theme.red_ink).into_any_element());
+        }
+        if let Some(error) = &hosted.action_error {
+            access.push(
+                card_note(format!("Couldn't change device access: {error}"), cx)
+                    .debug_selector(|| "phone-action-error".into())
+                    .text_color(theme.red_ink)
+                    .into_any_element(),
+            );
         }
 
         // The code.
@@ -102,7 +121,10 @@ impl DevicesView {
         if !computers.is_empty() {
             lists.push(self.device_group(&computers, &store, now, None, None, cx));
         }
-        lists.push(self.device_group(&phones, &store, now, Some("No phones yet"), cloudflare_phones_note(status).map(str::to_string), cx));
+        // A host's list says "No phones yet" only once it was read, and why it could not be.
+        let empty = (!hosted.on || hosted.devices_read).then_some("No phones yet");
+        let footer = hosted.devices_error.clone().or_else(|| cloudflare_phones_note(status).map(str::to_string));
+        lists.push(self.device_group(&phones, &store, now, empty, footer, cx));
 
         // Reset.
         let reset = status.enabled.then(|| {
@@ -122,9 +144,10 @@ impl DevicesView {
                         Button::new("devices-reset-confirm", "Reset and disconnect")
                             .variant(ButtonVariant::DangerGhost)
                             .size(ButtonSize::S28)
+                            .disabled(hosted.busy)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.confirm_reset = false;
-                                update(cx, |s| s.reset_access());
+                                super::hosted::reset_access(cx);
                                 cx.notify();
                             })),
                     )
@@ -164,8 +187,9 @@ impl DevicesView {
             .when(!code.is_empty(), |d| d.child(SettingsGroup::new().rows(code)))
             .children(lists)
             .when_some(reset, |d, group| d.child(group))
-            .child(self.simlock_group(&store, found, window, cx))
-            .child(self.published_group(found))
+            // A data layer lists only what it backs (`preview::settings_row_shows`).
+            .when(settings_row_shows(cx, S::Devices, "Simulators"), |d| d.child(self.simlock_group(&store, found, window, cx)))
+            .when(settings_row_shows(cx, S::Devices, "Designs and artifacts"), |d| d.child(self.published_group(found)))
             .into_any_element()
     }
 
@@ -173,10 +197,42 @@ impl DevicesView {
         let theme = *cx.theme();
         let found = self.found.clone();
         let found = found.as_deref();
-        let link = store.phone.pairing_link.clone();
+        // A host's code is its own SVG and link for the chosen way to pair; the fixture draws a stand-in.
+        let (svg, chosen) = store.hosted.pairing.chosen(&store.pairing_route);
+        let (svg, chosen) = (svg.map(str::to_string), chosen.map(str::to_string));
+        let link = chosen.unwrap_or_else(|| store.phone.pairing_link.clone());
         let window_state = pairing_window(&store.phone, now);
         let copied = store.copied;
         let copy_link = link.clone();
+        let busy = store.hosted.busy;
+        let code: AnyElement = match svg {
+            // Snapshot aid: `MILAGRE_GPUI_HIDE_PAIRING=1` keeps a real code (it carries the access token) out of a screenshot.
+            Some(_) if std::env::var_os("MILAGRE_GPUI_HIDE_PAIRING").is_some() => div()
+                .debug_selector(|| "phone-qr-hidden".into())
+                .size(px(176.0))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(crate::theme::RADIUS_CARD)
+                .bg(theme.inset)
+                .text_step(TEXT_12)
+                .text_color(theme.ink3)
+                .child("Code hidden")
+                .into_any_element(),
+            Some(svg) => match self.qr_image(&svg, cx) {
+                Some(image) => div()
+                    .debug_selector(|| "phone-qr".into())
+                    .size(px(176.0))
+                    .flex_none()
+                    .rounded(crate::theme::RADIUS_CARD)
+                    .overflow_hidden()
+                    .child(gpui::img(image).size_full())
+                    .into_any_element(),
+                None => qr_code(&link, 176.0).into_any_element(),
+            },
+            None => qr_code(&link, 176.0).into_any_element(),
+        };
         let copy = Button::new("devices-copy-link", if copied { "Copied" } else { "Copy link" })
             .variant(ButtonVariant::Secondary)
             .size(ButtonSize::S28)
@@ -213,7 +269,8 @@ impl DevicesView {
                         Button::new("devices-allow-pairing", "Allow pairing again")
                             .variant(ButtonVariant::Secondary)
                             .size(ButtonSize::S28)
-                            .on_click(|_, _, cx| update(cx, |s| s.allow_pairing_again())),
+                            .disabled(busy)
+                            .on_click(|_, _, cx| super::hosted::allow_pairing_again(cx)),
                         found,
                         "Allow pairing again",
                         cx,
@@ -227,7 +284,7 @@ impl DevicesView {
             .gap(px(20.0))
             .px(px(16.0))
             .py(px(16.0))
-            .child(qr_code(&link, 176.0))
+            .child(code)
             .child(
                 div()
                     .min_w_0()
@@ -317,10 +374,10 @@ impl DevicesView {
                         Button::new(SharedString::from(format!("device-confirm-{key}")), "Remove")
                             .variant(ButtonVariant::DangerGhost)
                             .size(ButtonSize::S28)
+                            .disabled(store.hosted.busy)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.confirming_device = None;
-                                let key = confirm_key.clone();
-                                update(cx, |s| s.remove_device(&key));
+                                super::hosted::remove_device(confirm_key.clone(), cx);
                                 cx.notify();
                             })),
                     )
@@ -330,6 +387,7 @@ impl DevicesView {
                 Button::new(SharedString::from(format!("device-remove-{key}")), "Remove")
                     .variant(ButtonVariant::DangerGhost)
                     .size(ButtonSize::S24)
+                    .disabled(store.hosted.busy)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.confirming_device = Some(ask_key.clone());
                         cx.notify();
