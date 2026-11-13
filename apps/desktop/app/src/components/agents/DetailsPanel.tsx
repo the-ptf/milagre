@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowDown01Icon,
@@ -462,11 +462,35 @@ function DetailsBody({ data }: { data: DetailsData }) {
 /**
  * The Details overlay: a glass card over the Chat under the corner's buttons, never a panel beside it, so the Chat keeps
  * its width. It fades in moving down (and back up out), and has the composer's glass: the surface at 76% over a blur.
+ * A panel docked at the right (Browser, Changes, a design, a simulator) pushes it aside: it keeps to the Chat's right
+ * edge, following the Chat as the panel springs open, is dragged or closes, so it never covers the panel.
  */
 function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
   const shown = useDetailsPanelOpen() && data !== null;
   const scale = useMotionScale();
   const chrome = useWindowChrome();
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Written to the card's style, not rendered: the Chat resizes on every frame a panel beside it slides or is dragged.
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!shown || !card) return;
+    const main = document.querySelector<HTMLElement>("[data-workspace-main]");
+    const place = () => {
+      if (!main) return void (card.style.right = `${12 + chrome.rightInset}px`);
+      const edge = window.innerWidth - main.getBoundingClientRect().right;
+      // A dock's room (the Chat's right margin) already holds its 12px gap; the Changes panel sits flush beside the Chat.
+      const gap = parseFloat(getComputedStyle(main).marginRight) > 0 ? 0 : 12;
+      card.style.right = `${Math.max(12 + chrome.rightInset, edge + gap)}px`;
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    if (main) observer.observe(main);
+    window.addEventListener("resize", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [shown, chrome.rightInset]);
   // Its corner toggle, while a Chat is open; no shortcut.
   useSidePanel("details", data ? { open: shown, toggle: () => setDetailsPanelOpen(!open) } : null);
   const atOnce = chatSwitching();
@@ -486,8 +510,8 @@ function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
           exit="closed"
           transition={fade}
           // Under the corner's buttons, right-aligned with them; as tall as its sections, up to the window, then it scrolls.
+          ref={cardRef}
           className="details-glass fixed top-[var(--window-chrome-height)] z-[56] flex max-h-[calc(100vh-var(--window-chrome-height)-12px)] w-[300px] flex-col overflow-hidden rounded-window"
-          style={{ right: 12 + chrome.rightInset }}
         >
           {data && <DetailsBody data={data} />}
         </motion.div>
