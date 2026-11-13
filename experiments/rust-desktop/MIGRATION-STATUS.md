@@ -131,6 +131,48 @@ watcher performance, live-profile, real-provider or desktop/phone UI qualificati
 is next in the takeover sequence; CP3's avatar gap and CP2's profile-owner PR-detail integration remain
 explicit work before full owner parity.
 
+### CP4a: synthetic multi-Project ChatHost composition (2026-11-12)
+
+The profile owner now composes one shared `ChatHost` with its existing Project/repository locks and
+`ProjectStates`. The opt-in `chat-fixture` Rust library constructor accepts explicitly injected providers;
+ordinary CLI startup remains read/settings-only and advertises no new Chat mutation methods. This is
+accepted only as CP4a composition evidence, not completion of CP4 or a production provider cutover.
+
+The fixture adds eight commands: `chat:send`, `chat:send-status`, `chat:all-messages`, `chat:search`,
+`chat:subagent`, `chat:queue-send`, `chat:queue-remove`, `agent:interrupt` (GPUI's stop command). Requests
+route by Project/provider/model. Never-saved Projects transfer their existing lock into `ProjectStates`
+without a release/reacquire gap; reconciliation stays in memory until a successful mutation. Commands,
+20 ms ticks and event publication serialize through the profile mutex and wire transaction. Per-client
+focused Chats suppress unread independently; disconnect removes the view. Ownership/readiness checks
+precede writes/ticks/read exposure/shutdown. Failed event publication retains notices, including persistence
+failure/recovery. Forced active shutdown ends synthetic turns before releasing locks.
+
+Nine socket tests pass with fake providers: two Projects/providers/models, streaming, duplicate receipts,
+queue remove/send-now, interrupt, fresh Project send, active shutdown, replaced profile/Project ownership,
+a revoked Project while another keeps streaming, failed save/recovery, focused views/disconnect, rejected
+send without state-file creation. After Rust stops, both Node's store and the actual production Node daemon
+read identical saved messages/sessions, Node stops/releases ownership, then Rust reopens again. The daemon
+runs only on that throwaway profile with a clean HOME/environment. This is rollback compatibility, not a
+full differential of send semantics or evidence of real-provider execution.
+
+Review closed persistence-event draining, ownership/readiness checks, focused-view handling, event retry
+retention and rejected-send reconciliation-save defects. The prior run reproduced persistence-event and
+rejected-send failures before the fixes. A fresh independent Astra review reports no remaining P1/P2 in
+this synthetic scope. Strict Clippy also found a large refusal value; boxing it preserves ownership on
+failure. Final checks: profile default **33 tests**, `chat-fixture` **42 tests**, shared owner **227 tests**;
+latest post-lint-fix socket rerun **9/9**. Strict all-target Clippy passes for profile default/feature and
+owner, and both crates pass formatting. CP1 read/adoption/exclusion/rollback and CP3 settings Node
+comparisons pass within the full profile suites. Logs: `/tmp/cp4-final-{profile,profile-default,owner,chat}.log`
+and `/tmp/cp4-clippy-{profile,profile-default,owner}.log`.
+
+**Still open in CP4:** captured profile-account adoption and `accounts:select`/`assign`, real provider
+composition, delete/reload/detach, usage-limit switch/resume, full Node send/event differential and real
+provider qualification. These handlers are absent from the dedicated runtime too, so they need new
+implementation. Forced synthetic stop does not establish suspended resume or real process teardown.
+Ordinary profile-owner coverage stays 30/112 GPUI commands (27%); fixture-only methods do not raise that
+production composition count. No installed daemon, live profile, credentials, UI or native mobile changes;
+nothing pushed.
+
 Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the ordinary installed Rust shell still needs the production Node owner; the separate Rust Preview owns its dedicated Rust backend. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
 
 Never restart/replace the production host, take over live locks, launch a second live writer or change the native mobile fingerprint without explicit approval. Experimental ownership checks use separate dedicated roots or isolated copies. Real-provider evidence is stated explicitly below; other provider checks remain fake-process evidence. A passing library test is not a production cutover.
