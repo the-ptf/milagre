@@ -818,6 +818,14 @@ impl SidebarWrites {
         .detach();
     }
 
+    /// A Project's page in Settings hid or showed a Project (`project:set-hidden`, [`crate::settings::host`]): the
+    /// sidebar takes the host's answer as Filters' own change does.
+    pub fn hidden_changed(&mut self, list: &Value, cx: &mut Context<Self>) {
+        self.hidden.replace(hidden_in(list));
+        self.sidebar(cx).update(cx, |s, cx| s.reload(cx));
+        self.controller.update(cx, |c, cx| c.sync_unloaded(cx));
+    }
+
     /// The Projects the host hides (`project:recent`), on any known Project's request-only connection. Not in
     /// read-only mode, which keeps to adoption, the snapshot and transcripts.
     fn read_hidden(&mut self, cx: &mut Context<Self>) {

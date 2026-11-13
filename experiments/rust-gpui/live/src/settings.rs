@@ -15,6 +15,16 @@
 //! | About | Version, Auto update | `app:version []`, `app-update:auto:read []` | `app-update:auto:save [bool]` |
 //! | Worktrees | Sync source branch before new Worktrees | `main-sync:default:read []` | `main-sync:default:save [bool]` |
 //! | Worktrees | Clean up worktrees | `storage:worktrees []` | `storage:remove-worktree [{projectPath, path, seen, force, activity, idleBefore, lastAt}]` |
+//! | Skills | the open Project's skills | `skills:list [path]`, `skills:read [path, file]` | Open in editor, Show in Finder: this window |
+//! | Integrations | Linear | `linear:enabled:read []`, `linear:status []` | `linear:enabled:save [bool]`, `linear:move-to-started:save [bool]`, `linear:connect [{window: false}]`, `linear:disconnect [{workspace}]` |
+//! | Integrations | Babysit PRs | `babysit:settings:read []` | `babysit:settings:save [patch]` |
+//! | Phone & sharing | access, the code, paired devices, Reset | `phone:status []`, `devices:list []` | `phone:set-enabled`, `phone:set-lan`, `phone:open-pairing`, `phone:reset`, `devices:remove [key]`, `devices:acknowledge [keys]` |
+//! | This Mac | memory and disk | `computer:resources:read []` | |
+//! | A Project | Sidebar, Worktrees, Branches, New worktrees | `project:recent`, `main-sync:read`, `project-git:read`, `files-to-copy:read` / `:preview`, `worktree-setup:read` `[path]` | `project:set-hidden`, `main-sync:save`, `project-git:save`, `files-to-copy:save`, `worktree-setup:save` `[path, value]` |
+//!
+//! Skills, Integrations, Phone & sharing, This Mac and the Projects' pages keep their own state and call the daemon
+//! through the base crate's [`SettingsHost`](milagre_gpui_spike::settings::host::SettingsHost) ([`host`]); each reads
+//! again when Settings opens or goes to it (the host's `visit`).
 //!
 //! The rows this window cannot honour (the sidebar's order and list, plan-usage display, default model and
 //! permission, replies, Ultracode, update channel and checks) stay hidden and out of search ([`HIDDEN`]). Everything
@@ -43,8 +53,24 @@ use serde_json::{Value, json};
 use crate::daemon::Daemon;
 use crate::usage::off_thread;
 
-/// The sections this window draws as full pages on Milagre's daemon.
-pub const SECTIONS: &[S] = &[S::General, S::Chat, S::Keybindings, S::Models, S::Worktrees, S::Experimental, S::About];
+mod host;
+
+/// The sections this window draws as full pages on Milagre's daemon. MCP stays out: its place goes to the tool
+/// orchestrator being designed.
+pub const SECTIONS: &[S] = &[
+    S::General,
+    S::Chat,
+    S::Keybindings,
+    S::Models,
+    S::Skills,
+    S::Worktrees,
+    S::Connections,
+    S::Devices,
+    S::ThisMac,
+    S::Project,
+    S::Experimental,
+    S::About,
+];
 
 /// Rows and groups (Settings search titles) on [`SECTIONS`] this window cannot honour: hidden and not searched.
 pub const HIDDEN: &[(S, &str)] = &[
@@ -74,6 +100,21 @@ pub const HIDDEN: &[(S, &str)] = &[
     (S::About, "Release channel"),
     (S::About, "Updates"),
     (S::About, "Check for updates"),
+    // Simlock and the published pages are not read here yet.
+    (S::Devices, "Simulators"),
+    (S::Devices, "Simlock devices"),
+    (S::Devices, "Designs and artifacts"),
+    (S::Devices, "Published pages"),
+    // Driving other computers is the computers' own (their pages); Computer use is not read here yet.
+    (S::ThisMac, "Drive other computers"),
+    (S::ThisMac, "Add computer"),
+    (S::ThisMac, "Automation"),
+    (S::ThisMac, "Computer use"),
+    // A Project's icon (decoded and resized before `project:set-icon`), its accounts and Remove Project are not
+    // wired here yet.
+    (S::Project, "Appearance"),
+    (S::Project, "Accounts"),
+    (S::Project, "Remove Project"),
 ];
 
 /// The reads, in order, on one request-only connection.
@@ -316,6 +357,8 @@ pub struct LiveSettings {
     read_again: bool,
     keys_busy: bool,
     settings_open: bool,
+    /// The page Settings shows (`None`: closed), for the pages' host visits.
+    shown_page: Option<milagre_gpui_spike::settings::SelectedSection>,
     opened_file: usize,
     /// Every write sent (method and arguments), refused in read-only mode, and failed reads and writes (tests).
     pub sent: Vec<(String, Value)>,
@@ -327,6 +370,11 @@ pub struct LiveSettings {
 struct Held(Entity<LiveSettings>);
 
 impl Global for Held {}
+
+/// The Project whose connection carries Settings' reads and writes: the live one, else the most recent.
+pub(crate) fn project_of(daemon: &Daemon) -> Option<String> {
+    daemon.primary().map(|(project, _)| project).or_else(|| daemon.known().first().map(|known| known.path.clone()))
+}
 
 /// The window's [`LiveSettings`], once [`attach`]ed.
 pub fn live(cx: &App) -> Option<Entity<LiveSettings>> {
@@ -344,7 +392,12 @@ pub fn attach(workspace: &Entity<Workspace>, daemon: Arc<Daemon>, cx: &mut App) 
     }
     cx.update_global::<KeybindingsStore, _>(|keys, _| keys.live = true);
     milagre_gpui_spike::settings::devices::init(cx);
-    let live = cx.new(|cx| LiveSettings::new(workspace, daemon, cx));
+    // The pages' host first: Settings' views read it when they are made.
+    let pages = daemon.clone();
+    let live = cx.new(|cx| {
+        cx.set_global(host::make(pages, cx.weak_entity()));
+        LiveSettings::new(workspace, daemon, cx)
+    });
     cx.set_global(Held(live.clone()));
     let remover = live.downgrade();
     cx.set_global(CleanupRemover(std::rc::Rc::new(move |path: String, cx: &mut App| match remover.upgrade() {
@@ -370,9 +423,19 @@ impl LiveSettings {
             settings.update(cx, |s, cx| s.select_section(milagre_gpui_spike::settings::SelectedSection::Section(section), cx));
         }
         cx.observe(&settings, |this, settings, cx| {
-            let open = settings.read(cx).is_open();
+            let (open, page) = {
+                let settings = settings.read(cx);
+                (settings.is_open(), settings.selected().clone())
+            };
             if open && !this.settings_open {
                 this.read(cx);
+            }
+            // The pages read again when Settings opens or goes to another page, and stop following once it closes.
+            let shown = open.then_some(page);
+            if shown != this.shown_page {
+                this.shown_page = shown;
+                cx.update_global::<milagre_gpui_spike::settings::host::SettingsHost, _>(|host, _| host.visit += 1);
+                cx.refresh_windows();
             }
             this.settings_open = open;
         })
@@ -392,6 +455,7 @@ impl LiveSettings {
             read_again: false,
             keys_busy: false,
             settings_open: settings.read(cx).is_open(),
+            shown_page: None,
             opened_file: cx.global::<KeybindingsStore>().opened_file,
             sent: Vec::new(),
             refused: Vec::new(),
@@ -422,7 +486,7 @@ impl LiveSettings {
 
     /// The Project whose connection carries Settings' reads and writes: the live one, else the most recent.
     fn project(&self) -> Option<String> {
-        self.daemon.primary().map(|(project, _)| project).or_else(|| self.daemon.known().first().map(|known| known.path.clone()))
+        project_of(&self.daemon)
     }
 
     /// Reads every section's host-kept values and this computer's keybindings.

@@ -635,6 +635,18 @@ pub const READS: &[&str] = &[
     "keybindings:read",
     "main-sync:default:read",
     "storage:worktrees",
+    // Settings' pages ([`crate::settings::host`]): Skills, Integrations, Phone & sharing, This Mac and a Project's page.
+    "skills:list",
+    "skills:read",
+    "babysit:settings:read",
+    "phone:status",
+    "devices:list",
+    "computer:resources:read",
+    "project:recent",
+    "main-sync:read",
+    "files-to-copy:read",
+    "files-to-copy:preview",
+    "worktree-setup:read",
     // The Designs and Artifact tabs ([`crate::canvas`]): the Chat's designs and page, their versions, files and comments.
     "artifact:list",
     "artifact:get",

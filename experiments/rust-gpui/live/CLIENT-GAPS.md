@@ -299,18 +299,23 @@ full table). Every write is tested on the fake daemon only.
 | Keybindings | `keybindings:read`, `keybindings:set-command`, `keybindings:reset`; Open keybindings.json opens the file natively | listed, this computer only (paired computers' are not read) |
 | Models | `context:settings:*` (Auto compact, thresholds) | listed; New chats, Replies, Context size, Show Compact hidden (the composer and sends fix them) |
 | Accounts, Usage | `accounts:*`, `usage:*` (the PR agent's) | listed (unchanged) |
-| Skills | `skills:list`, `skills:read` reachable | hidden: the page's fixture model has no data hook yet |
-| MCP | `mcp:*`, `local-mcp:*` reachable | hidden: not wired (the answers carry server env, the sheet writes need care) |
+| Skills | `skills:list [path]`, `skills:read [path, file]` on the live Project; Open in editor and Show in Finder done by this window for a file the list holds (`skills:open`/`skills:reveal` are Electron's main) | listed |
+| MCP | `mcp:*`, `local-mcp:*` reachable | hidden on purpose: MCP gives way to the tool orchestrator being designed |
 | Browser | Electron's browser partitions (`browser-panel:*` Electron-only) | hidden |
 | Worktrees | `main-sync:default:*`; `storage:worktrees` + `storage:remove-worktree` (the cleanup dialog's `CleanupRemover`) | listed |
-| Integrations | `linear:*`, `babysit:settings:*` reachable | hidden: the page's state is a fixture with no data hook yet |
-| Devices, This Mac | `devices:*`, `phone:*` reachable; computers are the computers agent's | hidden |
-| Projects' pages | `project-git:*`, `files-to-copy:*`, `worktree-setup:*`, `main-sync:*` reachable | hidden |
+| Integrations | Linear: `linear:enabled:read`/`:save`, `linear:status`, `linear:move-to-started:save`, `linear:connect [{window: false}]` (the host opens the system browser), `linear:disconnect [{workspace}]`; Babysit PRs: `babysit:settings:read`/`:save [patch]` | listed. The client caps a request at 30 s, so a sign-in answers `TimedOut` while the host waits; the page follows `linear:status` every 2 s (up to 5.5 min) until the new workspace shows. No sign-in window of its own (Use my browser instead never shows) |
+| Phone & sharing | `phone:status`, `phone:set-enabled`, `phone:set-lan`, `phone:open-pairing` (when the code shows, and Allow pairing again), `phone:reset`; `devices:list` (every 15 s while shown), `devices:remove`, `devices:acknowledge`; the host's QR SVG drawn as an image | listed; Simulators (Simlock) and Designs and artifacts (published pages) hidden. No `phone:status` event follow-up: read on each visit and after each action |
+| This Mac | `computer:resources:read` (again every 3 s while the disk is measured) | listed: this computer's memory and disk only; Drive other computers, Add computer and Computer use hidden (paired computers are the computers agent's) |
+| Projects' pages | `project:recent` / `project:set-hidden` (the sidebar follows), `main-sync:read`/`:save`, `project-git:read`/`:save`, `files-to-copy:read`/`:preview`/`:save`, `worktree-setup:read`/`:save`, all `[path, …]` on the live Project's connection | listed for the nav's Projects; Appearance (icon: `project:set-icon` needs the decode and 256px resize), Accounts and Remove Project (`project:forget`) hidden |
 | Experimental | `linked:remote-enabled:*`, `device-notes:*` | listed; Ultracode Fatality and New Chat stats hidden; floating inbox Electron-only |
 | About | `app:version`, `app-update:auto:*` | listed; Release channel and Updates hidden (`update:*` Electron-only) |
 | Speech model / Voice | `app:dictation-*` Electron-only | not in the port |
 
-No client gap blocks the hidden ones except Browser and Speech (Electron-only); the rest need GPUI-side wiring.
+Skills, Integrations, Phone & sharing, This Mac and the Projects' pages call the daemon through the base crate's
+`settings::host::SettingsHost` (one call with Electron's command and arguments; `live/src/settings/host.rs` routes reads
+to `daemon::READS` on a short request-only connection and writes to the live Project's writer, refused and recorded in
+read-only mode). Each page reads again when Settings opens or goes to it (the host's `visit`). No client gap blocks the
+hidden ones except Browser and Speech (Electron-only); the rest need GPUI-side wiring.
 
 ## Round 9 (2026-11-12): client `09a75bfc`, the real Keychain kept to the installed profile
 

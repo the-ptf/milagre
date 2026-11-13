@@ -797,9 +797,7 @@ impl World {
             "agent:set-permission-mode" | "chat:queue-send" | "chat:queue-remove" => Value::Null,
             // The new-Chat tray: two branches, `develop` the Project's base, Linear on with one issue.
             "project:branches" => json!(["main", "develop"]),
-            "project-git:read" => json!({"effective":{"baseBranch":"develop"}}),
-            "linear:enabled:read" => json!({"enabled":true}),
-            "linear:status" => json!({"connected":true}),
+            // `project-git:read`, `linear:enabled:read` and `linear:status` are Settings' too (`fake_settings`).
             "linear:issues" => {
                 json!({"issues":[{"key":"FAKE-1","title":"Fake issue","url":"https://linear.app/fake/issue/fake-1","workspace":"fake"}]})
             }
