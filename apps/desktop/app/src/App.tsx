@@ -1220,6 +1220,8 @@ function App() {
     liveSplit.length === focusedFamily.children.length + 1 &&
     liveSplit.includes(focusedFamily.root) &&
     focusedFamily.children.every((key) => liveSplit.includes(key));
+  // The grid toggle and the Subchats button, at the corner's far right, right of the panel buttons.
+  const trailingCorner = (view === "chat" ? 1 : 0) + (view === "chat" && focusedFamily && focusedFamily.children.length > 0 ? 1 : 0);
   // The buttons in the window's top right corner a bar along <main>'s top keeps clear of (CORNER_PITCH each).
   const cornerButtons =
     sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) +
@@ -3853,7 +3855,8 @@ function App() {
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <PanelToggles
-            right={12}
+            // The grid and Subchats buttons sit at the corner's far right; the panel buttons come before them.
+            right={12 + trailingCorner * CORNER_PITCH}
             changes={
               changesAvailable
                 ? {
@@ -3871,20 +3874,9 @@ function App() {
                 : undefined
             }
           />
-          {view === "chat" && (
-            <LayoutToggle
-              grid={layout === "grid"}
-              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber)}
-              onToggle={toggleLayout}
-            />
-          )}
+          {view === "chat" && <LayoutToggle grid={layout === "grid"} offset={0} onToggle={toggleLayout} />}
           {view === "chat" && focusedFamily && focusedFamily.children.length > 0 && (
-            <SubchatsButton
-              count={focusedFamily.children.length}
-              shown={familyShown}
-              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + 1}
-              onToggle={toggleFamily}
-            />
+            <SubchatsButton count={focusedFamily.children.length} shown={familyShown} offset={view === "chat" ? 1 : 0} onToggle={toggleFamily} />
           )}
           <div
             className={`flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink ${appEntered ? "" : "app-enter"}`}

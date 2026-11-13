@@ -5,7 +5,7 @@ import {
   File01Icon,
   ComputerTerminal01Icon,
   Globe02Icon,
-  InformationCircleIcon,
+  LeftToRightListBulletIcon,
   PaintBoardIcon,
   SmartphoneIcon,
   GitPullRequestIcon,
@@ -63,12 +63,12 @@ export function useSidePanels() {
 // Changes, the theme and the canvas are App's keys. The Terminals take ⌘J by default, as in VS Code; New Terminal is App's.
 // `title`, when the tooltip names the panel differently from its button's accessible name. Details has no shortcut.
 const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command?: KeybindingCommandId }[] = [
+  { name: "details", label: "details", title: "Details", icon: LeftToRightListBulletIcon },
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
   { name: "artifacts", label: "artifacts", icon: File01Icon, command: "artifacts.toggle" },
   { name: "designs", label: "designs", icon: PaintBoardIcon, command: "designs.toggle" },
   { name: "browser", label: "browser", title: "Browser panel", icon: Globe02Icon, command: "browser.toggle" },
   { name: "simulator", label: "simulator", title: "Simulators", icon: SmartphoneIcon, command: "simulator.toggle" },
-  { name: "details", label: "details", title: "Details", icon: InformationCircleIcon },
 ];
 
 /**

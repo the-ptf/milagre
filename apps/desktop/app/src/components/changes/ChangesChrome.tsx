@@ -134,12 +134,6 @@ export function SubchatsButton({ count, shown, offset, onToggle }: { count: numb
           className={`relative flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${shown ? "bg-hover text-ink" : "text-ink-3"}`}
         >
           <HugeiconsIcon icon={HierarchySquare02Icon} size={18} strokeWidth={1.8} color="currentColor" />
-          <span
-            aria-hidden
-            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-10 font-semibold tabular-nums text-white"
-          >
-            {count}
-          </span>
         </button>
       </Tooltip>
     </div>
