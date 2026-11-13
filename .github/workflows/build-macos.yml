@@ -78,6 +78,13 @@ jobs:
           const result = spawnSync('xcrun', ['notarytool', 'history', '--apple-id', email.trim(), '--password', password.trim(), '--team-id', team.trim(), '--output-format', 'json'], { encoding: 'utf8' })
           if (result.status !== 0) {
             console.error(/401/.test(result.stderr + result.stdout) ? 'Apple rejected the configured credentials (HTTP 401).' : 'Apple authentication check failed (exit ' + result.status + ').')
+            // notarytool's own words say why (an agreement to accept, a locked account, the service down); the
+            // credentials are masked out of them first.
+            const masked = [email, password, team].map(value => value.trim()).filter(Boolean)
+            const mask = text => masked.reduce((out, value) => out.split(value).join('***'), String(text ?? '')).trim()
+            if (result.error) console.error('notarytool did not run: ' + mask(result.error.message))
+            if (mask(result.stderr)) console.error('notarytool stderr:\n' + mask(result.stderr).slice(0, 2000))
+            if (mask(result.stdout)) console.error('notarytool stdout:\n' + mask(result.stdout).slice(0, 2000))
             process.exit(1)
           }
           console.log('Apple accepted the configured notarization credentials.')
