@@ -899,7 +899,6 @@ export function PromptComposer({
             provider={provider}
             onProviderChange={setProvider}
             models={modelRows}
-            totalModels={models.filter((model) => model.provider === provider).length}
             query={query}
             onQueryChange={setQuery}
             cliStatus={cliStatus}

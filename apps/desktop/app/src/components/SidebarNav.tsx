@@ -33,7 +33,6 @@ import {
   Delete02Icon,
   FolderAddIcon,
   FolderOpenIcon,
-  FlowConnectionIcon,
   LaptopIcon,
   Link04Icon,
   MoreVerticalIcon,
@@ -155,7 +154,6 @@ const DEFAULT_RECENTS: SidebarRecent[] = [
 type SidebarNavProps = {
   selectedLink?: { id: string; projects: Array<{ path: string; name: string }> };
   onSwitchLink?: (id: string) => void;
-  onLinkProject?: () => void;
   /** Opens Add computer. */
   onAddComputer?: () => void;
   /** Opens a computer's settings; null for This Mac (Settings › Devices). */
@@ -180,8 +178,6 @@ type SidebarNavProps = {
   /** Current scope shortcut targets, in this sidebar mode's visible order. */
   onJumpChatsChange?: (ids: string[]) => void;
   onOpenSettings?: () => void;
-  onOpenCanvas?: () => void;
-  canvasActive?: boolean;
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
@@ -556,7 +552,6 @@ export default memo(function SidebarNav({
   workspaceName = WORKSPACE.name,
   workspaceImage,
   selectedLink,
-  onLinkProject,
   onAddComputer,
   onOpenComputerSettings,
   onEditLink,
@@ -573,8 +568,6 @@ export default memo(function SidebarNav({
   onPick,
   onJumpChatsChange,
   onOpenSettings,
-  onOpenCanvas,
-  canvasActive = false,
   onOpenRoutines,
   routinesActive = false,
   routinesUnread = false,
@@ -1653,7 +1646,7 @@ export default memo(function SidebarNav({
   }, []);
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
-      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Routines, Link projects and Search.
+      {/* The window's top bar, beside its controls: the sidebar toggle, then Routines and Search (Canvas sits in the window's right corner; Link Projects in the Add Project dialog).
           No capsule behind it: the chat's top band (.chat-top-blur) keeps scrolled text out from under the bar. */}
       <div
         ref={bar}
@@ -1675,11 +1668,6 @@ export default memo(function SidebarNav({
         </div>
         {/* 8px apart, the panel toggles' pitch (CORNER_PITCH), so both ends of the bar keep one rhythm. */}
         <div data-sidebar-tools className="no-drag flex items-center gap-2">
-          {onOpenCanvas && (
-            <Tooltip label="Canvas" side="bottom" shortcut={keys.canvas}>
-              <IconButton size={32} label="Canvas" icon={FlowConnectionIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
-            </Tooltip>
-          )}
           {onOpenRoutines && (
             <Tooltip label="Routines" side="bottom">
               <IconButton
@@ -1698,11 +1686,6 @@ export default memo(function SidebarNav({
                   )}
                 </span>
               </IconButton>
-            </Tooltip>
-          )}
-          {onLinkProject && (
-            <Tooltip label="Link Projects" side="bottom">
-              <IconButton size={32} label="Link Projects" icon={Link04Icon} data-link-projects onClick={onLinkProject} />
             </Tooltip>
           )}
           {onOpenCommands && (

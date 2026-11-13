@@ -21,7 +21,7 @@ import type { DiffList } from "./changes/useDiffFiles";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
 import { ChangesPanelSlot } from "./changes/ChangesPanelSlot";
 import { DiffView } from "./changes/DiffView";
-import { ChangesToggle, DiffBar } from "./changes/ChangesChrome";
+import { CanvasButton, ChangesToggle, DiffBar } from "./changes/ChangesChrome";
 import { DiffToolbar, useDiffPreferences } from "./changes/DiffPrefs";
 import { useDiffComments } from "./changes/useDiffComments";
 import { formatCommentsMessage } from "../lib/diff-comments";
@@ -659,7 +659,6 @@ export function LinkWorkspace({
                 workspaceName={opened.link.name}
                 selectedLink={{ id: opened.link.id, projects: opened.projects }}
                 onSwitchLink={onSwitchLink}
-                onLinkProject={onLinkProject}
                 onAddComputer={onAddComputer}
                 onOpenComputerSettings={onOpenComputerSettings}
                 onEditLink={onEditLink}
@@ -668,11 +667,6 @@ export function LinkWorkspace({
                 onOpenProject={onOpenProject}
                 onOpenCommands={() => setCommandsOpen(true)}
                 onOpenSettings={onSettings}
-                canvasActive={canvasOpen}
-                onOpenCanvas={() => {
-                  changes.closeDiff();
-                  setCanvasOpen(true);
-                }}
                 onNewChat={onNewChat ? () => onNewChat() : () => pick(null)}
                 onNewCurrentScopeChat={() => pick(null)}
                 onPick={(id) => pick(Number(id))}
@@ -982,8 +976,16 @@ export function LinkWorkspace({
               )}
             </ChangesPanelSlot>
           </div>
-          {!canvasOpen && session && <ChangesToggle open={changes.open} onToggle={toggleChanges} />}
-          <PanelToggles right={!canvasOpen && session ? 12 + CORNER_PITCH : 12} />
+          {/* The canvas button at the corner's far right, then Changes and the panel buttons left of it. */}
+          <CanvasButton
+            active={canvasOpen}
+            onToggle={() => {
+              changes.closeDiff();
+              setCanvasOpen(!canvasOpen);
+            }}
+          />
+          {!canvasOpen && session && <ChangesToggle open={changes.open} onToggle={toggleChanges} offset={1} />}
+          <PanelToggles right={!canvasOpen && session ? 12 + 2 * CORNER_PITCH : 12 + CORNER_PITCH} />
           {gitChoice !== null && (
             <Dialog
               aria-label="Choose Project for Git"

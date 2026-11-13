@@ -87,7 +87,7 @@ import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
 import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
-import { DiffBar, LayoutToggle, SubchatsButton } from "./components/changes/ChangesChrome";
+import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -468,7 +468,6 @@ function App() {
   layoutRef.current = layout;
   useEffect(() => saveChatLayout(localStorage, layout), [layout]);
   const toggleLayout = () => setLayout((current) => (current === "grid" ? "single" : "grid"));
-  const showGrid = () => setLayout("grid");
   // Chats kept in the grid while idle: dropped there from the sidebar, or pinned from a tile's header.
   const [gridPins, setGridPins] = useState<readonly string[]>(() => readGridPins(localStorage));
   const changeGridPins = (change: (pins: readonly string[]) => readonly string[]) =>
@@ -1214,19 +1213,11 @@ function App() {
     () => (focusedChatKey ? chatFamily(gridStates[projectOfKey(focusedChatKey)]?.sessions, focusedChatKey) : null),
     [gridStates, focusedChatKey],
   );
-  const familyShown =
-    splitOn &&
-    focusedFamily !== null &&
-    liveSplit.length === focusedFamily.children.length + 1 &&
-    liveSplit.includes(focusedFamily.root) &&
-    focusedFamily.children.every((key) => liveSplit.includes(key));
-  // The grid toggle and the Subchats button, at the corner's far right, right of the panel buttons.
-  const trailingCorner = (view === "chat" ? 1 : 0) + (view === "chat" && focusedFamily && focusedFamily.children.length > 0 ? 1 : 0);
+  // The canvas button at the far right, in the Chat view and on the canvas itself.
+  const canvasButtonShown = view === "chat" || view === "canvas";
+  const trailingCorner = canvasButtonShown ? 1 : 0;
   // The buttons in the window's top right corner a bar along <main>'s top keeps clear of (CORNER_PITCH each).
-  const cornerButtons =
-    sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) +
-    (view === "chat" ? 1 : 0) +
-    (view === "chat" && focusedFamily && focusedFamily.children.length > 0 ? 1 : 0);
+  const cornerButtons = sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" || view === "canvas" ? 1 : 0);
   const endSplit = useEvent(() => {
     setSplitKeys(NO_KEYS);
     setLayout("single");
@@ -1238,14 +1229,12 @@ function App() {
     setSplitKeys(besideParent(parent, open));
     setLayout("split");
   });
-  // "Show all N side by side" and the Subchats button: the whole family, the focused Chat always among it.
+  // "Show all N side by side": the whole family, the focused Chat always among it.
   const showFamily = useEvent(() => {
     if (!focusedFamily) return;
     setSplitKeys(familySplit(focusedFamily, gridFocusKeyRef.current));
     setLayout("split");
   });
-  // The Subchats button turned off always returns to the open Chat alone.
-  const toggleFamily = useEvent(() => (familyShown ? endSplit() : showFamily()));
   useEffect(
     () =>
       gridDrop.register({
@@ -2709,15 +2698,6 @@ function App() {
         changes.closeDiff();
         setSettingsSection("usage");
         setSettingsOpen(true);
-      } else if (command === "grid.toggle") {
-        event.preventDefault();
-        // Away from the Chat view the grid has nothing to toggle: the shortcut shows it there instead.
-        if (viewRef.current === "chat") toggleLayout();
-        else {
-          changes.closeDiff();
-          setView("chat");
-          showGrid();
-        }
       } else if (command === "chat.parent") {
         // The bookmark's way up: the open Chat's nearest listed ancestor, alone. Nothing on a Chat that has none.
         const open = gridFocusKeyRef.current;
@@ -2985,7 +2965,6 @@ function App() {
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   // One identity each, so memo(SidebarNav) skips the renders a streaming reply or a run change makes here.
   const switchLinkFromSidebar = useEvent((id: string) => void selectLink(id));
-  const linkProjectFromSidebar = useEvent(() => setLinkDialogOpen(true));
   const addComputerFromSidebar = useEvent(() => setAddComputerOpen(true));
   const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
   const deleteLinkFromSidebar = useEvent((id: string) => void deleteLink(id));
@@ -3355,6 +3334,10 @@ function App() {
   const addProjectDialog = addProjectOpen ? (
     <AddProjectDialog
       onClose={() => setAddProjectOpen(false)}
+      onLinkProjects={() => {
+        setAddProjectOpen(false);
+        setLinkDialogOpen(true);
+      }}
       onOpened={(opened) => {
         setAddProjectOpen(false);
         void replaceProject(async () => opened);
@@ -3488,7 +3471,6 @@ function App() {
               onOpenProject={openProjectFromSidebar}
               onSwitchProject={switchProjectFromSidebar}
               onSwitchLink={(id) => void selectLink(id)}
-              onLinkProject={() => setLinkDialogOpen(true)}
               onEditLink={(id) => void editLink(id)}
               onDeleteLink={deleteLinkFromSidebar}
               onAddComputer={() => setAddComputerOpen(true)}
@@ -3656,18 +3638,19 @@ function App() {
           setView("chat");
         },
       });
-    commands.push({
-      id: "chat-layout",
-      label: layout === "grid" ? "Show one Chat" : "Show active Chats as a grid",
-      group: "Actions",
-      icon: "chat",
-      keybinding: "grid.toggle" as const,
-      keywords: "grid layout split multiple chats tiles",
-      run: () => {
-        setView("chat");
-        toggleLayout();
-      },
-    });
+    // A grid comes from dragging a Chat onto the open one; the palette only leaves it.
+    if (layout === "grid")
+      commands.push({
+        id: "chat-layout",
+        label: "Show one Chat",
+        group: "Actions",
+        icon: "chat",
+        keywords: "grid layout split multiple chats tiles",
+        run: () => {
+          setView("chat");
+          toggleLayout();
+        },
+      });
     commands.push(...settingsCommands(getSettings(), updateSettings));
     if (selectedSession && view === "chat" && !settingsOpen) {
       const sessionId = selectedSession.id;
@@ -3874,10 +3857,7 @@ function App() {
                 : undefined
             }
           />
-          {view === "chat" && <LayoutToggle grid={layout === "grid"} offset={0} onToggle={toggleLayout} />}
-          {view === "chat" && focusedFamily && focusedFamily.children.length > 0 && (
-            <SubchatsButton count={focusedFamily.children.length} shown={familyShown} offset={view === "chat" ? 1 : 0} onToggle={toggleFamily} />
-          )}
+          {canvasButtonShown && <CanvasButton active={view === "canvas"} onToggle={() => (view === "canvas" ? setView("chat") : openCanvas())} />}
           <div
             className={`flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink ${appEntered ? "" : "app-enter"}`}
             onAnimationEnd={(event) => {
@@ -3893,7 +3873,6 @@ function App() {
                   workspaceName={surfaces.name}
                   workspaceImage={projectImage(project.path)}
                   onSwitchLink={switchLinkFromSidebar}
-                  onLinkProject={linkProjectFromSidebar}
                   onAddComputer={addComputerFromSidebar}
                   onOpenComputerSettings={openComputerSettings}
                   onEditLink={editLinkFromSidebar}
@@ -3915,8 +3894,6 @@ function App() {
                   scopeChatActions={scopeChatActions}
                   onNewChat={startNewChatFromSidebar}
                   onOpenSettings={openSettings}
-                  onOpenCanvas={openCanvas}
-                  canvasActive={view === "canvas"}
                   onOpenRoutines={openRoutines}
                   routinesActive={view === "routines"}
                   routinesUnread={unreadRunRoutineIds.size > 0}

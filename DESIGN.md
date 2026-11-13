@@ -555,11 +555,15 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - Film grain (Settings › Appearance › Film grain, on by default): faint static specks over the window background, the
   Chat's top band and the side panels (sidebar, Changes) at half strength; never on the composer or the Details glass.
 - The sidebar has no dividers above Done, the usage block or its footer.
+- The top-left bar is the sidebar toggle, Routines and Search. Canvas is the last button of the window's right corner;
+  Link Projects is the third choice of the Add Project dialog (Open a folder, Clone a repository, Link Projects), whose
+  computer is a menu. No grid or Subchats side-by-side buttons: a grid comes from dragging a Chat onto the open one.
+- The model picker has no provider and model-count header above its account and search.
 - No Subchats pill above the composer on desktop: the Details panel's Lineage lists them. The phone keeps its pill (it
   has no Details panel). No "N waiting" chip in the top bar, nor the phone's Attention pill.
 - The Details overlay (from GPUI's Details tab) floats over the Chat under the corner's buttons, never pushing it aside:
   the composer's glass (surface at 76%, `backdrop-blur-chip`), a 1px ring and a faint shadow, fading in moving down. It
-  is the first corner button (a list icon) and has no shortcut: Environment, Lineage
+  is the first corner button (a card with right-aligned lines, `AlignBoxMiddleRight`) and has no shortcut: Environment, Lineage
   (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, a muted → before the state under the pointer), Background
   tasks and Links. Rows are 32 high, inset 8 from the card's edges so the `hover` fill is a rounded block; Lineage,
   Background tasks and Links fold. Artifacts, Designs, Browser and Simulator keep their shortcuts.

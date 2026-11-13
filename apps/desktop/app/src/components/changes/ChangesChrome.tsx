@@ -1,6 +1,5 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useShortcutLabel } from "../../lib/keybindings";
-import { ArrowLeft02Icon, FileDiffIcon, GridViewIcon, HierarchySquare02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft02Icon, FileDiffIcon, FlowConnectionIcon } from "@hugeicons/core-free-icons";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Tooltip from "../primitives/Tooltip";
 import { buttonClass, IconButton } from "../primitives/Button";
@@ -90,11 +89,11 @@ export function DiffBar({
 }
 
 /** Top-right window button; sits inside the drag strip, so it opts out of dragging. */
-export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function ChangesToggle({ open, onToggle, offset = 0 }: { open: boolean; onToggle: () => void; offset?: number }) {
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("changes.toggle");
   return (
-    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={open ? "Hide Changes" : "Show Changes"} shortcut={shortcut} compactHint side="bottom" align="end">
         <IconButton label="Toggle changes panel" icon={FileDiffIcon} size={32} aria-pressed={open} data-changes-toggle onClick={onToggle} />
       </Tooltip>
@@ -102,39 +101,14 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
   );
 }
 
-/** Top right, left of the panel buttons: shows every active Chat as a grid, or the open one alone. `offset` is how many corner buttons sit right of it. */
-export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset: number; onToggle: () => void }) {
+/** The corner's last button, at its far right: opens the canvas, or goes back from it. `offset` is how many corner buttons sit right of it. */
+export function CanvasButton({ active, offset = 0, onToggle }: { active: boolean; offset?: number; onToggle: () => void }) {
   const chrome = useWindowChrome();
-  const shortcut = useShortcutLabel("grid.toggle");
+  const shortcut = useShortcutLabel("canvas.open");
   return (
     <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
-      <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
-        <IconButton label="Show active Chats as a grid" icon={GridViewIcon} size={32} aria-pressed={grid} data-layout-toggle onClick={onToggle} />
-      </Tooltip>
-    </div>
-  );
-}
-
-/**
- * Top right, left of the layout toggle, on a Chat with subchats (subchat-rows.ts): shows the parent and every subchat side
- * by side, or the open Chat alone again. `offset` is how many corner buttons sit right of it.
- */
-export function SubchatsButton({ count, shown, offset, onToggle }: { count: number; shown: boolean; offset: number; onToggle: () => void }) {
-  const chrome = useWindowChrome();
-  const label = shown ? "Back to the open Chat" : `Show the ${count} subchat${count === 1 ? "" : "s"} side by side`;
-  return (
-    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
-      <Tooltip label={label} compactHint side="bottom" align="end">
-        <button
-          type="button"
-          aria-label={label}
-          aria-pressed={shown}
-          data-subchats-toggle
-          onClick={onToggle}
-          className={`relative flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${shown ? "bg-hover text-ink" : "text-ink-3"}`}
-        >
-          <HugeiconsIcon icon={HierarchySquare02Icon} size={18} strokeWidth={1.8} color="currentColor" />
-        </button>
+      <Tooltip label={active ? "Back to the Chat" : "Canvas"} shortcut={shortcut} compactHint side="bottom" align="end">
+        <IconButton label="Canvas" icon={FlowConnectionIcon} size={32} aria-pressed={active} data-canvas-toggle onClick={onToggle} />
       </Tooltip>
     </div>
   );
