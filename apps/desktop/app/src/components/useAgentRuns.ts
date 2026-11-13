@@ -34,15 +34,15 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
   modelForRef.current = modelFor;
 
   // The streamed text, read from the latest runs: a batch that only grows replies reaches the readers of their text and
-  // leaves `runs` (and the window it feeds) as it was. Every write below tells the text's readers too, so they render
-  // with the window in the same pass.
+  // leaves `runs` (and the window it feeds) as it was. Every write below also tells the readers of each text it changed,
+  // so they render with the window in the same pass.
   const [text] = useState(() => createRunTextStore((chatKey) => runsRef.current[chatKey]?.text));
   const setAll = useCallback(
     (next: AgentRuns) => {
       const previous = runsRef.current;
       runsRef.current = next;
       setRuns(next);
-      text.notify(new Set([...Object.keys(previous), ...Object.keys(next)]));
+      text.notify([...Object.keys(previous), ...Object.keys(next)].filter((key) => previous[key]?.text !== next[key]?.text));
     },
     [text],
   );
