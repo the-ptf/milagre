@@ -474,7 +474,7 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 - The composer is a floating control: the surface at 76% with `backdrop-blur-chip` and a low shadow, never a raised
   card. In an open Chat it and the chip row float over the transcript, which scrolls on under their glass; the
   transcript's bottom pad is their height,
-  and it stops on the composer's bottom edge so no text shows under it.
+  and with one Chat alone (no Terminal drawer) the transcript runs to the window's bottom edge, under the composer.
 - With Ultracode on, its border and glow take purple and breathe slowly.
 
 ## Copy

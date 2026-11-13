@@ -169,6 +169,7 @@ import { chatBookmark } from "@milagre/shared/subchats";
 import { ChatIdentity } from "./components/agents/ChatIdentity";
 import { SubchatBookmark } from "./components/agents/SubchatBookmark";
 import { DetailsPanelHost } from "./components/agents/DetailsPanel";
+import { useChatTerminals } from "./lib/terminal-store";
 import { provideSubchatActions, SubchatWaitingNote, type SubchatActions } from "./components/agents/SubchatMessages";
 import { useStepApprovalScope } from "./components/agents/step-approval";
 import { pendingWaitingNote } from "./lib/subchat-transcript";
@@ -873,6 +874,7 @@ function App() {
   changesAvailableRef.current = changesAvailable;
   // The open Chat's Terminals; a draft has none until it is sent.
   const terminalChatId = view === "chat" && project && selectedSession && !selectedSession.archived ? chatKey(project.path, selectedSession.id) : null;
+  const terminalOpen = useChatTerminals(terminalChatId).open;
   const terminalChatRef = useRef(terminalChatId);
   terminalChatRef.current = terminalChatId;
   useTerminalSync(terminalChatId);
@@ -1171,6 +1173,8 @@ function App() {
   const familySessions = focusedChatKey && !selectedLink ? (gridStates[projectOfKey(focusedChatKey)] as CoordinatorState | undefined)?.sessions : undefined;
   familySessionsRef.current = familySessions;
   const bookmarkShown = view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && !runPaneOpen;
+  // One open Chat alone, no Terminal drawer under it: its transcript runs to the window's bottom edge.
+  const chatToEdge = bookmarkShown && Boolean(selectedSession && selectedSession.id > 0) && !terminalOpen;
   const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
   const shownTilesRef = useRef(shownTiles);
   shownTilesRef.current = shownTiles;
@@ -3947,7 +3951,13 @@ function App() {
               </PullRequestOpenContext.Provider>
             </div>
 
-            <main data-workspace-main className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 pb-3">
+            <main
+              data-workspace-main
+              data-chat-to-edge={chatToEdge || undefined}
+              // One open Chat alone runs its transcript to the window's bottom edge, under the composer: <main> drops its
+              // bottom padding and the composer dock keeps those 12px (--chat-edge-pad) so the composer stays put.
+              className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 ${chatToEdge ? "[--chat-edge-pad:12px]" : "pb-3"}`}
+            >
               <DiffBar
                 open={changes.diffOpen}
                 onBack={changes.closeDiff}

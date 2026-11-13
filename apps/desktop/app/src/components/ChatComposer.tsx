@@ -1760,8 +1760,7 @@ export function ChatComposer({
                 </InlineError>
               </div>
             ) : (
-              <div className="relative flex min-h-0 flex-1 flex-col pb-1.5">
-                {/* The transcript stops on the composer's bottom edge (the dock's 6px padding under it), so no text shows below it. */}
+              <div className="relative flex min-h-0 flex-1 flex-col">
                 <MessageSelection container={root} provider={sessionProvider ?? selectedModel.provider} onQuote={(quote) => addQuotes([quote])} />
                 <MessageScroller
                   navigation="rail"
@@ -1862,7 +1861,11 @@ export function ChatComposer({
         />
         {/* An open Chat's chip row and composer float over the transcript's bottom, which scrolls on under their glass;
         the transcript's bottom pad is the dock's height (--composer-dock). A new Chat keeps them in the column's flow. */}
-        <div ref={dockRef} data-composer-dock className={isNewChat ? "contents" : "pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col"}>
+        <div
+          ref={dockRef}
+          data-composer-dock
+          className={isNewChat ? "contents" : "pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col pb-[var(--chat-edge-pad,0px)]"}
+        >
           <div
             data-chat-width={chatWidth}
             // While a composer popover (model, permissions, + or a menu) is open over it, the row steps aside instead of peeking out.
