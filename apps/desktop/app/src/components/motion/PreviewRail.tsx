@@ -127,6 +127,7 @@ export function PreviewRail({
             const scale = highlighted ? 1 : distance === 1 ? 0.68 : distance === 2 ? 0.44 : 0.25;
 
             return (
+              // The ticks start on the column's left edge (the Chat's), shrinking toward it.
               <button
                 key={item.id}
                 data-slot="preview-rail-item"
@@ -147,14 +148,14 @@ export function PreviewRail({
                 }}
                 onClick={() => selectItem(item)}
                 style={{ height: "100%" }}
-                className="relative flex size-6 items-center justify-end text-ink-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="relative flex size-6 items-center justify-start text-ink-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <motion.span
                   data-slot="preview-rail-tick"
                   aria-hidden="true"
                   animate={{ scaleX: scale }}
                   transition={scaledSpring(SPRING_LAYOUT, speed)}
-                  className={`block h-px w-4 origin-right bg-current ${highlighted ? "text-ink" : "text-line-strong"}`}
+                  className={`block h-px w-4 origin-left bg-current ${highlighted ? "text-ink" : "text-line-strong"}`}
                 />
               </button>
             );
