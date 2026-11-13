@@ -1772,7 +1772,8 @@ export function ChatComposer({
                   // The chip row and composer float over the transcript (the composer dock), which scrolls on under their
                   // glass; the bottom pad is the dock's height plus 16, so the last line rests clear of them.
                   // The first message starts where the top fade ends (bar + 32px), fully readable at the top.
-                  viewportClassName={`${findOpen ? "pt-12" : "pt-7"} pb-[calc(var(--composer-dock,0px)+16px)]`}
+                  // At the window's bottom edge (one Chat alone) the text fades out over its last 24px instead of being cut.
+                  viewportClassName={`${findOpen ? "pt-12" : "pt-7"} pb-[calc(var(--composer-dock,0px)+16px)] [mask-image:linear-gradient(to_bottom,black_calc(100%-var(--chat-edge-fade,0px)),transparent)]`}
                   contentClassName="min-h-full"
                   // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
                   autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}

@@ -23,7 +23,8 @@ import { directSubchats } from "@milagre/shared/subchat-states";
 import type { AgentPort, BackgroundTask, Subagent } from "@milagre/shared/model";
 import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { chatSwitching } from "../../lib/chat-switch-timing";
-import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { DURATION, EASE_OUT, scaled, useMotionScale } from "../../lib/ease";
+import { useWindowChrome } from "../../lib/window-chrome";
 import { useDisplayNow } from "../../lib/display-clock";
 import { familyEntry, type FamilyEntry, type FamilyReads } from "../../lib/family-menu";
 import { Icon } from "../primitives/Icon";
@@ -31,9 +32,6 @@ import { IconButton } from "../primitives/Button";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SectionLabel } from "../primitives/SectionLabel";
 import Tooltip from "../primitives/Tooltip";
-import { roomToWiden, usePanelWidth } from "./panel-width";
-import { useCloseWhenDesignsExpand, useSidePanelRoom } from "./dock-area";
-import { ResizeHandle } from "../primitives/ResizeHandle";
 import { useSidePanel } from "./PanelToggles";
 import { useComputers } from "../../lib/computers";
 import { useRoutines } from "../../lib/routines";
@@ -407,70 +405,36 @@ export function DetailsBody({ data }: { data: DetailsData }) {
 }
 
 /**
- * The panel's column beside the Changes panel, as ChangesPanelSlot: its width springs open from zero so the chat narrows
- * with it, and its left edge drags its width. A Chat switch opens or closes it at once.
+ * The Details overlay: a glass card over the Chat under the corner's buttons, never a panel beside it, so the Chat keeps
+ * its width. It fades in moving down (and back up out), and has the composer's glass: the surface at 76% over a blur.
  */
 export function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
   const shown = useDetailsPanelOpen() && data !== null;
   const scale = useMotionScale();
-  const [sliding, setSliding] = useState(false);
-  const resize = usePanelWidth("details");
-  const close = () => setDetailsPanelOpen(false);
-  useCloseWhenDesignsExpand(close);
-  useSidePanelRoom("details", shown, resize.width + 12, close);
+  const chrome = useWindowChrome();
   // Its corner toggle, while a Chat is open; no shortcut.
   useSidePanel("details", data ? { open: shown, toggle: () => setDetailsPanelOpen(!open) } : null);
   const atOnce = chatSwitching();
-  const spring = scaledSpring(SPRING_LAYOUT, scale);
-  const fade = { duration: scaled(DURATION.slow, scale), ease: EASE_OUT };
+  const fade = { duration: scaled(DURATION.base, scale), ease: EASE_OUT };
   return (
     <AnimatePresence initial={false} custom={atOnce}>
       {shown && (
         <motion.div
           key="details-panel"
-          data-details-slot
-          className={`relative z-[42] -ml-3 flex min-h-0 shrink-0 ${sliding ? "overflow-hidden" : "overflow-visible"}`}
-          onAnimationStart={() => setSliding(true)}
-          onAnimationComplete={() => setSliding(false)}
+          data-details-panel
+          role="complementary"
+          aria-label="Details"
           custom={atOnce}
-          variants={{ closed: (now: boolean) => ({ width: 0, transition: now ? { duration: 0 } : spring }), open: { width: "auto" } }}
+          variants={{ closed: (now: boolean) => ({ opacity: 0, y: -8, transition: now ? { duration: 0 } : fade }), open: { opacity: 1, y: 0 } }}
           initial={atOnce ? false : "closed"}
           animate="open"
           exit="closed"
-          transition={spring}
+          transition={fade}
+          // Under the corner's buttons, right-aligned with them; as tall as its sections, up to the window, then it scrolls.
+          className="details-glass fixed top-[var(--window-chrome-height)] z-[56] flex max-h-[calc(100vh-var(--window-chrome-height)-12px)] w-[300px] flex-col overflow-hidden rounded-window"
+          style={{ right: 12 + chrome.rightInset }}
         >
-          <motion.div
-            className="relative flex min-h-0 pt-[var(--window-chrome-height)] pr-3 pb-3"
-            custom={atOnce}
-            variants={{ closed: (now: boolean) => ({ opacity: 0, x: 24, transition: now ? { duration: 0 } : fade }), open: { opacity: 1, x: 0 } }}
-            initial={atOnce ? false : "closed"}
-            animate="open"
-            exit="closed"
-            transition={fade}
-          >
-            <div className="absolute top-[var(--window-chrome-height)] bottom-3 left-0">
-              <ResizeHandle
-                label="Resize details panel"
-                side="left"
-                width={resize.width}
-                min={resize.min}
-                max={() => roomToWiden("details", resize.width)}
-                reset={resize.reset}
-                onResize={resize.onResize}
-                onCommit={resize.onCommit}
-              />
-            </div>
-            <div
-              data-details-panel
-              role="complementary"
-              aria-label="Details"
-              // As tall as its sections, up to the window; it scrolls past that.
-              className="flex max-h-full min-h-0 shrink-0 flex-col self-start overflow-hidden rounded-window bg-surface shadow-card"
-              style={{ width: resize.width }}
-            >
-              {data && <DetailsBody data={data} />}
-            </div>
-          </motion.div>
+          {data && <DetailsBody data={data} />}
         </motion.div>
       )}
     </AnimatePresence>

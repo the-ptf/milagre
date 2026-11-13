@@ -3948,7 +3948,7 @@ function App() {
               data-chat-to-edge={chatToEdge || undefined}
               // One open Chat alone runs its transcript to the window's bottom edge, under the composer: <main> drops its
               // bottom padding and the composer dock keeps those 12px (--chat-edge-pad) so the composer stays put.
-              className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 ${chatToEdge ? "[--chat-edge-pad:12px]" : "pb-3"}`}
+              className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 ${chatToEdge ? "[--chat-edge-fade:24px] [--chat-edge-pad:12px]" : "pb-3"}`}
             >
               <DiffBar
                 open={changes.diffOpen}

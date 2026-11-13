@@ -804,6 +804,23 @@ a {
     0 3px 9px oklch(0.24 0.008 258 / 0.055);
 }
 
+/* The Details overlay over the Chat: the composer's glass, a floating card rather than a panel, with its 1px ring and a
+ * barely-there shadow (no wide glow around it). */
+.details-glass {
+  background: color-mix(in oklab, var(--surface) 76%, transparent);
+  backdrop-filter: blur(var(--blur-chip));
+  -webkit-backdrop-filter: blur(var(--blur-chip));
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 1px 2px oklch(0.24 0.008 258 / 0.04);
+}
+
+.dark .details-glass {
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 1px 2px oklch(0 0 0 / 0.16);
+}
+
 .dark .promptbar-surface {
   box-shadow:
     0 1px 2px oklch(0 0 0 / 0.24),
