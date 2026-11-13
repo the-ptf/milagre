@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Exit paths of the built "Milagre GPUI Preview.app", observed, on dedicated roots with the backend's fixed Claude
+"""Exit paths of the built GPUI "Milagre.app", observed, on dedicated roots with the backend's fixed Claude
 stand-in (no account, no model call).
 
-    python3 scripts/check-preview-exits.py --app <Milagre GPUI Preview.app> --fake <runtime-fake-claude> [--skills DIR]
+    python3 scripts/check-preview-exits.py --app <GPUI Milagre.app> --fake <runtime-fake-claude> [--skills DIR]
 
 For each path the app is opened in the background (`open -g -n`, MILAGRE_GPUI_NO_ACTIVATE=1) on its own new root,
 the runtime's pid, wire profile and socket are read from the app's log, the path is taken, and then it is checked by

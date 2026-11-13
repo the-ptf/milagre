@@ -213,7 +213,7 @@ impl Render for SetupView {
             .flex()
             .flex_col()
             .gap_3()
-            .child(div().text_xl().child("Set up Milagre GPUI Preview"))
+            .child(div().text_xl().child("Set up Milagre"))
             .child(line("Chats run on this Mac's Claude Code with the account you pick, in their own data folder:".into()))
             .child(line(self.base.join("root").display().to_string()))
             .child(match &self.claude {

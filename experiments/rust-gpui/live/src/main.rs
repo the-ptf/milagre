@@ -1,4 +1,4 @@
-//! The live GPUI app ("Milagre GPUI Preview"): the base crate's window on the installed Milagre's running Node daemon
+//! The live GPUI app ("Milagre.app", the Preview): the base crate's window on the installed Milagre's running Node daemon
 //! (the default), or on the owned dedicated Chat runtime.
 //!
 //! ```text
@@ -120,7 +120,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         });
         if busy {
             anyhow::anyhow!(
-                "This root is already open: {} is in use by another Milagre GPUI Preview (or its runtime is still stopping). Quit that one, then open again.",
+                "This root is already open: {} is in use by another copy of the GPUI Milagre (or its runtime is still stopping). Quit that one, then open again.",
                 root.display()
             )
         } else {

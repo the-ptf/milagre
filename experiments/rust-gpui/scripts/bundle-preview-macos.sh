@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Package the live GPUI app as "Milagre GPUI Preview.app" (macOS, arm64): the GPUI UI on the installed Milagre's
+# Package the live GPUI app as "Milagre.app" (display name "Milagre"; bundle id com.milagre.gpui-preview, executable
+# milagre-gpui-preview, both unchanged; told apart from Electron's /Applications/Milagre.app by its icon) (macOS, arm64): the GPUI UI on the installed Milagre's
 # running Node daemon by default (its Projects and Chats; never launched, stopped or signalled from here), or with
 # --owned / --root on the backend's owned Chat runtime, shipped inside the bundle.
 #
@@ -26,12 +27,12 @@
 # Contents/Resources/runtime.json. Ad-hoc signed inside out (scripts/macos-sign.sh: the runtime, Node, every native
 # module and nested bundle of the daemon, then the app); scripts/dist-macos.sh re-signs for distribution.
 # Owned mode keeps its data in ~/Library/Application Support/Milagre GPUI Preview/ (launch.json + root/), set up on its
-# first launch; the default (daemon) mode keeps none and has no setup window. --install replaces ~/Applications/"Milagre GPUI Preview.app" after quitting a running copy by bundle id.
+# first launch; the default (daemon) mode keeps none and has no setup window. --install replaces ~/Applications/Milagre.app after quitting a running copy by bundle id.
 # Env: CARGO_TARGET_DIR  build cache (default: ~/.cache/milagre-gpui-preview/target)
 set -euo pipefail
 
 BUNDLE_ID="com.milagre.gpui-preview"
-APP_NAME="Milagre GPUI Preview.app"
+APP_NAME="Milagre.app"
 EXEC_NAME="milagre-gpui-preview"
 
 install=0 out="/tmp/milagre-gpui-preview-bundle" backend="" sha="" daemon_version="" node=""
@@ -72,7 +73,7 @@ src="$work/experiments/rust-gpui"
 echo "==> exporting the shared client"
 python3 "$check" export --backend "$backend" >/dev/null
 mkdir -p "$src/target"
-cp -R "$crate/target/daemon-client-09a75bfc" "$src/target/"
+cp -R "$crate/target/daemon-client-d97f452d" "$src/target/"
 
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/milagre-gpui-preview/target}"
 echo "==> cargo build --release (target $CARGO_TARGET_DIR)"
@@ -108,7 +109,7 @@ cp "$src/packaging/icon.icns" "$app/Contents/Resources/icon.icns"
 sed -e "s/@VERSION@/$version/" -e "s/@SHA@/$head/" \
     -e "s/com.milagre.gpui-poc/$BUNDLE_ID/" \
     -e "s#<string>milagre-gpui</string>#<string>$EXEC_NAME</string>#" \
-    -e "s#<string>Milagre GPUI</string>#<string>Milagre GPUI Preview</string>#g" \
+    -e "s#<string>Milagre GPUI</string>#<string>Milagre</string>#g" \
     "$src/packaging/Info.plist.in" > "$app/Contents/Info.plist"
 plutil -insert CFBundleURLTypes -json \
   "[{\"CFBundleURLName\":\"$BUNDLE_ID\",\"CFBundleURLSchemes\":[\"milagre\"]}]" "$app/Contents/Info.plist"
@@ -122,7 +123,7 @@ sign_inside_out "$app" "" "" codesign --force -s -
 codesign --verify --deep --strict "$app"
 signed="$(shasum -a 256 "$app/Contents/MacOS/chat-runtime" | cut -d' ' -f1)"
 node_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nodeVersion"])' "$daemon/manifest.json")"
-printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"09a75bfc","daemon":{"version":"%s","node":"%s"}}\n' \
+printf '{"runtimeSha256":"%s","signedRuntimeSha256":"%s","gpuiHead":"%s","client":"d97f452d","daemon":{"version":"%s","node":"%s"}}\n' \
   "$sha" "$signed" "$head" "$daemon_version" "$node_version" > "$app/Contents/Resources/runtime.json"
 # The resource changed after signing the bundle: sign once more so the seal covers it.
 codesign --force -s - "$app"

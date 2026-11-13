@@ -349,7 +349,8 @@ Gaps (not wired, recorded):
   the base crate has no comment mode yet (pin placement, the bubble, the text field) on the board or the page, so
   nothing sends it; Send carries the choice only.
 - **Edit / design editor Save** needs `artifact:apply [{chatId, id, expectedVersion, operations}]`; the base editor
-  saves whole documents, not operations. Edit is hidden in daemon mode.
+  saves whole documents, not operations. The Preview offers no layer editor at all (Victor: viewing the canvas, its
+  variants, versions and comments is enough): Edit is hidden and `open_editor` refuses.
 - **Share** (`artifact:share-page`, `artifact:page-shares`, …) is confined to the desktop (`confine.cjs` denies it
   remotely) and not ported.
 - **Live agent drafts** (`useLiveDesignFeed`: designs drawn while the agent writes them) are not ported; the board
@@ -359,3 +360,10 @@ Gaps (not wired, recorded):
   own drawing. The webview probe (`MILAGRE_GPUI_WEBVIEW_PROBE=1`) on the real page confirmed it loaded with the helper
   and is placed over the body.
 - Snapshot seeds only open a Chat the sidebar lists (or `MILAGRE_GPUI_LIVE_CHAT=<key>`, which may be a Subchat).
+
+## Round 10 (2026-11-12): client `d97f452d`, the app named Milagre
+
+The GPUI app bundles as `Milagre.app` (display name "Milagre"; bundle id `com.milagre.gpui-preview` and executable
+`milagre-gpui-preview` unchanged) and installs as `~/Applications/Milagre.app`. Re-pinned to `d97f452da` (`09a75bfc3`
+plus `DaemonLaunch::find_installed_app` accepting only Electron's bundle id `com.milagre.app`): another app named
+Milagre.app (ours) answers `APP_UNAVAILABLE`, so a Mac without Electron starts the bundled daemon. No API change.

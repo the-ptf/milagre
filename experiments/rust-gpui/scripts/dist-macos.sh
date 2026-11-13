@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Make a distributable zip from a built "Milagre GPUI.app" (macOS only).
+# Make a distributable zip from a built GPUI app ("Milagre.app" from bundle-preview-macos.sh) (macOS only).
 #
 #   scripts/dist-macos.sh --app <path.app> --out <dir> [--extra-binary <path>] [--cert <devid.cer>]
 #
@@ -69,10 +69,11 @@ if [ -z "$cert" ]; then
   cat > "$out/OPEN-ME-FIRST.txt" <<TXT
 $name is signed ad hoc, not notarized, so macOS Gatekeeper blocks it the first time.
 
-1. Unzip and drag "$name.app" into /Applications.
+1. Unzip and drag "$name.app" into the Applications folder in your home folder (~/Applications), not
+   /Applications, where the Electron Milagre.app lives.
 2. Open Terminal and run this once:
 
-     xattr -dr com.apple.quarantine "/Applications/$name.app"
+     xattr -dr com.apple.quarantine ~/Applications/"$name.app"
 
    Then open the app normally.
 

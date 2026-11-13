@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build, or reuse from the cache, the Node daemon "Milagre GPUI Preview.app" ships in Contents/Resources/milagre-daemon,
+# Build, or reuse from the cache, the Node daemon the GPUI "Milagre.app" ships in Contents/Resources/milagre-daemon,
 # so the Preview runs on a Mac without Milagre.app (the client's `DaemonLaunch::bundle`). Prints the bundle's folder.
 #
 #   scripts/preview-daemon-macos.sh --backend <backend worktree> --version <app version> [--node /path/to/node]

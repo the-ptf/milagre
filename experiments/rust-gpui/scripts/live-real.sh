@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# A few real Claude turns through the Milagre GPUI Preview app, on a new dedicated root, for evidence.
+# A few real Claude turns through the GPUI app (Milagre.app), on a new dedicated root, for evidence.
 # Spends usage on the selected account: run it only with the account owner's go-ahead.
 #
 #   scripts/live-real.sh --base DIR --account-id ID --config-dir DIR [--account-label L] [--model sonnet]
-#                        [--app "…/Milagre GPUI Preview.app"] [--claude PATH]
+#                        [--app "…/Milagre.app"] [--claude PATH]
 #
 # --base         a NEW folder (it must not exist), outside ~/.milagre and ~/Library/Application Support/Milagre;
 #                it gets launch.json (0600), root/ (the dedicated data root) and the two run reports
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 base="" account="" config="" label="Selected Claude account" model="sonnet" claude=""
-app="/tmp/milagre-gpui-preview-bundle/Milagre GPUI Preview.app"
+app="/tmp/milagre-gpui-preview-bundle/Milagre.app"
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) shift; base="${1:?}" ;;
