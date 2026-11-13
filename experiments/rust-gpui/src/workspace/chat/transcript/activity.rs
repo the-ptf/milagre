@@ -277,6 +277,10 @@ impl Transcript {
     }
 
     pub(super) fn activity_item(&self, ix: usize, activity: &Activity, theme: &Theme, cx: &Context<Self>) -> AnyElement {
+        // Nothing to fold: no row (Electron's `ActivityBlock` draws nothing for an empty group), never a bare chevron.
+        if activity.entries.is_empty() {
+            return div().into_any_element();
+        }
         let text_between = |text: &SharedString| {
             div().px(px(0.0)).py_1().text_step(TEXT_12).line_height(px(12.0 * 1.55)).text_color(theme.ink2).child(text.clone())
         };

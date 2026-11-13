@@ -148,6 +148,14 @@ pub fn run_folds(steps: &[ChatStep], folds: &[(usize, Vec<SharedString>)], text:
     ops
 }
 
+/// Whether the run on screen was split since it was drawn (`splitRun`: a message sent during the turn, a PR action
+/// or answers): its text starts again shorter than what is shown, or a fold's steps are gone from it (saved above the
+/// new message). The saved messages then hold that part, so the Chat is read again and the live tail rebuilt.
+pub fn run_was_split(steps: &[ChatStep], text: &str, folds: &[(usize, Vec<SharedString>)], shown: Option<usize>) -> bool {
+    shown.is_some_and(|shown| shown > text.len())
+        || folds.iter().any(|(_, ids)| !ids.is_empty() && ids.iter().all(|id| !steps.iter().any(|step| &step.id == id)))
+}
+
 /// A fold's steps as they are now in the run, in the fold's order.
 pub fn fold_entries(steps: &[ChatStep], ids: &[SharedString]) -> Vec<Entry> {
     ids.iter().filter_map(|id| steps.iter().find(|step| &step.id == id)).cloned().map(Entry::Step).collect()

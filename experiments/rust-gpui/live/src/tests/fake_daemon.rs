@@ -333,6 +333,30 @@ impl World {
     }
 
     pub fn agent(&mut self, key: &str, event: Value) {
+        // The run as `chat:runs` reports it: its text and steps follow the events, as the daemon's `applyRunEvent`.
+        if let Some(run) = self.runs.get_mut(key) {
+            match event["type"].as_str() {
+                Some("text-delta") => {
+                    let text = format!("{}{}", run["text"].as_str().unwrap_or_default(), event["text"].as_str().unwrap_or_default());
+                    run["text"] = json!(text);
+                }
+                Some("step-started") => {
+                    let mut step = event["step"].clone();
+                    step["status"] = json!("running");
+                    step["offset"] = json!(run["text"].as_str().map_or(0, |t| t.encode_utf16().count()));
+                    run["steps"].as_array_mut().expect("steps").push(step);
+                }
+                Some("step-completed") => {
+                    if let Some(step) = run["steps"].as_array_mut().expect("steps").iter_mut().find(|step| step["id"] == event["id"]) {
+                        step["status"] = event["status"].clone();
+                        if let Some(title) = event.get("title") {
+                            step["title"] = title.clone();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         self.runs_seq += 1;
         let seq = self.runs_seq;
         self.emit("agent:event", json!({"chatId":key,"event":event,"seq":seq}));
@@ -355,6 +379,11 @@ impl World {
         self.emit_state(&path);
         let kind = if outcome == "cancelled" { "turn-cancelled" } else { "turn-completed" };
         self.agent(key, json!({"type":kind}));
+    }
+
+    /// `chat:send` as a client sends it (tests: a message from another window, or one that steers a running turn).
+    pub fn send_as(&mut self, request: &Value) -> Result<Value, String> {
+        self.send(request)
     }
 
     fn send(&mut self, request: &Value) -> Result<Value, String> {
@@ -410,10 +439,40 @@ impl World {
         if !context.is_null() {
             message["context"] = context;
         }
+        let key = format!("{path}#{id}");
+        // A message during a running turn steers it (`splitRun`): the text and finished steps so far are saved above
+        // it, the running steps carry on, and the turn goes on with no new start.
+        if request["delivery"] != "queue"
+            && let Some(run) = self.runs.get_mut(&key)
+        {
+            let steps = run["steps"].as_array().cloned().unwrap_or_default();
+            let (finished, running): (Vec<Value>, Vec<Value>) = steps.into_iter().partition(|step| step["status"] != "running");
+            let text = run["text"].as_str().unwrap_or_default().to_owned();
+            if !text.trim().is_empty() || !finished.is_empty() {
+                run["text"] = json!("");
+                run["steps"] = json!(
+                    running
+                        .into_iter()
+                        .map(|mut step| {
+                            step["offset"] = json!(0);
+                            step
+                        })
+                        .collect::<Vec<_>>()
+                );
+                run["split"] = json!(true);
+                let saved =
+                    json!({"id":self.next_message + 1000,"session_id":id,"body":text,"role":"assistant","model":model,"steps":finished});
+                self.projects.get_mut(&path).unwrap().messages.entry(id).or_default().push(saved);
+            }
+            self.projects.get_mut(&path).unwrap().messages.entry(id).or_default().push(message);
+            self.summarize(&path, id);
+            self.emit_state(&path);
+            self.agent(&key, json!({"type":"message-sent","model":model,"permissionMode":request["permissionMode"]}));
+            return Ok(json!({"sessionId":id,"clientMessageId":request["clientMessageId"],"status":"accepted"}));
+        }
         let project = self.projects.get_mut(&path).unwrap();
         project.messages.entry(id).or_default().push(message);
         self.summarize(&path, id);
-        let key = format!("{path}#{id}");
         self.emit_state(&path);
         self.runs
             .insert(key.clone(), json!({"text":"","model":model,"startedAt":now(),"steps":[],"approvals":[],"questions":[],"answered":{}}));

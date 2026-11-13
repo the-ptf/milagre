@@ -211,3 +211,66 @@ fn the_pill_row_never_blinks_empty_while_a_turn_runs(cx: &mut TestAppContext) {
     fake.stop();
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// Victor's long thread: a PR action sent while the turn ran split the run, and its live folds (whose steps were saved
+/// above the new message) stayed on screen as rows of bare chevrons, the action card below them. Now the Chat is read
+/// again: the saved part, then the card, then only what still runs.
+#[gpui::test]
+fn a_split_run_leaves_no_empty_folds_and_the_card_sits_between(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("polish-split");
+    let fake = FakeDaemon::start(&data, world());
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    let key = format!("{ALPHA}#1");
+    m.wait_for("the saved transcript", |m| m.items().len() >= 4);
+
+    m.type_and_send("[tools] go");
+    m.wait_for("the running call", |m| m.items().last().is_some_and(|item| item.starts_with("activity (2 steps)")));
+    fake.world().agent(&key, json!({"type":"step-completed","id":"cmd-1","status":"done","title":"Ran `npm test`","durationMs":900}));
+    fake.world().agent(&key, json!({"type":"text-delta","text":"PR #189 is open. Filing the follow-up issue now."}));
+    fake.world().agent(&key, json!({"type":"step-started","step":{"id":"cmd-2","kind":"shell","title":"Ran `gh pr view`"}}));
+    m.wait_for("the second fold", |m| m.items().last().is_some_and(|item| item.starts_with("activity (1 steps)")));
+
+    // The PR action steers the turn (as Electron's pill sends it during a run).
+    let url = "https://github.com/acme/app/pull/189";
+    let request = json!({"projectPath":ALPHA,"worktreeId":1,"sessionId":1,"provider":"claude","model":"claude-opus-5-5",
+        "body":"Update the branch of pull request #189","clientMessageId":"steer-1","permissionMode":"auto",
+        "prAction":{"action":"behind","pr":189,"url":url}});
+    fake.world().send_as(&request).expect("the steer");
+    let tail = |m: &mut super::owned::Mounted| {
+        let items = m.items();
+        items[items.len().saturating_sub(4)..].to_vec()
+    };
+    m.wait_for("the saved part, the card, then the live call", |m| {
+        tail(m)
+            == [
+                "activity (2 steps): Thought · ran 1 command".to_owned(),
+                "reply: PR #189 is open. Filing the follow-up issue now.".to_owned(),
+                "pr action behind #189".to_owned(),
+                "activity (1 steps): Ran 1 command".to_owned(),
+            ]
+    });
+    let transcript = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).transcript.clone());
+    let empty = transcript
+        .read_with(m.vcx, |t, _| t.items().iter().filter(|item| matches!(item, Item::Activity(a) if a.entries.is_empty())).count());
+    assert_eq!(empty, 0, "no fold is left without its steps");
+    assert!(m.running(), "the turn runs on");
+
+    // The live call ends inside its new fold.
+    let live_done = |m: &mut super::owned::Mounted| {
+        let transcript = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).transcript.clone());
+        transcript.read_with(
+            m.vcx,
+            |t, _| matches!(t.items().last(), Some(Item::Activity(a)) if a.steps().iter().all(|s| s.status == StepStatus::Done)),
+        )
+    };
+    fake.world().agent(&key, json!({"type":"step-completed","id":"cmd-2","status":"done","title":"Ran `gh pr view`","durationMs":300}));
+    m.wait_for("the ended call", live_done);
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    m.vcx.update(|window, cx| composer.update(cx, |c, cx| c.press_send(window, cx)));
+    m.wait_for("the stopped turn", |m| !m.running() && fake.world().runs.is_empty());
+    drop(m);
+    fake.stop();
+    let _ = std::fs::remove_dir_all(&data);
+}

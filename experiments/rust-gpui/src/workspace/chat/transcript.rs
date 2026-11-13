@@ -995,6 +995,8 @@ fn top_gap(previous: Option<&Item>, item: &Item) -> f32 {
     match item {
         Item::Card(card) => cards::top_gap(card),
         Item::User(_) => 24.0,
+        // A fold whose steps are all gone (a live fold a split run left behind) takes no room.
+        Item::Activity(activity) if activity.entries.is_empty() => 0.0,
         Item::Activity(_) => 12.0,
         Item::Prose(_) => 8.0,
         Item::Step(_) | Item::Approval(_) if stacked(previous) => 0.0,

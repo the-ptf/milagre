@@ -336,6 +336,8 @@ struct OpenChat {
     folds: Vec<(usize, Vec<gpui::SharedString>)>,
     /// Steps that have an approval card of their own: they stay out of the folds.
     approval_steps: Vec<gpui::SharedString>,
+    /// The run was split and the Chat is being read again ([`crate::transcript::run_was_split`]).
+    reloading: bool,
 }
 
 pub struct LiveController {
@@ -2052,6 +2054,15 @@ impl LiveController {
         self.set_running(Some(started.unwrap_or_default()), cx);
         let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
         let open = self.open.as_mut().expect("open");
+        // A split run: what was streamed is saved above the new message now. Read the Chat again; the live tail is
+        // rebuilt from what the run still holds (never folds whose steps left, which drew as bare chevrons).
+        if open.live && crate::transcript::run_was_split(&run.steps, &run.text, &open.folds, open.stream.map(|(_, shown)| shown)) {
+            if !open.reloading {
+                open.reloading = true;
+                self.load(cx);
+            }
+            return;
+        }
         open.live = true;
         for request in &run.approvals {
             let id = request.request_id.to_string();
