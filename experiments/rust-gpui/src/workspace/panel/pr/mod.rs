@@ -16,12 +16,13 @@
 //! (the fixture today) and brings back that PR's own tab, folds and picked file. Writes show at once and then go to
 //! the bridge; a failure takes the change back and says why under the header.
 //!
-//! Not built (the desktop has them): the Link Chat variant (a Project avatar beside the repository), the 30 s poll,
-//! avatars from GitHub (initials stand in), the
+//! Not built (the desktop has them): the Link Chat variant (a Project avatar beside the repository), the 30 s poll
+//! (a data layer polls), the
 //! header's narrow-width label swaps (the container queries). "Fix in Chat" and "N files not in the PR yet" are
-//! [`PrEvent`]s the window answers.
+//! [`PrEvent`]s the window answers. GitHub avatars show once a data layer fetched them ([`avatar::set_avatars`]);
+//! initials stand in until then.
 
-mod avatar;
+pub mod avatar;
 pub mod bridge;
 mod files;
 pub mod fixture;

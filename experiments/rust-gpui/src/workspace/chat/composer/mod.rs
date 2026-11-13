@@ -362,8 +362,15 @@ impl Composer {
 
     /// A predicted follow-up, offered in an empty composer (Tab takes it).
     pub fn set_suggestion(&mut self, suggestion: Option<SharedString>, cx: &mut Context<Self>) {
-        self.suggestion = suggestion;
-        cx.notify();
+        if self.suggestion != suggestion {
+            self.suggestion = suggestion;
+            cx.notify();
+        }
+    }
+
+    /// The predicted follow-up given to the composer, shown or not.
+    pub fn suggestion(&self) -> Option<&SharedString> {
+        self.suggestion.as_ref()
     }
 
     /// Prompts sent in this Chat, oldest first; Up and Down step through them.
@@ -736,7 +743,15 @@ impl Composer {
         let empty = self.editor.as_ref().is_none_or(|editor| editor.value().is_empty());
         self.suggestion
             .clone()
-            .filter(|_| empty && self.quotes.is_empty() && self.tray.is_empty() && !self.bar.running && self.open_menu().is_none())
+            // Only for a Claude model picked (`selectedModel.provider === "claude"` in `PromptComposer.tsx`).
+            .filter(|_| {
+                empty
+                    && self.quotes.is_empty()
+                    && self.tray.is_empty()
+                    && !self.bar.running
+                    && self.open_menu().is_none()
+                    && self.bar.provider == crate::data::Provider::Claude
+            })
     }
 
     // ---- Send ----
@@ -880,6 +895,7 @@ impl Composer {
             .when(suggestion.is_some(), |el| {
                 el.child(
                     div()
+                        .debug_selector(|| "composer-suggestion-tab".into())
                         .flex()
                         .flex_none()
                         .items_center()

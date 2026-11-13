@@ -444,6 +444,30 @@ fn tab_takes_the_suggestion_in_an_empty_prompt(cx: &mut TestAppContext) {
     assert_eq!(text(&composer, cx), "Run the tests");
 }
 
+/// As `PromptComposer.tsx`'s `visibleSuggestion`: typing hides it (the draft is no longer empty) and clearing the draft
+/// shows it again; another provider's model never shows it; Enter on an empty prompt sends nothing.
+#[gpui::test]
+fn the_suggestion_hides_while_typing_and_only_shows_for_claude(cx: &mut TestAppContext) {
+    let (composer, cx) = mount(cx);
+    composer.update(cx, |c, cx| c.set_suggestion(Some("Run the tests".into()), cx));
+    cx.run_until_parked();
+    let shows = |cx: &mut VisualTestContext| cx.debug_bounds("composer-suggestion-tab").is_some();
+    assert!(shows(cx), "the Tab keycap over the empty prompt");
+    cx.simulate_input("x");
+    cx.run_until_parked();
+    assert!(!shows(cx), "typing hides it");
+    cx.simulate_keystrokes("backspace");
+    cx.run_until_parked();
+    assert!(shows(cx), "an empty draft shows it again");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(text(&composer, cx), "", "an unaccepted suggestion is never sent");
+    composer.update(cx, |c, cx| c.set_model(crate::data::Provider::Codex, "gpt-5.5", "GPT-5.5", None, cx));
+    cx.run_until_parked();
+    assert!(!shows(cx), "only for a Claude model");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(text(&composer, cx), "");
+}
+
 /// What AppKit sends for a composition: marked text while it lasts (no chips, no menu, no undo step), then the
 /// committed text, recorded as one typing step.
 #[gpui::test]

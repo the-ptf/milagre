@@ -344,7 +344,59 @@ pub struct LivePr {
     errors: Vec<String>,
     reads: u64,
     seeded: Option<(String, u32, Result<Read, String>)>,
+    /// GitHub avatars: the logins asked for this run (each once), in order, and how a picture is fetched.
+    avatars_asked: Vec<String>,
+    fetch_avatar: AvatarFetch,
     _tasks: Vec<Task<()>>,
+}
+
+/// Fetches one login's GitHub picture (blocking, off the UI thread): its bytes, or `None` (no picture, offline).
+pub type AvatarFetch = Arc<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>;
+
+/// Electron's `<img src="https://github.com/<login>.png?size=40">`: the picture from GitHub's avatar host only, over
+/// https, with `/usr/bin/curl` ([`crate::images::fetch_avatar`]: 5 MiB, 5 s). Tests never reach the network: their
+/// default fetches nothing.
+fn default_avatar_fetch() -> AvatarFetch {
+    #[cfg(test)]
+    {
+        Arc::new(|login| TEST_AVATARS.lock().unwrap_or_else(|p| p.into_inner()).get(login).cloned())
+    }
+    #[cfg(not(test))]
+    Arc::new(|login| {
+        let url = milagre_gpui_spike::workspace::panel::pr::avatar::avatar_url(login)?;
+        crate::images::fetch_avatar(&url).ok()
+    })
+}
+
+/// Tests: the pictures "GitHub" has, by login (no network).
+#[cfg(test)]
+pub static TEST_AVATARS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, Vec<u8>>>> = std::sync::LazyLock::new(Default::default);
+
+/// Every person the PR panel draws an avatar for: the author, reviewers (not teams), the people in its threads and
+/// comments, and the reviewer picker's candidates; each once, in that order.
+pub fn avatar_logins(pr: &PullRequestDetail, candidates: &[String]) -> Vec<String> {
+    let mut logins: Vec<String> = Vec::new();
+    let mut add = |login: &str| {
+        if !login.is_empty() && !logins.iter().any(|l| l == login) {
+            logins.push(login.to_owned());
+        }
+    };
+    add(&pr.author);
+    for reviewer in pr.reviewers.iter().filter(|r| !r.team) {
+        add(&reviewer.login);
+    }
+    for thread in &pr.threads {
+        for comment in &thread.comments {
+            add(&comment.author);
+        }
+    }
+    for comment in &pr.comments {
+        add(&comment.author);
+    }
+    for login in candidates.iter().filter(|l| !l.contains('/')) {
+        add(login);
+    }
+    logins
 }
 
 impl LivePr {
@@ -377,8 +429,60 @@ impl LivePr {
             errors: Vec::new(),
             reads: 0,
             seeded: None,
+            avatars_asked: Vec::new(),
+            fetch_avatar: default_avatar_fetch(),
             _tasks: vec![run, poll],
         }
+    }
+
+    /// How avatars are fetched (tests).
+    pub fn set_avatar_fetch(&mut self, fetch: AvatarFetch) {
+        self.fetch_avatar = fetch;
+    }
+
+    /// Logins whose avatar was asked for, oldest first (tests).
+    pub fn avatars_asked(&self) -> &[String] {
+        &self.avatars_asked
+    }
+
+    /// The pictures of the people the shown PR names, each asked once per run, off the UI thread; the PR tab draws
+    /// each one that arrives instead of its initials (`Avatar`'s `<img>` with `onError` falling back to initials).
+    fn fetch_avatars(&mut self, number: u32, cx: &mut Context<Self>) {
+        let (detail, candidates) = {
+            let cache = self.cache.borrow();
+            let Some(Ok(read)) = cache.details.get(&number) else { return };
+            (read.detail.clone(), cache.candidates.clone())
+        };
+        let wanted: Vec<String> =
+            avatar_logins(&detail, &candidates).into_iter().filter(|login| !self.avatars_asked.contains(login)).collect();
+        if wanted.is_empty() {
+            return;
+        }
+        self.avatars_asked.extend(wanted.iter().cloned());
+        let fetch = self.fetch_avatar.clone();
+        let work = crate::usage::off_thread(move || {
+            wanted
+                .into_iter()
+                .filter_map(|login| {
+                    let picture = crate::images::image(fetch(&login)?, None)?;
+                    Some((login, picture))
+                })
+                .collect::<Vec<_>>()
+        });
+        let task = cx.spawn(async move |this, cx| {
+            let Ok(pictures) = work.await else { return };
+            if pictures.is_empty() {
+                return;
+            }
+            let _ = this.update(cx, |this, cx| {
+                milagre_gpui_spike::workspace::panel::pr::avatar::set_avatars(pictures, cx);
+                let pr = this.panel.read(cx).pr().clone();
+                pr.update(cx, |_, cx| cx.notify());
+                let _ = this.window.update(cx, |_, window, _| window.refresh());
+            });
+        });
+        self._tasks.retain(|task| !task.is_ready());
+        self._tasks.push(task);
     }
 
     /// The panel's Chat `key` (in `project`, its Worktree folder `cwd`) and the PR it shows. A new folder gets a new
@@ -559,6 +663,7 @@ impl LivePr {
                 }
                 let pr = this.panel.read(cx).pr().clone();
                 pr.update(cx, |pr, cx| pr.reload(cx));
+                this.fetch_avatars(number, cx);
                 cx.notify();
             });
         })

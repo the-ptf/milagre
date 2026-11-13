@@ -15,6 +15,7 @@ mod pr_accounts;
 mod remote_computers;
 mod settings;
 mod sidebar_writes;
+mod suggestion_avatars;
 mod usage;
 
 #[test]

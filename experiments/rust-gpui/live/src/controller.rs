@@ -283,6 +283,14 @@ pub fn install_daemon_app(session: &DaemonSession, prefs: std::path::PathBuf, el
 }
 
 /// The listed Chat (it has messages) last active, to open on launch: of `project`, or of any Project.
+/// The Chat's next-message suggestion as Electron's composer reads it: `selectedSession.suggestion.text` for a Claude
+/// Chat only (`App.tsx`). The host keeps it in the Chat's state (`applyAgentEvent`'s `prompt-suggestion`) and drops it
+/// on the next message, turn or reset, so the state's own copy is what shows; typing only hides it (the composer).
+pub fn suggestion_of(chat: &milagre_gpui_spike::data::Chat) -> Option<gpui::SharedString> {
+    let suggestion = chat.suggestion.as_ref()?;
+    (chat.provider() == milagre_gpui_spike::data::Provider::Claude && !suggestion.text.trim().is_empty()).then(|| suggestion.text.clone())
+}
+
 pub fn newest_chat(store: &LiveStore, project: Option<&str>) -> Option<String> {
     store.read(|reducer| {
         let applied = reducer.state().ok()?;
@@ -1290,6 +1298,10 @@ impl LiveController {
         self.live_canvas.as_ref()
     }
 
+    pub fn live_pr(&self) -> Option<&Entity<crate::pr::LivePr>> {
+        self.live_pr.as_ref()
+    }
+
     /// Milagre's daemon: follows Projects asked to load ([`Self::load_project`]) until their Chats arrive, then opens
     /// the newest. Projects the daemon knows but has not loaded get no rows, as in Electron's sidebar, and nothing loads
     /// one by itself; the sidebar's name-only list stays empty.
@@ -1980,21 +1992,36 @@ impl LiveController {
 
     /// The open Chat's run on screen: the streamed text, its cards, the running row and the queue.
     fn sync_tail(&mut self, cx: &mut Context<Self>) {
-        let Some(open) = self.open.as_ref().filter(|open| open.loaded) else { return };
+        let Some(open) = self.open.as_ref().filter(|open| open.loaded) else {
+            // Another Chat's suggestion never shows while this one loads.
+            let composer = self.workspace.read(cx).chat.read(cx).composer.clone();
+            if composer.read(cx).suggestion().is_some() {
+                composer.update(cx, |c, cx| c.set_suggestion(None, cx));
+            }
+            return;
+        };
         let (key, project, id) = (open.key.clone(), open.project.clone(), open.id);
-        let (run, queued, held) = self.store.read(|reducer| {
-            let Ok(applied) = reducer.state() else { return (None, Vec::new(), false) };
+        let (run, queued, held, suggestion) = self.store.read(|reducer| {
+            let Ok(applied) = reducer.state() else { return (None, Vec::new(), false, None) };
             let chat = applied
                 .projects
                 .iter()
                 .find(|o| o.project.path.as_ref() == project)
                 .and_then(|o| o.state.as_ref())
                 .and_then(|s| s.sessions.get(&id));
-            (applied.runs.get(&key).cloned(), chat.map(|c| c.queued.clone()).unwrap_or_default(), chat.is_some_and(|c| c.queue_held))
+            (
+                applied.runs.get(&key).cloned(),
+                chat.map(|c| c.queued.clone()).unwrap_or_default(),
+                chat.is_some_and(|c| c.queue_held),
+                chat.and_then(suggestion_of),
+            )
         });
         let chat = self.workspace.read(cx).chat.clone();
         let (composer, transcript) = chat.read_with(cx, |c, _| (c.composer.clone(), c.transcript.clone()));
-        composer.update(cx, |c, cx| c.set_queue(queued, held, cx));
+        composer.update(cx, |c, cx| {
+            c.set_queue(queued, held, cx);
+            c.set_suggestion(suggestion, cx);
+        });
         match run {
             Some(run) => self.show_run(&run, cx),
             None if self.open.as_ref().is_some_and(|open| open.live) => {
