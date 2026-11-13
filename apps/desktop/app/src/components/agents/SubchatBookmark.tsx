@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft01Icon, MoreHorizontalIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
+import { MoreHorizontalIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { chatTitle } from "@milagre/shared/chats";
 import { familyEntry, familyMenuModel, type FamilyEntry } from "../../lib/family-menu";
@@ -11,7 +11,6 @@ import type { SubchatSource } from "../../lib/subchat-track";
 import { useControlsClearance } from "../../lib/window-chrome";
 import { Icon } from "../primitives/Icon";
 import Tooltip from "../primitives/Tooltip";
-import { ChatMarkDot } from "../sidebar/ChatRow";
 import { FamilyMenu } from "./FamilyMenu";
 
 // Both ends are capped and truncate at the tail, the parent first, so the open Chat's title is the last thing to go.
@@ -20,8 +19,8 @@ const CRUMB = "no-drag flex h-7 min-w-0 items-center rounded-control text-13 fon
 type Reads = Omit<SubchatSource, "parentKey">;
 
 /**
- * Where the open Subchat lives, in the 44px strip at the left of <main>: `‹ ● Parent title / Subchat title ⇅`. The left
- * button goes up one level (App's openAlone on the parent) and the right one opens the family menu. It is read from the
+ * Where the open Subchat lives, in the 44px strip at the left of <main>: `Parent title / Subchat title ⇅`. The parent's
+ * title goes up one level (App's openAlone on the parent) and the current title opens the family menu. It is read from the
  * Chat's own `parent`, never from how it was opened, so it survives a reload. A Chat that delegated further up shows only
  * its nearest listed ancestor, the older ones collapsing into a "…" that opens the same menu.
  *
@@ -136,7 +135,11 @@ const Divider = () => (
   </span>
 );
 
-/** The way up: the parent's live dot and title, tinted with "Needs you" when the parent waits on an answer. */
+/**
+ * The way up: the parent's title as plain text that links up a level, with no box, arrow or padding, so it starts where
+ * a top-level Chat's title does (ChatIdentity). ink-2, ink with an ink-3 underline under the pointer; "Needs you" follows
+ * it in orange while the parent waits on an answer.
+ */
 function ParentButton({ entry, needsYou, shortcut, onOpen }: { entry: FamilyEntry; needsYou: boolean; shortcut: string | undefined; onOpen: () => void }) {
   return (
     <Tooltip label={entry.title} shortcut={shortcut} side="bottom" align="start" asChild>
@@ -146,10 +149,8 @@ function ParentButton({ entry, needsYou, shortcut, onOpen }: { entry: FamilyEntr
         data-needs-you={needsYou || undefined}
         aria-label={needsYou ? `Back to ${entry.title}, needs you` : `Back to ${entry.title}`}
         onClick={onOpen}
-        className={`${CRUMB} shrink-[4] pr-2.5 pl-1.5 ${needsYou ? "max-w-[260px] bg-orange-tint text-ink" : "max-w-[180px] bg-field text-ink-2 hover:bg-hover-2"}`}
+        className={`${CRUMB} shrink-[4] decoration-ink-3 underline-offset-2 hover:text-ink hover:underline focus-visible:underline ${needsYou ? "max-w-[260px] text-ink" : "max-w-[180px] text-ink-2"}`}
       >
-        <Icon icon={ArrowLeft01Icon} size={14} className="mr-1 shrink-0" />
-        <ChatMarkDot mark={entry.mark} background={entry.background} />
         <span className="min-w-0 truncate">{entry.title}</span>
         {/* Never truncated: it is the reason the button is tinted. */}
         {needsYou && <span className="ml-1.5 shrink-0 text-12 font-medium text-orange-ink">Needs you</span>}
