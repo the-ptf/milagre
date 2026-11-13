@@ -555,6 +555,8 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - Film grain (Settings › Appearance › Film grain, on by default): faint static specks over the window background, the
   Chat's top band and the side panels (sidebar, Changes) at half strength; never on the composer or the Details glass.
 - The sidebar has no dividers above Done, the usage block or its footer.
+- The window's right corner runs Details, Terminals, PR, Changes, then the other panels (Artifacts, Designs, Browser,
+  Simulators) and Canvas last.
 - The top-left bar is the sidebar toggle, Routines and Search. Canvas is the last button of the window's right corner;
   Link Projects is the third choice of the Add Project dialog (Open a folder, Clone a repository, Link Projects), whose
   computer is a menu. No grid or Subchats side-by-side buttons: a grid comes from dragging a Chat onto the open one.

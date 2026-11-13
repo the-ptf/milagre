@@ -177,8 +177,8 @@ async function browserChecks() {
         const prBounds = await bounds('[data-panel-toggle="pr"]');
         const changesBounds = await bounds('[data-panel-toggle="changes"]');
         assert.ok(
-          terminalBounds.right <= browserBounds.left && browserBounds.right <= prBounds.left && prBounds.right <= changesBounds.left,
-          "Terminals, Browser, PR, Changes order",
+          terminalBounds.right <= prBounds.left && prBounds.right <= changesBounds.left && changesBounds.right <= browserBounds.left,
+          "Terminals, PR, Changes, Browser order",
         );
         await click('[data-panel-toggle="browser"]');
         await waitFor("window.browserOpen");
