@@ -56,6 +56,7 @@ import {
   sortedWorktrees,
 } from "./model";
 import { useAgentRuns } from "./components/useAgentRuns";
+import { RunTextContext } from "./lib/run-text";
 import { useAgentPorts } from "./lib/ports";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import {
@@ -4168,7 +4169,7 @@ function App() {
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         statusLabel={pendingHere && pendingSend && !run ? sendStatusLabel(pendingSend) : undefined}
-                        streamingText={run?.text}
+                        streamingKey={run && project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
                         streamingSteps={run?.steps}
                         subagents={subagents}
                         backgroundTasks={selectedSession?.backgroundTasks}
@@ -4464,7 +4465,7 @@ function App() {
     </BridgeContext.Provider>
   );
   return (
-    <>
+    <RunTextContext.Provider value={agentRuns.text}>
       <WorkspaceSlots
         shown={selectedLink ? "link" : "project"}
         slots={[...(linkWorkspace ? [{ key: "link", element: linkWorkspace }] : []), { key: "project", element: projectWorkspace }]}
@@ -4472,7 +4473,7 @@ function App() {
       {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
       {selectedLink && linkDialogs}
       {settingsModal}
-    </>
+    </RunTextContext.Provider>
   );
 }
 

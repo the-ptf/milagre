@@ -538,7 +538,7 @@ async function browserChecks() {
         await evaluate(`window.emitAgent(99, { type: 'text-delta', text: ' background output' })`);
         await delay(50);
       }
-      await waitFor(`window.committedRuns['/fixture#99']?.text === 'Other chat' + ' background output'.repeat(5)`);
+      await waitFor(`window.runText?.read('/fixture#99') === 'Other chat' + ' background output'.repeat(5)`);
       // Include the last delta's trailing refresh in the measurement, without resetting either counter.
       await delay(500);
       await railState();
@@ -597,7 +597,8 @@ async function main() {
             // A passive effect observes committed React state, not just receipt of an event.
             const committed = "const runsRef = useRef(runs);";
             assert.ok(code.includes(committed));
-            return code.replace(committed, "useEffect(() => { window.committedRuns = runs; }, [runs]); " + committed);
+            // Streamed text reaches its readers through the run text store, without committing runs (lib/run-text.ts).
+            return code.replace(committed, "useEffect(() => { window.committedRuns = runs; window.runText = text; }, [runs]); " + committed);
           }
           if (id.split("?")[0].endsWith("/motion/PreviewRail.tsx")) {
             assert.ok(code.includes("const scale = highlighted"));

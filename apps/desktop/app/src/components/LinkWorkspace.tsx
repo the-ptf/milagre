@@ -856,7 +856,7 @@ export function LinkWorkspace({
                             />
                           ) : undefined
                         }
-                        streamingText={run?.text}
+                        streamingKey={run && chatId ? chatId : undefined}
                         streamingSteps={run?.steps}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend.startedAt : undefined)}
                         statusLabel={pendingHere && !run ? sendStatusLabel({ sent: pendingSend.sent, provider: pendingSend.provider }) : undefined}
