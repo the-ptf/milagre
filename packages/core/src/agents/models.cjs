@@ -3,6 +3,7 @@ const { hasToken } = require("./antigravity-install.cjs");
 const { queryAntigravityModels } = require("./antigravity-model-list.cjs");
 const { listKiroModels } = require("./kiro-model-list.cjs");
 const { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } = require("@milagre/shared/antigravity-models");
+const { agentEnvironment } = require("./command.cjs");
 
 // The models each agent offers, asked from its CLI once per app run: Claude's supportedModels(), Codex's
 // model/list and Kiro's `model` option (kiro-model-list.cjs, which adds each model's `credits`). A model is { id, name, description, recommended, efforts, defaultEffort?, ultracode, fastMode },
@@ -69,7 +70,7 @@ async function listClaudeModels({ command, env, loadSdk = () => import("@anthrop
       await new Promise(() => {});
     },
   };
-  const session = query({ prompt: idle, options: { pathToClaudeCodeExecutable: command, ...(env ? { env } : {}) } });
+  const session = query({ prompt: idle, options: { pathToClaudeCodeExecutable: command, env: agentEnvironment(env) } });
   try {
     return claudeModels(await session.supportedModels());
   } finally {

@@ -29,6 +29,7 @@ import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
+import { useRunText } from "../lib/run-text";
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../model";
@@ -621,7 +622,8 @@ const MessageTranscript = memo(function MessageTranscript({
   messages,
   pendingMessageId,
   isSending,
-  streamingText,
+  streamingKey,
+  streamingText: heldText,
   streamingSteps,
   asking,
   waitingStepIds,
@@ -658,6 +660,7 @@ const MessageTranscript = memo(function MessageTranscript({
   | "messages"
   | "pendingMessageId"
   | "isSending"
+  | "streamingKey"
   | "streamingText"
   | "streamingSteps"
   | "asking"
@@ -783,6 +786,9 @@ const MessageTranscript = memo(function MessageTranscript({
     viewport.addEventListener("scroll", onScroll);
     return () => viewport.removeEventListener("scroll", onScroll);
   }, [chatId, start, remote, findOpen, loadOnScroll]);
+  // Read here, not passed down from the window: a streamed batch that only grows the reply renders this list alone.
+  const liveText = useRunText(isSending ? streamingKey : undefined);
+  const streamingText = streamingKey ? liveText : heldText;
   const streamingMessage: AppChatMessage | undefined =
     isSending && (streamingText || streamingSteps?.length)
       ? { id: -1, session_id: messages.at(-1)?.session_id ?? -1, body: streamingText ?? "", context: null, role: "assistant", steps: streamingSteps }
@@ -970,8 +976,11 @@ interface ChatComposerProps {
   /** Sending is briefly blocked while a message is being prepared; a running turn doesn't block it. */
   sendBlocked: boolean;
   readOnlyHistory?: boolean;
+  /** The chat key of the running turn whose streamed text the transcript shows (lib/run-text.ts); it reads the text itself. */
+  streamingKey?: string;
+  /** The running turn's text, for a caller that holds it itself (no `streamingKey`). */
   streamingText?: string;
-  /** The running turn's tool steps, where they happened in `streamingText`. */
+  /** The running turn's tool steps, where they happened in its streamed text. */
   streamingSteps?: ChatStep[];
   subagents?: Subagent[];
   backgroundTasks?: BackgroundTask[];
@@ -1380,6 +1389,7 @@ export function ChatComposer({
   isSending,
   sendBlocked,
   readOnlyHistory = false,
+  streamingKey,
   streamingText,
   streamingSteps,
   subagents = EMPTY_SUBAGENTS,
@@ -1504,7 +1514,8 @@ export function ChatComposer({
     [newChatChange, chatsDraft, noProjectGroup],
   );
   const workingModelName = runModelName ?? selectedModel.name;
-  // Live work stays beside the running mark and timer, including tool purposes and thinking summary headings.
+  // The send's progress, or Worktree creation and setup, beside the running mark and timer. Tool calls and thinking name
+  // themselves in the transcript's activity row, so the mark and timer stand alone for them.
   const phase = statusLabel ?? runStatusLabel(streamingSteps);
   // Set while the transcript is scrolled up: its "Go to bottom" sits at the right end of the chip row, never over text.
   // Kept with the transcript it belongs to, so a Chat opened next (or a parked one) never shows another's button.
@@ -1796,6 +1807,7 @@ export function ChatComposer({
                             messages={messages}
                             pendingMessageId={pendingMessageId}
                             isSending={isSending}
+                            streamingKey={streamingKey}
                             streamingText={streamingText}
                             streamingSteps={streamingSteps}
                             asking={asking}
@@ -2147,6 +2159,7 @@ export function ChatTranscript({
   earlier,
   trimHistory,
   isSending,
+  streamingKey,
   streamingText,
   streamingSteps,
   asking,
@@ -2160,6 +2173,7 @@ export function ChatTranscript({
   | "earlier"
   | "trimHistory"
   | "isSending"
+  | "streamingKey"
   | "streamingText"
   | "streamingSteps"
   | "asking"
@@ -2188,6 +2202,7 @@ export function ChatTranscript({
               trimHistory={trimHistory}
               messages={messages}
               isSending={isSending}
+              streamingKey={streamingKey}
               streamingText={streamingText}
               streamingSteps={streamingSteps}
               asking={asking}

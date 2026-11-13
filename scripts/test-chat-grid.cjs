@@ -13,6 +13,7 @@ import { gridDrop, dropSide } from "/src/lib/grid-drop";
 import { useScopeStates } from "/src/lib/sidebar-scopes";
 import { ScopeContext } from "/src/lib/computer-bridge";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { RunTextContext, createRunTextStore } from "/src/lib/run-text";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 const unsubscribe = () => () => {};
@@ -89,12 +90,16 @@ function Harness() {
     </>
   );
 }
+// The window reads a running turn's text from the run text store (lib/run-text.ts), as App provides it.
+const runText = createRunTextStore((key) => runs[key]?.text);
 createRoot(document.getElementById("root")).render(
   <div style={{ height: "100vh", padding: 12 }}>
     <ScopeProbe />
-    <ScopeContext.Provider value="mac-b|/remote">
-      <Harness />
-    </ScopeContext.Provider>
+    <RunTextContext.Provider value={runText}>
+      <ScopeContext.Provider value="mac-b|/remote">
+        <Harness />
+      </ScopeContext.Provider>
+    </RunTextContext.Provider>
   </div>,
 );
 `;

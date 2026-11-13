@@ -1,4 +1,4 @@
-const { spawnCommand } = require("./agents/command.cjs");
+const { agentEnvironment, spawnCommand } = require("./agents/command.cjs");
 const { resolveExecutable } = require("./agents/environment.cjs");
 const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
@@ -355,7 +355,7 @@ async function readClaudeProfileUsage({
       },
       options: {
         pathToClaudeCodeExecutable: command,
-        env,
+        env: agentEnvironment(env),
         cwd: os.homedir(),
         settingSources: [],
         persistSession: false,

@@ -16,7 +16,7 @@ const stripMarkers = (text: string) => text.replace(/\*\*|__|`/g, "").trim();
 
 /** Takes the "recommended" marker off a label; reports whether there was one. */
 function takeMarker(label: string): { label: string; recommended: boolean } {
-  const trailing = /\s*(?:\(\s*recommended\s*\)|[—–,-]\s*recommended)\s*\.?\s*$/i;
+  const trailing = /\s*(?:\(\s*recommended\s*\)|[\u2014\u2013,-]\s*recommended)\s*\.?\s*$/i;
   const leading = /^recommended:\s*/i;
   const cleaned = label.replace(trailing, "").replace(leading, "").trim();
   return { label: cleaned, recommended: cleaned !== label && cleaned.length > 0 };

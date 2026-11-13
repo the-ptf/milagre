@@ -11,7 +11,16 @@ import {
 import type { PageElement } from "@milagre/shared/page-comments";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { isRemoteKey } from "./computer-bridge";
-import { changedThisLaunch, chatBrowser, closeBrowserTab, openBrowserTab, patchBrowserTab, takeNavigation, type ChatBrowser } from "./browser-panel.ts";
+import {
+  changedThisLaunch,
+  chatBrowser,
+  closeBrowserTab,
+  closeBrowserTabs,
+  openBrowserTab,
+  patchBrowserTab,
+  takeNavigation,
+  type ChatBrowser,
+} from "./browser-panel.ts";
 
 /**
  * The Browser panels' pages: one <webview> per tab, made once and never moved. A webview moved in the document, or
@@ -324,6 +333,13 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
   const offOpen = bridge.onOpenUrl?.(({ chatKey, url }) => {
     if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url);
   });
+  const offClose = bridge.onClosePage?.(({ contentsId, chatKey }) => {
+    const page = pageOfContents(contentsId);
+    if (page?.chatKey === chatKey) closeBrowserTab(chatKey, page.tabId);
+  });
+  const offCloseChat = bridge.onCloseChatPages?.(({ chatKey }) => {
+    if (typeof chatKey === "string") closeBrowserTabs(chatKey);
+  });
   const offViewed = bridge.onViewed?.(({ from, viewed, viewport }) => {
     const page = pageOfContents(from);
     if (!page) return;
@@ -337,6 +353,8 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     offKey();
     offViewed?.();
     offOpen?.();
+    offClose?.();
+    offCloseChat?.();
   };
 }
 

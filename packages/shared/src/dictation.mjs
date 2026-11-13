@@ -328,7 +328,7 @@ export function snapTerms(text, terms) {
     const sound = skeleton(shape.term);
     if (shape.brand && sound.length >= 4 && !sounds.has(sound)) sounds.set(sound, shape);
   }
-  const tokens = [...source.matchAll(/[\p{L}\p{N}](?:[\p{L}\p{N}_'’-]|\.(?=[\p{L}\p{N}]))*/gu)].map((match) => ({
+  const tokens = [...source.matchAll(/[\p{L}\p{N}](?:[\p{L}\p{N}_'\u2019-]|\.(?=[\p{L}\p{N}]))*/gu)].map((match) => ({
     text: match[0],
     start: match.index,
     end: match.index + match[0].length,

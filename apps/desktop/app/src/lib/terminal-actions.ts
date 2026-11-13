@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { TerminalInfo } from "@milagre/shared/terminal";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { dispose, pruneTerminals } from "./terminal-sessions";
+import { dispose, pruneTerminals } from "./terminal-registry";
 import { addTerminal, applyTerminalList, chatTerminals, setTerminalPanelOpen, setTerminalPicking } from "./terminal-store";
 import { bridgeForKey } from "./computer-bridge";
 

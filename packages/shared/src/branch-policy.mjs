@@ -37,7 +37,7 @@ export const BRANCH_COPY = Object.freeze({
 export function branchSlug(text) {
   return String(text)
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim()

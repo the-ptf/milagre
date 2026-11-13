@@ -162,8 +162,12 @@ async function check() {
       detail: "$ npm test\n",
     };
     await run(`window.setActivitySteps(${JSON.stringify([command, thought])})`);
-    await wait(`document.querySelector('[role="status"][aria-label="Check recorded swipe events"]')?.textContent.includes("Check recorded swipe events")`);
-    assert.equal(await run('document.querySelector("[data-slot=activity] > button").textContent.includes("Running 2 calls")'), true);
+    await wait('document.querySelector("[data-slot=activity] > button")?.textContent.includes("Running 2 calls")');
+    // The activity row names the command; the running mark beside the timer doesn't repeat it.
+    assert.equal(
+      await run(`[...document.querySelectorAll('[role="status"]')].some((node) => node.textContent.includes("Check recorded swipe events"))`),
+      false,
+    );
     await run('document.querySelector("[data-slot=activity] > button").click()');
     await wait('document.querySelectorAll("[data-slot=step]").length === 2');
     await run('document.querySelector("[data-slot=step] button[aria-expanded]").click()');

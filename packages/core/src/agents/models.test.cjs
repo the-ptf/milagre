@@ -230,7 +230,11 @@ test("Claude's model list comes from an idle query that is closed afterwards", a
     models.map((model) => model.id),
     ["claude-opus-5-5", "claude-fable-5-1"],
   );
-  assert.deepEqual(calls, { closed: 1, options: { pathToClaudeCodeExecutable: "/Users/x/.local/bin/claude" } });
+  assert.equal(calls.closed, 1);
+  assert.equal(calls.options.pathToClaudeCodeExecutable, "/Users/x/.local/bin/claude");
+  // Claude Code gets the host's environment without ELECTRON_RUN_AS_NODE and the other host-only variables.
+  assert.equal(calls.options.env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(calls.options.env.PATH, process.env.PATH);
 });
 
 test("each agent is asked once per run; a missing CLI or a failed lookup is asked again", async () => {

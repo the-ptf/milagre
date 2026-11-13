@@ -1,6 +1,7 @@
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { toClaudeConfig, safeDetail } = require("./definitions.cjs");
+const { agentEnvironment } = require("../agents/command.cjs");
 
 // One Claude account's MCP servers, from an idle SDK session's mcpServerStatus() (the listClaudeModels pattern in
 // agents/models.cjs). The session sends no prompt, so it costs no tokens; it only starts the servers.
@@ -54,7 +55,7 @@ async function checkClaude({
   const mcpServers = Object.fromEntries(everywhere.map((def) => [def.name, toClaudeConfig(def)]));
   const session = query({
     prompt: idle,
-    options: { pathToClaudeCodeExecutable: command, cwd, ...(env ? { env } : {}), ...(everywhere.length ? { mcpServers } : {}) },
+    options: { pathToClaudeCodeExecutable: command, cwd, env: agentEnvironment(env), ...(everywhere.length ? { mcpServers } : {}) },
   });
   const onAbort = () => session.close?.();
   signal?.addEventListener("abort", onAbort, { once: true });
@@ -79,7 +80,7 @@ async function checkClaude({
 // repeats the whole command line (config JSON with tokens), so it is never used, and long arguments are redacted.
 function runCli(command, args, { env } = {}) {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { env: env ?? process.env, timeout: 30_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(command, args, { env: agentEnvironment(env), timeout: 30_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve({ stdout: String(stdout), stderr: String(stderr) });
       let text = String(stderr ?? "");
       for (const arg of args) if (arg.length > 40) text = text.split(arg).join("[config]");
@@ -129,7 +130,7 @@ async function signInClaude({
   const mcpServers = Object.fromEntries(everywhere.map((def) => [def.name, toClaudeConfig(def)]));
   const session = query({
     prompt: idle,
-    options: { pathToClaudeCodeExecutable: command, cwd, ...(env ? { env } : {}), ...(everywhere.length ? { mcpServers } : {}) },
+    options: { pathToClaudeCodeExecutable: command, cwd, env: agentEnvironment(env), ...(everywhere.length ? { mcpServers } : {}) },
   });
   try {
     const auth = await session.mcpAuthenticate(name);

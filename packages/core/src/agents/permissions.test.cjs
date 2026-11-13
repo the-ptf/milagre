@@ -162,7 +162,16 @@ test("ACP: only Milagre's own plan tools and routine_list are auto-approved; rou
 test("the Milagre tools every provider runs without its own card: reads, plan, own-canvas and self-gated tools", () => {
   const ungated = (name, readOnly = false) => isUngatedMilagreTool({ name, readOnly });
   assert.equal(ungated("linear_issue", true), true);
-  const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "browser_open", "browser_resolve_comment", "conclude_negotiation"];
+  const own = [
+    "design_show",
+    "design_apply",
+    "artifact_show",
+    "artifact_resolve_comment",
+    "browser_open",
+    "browser_close",
+    "browser_resolve_comment",
+    "conclude_negotiation",
+  ];
   for (const name of [...PLAN_TOOL_NAMES, ...own, "project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"]) {
     assert.equal(ungated(name), true, name);
     // Codex in Ask or Auto, and Antigravity, get Milagre's answer instead of a card.
