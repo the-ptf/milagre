@@ -17,6 +17,11 @@ Node-format data directory that passes those checks is adopted with no client or
 composition serves. Today: 38 of 106 (36%), and only in a dedicated single-Project root, never on a
 Node-format profile. Commands counted once each; behavior parity is per-command Node differential evidence.
 
+**Profile-owner measurement after CP3's file-backed slice:** 43 advertised methods, 30 of the 112 commands
+called by the GPUI checkout at `chat-tie0/experiments/rust-gpui` (27%). Measured with `owner-coverage.mjs
+--served` using the exact `daemon:status` method list asserted by the profile-owner differential. This is
+command coverage, not full behavior parity: the local-only `project:image` limit is explicit below.
+
 Priority order, each a reviewed checkpoint (tests, strict Clippy/fmt, independent review, evidence here):
 
 1. **Profile owner (switch point, data adoption foundation).** Rust owner on a throwaway Node-format data
@@ -82,6 +87,49 @@ Independent review: no P1/P2. Open P3s worth fixing before serving it on the pro
 reopen leaves `pr:detail` revoked until restart while still advertised; a panic inside a read blocks
 recovery; one 30 s deadline spans all pages (large PRs can time out where Node pages); a request joining a
 running read gets pre-request data. Still served only by the dedicated runtime, not the profile owner.
+
+### Reviewed: step 3 file-backed settings and local discovery (`e5d1c8bf`)
+
+The profile owner adds 28 commands (43 advertised total): Done/context read-save, main-sync per-Project
+and default read-save, linked remote/device notes, auto-update, limit preferences, Linear enabled and
+move-to-started, keybinding read/edit/reset, `app:version`, `project:set-hidden`, and local `project:image`.
+Files retain Node's normalizers, defaults, unknown fields, JSON key order and formatting. Cached switches
+change only after successful writes. Keybindings implement JSONC, defaults/seen migration, intentional
+unbinding, broken-file protection and external-edit events. Settings mutations and events share the wire
+publication lock; the keybinding watcher uses 20 ms metadata polling and a 150 ms debounce.
+
+Writes are confined through pinned descriptors and no-follow opens, reject special/symlink targets,
+recheck the data-directory owner before I/O and before rename, and clean staged files on failure. Images
+pin the isolated root and traverse verified relative paths; contained Project aliases remain usable.
+The protocol is unchanged and both client platforms use the same daemon commands. No UI/native/mobile
+files, installed daemon, real profile or credential files changed; nothing was pushed.
+
+Evidence on Node 24.13.0/macOS arm64: the production Node daemon and Rust owner sequentially use the same
+marked throwaway profile, restoring identical seeds between them. Five scenarios (missing settings,
+seeded unknown fields, malformed settings/rules, JSONC migration/unbound commands, broken JSON) compare
+**660 command/fixture results**, error shapes, JSON key order, exact file bytes and relevant event order/
+payloads; Node then reopens Rust's saves for **65 rollback reads**. External JSONC and broken-file edits
+exercise watcher events. Eight local-image cases match Node with explicit offline Git/account callbacks;
+five plain/unborn/main/master/remote-HEAD cases match Node branch selection. The existing 42-case
+read/adoption/owner-exclusion/rollback test still passes. Final suites: profile-owner **32 tests**, registry
+**27 including its doctest**; strict `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
+pass for both crates. Commit hooks also passed lint/format for the changed JS/Markdown.
+
+Failing-first evidence: unsupported Done read before implementation; extensionless configured image
+prematurely stopped fallback; replacing a validated Project with an outside symlink exposed an outside
+fixture image; remote HEAD included a trailing newline. All now pass. Independent Astra review found the
+two image P2s and an alias regression during the fix; these are resolved. Re-review, including the final
+owner-before-rename check, found no remaining P1/P2. Unicode keybinding whitespace and malformed string
+defaults were also corrected. Failure tests retain old bytes/cached values and clean staging files when
+ownership or writes fail.
+
+**CP3 scope limit:** this accepts the file-backed slice, not full discovery parity. `project:image` returns
+a saved/contained local image or null; Node's GitHub/gh avatar fallback is still absent. It must not use
+ambient credentials to fill that gap. Settings size/type refusals are stricter than Node, and malformed
+keybinding JSON diagnostics cover tested V8 forms rather than every Node/V8 version. No crash/power-loss,
+watcher performance, live-profile, real-provider or desktop/phone UI qualification is claimed. CP4 Chats
+is next in the takeover sequence; CP3's avatar gap and CP2's profile-owner PR-detail integration remain
+explicit work before full owner parity.
 
 Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the ordinary installed Rust shell still needs the production Node owner; the separate Rust Preview owns its dedicated Rust backend. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
 
