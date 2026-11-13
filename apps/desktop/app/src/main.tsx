@@ -1,4 +1,4 @@
-import { StrictMode, lazy, Suspense } from "react";
+import { StrictMode, lazy, Suspense, type ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 import { BootSplash } from "./components/StartupSplash";
 import "./fonts.css";
@@ -24,23 +24,30 @@ const afterFirstFrame = () =>
     requestAnimationFrame(() => setTimeout(resolve));
     setTimeout(resolve, 50);
   });
-const Workspace = lazy(() => afterFirstFrame().then(() => import("./Workspace")));
+const root = createRoot(document.getElementById("root")!);
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    {floating ? (
+if (floating) {
+  root.render(
+    <StrictMode>
       <Suspense fallback={null}>
         <FloatingMotion>
           <FloatingInbox view={floatingView} />
         </FloatingMotion>
       </Suspense>
-    ) : (
-      <>
-        <Suspense fallback={null}>
-          <Workspace />
-        </Suspense>
+    </StrictMode>,
+  );
+} else {
+  // The app renders the moment its chunk has loaded. Behind lazy() and <Suspense>, React 19 would hold it until 300 ms
+  // after the fallback committed (its Suspense throttle), and the chunk is usually ready well before that.
+  const render = (Workspace?: ComponentType) =>
+    root.render(
+      <StrictMode>
+        {Workspace ? <Workspace /> : null}
         <BootSplash />
-      </>
-    )}
-  </StrictMode>,
-);
+      </StrictMode>,
+    );
+  render();
+  void afterFirstFrame()
+    .then(() => import("./Workspace"))
+    .then((module) => render(module.default));
+}

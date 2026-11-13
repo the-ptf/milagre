@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
 
-type SplashPhase = "intro" | "done" | "gone";
+type SplashPhase = "showing" | "gone";
 type Splash = { phase: SplashPhase; leaving: boolean; shown: boolean };
 
 // The splash paints from the first chunk, before the app has loaded (main.tsx), so the app reaches it through this store.
-let splash: Splash = { phase: "intro", leaving: false, shown: true };
+let splash: Splash = { phase: "showing", leaving: false, shown: true };
 // The app's trees that keep the splash up now (AppSplash).
 let held = 0;
 let drawnFirst = false;
@@ -36,10 +36,6 @@ export function holdSplash() {
 export function settleSplash() {
   if (!held && splash.shown) update({ shown: false });
 }
-/** The logo is whole: the app may show under it. */
-export const splashIntroEnded = () => {
-  if (splash.phase === "intro") update({ phase: "done" });
-};
 /** The fade has finished. */
 export const splashLeft = () => update({ phase: "gone" });
 export const setSplashLeaving = (leaving: boolean) => {
