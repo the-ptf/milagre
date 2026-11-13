@@ -14,8 +14,8 @@ import { SettingsModal } from "/src/components/settings/SettingsModal";
 import { DotBackground } from "/src/components/DotBackground";
 import { DesignPageEditor } from "/src/components/agents/DesignPageEditor";
 import { createExampleDesign, designHtml } from "@milagre/shared/design";
-import { DiffBar, AttentionButton } from "/src/components/changes/ChangesChrome";
-import { PanelToggles, sidePanelCount, useSidePanel, useSidePanels } from "/src/components/agents/PanelToggles";
+import { DiffBar } from "/src/components/changes/ChangesChrome";
+import { PanelToggles, useSidePanel } from "/src/components/agents/PanelToggles";
 import { useWindowChrome } from "/src/lib/window-chrome";
 import "/src/styles.css";
 const designDocument = createExampleDesign();
@@ -49,7 +49,6 @@ function Fixture() {
   const [browser, setBrowser] = useState(false);
   const [prAvailable, setPrAvailable] = useState(false);
   const [pr, setPr] = useState(false);
-  const sidePanels = useSidePanels();
   window.setBrowserAvailable = setBrowserAvailable;
   window.setPrAvailable = setPrAvailable;
   window.browserOpen = browser;
@@ -61,8 +60,7 @@ function Fixture() {
   useSidePanel("terminal", { open: terminal, toggle: () => setTerminal(v => !v) });
   return <><DotBackground><div style={{ width: "100%", height: "100vh", background: "#141820", color: "#ddd" }}>
     <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-    {!diff && <><PanelToggles right={12} changes={{open: changes, toggle: () => setChanges(v => !v)}} pullRequest={prAvailable ? {number: 90, open: pr, toggle: () => setPr(v => !v)} : undefined} />
-    <AttentionButton label="Review the notification toolbar layout and accessibility needs attention" items={[{ key: "1", project: "Layout", asking: false }]} offset={sidePanelCount(sidePanels, true, prAvailable)} onOpen={() => window.attentionOpened = true} /></>}
+    {!diff && <><PanelToggles right={12} changes={{open: changes, toggle: () => setChanges(v => !v)}} pullRequest={prAvailable ? {number: 90, open: pr, toggle: () => setPr(v => !v)} : undefined} /></>}
     <div style={{ display: "flex", height: "100%", gap: 12 }}>
       <div data-sidebar-host className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
         <SidebarNav fill workspaceName="Layout" recents={[{ id: "1", label: "Check window controls" }]} activeId="1" onOpenCanvas={() => {}} onOpenCommands={() => {}} />
@@ -179,8 +177,8 @@ async function browserChecks() {
         const prBounds = await bounds('[data-panel-toggle="pr"]');
         const changesBounds = await bounds('[data-panel-toggle="changes"]');
         assert.ok(
-          terminalBounds.right <= browserBounds.left && browserBounds.right <= prBounds.left && prBounds.right <= changesBounds.left,
-          "Terminals, Browser, PR, Changes order",
+          terminalBounds.right <= prBounds.left && prBounds.right <= changesBounds.left && changesBounds.right <= browserBounds.left,
+          "Terminals, PR, Changes, Browser order",
         );
         await click('[data-panel-toggle="browser"]');
         await waitFor("window.browserOpen");
@@ -199,19 +197,7 @@ async function browserChecks() {
         await waitFor('document.querySelectorAll("[data-slot=panel-toggles] button").length === 2');
         win.setSize(640, 650);
         await delay(200);
-        const attention = await bounds("[data-attention-button]");
-        assert.ok(attention.left >= (await evaluate("readChrome().controlsEnd")), "the attention chip stays clear of the sidebar tools at narrow widths");
-        assert.ok(attention.right + 8 <= (await bounds('[data-slot="panel-toggles"]')).left, "attention reserves space for the panel icons");
-        assert.equal(
-          await evaluate(`document.querySelector('[data-attention-button]').textContent`),
-          "1 waiting",
-          "the chip counts, never names, the waiting Chat",
-        );
-        assert.equal(
-          await evaluate(`document.querySelector('[data-attention-button]').getAttribute("aria-label")`),
-          "Review the notification toolbar layout and accessibility needs attention",
-          "its accessible name still names the Chat",
-        );
+        assert.equal(await evaluate('!!document.querySelector("[data-attention-button]")'), false, "no attention chip in the corner");
         await capture(integrated ? "integrated-narrow-attention" : "native-narrow-attention");
         win.setSize(1100, 650);
         await delay(200);
@@ -224,8 +210,6 @@ async function browserChecks() {
         await waitFor("window.readChangesOpen()");
         await click('[data-panel-toggle="terminal"]');
         await waitFor('document.querySelector("[data-panel-toggle=terminal]")?.getAttribute("aria-pressed") === "true"');
-        await click("[data-attention-button]");
-        await waitFor("window.attentionOpened");
         await evaluate("window.showDiff(true)");
         await waitFor('!!document.querySelector("[data-diff-back]")');
         await delay(300);
@@ -291,7 +275,7 @@ async function browserChecks() {
       }
     }
     console.log(
-      "PASS: native and integrated chrome, sidebar collapse, panels, attention, diff clearance, Settings Back clicks, hidden sidebar, real editor stacking, geometry events and fullscreen geometry",
+      "PASS: native and integrated chrome, sidebar collapse, panels, diff clearance, Settings Back clicks, hidden sidebar, real editor stacking, geometry events and fullscreen geometry",
     );
   } catch (error) {
     console.error(error);

@@ -15,6 +15,12 @@ test("parseAppearance keeps good fields and defaults bad ones", () => {
     sidebarUsage: "compact",
   });
   assert.deepEqual(parseAppearance({ sidebarUsage: "invalid" }), DEFAULT_APPEARANCE);
+  assert.equal(DEFAULT_APPEARANCE.sidebarRows, "classic", "Classic rows until someone picks Title first");
+  assert.equal(parseAppearance({ sidebarRows: "edge" }).sidebarRows, "edge");
+  assert.equal(parseAppearance({ sidebarRows: "alt" }).sidebarRows, "classic");
+  assert.equal(DEFAULT_APPEARANCE.grain, "on", "film grain is on until turned off");
+  assert.equal(parseAppearance({ grain: "off" }).grain, "off");
+  assert.equal(parseAppearance({ grain: "maybe" }).grain, "on");
   assert.deepEqual(parseAppearance(null), DEFAULT_APPEARANCE);
 });
 

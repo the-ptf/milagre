@@ -54,8 +54,6 @@ export interface AppSettings {
   notifyWhenWaiting: boolean;
   notifyOnCompletion: boolean;
   showDockBadge: boolean;
-  /** The top-right button that opens a chat waiting on the user in another project. */
-  showAttentionButton: boolean;
   /** Experimental: a thin screen-edge bar and an inbox over other apps. */
   floatingInbox: boolean;
   floatingInboxActivity: boolean;
@@ -126,7 +124,6 @@ const DEFAULTS: AppSettings = {
   notifyWhenWaiting: true,
   notifyOnCompletion: true,
   showDockBadge: true,
-  showAttentionButton: true,
   floatingInbox: false,
   floatingInboxActivity: true,
   keepAwake: true,
@@ -178,7 +175,6 @@ function load(): AppSettings {
       notifyWhenWaiting: typeof saved.notifyWhenWaiting === "boolean" ? saved.notifyWhenWaiting : DEFAULTS.notifyWhenWaiting,
       notifyOnCompletion: typeof saved.notifyOnCompletion === "boolean" ? saved.notifyOnCompletion : DEFAULTS.notifyOnCompletion,
       showDockBadge: typeof saved.showDockBadge === "boolean" ? saved.showDockBadge : DEFAULTS.showDockBadge,
-      showAttentionButton: typeof saved.showAttentionButton === "boolean" ? saved.showAttentionButton : DEFAULTS.showAttentionButton,
       floatingInbox: typeof saved.floatingInbox === "boolean" ? saved.floatingInbox : false,
       floatingInboxActivity: typeof saved.floatingInboxActivity === "boolean" ? saved.floatingInboxActivity : true,
       keepAwake: typeof saved.keepAwake === "boolean" ? saved.keepAwake : DEFAULTS.keepAwake,

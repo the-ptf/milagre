@@ -7,7 +7,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CleanIcon, Cancel01Icon, ArrowUp02Icon, Attachment01Icon, FlashIcon, Mic01Icon, ShieldAlertIcon } from "@hugeicons/core-free-icons";
+import { CleanIcon, Cancel01Icon, ArrowUp02Icon, Attachment01Icon, FlashIcon, Mic01Icon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
@@ -899,7 +899,6 @@ export function PromptComposer({
             provider={provider}
             onProviderChange={setProvider}
             models={modelRows}
-            totalModels={models.filter((model) => model.provider === provider).length}
             query={query}
             onQueryChange={setQuery}
             cliStatus={cliStatus}
@@ -1086,11 +1085,6 @@ export function PromptComposer({
               }}
               className="col-start-3 row-start-2 flex h-7 min-w-0 items-center gap-1 justify-self-end rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
             >
-              {permissionMode === "full" && (
-                <span data-permission-full aria-label="Full access" className="flex shrink-0 text-orange-ink">
-                  <Icon icon={ShieldAlertIcon} size={14} />
-                </span>
-              )}
               <ProviderLogo provider={selectedModel.provider} size={14} optical />
               <span data-model-name className="min-w-0 max-w-28 truncate">
                 {selectedModel.name}

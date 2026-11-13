@@ -90,7 +90,7 @@ export function LinkChangesPanel({
     <aside
       data-changes-panel
       aria-label="Changes"
-      className="flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
+      className="panel-grain flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
     >
       <ChangesTabs
         count={count}

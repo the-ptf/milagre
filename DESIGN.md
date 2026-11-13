@@ -401,6 +401,15 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 
 - Desktop rows are 32 high, two-line rows 48. Hover `bg-hover`, open or selected `bg-hover-2`, disabled 60%.
 - Unread is an 8px accent dot. Running is a quiet `ink-3` ring; needs you is orange.
+- The sidebar's One list Chat row has two styles, picked in Settings › General › Chat list (One list or Title first). Classic (the default) is 50 high:
+  the Project's icon, the title at 13 with its time, one dotted line under it. Title first is 54 high, 2 apart ("Alt A",
+  design `gpui-sidebar-v-a`): the title first at 14 medium
+  (`ink`, `ink-2` once read with nothing going on) with the Chat's state on its right edge (the spinner, the question or
+  approval icon, a red alert, else the time: `ink-3`, `ink` medium while unread, then the unread dot). Line two at 12
+  `ink-3`: the Project's 14px tile and name, the computer (`ink-2` on the hovered or open row), and the PR on the right
+  edge in its state's `-ink` colour, "+n" for several, its tooltip the state glyph, `#number` in mono and the title.
+  The hover Done takes the state's place in `ink-2`, `ink` under the pointer. A folded family's parent row draws as
+  open while one of its Subchats is.
 
 ### Approvals
 
@@ -463,7 +472,10 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 ### Composer
 
 - The composer is a floating control: the surface at 76% with `backdrop-blur-chip` and a low shadow, never a raised
-  card.
+  card. In an open Chat it and the chip row float over the transcript, which scrolls on under their glass; the
+  transcript's bottom pad is their height,
+  and with one Chat alone (no Terminal drawer) the transcript runs to the window's bottom edge, under the composer,
+  fading out over its last 24px there.
 - With Ultracode on, its border and glow take purple and breathe slowly.
 
 ## Copy
@@ -531,6 +543,32 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - Files / Commits and PR Summary / Files are segmented controls.
 - The question card's "Other…" is the last option row, with the mic and image buttons inside it.
 - Unread stays a blue accent dot, the one accent status. Settings stays an in-window dialog. Done is a product noun.
+
+### GPUI port to Electron (2026-11-13)
+
+- The sidebar's One list row can follow design Alt A, "status on the edge, title first" (see Rows and lists): the
+  Title first card in Settings › General › Chat list; One list (Classic) stays the default. The phone keeps its own list rows (kept
+  2026-11-10); only the unread time drops the accent there.
+- The composer's model chip shows no permission shield; Full stays orange in the picker's footer.
+- A Subchat's breadcrumb parent is plain text flush with the Chat title: no box, arrow or dot.
+- ⇧⌘D shows or hides the Changes panel on the view it was left on.
+- Film grain (Settings › Appearance › Film grain, on by default): faint static specks over the window background, the
+  Chat's top band and the side panels (sidebar, Changes) at half strength; never on the composer or the Details glass.
+- The sidebar has no dividers above Done, the usage block or its footer.
+- The window's right corner runs Details, Terminals, PR, Changes, then the other panels (Artifacts, Designs, Browser,
+  Simulators) and Canvas last.
+- The top-left bar is the sidebar toggle, Routines and Search. Canvas is the last button of the window's right corner;
+  Link Projects is the third choice of the Add Project dialog (Open a folder, Clone a repository, Link Projects), whose
+  computer is a menu. No grid or Subchats side-by-side buttons: a grid comes from dragging a Chat onto the open one.
+- The model picker has no provider and model-count header above its account and search.
+- No Subchats pill above the composer on desktop: the Details panel's Lineage lists them. The phone keeps its pill (it
+  has no Details panel). No "N waiting" chip in the top bar, nor the phone's Attention pill.
+- The Details overlay (from GPUI's Details tab) floats over the Chat under the corner's buttons, never pushing it aside:
+  the composer's glass (surface at 76%, `backdrop-blur-chip`), a 1px ring and a faint shadow, fading in moving down. It
+  is the first corner button (a card with right-aligned lines, `AlignBoxMiddleRight`) and has no shortcut: Environment, Lineage
+  (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, Done in `ink-3`, not green; under the pointer a muted → takes the place of the state; a right-click opens the Chat's sidebar menu without Report a bug, unread, Finder, the editor, Commit and Pin, Rename editing the title in place), Background
+  tasks and Links. Rows are 32 high, inset 8 from the card's edges so the `hover` fill is a rounded block; Lineage,
+  Background tasks and Links fold. Artifacts, Designs, Browser and Simulator keep their shortcuts.
 
 ### Routines page (2026-11-10)
 

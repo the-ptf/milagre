@@ -74,22 +74,6 @@ export async function readPermission(): Promise<"ask" | "auto" | "full" | null> 
     return null;
   }
 }
-const attentionButtonKey = "milagre.attention-button.v1";
-/** Whether the Chat shows the button to another Project's waiting Chat; on unless turned off. */
-export async function readAttentionButton(): Promise<boolean> {
-  try {
-    return (await SecureStore.getItemAsync(attentionButtonKey)) !== "off";
-  } catch {
-    return true;
-  }
-}
-export async function saveAttentionButton(on: boolean) {
-  try {
-    await SecureStore.setItemAsync(attentionButtonKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
-}
 const muriloModeKey = "milagre.murilo-mode.v1";
 const toolCallDisplayKey = "milagre.tool-call-display.v1";
 const floatingInboxKey = "milagre.floating-inbox.v1";

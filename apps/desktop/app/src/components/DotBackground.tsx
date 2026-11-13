@@ -11,6 +11,8 @@ export function DotBackground({ children }: { children: ReactNode }) {
       />
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-page [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]" />
       {/* A new Chat's sky (WelcomeSky) renders here, under the sidebar and the panes, so it spans the whole window. */}
+      {/* Film grain over the window's background (Settings › Appearance › Film grain); the dock layer sits above it. */}
+      <div aria-hidden data-window-grain className="window-grain pointer-events-none absolute inset-0" />
       <div ref={setSkyLayer} aria-hidden data-welcome-sky-layer className="pointer-events-none absolute inset-0" />
       {/* The docked panels render in here (dock-area.ts dockLayer), stacked with the git changes panel beside them. */}
       <div data-dock-layer className="relative z-10 flex h-full min-h-0">

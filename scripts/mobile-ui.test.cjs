@@ -3672,7 +3672,7 @@ function chatHost({
     "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
     "../archive-progress": archiveProgress,
-    "../attention": { AttentionPill: () => null },
+    "../attention": { FloatingInboxSlot: () => null },
     "../plan-pill": { PlanPill: () => null, PlanPanel: () => null, usePlanPanel: () => globalThis.planPanel ?? { phase: "closed" } },
     "../chat-actions": load("chat-actions.ts", {
       "react-native": { Alert: { alert } },
@@ -19754,127 +19754,6 @@ test("the phone screen offers suggestions only for idle Claude Chats without att
   delete chat.backgroundTasks;
   chat.provider = "codex";
   assert.equal(screen.field().suggestion, undefined);
-});
-
-test("attention pill uses live Chat titles, excludes visible panes, counts Chats and opens the selected Chat", async () => {
-  const react = hookHost({ effects: true });
-  let keys = ["/other#3", "/other#4"];
-  const opened = [];
-  const client = { url: "test-host", attention: async () => keys };
-  const session = {
-    client,
-    recent: [{ path: "/other", name: "Project name" }],
-    cachedProject: () => ({
-      project: {
-        state: {
-          sessions: { 4: { id: 4, title: "Old cached title" }, 5: { id: 5, title: "Review changes" } },
-          messages: [],
-        },
-      },
-    }),
-  };
-  session.snapshot = {
-    project: {
-      path: "/other",
-      state: {
-        sessions: { 4: { id: 4, title: "Fix toolbar" }, 5: { id: 5, title: "Review changes" } },
-        messages: [],
-      },
-    },
-  };
-  let visibleChat;
-  // The split ends before the route changes: each close is recorded with the routes opened so far.
-  const closedSplits = [];
-  const { AttentionPill } = load("attention.tsx", {
-    // Subscribing starts the shared poller, as React does on mount; a new subscribe (another client) subscribes again.
-    react: {
-      ...react,
-      useSyncExternalStore: (subscribe, snapshot) => {
-        react.useEffect(() => subscribe(() => {}), [subscribe]);
-        return snapshot();
-      },
-    },
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { AppState: { currentState: "active" }, Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { absoluteFill: {} } },
-    "expo-router": { router: { replace: (route) => opened.push(route) } },
-    "./split-chats": { closeBeside: () => closedSplits.push(opened.length) },
-    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 59 }) },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
-    "@milagre/shared/chats": require("@milagre/shared/chats"),
-    "@milagre/shared/attention": require("@milagre/shared/attention"),
-    "./hosts-native": { readAttentionButton: async () => true, saveAttentionButton: async () => {} },
-    "./session": { useSession: () => session },
-    "./icons": { Icon: "Icon" },
-    "./ui": { PullDown: "PullDown" },
-    "./theme": themeHooks,
-    "./floating-inbox-setting": { useFloatingInbox: () => [false] },
-    "./inbox": { FloatingInboxChip: "FloatingInboxChip" },
-  });
-  const render = () => {
-    react.begin();
-    return AttentionPill({ currentChat: "/other#3", visibleChat });
-  };
-  try {
-    render();
-    await new Promise((resolve) => setImmediate(resolve));
-    let tree = render();
-    assert.equal(tree.props.accessibilityLabel, "Fix toolbar needs attention. Open the Chat.");
-    assert.equal(tree.props.style({ pressed: false })[0].top, 119, "the phone pill stays below header controls");
-    tree.props.onPress();
-    assert.deepEqual({ ...opened[0].params }, { projectPath: "/other", hostId: "test-host", id: "4" });
-    assert.equal(JSON.stringify(closedSplits), JSON.stringify([0]), "the split closed before the route");
-    // A different client forces a refresh without waiting for the poll timer.
-    keys = ["/other#4", "/other#5"];
-    session.client = { ...client };
-    render();
-    await new Promise((resolve) => setImmediate(resolve));
-    tree = render();
-    assert.equal(tree.props.label, "2 Chats need attention. Choose a Chat.");
-    assert.deepEqual(
-      Array.from(tree.props.sections[0].items, (item) => item.title),
-      ["Fix toolbar", "Review changes"],
-    );
-    tree.props.onSelect("/other#5");
-    assert.equal(opened[1].params.id, "5");
-    session.snapshot = {
-      project: {
-        ...session.snapshot.project,
-        state: {
-          ...session.snapshot.project.state,
-          sessions: { ...session.snapshot.project.state.sessions, 4: { id: 4, title: "Renamed toolbar Chat" } },
-        },
-      },
-    };
-    visibleChat = "/other#5";
-    tree = render();
-    assert.equal(
-      tree.props.accessibilityLabel,
-      "Renamed toolbar Chat needs attention. Open the Chat.",
-      "a visible beside Chat is excluded and live renames render immediately",
-    );
-    visibleChat = "/other#4";
-    tree = render();
-    assert.equal(tree.props.accessibilityLabel, "Review changes needs attention. Open the Chat.");
-    // A Subchat's capsule announces its waiting parent: that Chat leaves the pill, and the pill shrinks to its icon.
-    visibleChat = undefined;
-    react.begin();
-    tree = AttentionPill({ currentChat: "/other#3", hideChats: ["/other#4"], compact: true });
-    assert.equal(tree.props.accessibilityLabel, "Review changes needs attention. Open the Chat.", "only the other Chat is left");
-    assert.equal(
-      find(tree, (node) => node.type === "Text"),
-      undefined,
-      "no words in the compact pill",
-    );
-    assert.ok(find(tree, (node) => node.type === "Icon"));
-    react.begin();
-    assert.equal(
-      AttentionPill({ currentChat: "/other#3", hideChats: ["/other#5"] }).props.accessibilityLabel,
-      "Renamed toolbar Chat needs attention. Open the Chat.",
-    );
-  } finally {
-    react.cleanup();
-  }
 });
 
 test("Add computer can remove the public fallback before pairing a pasted invitation", async () => {

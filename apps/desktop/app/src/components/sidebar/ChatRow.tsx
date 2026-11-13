@@ -21,6 +21,7 @@ import {
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  AlertCircleIcon,
   Delete02Icon,
   BubbleChatIcon,
   BubbleChatQuestionIcon,
@@ -72,6 +73,7 @@ import { useDisplayNow } from "../../lib/display-clock";
 import { WorkspaceIcon } from "../WorkspaceIcon";
 import { fileManager } from "@/lib/shortcut-hints";
 import { useOutboxWaiting } from "../../lib/outbox";
+import { useSettings } from "../../lib/settings";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
@@ -272,10 +274,10 @@ const MARK_ICON = {
   delegated: { icon: Link04Icon },
 } satisfies Partial<Record<ChatMark, { icon: HugeIconData }>>;
 
-function MarkIcon({ mark }: { mark: keyof typeof MARK_ICON }) {
+function MarkIcon({ mark, size = 13 }: { mark: keyof typeof MARK_ICON; size?: number }) {
   return (
     <span className={`flex ${markToneClass[chatMarkTone(mark)]}`}>
-      <HugeiconsIcon icon={MARK_ICON[mark].icon} size={13} strokeWidth={2} color="currentColor" />
+      <HugeiconsIcon icon={MARK_ICON[mark].icon} size={size} strokeWidth={size > 13 ? 1.8 : 2} color="currentColor" />
     </span>
   );
 }
@@ -326,11 +328,13 @@ function recentInitials(label: string) {
 
 /* ─────────────────────────────────────────────────────────
  * INBOX ROW
- * The One list's row: the Project's icon, then the title with its
- * last activity on the right (a spinner while it runs, a dot when
- * unread), then one line naming the Project, its pull requests and
- * Linear issue, what the chat is doing, the diff, and the computer
- * when it isn't this Mac. Its menu opens on a right-click.
+ * The One list's row, design "Alt A, status on the edge, title
+ * first" (gpui-sidebar-v-a v3), 54px: the title with the chat's
+ * state at its right edge (a spinner while it runs, the question or
+ * approval icon, a failure's alert, else the time with the unread
+ * dot), then one line with the Project's 14px tile and name, its
+ * Linear issue, the diff and the computer, and the pull request at
+ * the right edge. Its menu opens on a right-click.
  * ───────────────────────────────────────────────────────── */
 /** What an inbox row's second line says the chat is doing, in its mark's color. Unread says it with the dot instead. */
 const INBOX_STATUS: Record<Exclude<ChatMark, "idle" | "unread">, string> = {
@@ -349,13 +353,20 @@ function inboxStatus(item: SidebarRecent): { label: string; tone: string } | nul
   return { label: INBOX_STATUS[mark], tone: markToneClass[chatMarkTone(mark)] };
 }
 
-function RowProjectIcon({ image, initial = "", chats = false }: { image?: string | null; initial?: string; chats?: boolean }) {
+function RowProjectIcon({ image, initial = "", chats = false, small = false }: { image?: string | null; initial?: string; chats?: boolean; small?: boolean }) {
   const letter = initial.trim().slice(0, 1).toUpperCase() || "P";
+  // The inbox row's second line wears a 14px tile; a Chat without a Project there is the Chats bubble alone.
+  if (small && chats)
+    return (
+      <span aria-hidden data-chat-project-icon className="flex shrink-0 text-ink-4">
+        <HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={1.8} color="currentColor" />
+      </span>
+    );
   return (
     <span
       aria-hidden
       data-chat-project-icon
-      className="sidebar-copy flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-on-ink"
+      className={`sidebar-copy flex shrink-0 items-center justify-center overflow-hidden bg-ink text-10 font-semibold text-on-ink ${small ? "size-3.5 rounded-inline" : "size-5 rounded-chip"}`}
     >
       {/* A Chat without a Project wears the Chats group's bubble, as its header does in the grouped sidebar. */}
       {chats ? <HugeiconsIcon icon={BubbleChatIcon} size={12} /> : <WorkspaceIcon src={image} fallback={letter} />}
@@ -364,10 +375,264 @@ function RowProjectIcon({ image, initial = "", chats = false }: { image?: string
 }
 
 /**
+ * The one state at the right edge of line one: a spinner while the chat works, the question or approval icon while it
+ * waits on you, a red alert after a failed turn, else the time, brighter while unread, with the unread dot. Line two says
+ * no state, only what the chat is.
+ */
+function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number; now: number }) {
+  const mark = item.mark ?? "idle";
+  const label = mark === "idle" || mark === "unread" ? "" : markLabel(mark, item.background);
+  if (mark === "running" || mark === "background")
+    return (
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex w-4 justify-center">
+        <SpinnerRing size={12} />
+      </span>
+    );
+  if (mark in MARK_ICON)
+    return (
+      <span data-slot="chat-mark" data-mark={mark} role="img" aria-label={label} title={label} className="flex w-4 justify-center">
+        <MarkIcon mark={mark as keyof typeof MARK_ICON} size={14} />
+      </span>
+    );
+  return (
+    <>
+      {lastAt !== undefined && (
+        <span
+          data-chat-ago
+          title={new Date(lastAt).toLocaleString()}
+          className={`text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums ${item.unread ? "font-medium text-ink" : "text-ink-3"}`}
+        >
+          {activityAgo(lastAt, now)}
+        </span>
+      )}
+      {item.unread && <span data-slot="chat-mark" data-mark="unread" role="img" aria-label="Unread" title="Unread" className="size-2 rounded-full bg-accent" />}
+      {!item.unread && item.details?.failed && (
+        <span data-slot="chat-mark" data-mark="failed" role="img" aria-label="Failed" title="Failed" className="flex text-red">
+          <HugeiconsIcon icon={AlertCircleIcon} size={14} strokeWidth={1.8} color="currentColor" />
+        </span>
+      )}
+    </>
+  );
+}
+
+/** Whether InboxMark draws anything: a mark, the time, the unread dot or a failed dot. */
+function hasInboxMark(item: SidebarRecent, lastAt?: number) {
+  return (item.mark ?? "idle") !== "idle" || lastAt !== undefined || Boolean(item.unread) || Boolean(item.details?.failed);
+}
+
+/** Line one: pin, title, Link and heartbeat icons, then the chat's one mark (InboxMark). */
+function InboxTitleLine({
+  item,
+  linked,
+  lastAt,
+  now,
+  hideTime,
+  doneable,
+}: {
+  item: SidebarRecent;
+  linked: LinkedEnd[];
+  lastAt?: number;
+  now: number;
+  /** The ⌘1–9 hint or the open menu sits where the time goes. */
+  hideTime: boolean;
+  /** The hover "Done" button takes the mark's place while the pointer is on the row. */
+  doneable: boolean;
+}) {
+  const status = inboxStatus(item);
+  // A read Chat with nothing going on steps back to ink-2; one that is unread, working, waiting or failed stays ink.
+  const quiet = (item.mark ?? "idle") === "idle" && !item.unread && !item.details?.failed;
+  return (
+    <span className="sidebar-copy flex min-w-0 flex-col">
+      {/* The hover "Done" button sits over the state's place: the title stops before it instead of running under it. */}
+      <span className={`flex h-5 min-w-0 items-center gap-1.5 ${doneable && !hideTime ? "group-focus-within/row:pr-[56px] group-hover/row:pr-[56px]" : ""}`}>
+        {item.pinned && (
+          <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-4">
+            <HugeiconsIcon icon={PinIcon} size={12} strokeWidth={1.8} color="currentColor" />
+          </span>
+        )}
+        <span className={`min-w-0 truncate text-[length:calc(14px+var(--sidebar-delta))] leading-5 font-medium ${quiet ? "text-ink-2" : "text-ink"}`}>
+          <ChatTitle label={item.label} />
+        </span>
+        {linked.length > 0 && (
+          <span
+            data-chat-linked
+            role="img"
+            aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+            title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+            className="flex shrink-0 text-ink-3"
+          >
+            <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
+          </span>
+        )}
+        {item.heartbeat && (
+          <span data-chat-heartbeat role="img" aria-label={item.heartbeat} title="Heartbeat" className="flex shrink-0 text-ink-3">
+            <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
+          </span>
+        )}
+        {/* The slot is there only when it has something to show, so a quiet row's title runs to the row's end. */}
+        {hasInboxMark(item, lastAt) && (
+          <span
+            data-chat-time
+            className={`ml-auto flex shrink-0 items-center gap-1.5 pl-2 transition-opacity duration-100 ${hideTime ? "opacity-0" : doneable ? "group-focus-within/row:hidden group-hover/row:hidden" : ""}`}
+          >
+            <InboxMark item={item} lastAt={lastAt} now={now} />
+          </span>
+        )}
+      </span>
+      {/* Read with the row's name; the second line beside it is outside the button and shown, not read. */}
+      {(status || item.unread) && <span className="sr-only">{[status?.label, item.unread ? "Unread" : ""].filter(Boolean).join(", ")}</span>}
+    </span>
+  );
+}
+
+/**
+ * Line two, over the row's button: the Project's 14px tile and name (or a Link Chat's Projects), a parent's subchat count,
+ * the Linear issue, the diff, the computer and what waits for it, then the pull request at the right edge. Only the count,
+ * the issue and the pull request take the pointer; the rest lets a click through to the row.
+ */
+function InboxLine({
+  item,
+  project,
+  projectImage,
+  projectInitial,
+  projectChats = false,
+  linkProjects,
+  pullRequests,
+  linearIssue,
+  diff,
+  computer,
+  archiving,
+  active,
+  waiting = 0,
+  subchat = false,
+  depth = 1,
+  family,
+}: {
+  item: SidebarRecent;
+  project: string;
+  projectImage?: string | null;
+  projectInitial?: string;
+  projectChats?: boolean;
+  linkProjects?: number;
+  pullRequests: PullRequest[];
+  linearIssue?: LinearIssue;
+  diff?: DiffStat;
+  computer?: RowComputer;
+  archiving: boolean;
+  /** The row is the open one: the computer reads as on a hovered row. */
+  active: boolean;
+  /** Messages waiting on this Mac for the chat's offline computer. */
+  waiting?: number;
+  /** The row is indented as a subchat. */
+  subchat?: boolean;
+  /** How far in: 1 under the parent, 2 under a subchat (the sidebar goes no deeper). */
+  depth?: number;
+  family?: { count: number; folded: boolean; asking?: boolean; onToggle: () => void };
+}) {
+  const extra = (key: string, node: ReactNode) => (
+    <Fragment key={key}>
+      <span aria-hidden className="shrink-0 text-ink-4">
+        ·
+      </span>
+      {node}
+    </Fragment>
+  );
+  return (
+    <div
+      data-chat-prs
+      data-chat-line
+      className={`sidebar-copy pointer-events-none absolute ${subchat ? (depth > 1 ? "left-[52px]" : "left-9") : "left-5"} right-5 top-[30px] z-20 flex h-4 min-w-0 items-center gap-2 text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-3 ${archiving ? "opacity-30" : ""}`}
+    >
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+        {linkProjects !== undefined && item.worktreeCount !== undefined ? (
+          <span data-chat-project data-chat-link-projects className="flex min-w-0 shrink items-center gap-1.5">
+            <HugeiconsIcon icon={Link04Icon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0 text-ink-4" />
+            <span className="truncate">{linkProjects === 1 ? "1 Project" : `${linkProjects} Projects`}</span>
+          </span>
+        ) : (
+          <span className="flex min-w-0 shrink items-center gap-1.5">
+            <RowProjectIcon image={projectImage} initial={projectInitial ?? project} chats={projectChats} small />
+            <span data-chat-project className="truncate">
+              {project}
+            </span>
+          </span>
+        )}
+        {family && <FamilyBadge item={item} family={family} archiving={archiving} />}
+        {linearIssue && extra("linear", <LinearIssueChip issue={linearIssue} inbox />)}
+        {diff &&
+          extra(
+            "diff",
+            <span data-chat-diff className="shrink-0 tabular-nums">
+              <span className="text-diff-add">+{formatLineCount(diff.added)}</span> <span className="text-diff-remove">−{formatLineCount(diff.removed)}</span>
+            </span>,
+          )}
+        {computer && (
+          <span
+            data-chat-computer
+            className={`ml-0.5 flex min-w-0 shrink items-center gap-1 ${computer.offline ? "text-orange-ink" : active ? "text-ink-2" : "transition-colors group-hover/row:text-ink-2"}`}
+          >
+            <HugeiconsIcon icon={computerIcon(computer)} size={12} strokeWidth={1.8} color="currentColor" className="shrink-0" />
+            <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
+          </span>
+        )}
+        {waiting > 0 &&
+          extra(
+            "waiting",
+            <span data-chat-waiting className="shrink-0 text-orange-ink">
+              {waiting} waiting
+            </span>,
+          )}
+      </span>
+      {pullRequests.length > 0 && <PullRequestChip pr={pullRequests[0]!} item={item} labelled={false} inbox edge count={pullRequests.length} />}
+    </div>
+  );
+}
+
+/**
+ * A parent's subchat count, which folds and unfolds them: on the Project icon in the grouped lists, on line two after the
+ * Project in the inbox row. Orange while one of them waits on you.
+ */
+function FamilyBadge({
+  item,
+  family,
+  archiving,
+  className = "",
+}: {
+  item: SidebarRecent;
+  family: { count: number; folded: boolean; asking?: boolean; onToggle: () => void };
+  archiving: boolean;
+  className?: string;
+}) {
+  const fill = family.asking ? "var(--orange)" : family.folded ? "var(--line-strong)" : "var(--accent-tint)";
+  return (
+    <button
+      type="button"
+      data-subchat-toggle
+      data-subchat-badge
+      data-asking={family.asking || undefined}
+      aria-expanded={!family.folded}
+      aria-label={`${family.folded ? "Show" : "Hide"} ${family.count} subchat${family.count === 1 ? "" : "s"} of ${item.label}${family.asking ? ", one needs you" : ""}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        family.onToggle();
+      }}
+      style={{ backgroundImage: `linear-gradient(${fill}, ${fill})` }}
+      className={`sidebar-copy pointer-events-auto ${className.includes("absolute") ? "" : "relative"} flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface px-1 text-10 font-semibold tabular-nums transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
+        family.asking ? "text-black" : family.folded ? "text-ink" : "text-accent-ink"
+      } ${archiving ? "opacity-30" : ""} ${className}`}
+    >
+      {family.count}
+    </button>
+  );
+}
+
+/* The Classic inbox row (Settings › Appearance › Sidebar rows): the Project's icon, then the title with its time, then one
+ * dotted line naming the Project, its Linear issue and pull requests, the diff and the computer. */
+/**
  * The one mark at the end of line one: a spinner while the chat works, the question or approval icon while it waits on
  * you, a red dot after a failed turn, else the time with the unread dot. Line two says no state, only what the chat is.
  */
-function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number; now: number }) {
+function ClassicInboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number; now: number }) {
   const mark = item.mark ?? "idle";
   const label = mark === "idle" || mark === "unread" ? "" : markLabel(mark, item.background);
   if (mark === "running" || mark === "background")
@@ -403,13 +668,8 @@ function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number
   );
 }
 
-/** Whether InboxMark draws anything: a mark, the time, the unread dot or a failed dot. */
-function hasInboxMark(item: SidebarRecent, lastAt?: number) {
-  return (item.mark ?? "idle") !== "idle" || lastAt !== undefined || Boolean(item.unread) || Boolean(item.details?.failed);
-}
-
 /** Line one: pin, title, Link and heartbeat icons, then the chat's one mark (InboxMark). */
-function InboxTitleLine({
+function ClassicInboxTitleLine({
   item,
   linked,
   lastAt,
@@ -465,7 +725,7 @@ function InboxTitleLine({
             data-chat-time
             className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-100 ${hideTime ? "opacity-0" : doneable ? "group-focus-within/row:hidden group-hover/row:hidden" : ""}`}
           >
-            <InboxMark item={item} lastAt={lastAt} now={now} />
+            <ClassicInboxMark item={item} lastAt={lastAt} now={now} />
           </span>
         )}
       </span>
@@ -479,7 +739,7 @@ function InboxTitleLine({
  * Line two, over the row's button: Project (or a Link Chat's Projects) · Linear issue · pull requests · status · diff ·
  * computer. Only the issue and pull request links take the pointer; the rest lets a click through to the row.
  */
-function InboxLine({
+function ClassicInboxLine({
   item,
   project,
   linkProjects,
@@ -724,8 +984,10 @@ export const ChatRow = memo(function ChatRow({
   const projectName = collapsed ? undefined : project;
   // The One list's rows: see `project`.
   const inbox = projectName !== undefined;
+  // Settings › Appearance › Sidebar rows: Title first (design Alt A) or Classic, in the One list only.
+  const rowStyle = useSettings().appearance.sidebarRows;
+  const edge = inbox && rowStyle === "edge";
   const shownFamily = collapsed ? undefined : family;
-  const familyBadgeFill = shownFamily?.asking ? "var(--orange)" : shownFamily?.folded ? "var(--line-strong)" : "var(--accent-tint)";
   const factLine = Boolean(projectName) || facts.length > 0 || Boolean(branch || diff || lastAt !== undefined) || hasChips;
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
@@ -852,7 +1114,7 @@ export const ChatRow = memo(function ChatRow({
         ref={rowRef}
         data-chat-id={item.id}
         data-subchat={subchat && !collapsed ? "" : undefined}
-        className={`group/row relative ${subchat && !collapsed ? (depth > 1 ? "pl-8" : "pl-4") : ""} ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
+        className={`group/row relative ${edge ? "pb-px" : ""} ${subchat && !collapsed ? (depth > 1 ? "pl-8" : "pl-4") : ""} ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
         onPointerEnter={() => {
           if (doneable) hoveredDone = ownDone.current;
           showCardSoon();
@@ -873,7 +1135,18 @@ export const ChatRow = memo(function ChatRow({
           openMenu(event.clientX, event.clientY);
         }}
       >
-        {renaming && inbox ? (
+        {renaming && edge ? (
+          <div data-row className="sidebar-row relative z-10 mx-2 flex h-[54px] items-start rounded-control bg-hover-2 px-3 pt-2">
+            <RenameField
+              edge
+              initial={item.label}
+              onDone={(title) => {
+                setRenaming(false);
+                if (title !== null && title !== item.label) actions.onRename?.(item.id, title);
+              }}
+            />
+          </div>
+        ) : renaming && inbox ? (
           <div data-row className="sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2 rounded-control bg-hover-2 px-2 py-[7px]">
             <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />
             <RenameField
@@ -913,19 +1186,32 @@ export const ChatRow = memo(function ChatRow({
             aria-busy={archiving || undefined}
             aria-label={archiving ? `Deleting ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
-            className={`sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2 rounded-control px-2 py-[7px] text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
-              active ? "bg-hover-2" : "hover:bg-hover-2"
-            } ${archiving ? "opacity-30" : ""}`}
+            className={`sidebar-row relative z-10 mx-2 flex text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
+              edge ? "h-[54px] flex-col rounded-control px-3 pt-2" : "h-[50px] items-start gap-2 rounded-control px-2 py-[7px]"
+            } ${active ? "bg-hover-2" : edge ? "hover:bg-hover" : "hover:bg-hover-2"} ${archiving ? "opacity-30" : ""}`}
           >
-            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />
-            <InboxTitleLine
-              item={item}
-              linked={linked}
-              lastAt={lastAt}
-              now={now}
-              hideTime={Boolean(shortcutHint) || Boolean(menu)}
-              doneable={doneable && !archiving}
-            />
+            {edge ? (
+              <InboxTitleLine
+                item={item}
+                linked={linked}
+                lastAt={lastAt}
+                now={now}
+                hideTime={Boolean(shortcutHint) || Boolean(menu)}
+                doneable={doneable && !archiving}
+              />
+            ) : (
+              <>
+                <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />
+                <ClassicInboxTitleLine
+                  item={item}
+                  linked={linked}
+                  lastAt={lastAt}
+                  now={now}
+                  hideTime={Boolean(shortcutHint) || Boolean(menu)}
+                  doneable={doneable && !archiving}
+                />
+              </>
+            )}
           </button>
         ) : (
           <button
@@ -999,35 +1285,36 @@ export const ChatRow = memo(function ChatRow({
           </button>
         )}
 
-        {/* Every expanded sidebar layout folds a family from the count on its Project icon. */}
-        {shownFamily && !renaming && (
-          <button
-            type="button"
-            data-subchat-toggle
-            data-subchat-badge
-            data-asking={shownFamily.asking || undefined}
-            aria-expanded={!shownFamily.folded}
-            aria-label={`${shownFamily.folded ? "Show" : "Hide"} ${shownFamily.count} subchat${shownFamily.count === 1 ? "" : "s"} of ${item.label}${shownFamily.asking ? ", one needs you" : ""}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              shownFamily.onToggle();
-            }}
-            style={{
-              backgroundImage: `linear-gradient(${familyBadgeFill}, ${familyBadgeFill})`,
-            }}
-            className={`sidebar-copy absolute top-[18px] left-[26px] z-20 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface px-1 text-10 font-semibold tabular-nums ring-2 ring-surface transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
-              shownFamily.asking ? "text-black" : shownFamily.folded ? "text-ink" : "text-accent-ink"
-            } ${archiving ? "opacity-30" : ""}`}
-          >
-            {shownFamily.count}
-          </button>
+        {/* A family folds from the count on its Project icon; the Title first row has it on line two. */}
+        {shownFamily && !renaming && !edge && (
+          <FamilyBadge item={item} family={shownFamily} archiving={archiving} className="absolute top-[18px] left-[26px] z-20 ring-2 ring-surface" />
         )}
         {subchat && !collapsed && <span aria-hidden data-subchat-guide className="pointer-events-none absolute inset-y-0 left-[19px] w-px bg-line" />}
         {subchat && !collapsed && depth > 1 && (
           <span aria-hidden data-subchat-guide className="pointer-events-none absolute inset-y-0 left-[35px] w-px bg-line" />
         )}
-        {inbox && !renaming && (
+        {edge && !renaming && (
           <InboxLine
+            item={item}
+            project={projectName}
+            projectImage={projectImage}
+            projectInitial={projectInitial}
+            projectChats={projectChats}
+            linkProjects={linkProjects}
+            pullRequests={pullRequests}
+            linearIssue={linearIssue}
+            diff={diff}
+            computer={rowComputer}
+            archiving={archiving}
+            active={active}
+            waiting={waiting}
+            subchat={subchat}
+            depth={depth}
+            family={shownFamily}
+          />
+        )}
+        {inbox && !edge && !renaming && (
+          <ClassicInboxLine
             item={item}
             project={projectName}
             linkProjects={linkProjects}
@@ -1083,7 +1370,7 @@ export const ChatRow = memo(function ChatRow({
             label="Mark Done"
             keyHint="E"
             align="end"
-            className={`absolute z-30 ${inbox ? "right-4 top-[7px]" : `${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} right-10`} opacity-0 transition-opacity duration-100 focus-within:opacity-100 group-hover/row:opacity-100 ${menu ? "opacity-100" : ""}`}
+            className={`absolute z-30 ${edge ? "right-4 top-2" : inbox ? "right-4 top-[7px]" : `${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} right-10`} opacity-0 transition-opacity duration-100 focus-within:opacity-100 group-hover/row:opacity-100 ${menu ? "opacity-100" : ""}`}
           >
             <button
               type="button"
@@ -1093,9 +1380,9 @@ export const ChatRow = memo(function ChatRow({
                 event.stopPropagation();
                 markDone();
               }}
-              className="flex h-5 items-center gap-1 rounded-inline px-1 text-[length:calc(11.5px+var(--sidebar-delta))] font-semibold text-ink-2 hover:text-ink focus-visible:text-ink"
+              className={`flex h-5 items-center gap-1 rounded-inline px-1 text-ink-2 transition-colors hover:text-ink focus-visible:text-ink ${edge ? "text-[length:calc(12px+var(--sidebar-delta))] font-medium" : "text-[length:calc(11.5px+var(--sidebar-delta))] font-semibold"}`}
             >
-              <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2.5} color="currentColor" />
+              <HugeiconsIcon icon={Tick02Icon} size={edge ? 14 : 12} strokeWidth={edge ? 1.8 : 2.5} color="currentColor" />
               Done
             </button>
           </Tooltip>
@@ -1206,19 +1493,52 @@ function LinearIssueChip({ issue, inbox = false }: { issue: LinearIssue; inbox?:
   );
 }
 
-function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullRequest; item: SidebarRecent; labelled: boolean; inbox?: boolean }) {
+/**
+ * A row's pull request. Under the pointer its state glyph gives way to the link glyph and the number turns ink, with no
+ * underline. In the inbox row it sits at line two's right edge in its state's colour, "+n" for several, and its tooltip
+ * names it: the state glyph, #number in mono, then the title, cut with an ellipsis.
+ */
+function PullRequestChip({
+  pr,
+  item,
+  labelled,
+  inbox = false,
+  edge = false,
+  count = 1,
+}: {
+  pr: PullRequest;
+  item: SidebarRecent;
+  labelled: boolean;
+  inbox?: boolean;
+  /** The Title first row (Appearance › Sidebar rows): its PR on line two's right edge, in its state's colour. */
+  edge?: boolean;
+  /** How many PRs the row has (the inbox row shows "+n" for several; the hover card lists them all). */
+  count?: number;
+}) {
   const openInPanel = useContext(PullRequestOpenContext);
   const look = prLook(pr);
+  const several = edge && count > 1;
+  const label = !edge ? look.description : several ? `${count} pull requests` : [`#${pr.number}`, pr.title].filter(Boolean).join(" ");
+  const content =
+    edge && !several ? (
+      <span data-chat-pr-tooltip className="flex min-w-0 max-w-[264px] items-center gap-1.5">
+        <span aria-hidden className={`flex shrink-0 ${look.toneClass}`}>
+          <HugeIcon icon={look.glyph} size={12} />
+        </span>
+        <span className="shrink-0 font-mono tabular-nums">#{pr.number}</span>
+        {pr.title && <span className="min-w-0 truncate">{pr.title}</span>}
+      </span>
+    ) : undefined;
   return (
-    <Tooltip label={look.description} side="bottom" className={inbox ? "pointer-events-auto shrink-0" : "min-w-0"}>
+    <Tooltip label={label} content={content} side="bottom" align={edge ? "end" : "start"} className={inbox ? "pointer-events-auto shrink-0" : "min-w-0"}>
       <a
         href={pr.url}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={`Open ${look.spoken}`}
+        aria-label={several ? `Open ${look.spoken}, ${count} pull requests` : `Open ${look.spoken}`}
         data-chat-pr
         data-chat-pr-state={look.icon}
-        className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "text-ink-2" : "text-ink-3"}`}
+        className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline transition-colors hover:text-ink focus-visible:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${edge ? look.labelClass : inbox ? "text-ink-2" : "text-ink-3"}`}
         onClick={(event) => {
           event.stopPropagation();
           // A plain click on the Chat's own PR opens its panel; ⌘-click still opens GitHub.
@@ -1228,17 +1548,31 @@ function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullReques
         <span aria-hidden className={`inline-flex group-hover/pr:hidden group-focus-visible/pr:hidden ${look.toneClass}`}>
           <HugeIcon icon={look.glyph} size={12} />
         </span>
-        <span aria-hidden className="hidden group-hover/pr:inline-flex group-focus-visible/pr:inline-flex">
+        <span aria-hidden data-chat-pr-link className="hidden group-hover/pr:inline-flex group-focus-visible/pr:inline-flex">
           <HugeIcon icon={LinkSquare02Icon} size={12} />
         </span>
-        <span className="truncate">#{pr.number}</span>
+        <span className="truncate">{edge ? (several ? `+${count}` : pr.number) : `#${pr.number}`}</span>
         {labelled && look.label && <span className={`shrink-0 ${look.labelClass}`}>{look.label}</span>}
       </a>
     </Tooltip>
   );
 }
 
-function RenameField({ initial, onDone, inbox = false }: { initial: string; onDone: (title: string | null) => void; inbox?: boolean }) {
+export function RenameField({
+  initial,
+  onDone,
+  inbox = false,
+  edge = false,
+  className,
+}: {
+  initial: string;
+  onDone: (title: string | null) => void;
+  inbox?: boolean;
+  /** The Title first row's 14px title on a 20px line. */
+  edge?: boolean;
+  /** Size classes for a field outside the sidebar (Details' Lineage), in place of the sidebar's. */
+  className?: string;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const done = useRef(false);
   const finish = (title: string | null) => {
@@ -1269,7 +1603,11 @@ function RenameField({ initial, onDone, inbox = false }: { initial: string; onDo
         }
       }}
       onBlur={(event) => finish(event.currentTarget.value.trim())}
-      className={`sidebar-copy min-w-0 flex-1 bg-transparent font-medium text-ink outline-none ${inbox ? "h-[18px] text-[length:calc(13px+var(--sidebar-delta))] leading-[18px]" : "text-[length:calc(14px+var(--sidebar-delta))]"}`}
+      className={
+        className
+          ? `min-w-0 flex-1 bg-transparent text-ink outline-none ${className}`
+          : `sidebar-copy min-w-0 flex-1 bg-transparent font-medium text-ink outline-none ${edge ? "h-5 text-[length:calc(14px+var(--sidebar-delta))] leading-5" : inbox ? "h-[18px] text-[length:calc(13px+var(--sidebar-delta))] leading-[18px]" : "text-[length:calc(14px+var(--sidebar-delta))]"}`
+      }
     />
   );
 }
@@ -1522,6 +1860,62 @@ function LinkIssuePopover({ position, onPick, onClose }: { position: { x: number
   );
 }
 
+/** What Details' Lineage menu leaves out of the sidebar's: the bug report, unread, Finder, the editor, Commit and Pin. */
+const DETAILS_OMIT: ReadonlySet<string> = new Set(["report-bug", "read", "unread", "reveal", "editor", "commit", "pin", "unpin"]);
+
+/**
+ * A Chat's right-click menu outside the sidebar (Details' Lineage): the sidebar row's entries less DETAILS_OMIT, with
+ * "Link issue…" opening the issue picker at the menu's place. Rename is the caller's, since the title sits in its row.
+ */
+export function ChatContextMenu({
+  item,
+  position,
+  actions,
+  onRename,
+  onClose,
+}: {
+  item: SidebarRecent;
+  position: { x: number; y: number };
+  actions: ChatRowActions;
+  onRename: () => void;
+  onClose: () => void;
+}) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(true);
+  const [linking, setLinking] = useState<{ x: number; y: number } | null>(null);
+  const at = { x: Math.min(position.x, window.innerWidth - MENU_WIDTH - 8), y: position.y };
+  useEffect(() => {
+    if (!menuOpen && !linking) onClose();
+  }, [menuOpen, linking, onClose]);
+  return (
+    <>
+      {menuOpen && (
+        <ChatMenu
+          item={item}
+          position={at}
+          trigger={trigger}
+          onClose={() => setMenuOpen(false)}
+          onRename={onRename}
+          onLink={() => setLinking(at)}
+          linked={false}
+          actions={actions}
+          omit={DETAILS_OMIT}
+        />
+      )}
+      {linking && (
+        <LinkIssuePopover
+          position={linking}
+          onPick={(issue) => {
+            setLinking(null);
+            actions.onLinkIssue?.(item.id, issue.key, issue.workspace);
+          }}
+          onClose={() => setLinking(null)}
+        />
+      )}
+    </>
+  );
+}
+
 function ChatMenu({
   item,
   position,
@@ -1531,9 +1925,12 @@ function ChatMenu({
   onLink,
   linked,
   actions,
+  omit,
 }: {
   item: SidebarRecent;
   position: { x: number; y: number };
+  /** Entries left out by key (Details' Lineage keeps the menu short). */
+  omit?: ReadonlySet<string>;
   /** The ⋮ button toggles the menu itself, so a press on it isn't an outside press. */
   trigger: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
@@ -1784,7 +2181,7 @@ function ChatMenu({
       : []),
     "divider" as const,
     ...archiveItems,
-  ].filter((entry) => entry === "divider" || !actions.remote || (entry.key !== "reveal" && entry.key !== "editor"));
+  ].filter((entry) => entry === "divider" || (!omit?.has(entry.key) && (!actions.remote || (entry.key !== "reveal" && entry.key !== "editor"))));
 
   const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];

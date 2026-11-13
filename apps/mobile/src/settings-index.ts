@@ -64,12 +64,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
   {
     page: "notifications",
-    title: "Attention button",
-    description: "When a Chat in another Project needs an approval or an answer.",
-    keywords: "inbox badge",
-  },
-  {
-    page: "notifications",
     title: "Notification schedule",
     keywords: "quiet hours do not disturb weekdays work hours days",
   },

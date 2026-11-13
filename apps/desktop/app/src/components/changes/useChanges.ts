@@ -86,12 +86,6 @@ export function useChanges({
   }, [shown, chatId, refresh]);
 
   const toggle = useCallback(() => setOpen((value) => !value), []);
-  const hasPr = Boolean(pullRequest);
-  /** The Changes button and its shortcut: the panel opens on the Chat's PR when it has one, on its changes otherwise. */
-  const toggleDefault = useCallback(() => {
-    if (!open && hasPr) setMode("pr");
-    setOpen(!open);
-  }, [open, hasPr]);
   const hide = useCallback(() => setOpen(false), []);
   useCloseWhenDesignsExpand(hide);
   // The panel's dragged width, plus the 12px gap beside it.
@@ -132,7 +126,6 @@ export function useChanges({
   return {
     open: shown,
     toggle,
-    toggleDefault,
     hide,
     diffOpen,
     closeDiff,

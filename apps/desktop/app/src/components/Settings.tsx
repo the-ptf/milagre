@@ -1133,7 +1133,14 @@ function GeneralSettings() {
         </Row>
       </Group>
       <ChoiceGroup title="Chat list">
-        <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
+        <ChatListChoice
+          value={settings.chatList === "list" && settings.appearance.sidebarRows === "edge" ? "title-first" : settings.chatList}
+          onChange={(pick) =>
+            pick === "title-first" || pick === "list"
+              ? updateSettings({ chatList: "list", appearance: { ...settings.appearance, sidebarRows: pick === "title-first" ? "edge" : "classic" } })
+              : updateSettings({ chatList: pick })
+          }
+        />
       </ChoiceGroup>
       <DoneRetentionSetting />
       <Group title="Plan usage">
@@ -1260,13 +1267,6 @@ function NotificationsSettings() {
             label="Notify when waiting"
             checked={settings.notifyWhenWaiting}
             onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })}
-          />
-        </Row>
-        <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
-          <SettingCheckbox
-            label="Attention button"
-            checked={settings.showAttentionButton}
-            onChange={(showAttentionButton) => updateSettings({ showAttentionButton })}
           />
         </Row>
       </Group>
@@ -1581,6 +1581,9 @@ function AppearanceSettings() {
                 label: style.label,
               }))}
             />
+          </Row>
+          <Row label="Film grain" description="A faint grain over the window and the side panels.">
+            <SettingCheckbox label="Film grain" checked={appearance.grain !== "off"} onChange={(on) => change("ui", { grain: on ? "on" : "off" })} />
           </Row>
           <Row label="Sidebar usage" description="One row per provider, or provider icons in one line." preview={preview.row("usage")}>
             <Select

@@ -15,6 +15,7 @@ import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
 import { SettingsPanel } from "/src/components/Settings";
 import { updateSettings } from "/src/lib/settings";
+import { DEFAULT_APPEARANCE } from "@milagre/shared/appearance";
 import { DESKTOP_CHAT_ROW_SHOW } from "@milagre/shared/chat-row";
 import "/src/styles.css";
 const minutes = (count) => Date.now() - count * 60000;
@@ -54,10 +55,14 @@ localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre-settings");
 // Branch on: the One list's rows still never show it.
 updateSettings({ chatRowShow: { ...DESKTOP_CHAT_ROW_SHOW, branch: true, lastActivity: true } });
+// Appearance › Sidebar rows: Title first (design Alt A) for most of the checks; Classic is checked at the end.
+updateSettings({ appearance: { ...DEFAULT_APPEARANCE, sidebarRows: "edge" } });
+window.updateSettings = updateSettings;
+window.DEFAULT_APPEARANCE = DEFAULT_APPEARANCE;
 function Fixture() {
   return (
     <div style={{ display: "flex", gap: 12, height: "100vh", padding: "60px 12px 12px" }}>
-      <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow", mark: "running", details: { lastAt: minutes(60), branch: "fix-login", diff: { added: 142, removed: 38 } } }]} activeId="1" />
+      <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow", mark: "running", details: { lastAt: minutes(60), branch: "fix-login", diff: { added: 142, removed: 38 }, pullRequests: [{ number: 980, title: "Fix the login redirect loop", url: "https://github.com/example/atlas/pull/980", state: "OPEN" }] } }]} activeId="1" />
       <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section="general" models={[]} update={null} /></main>
     </div>
   );
@@ -111,7 +116,7 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
 
-    assert.equal(await evaluate(checked), "One list", "Settings › General starts on One list");
+    assert.equal(await evaluate(checked), "Title first", "Settings › General shows the Title first card picked");
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0, "No Project groups");
     // The Chats group (Chats without a Project) shows only once such a Chat exists; these Projects have none.
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 0, "No Chats group without a Chat without a Project");
@@ -159,9 +164,9 @@ async function browserChecks() {
       "The Project is the first item of every second line",
     );
 
-    // Inbox rows: the Project's icon on the left, no ⋯ button, no branch, a sans second line.
+    // Inbox rows (Alt A): the title first, the Project's 14px icon on line two, no ⋯ button, no branch, a sans second line.
     const inbox = await evaluate(`[...document.querySelectorAll("[data-chat-list-flat] [data-chat-id], [data-all-pinned] [data-chat-id]")].map((row) => ({
-      icon: !!row.querySelector("[data-row] [data-chat-project-icon]"),
+      icon: !!row.querySelector("[data-chat-line] [data-chat-project-icon]") && !row.querySelector("[data-row] [data-chat-project-icon]"),
       actions: !!row.querySelector('[aria-label="Chat actions"]'),
       branch: !!row.querySelector("[data-chat-branch]"),
       mono: [...row.querySelectorAll("[data-chat-line] *")].some((node) => /mono/i.test(getComputedStyle(node).fontFamily)),
@@ -169,7 +174,7 @@ async function browserChecks() {
     assert.equal(inbox.length, 5);
     assert.ok(
       inbox.every((row) => row.icon),
-      "Every row leads with its Project's icon",
+      "Every row names its Project with its icon on line two, not before the title",
     );
     assert.ok(
       inbox.every((row) => !row.actions),
@@ -187,6 +192,21 @@ async function browserChecks() {
     assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-time] [data-mark]")?.dataset.mark`), "running");
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-ago]")`), false, "A running row shows its spinner, not its time");
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-status]")`), false, "The second line says no state");
+    // The PR sits at line two's right edge in its state's colour; its tooltip names it: state glyph, #number in mono, title.
+    const pr = `${row(1)}.querySelector("[data-chat-pr]")`;
+    assert.equal(await evaluate(`${pr}.textContent`), "980");
+    assert.match(await evaluate(`${pr}.className`), /\btext-green-ink\b/);
+    assert.equal(
+      await evaluate(`Math.round(${row(1)}.querySelector("[data-chat-line]").getBoundingClientRect().right - ${pr}.getBoundingClientRect().right)`),
+      0,
+      "The PR ends on line two's right edge",
+    );
+    await evaluate(`${pr}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }))`);
+    await waitFor(`!!document.querySelector("[role=tooltip] [data-chat-pr-tooltip]")`);
+    assert.equal(await evaluate(`document.querySelector("[role=tooltip] [data-chat-pr-tooltip]").textContent`), "#980Fix the login redirect loop");
+    assert.match(await evaluate(`getComputedStyle(document.querySelector("[role=tooltip] [data-chat-pr-tooltip] .font-mono")).fontFamily`), /mono/i);
+    await screenshot("one-list-pr-tooltip");
+    await evaluate(`${pr}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse", relatedTarget: document.body }))`);
     // Done: out of the list, in the folded Done section at the bottom, which opens to a countdown and Reopen.
     assert.equal(await evaluate(`!!${row(6)}`), false, "A Done Chat leaves the list");
     assert.equal(await evaluate(`document.querySelector("[data-done-count]")?.textContent`), "1");
@@ -233,12 +253,16 @@ async function browserChecks() {
     // Diff stats are off by default; the branch is on but never shows here.
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
     assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");
-    // Unread: the time in the accent, bold, and a dot after it; the title bold.
+    // Unread: the time brighter (ink, medium), never in the accent, and the dot after it; the title stays ink.
     assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]")?.textContent`), "30m");
-    assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className.includes("text-accent")`), true);
+    const ago = await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className`);
+    assert.ok(/\btext-ink\b/.test(ago) && /\bfont-medium\b/.test(ago) && !ago.includes("accent"), `unread time: ${ago}`);
     assert.equal(await evaluate(`!!${row(4)}.querySelector('[data-chat-time] [data-mark="unread"]')`), true, "The unread dot follows the time");
-    assert.equal(await evaluate(`getComputedStyle(${row(4)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "600");
+    assert.equal(await evaluate(`getComputedStyle(${row(4)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
+    assert.match(await evaluate(`${row(4)}.querySelector("[data-chat-title]").parentElement.className`), /\btext-ink\b/);
     assert.equal(await evaluate(`getComputedStyle(${row(8)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
+    // The row is 54 high (Alt A).
+    assert.equal(await evaluate(`Math.round(${row(4)}.querySelector("[data-row]").getBoundingClientRect().height)`), 54);
     // Pinned: a pin before the title.
     assert.equal(await evaluate(`!!document.querySelector('[data-all-pinned] [data-chat-id="9"] [data-chat-pinned]')`), true, "Pinned rows show a pin");
     // The menu opens on a right-click and from the keyboard.
@@ -279,6 +303,14 @@ async function browserChecks() {
     await choose("One list");
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0);
+    // Classic rows (One list, the default): the Project's icon leads the row, 50 high, the PR as #number.
+    await evaluate(`window.updateSettings({ appearance: { ...window.DEFAULT_APPEARANCE, sidebarRows: "classic" } })`);
+    await waitFor(`${checked} === "One list"`);
+    await waitFor(`!!${row(1)}.querySelector("[data-row] [data-chat-project-icon]")`);
+    assert.equal(await evaluate(`Math.round(${row(1)}.querySelector("[data-row]").getBoundingClientRect().height)`), 50);
+    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-pr]").textContent`), "#980");
+    assert.match(await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className`), /text-accent/);
+    await screenshot("one-list-classic");
     assert.equal(JSON.parse(await evaluate(`localStorage.getItem("milagre-settings")`)).chatList, "list");
 
     assert.deepEqual(errors, []);

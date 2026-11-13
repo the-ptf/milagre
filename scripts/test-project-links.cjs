@@ -148,7 +148,10 @@ async function main() {
       });
       return result.value;
     }, "renderer document ready");
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-projects]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
+    await waitFor(
+      () => evaluate(`!!document.querySelector('button[aria-label="Add Project"]') && !document.querySelector('.startup-splash-screen')`),
+      "desktop ready",
+    );
     // The sidebar's Project groups, not its One list, are what this check drives.
     await evaluate(
       `window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
@@ -158,7 +161,12 @@ async function main() {
       evaluate(
         `(() => {const input = document.querySelector(${JSON.stringify(selector)}); if (input.matches('[data-prompt-editor]')) input.value = ${JSON.stringify(value)}; else Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', {bubbles:true})); })()`,
       );
-    const linkProjects = () => evaluate(`document.querySelector('[data-link-projects]').click()`);
+    // Link Projects lives in the Add Project dialog: its third choice hands over to the Link dialog.
+    const linkProjects = async () => {
+      await evaluate(`document.querySelector('button[aria-label="Add Project"]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-add-project-mode="link"]')`), "Add Project dialog");
+      await evaluate(`document.querySelector('[data-add-project-mode="link"]').click()`);
+    };
     const scopeOf = (name) => `[data-sidebar-scope][aria-label=${JSON.stringify(name)}]`;
     const linkScope = `[data-sidebar-scope^="milagre-link:"]`;
     const isCurrent = (selector) => evaluate(`!!document.querySelector(${JSON.stringify(selector + "[data-current]")})`);
@@ -282,7 +290,7 @@ async function main() {
     // Back to the shared Chat for the steps below.
     await evaluate(`[...document.querySelectorAll('[data-chat-row], [data-row]')].find((row) => row.textContent.includes('Update status'))?.click()`);
     await input("[data-prompt-editor]", "Keep my draft while viewing the linked Projects");
-    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
+    await evaluate(`document.querySelector('[data-canvas-toggle]').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('[data-canvas]')`), "Link canvas");
     assert.ok(await isCurrent(linkScope), "Canvas keeps the selected Link");
     await waitFor(
@@ -303,7 +311,7 @@ async function main() {
     await shot("link-canvas");
     await click("Back");
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Keep my draft while viewing the linked Projects");
-    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
+    await evaluate(`document.querySelector('[data-canvas-toggle]').click()`);
     await waitFor(
       () => evaluate(`!![...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat'))`),
       "canonical shared Chat in Canvas",
@@ -681,7 +689,7 @@ async function main() {
     const adopted = (await client.call("canvas:chat-mode", [edge.id, "shared"])).find((item) => item.id === edge.id).sharedChat;
     // The direct test client reconnects before Electron does. Wait for the real desktop's transport, not a fixed delay.
     await waitFor(async () => (await evaluate("window.milagre.getRuntimeConnection()")).connected, "desktop reconnected before adoption UI");
-    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
+    await evaluate(`document.querySelector('[data-canvas-toggle]').click()`);
     const adoptedRow = `[data-canvas-worktree=${JSON.stringify(adoptedPaths[0])}] [data-canvas-chat]`;
     await waitFor(() => evaluate(`!!document.querySelector(${JSON.stringify(adoptedRow)})`), "adopted canvas Chat");
     await evaluate(`document.querySelector(${JSON.stringify(adoptedRow)}).click()`);

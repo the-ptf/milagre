@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeFamilyRoot, chatFamily, rowKeys, shownChats } from "./subchat-rows.ts";
+import { activeFamilyRoot, chatFamily, rowKeys, shownChats, standInRow } from "./subchat-rows.ts";
 
 const row = (id: string, parent?: string) => ({ id, label: id, ...(parent ? { parent } : {}) });
 
@@ -96,6 +96,35 @@ test("activeFamilyRoot: the family to unfold for the open subchat, nothing for a
   );
   assert.equal(
     activeFamilyRoot(rows, keys, () => false),
+    undefined,
+  );
+});
+
+test("standInRow: a folded family's parent stands in for its open subchat, at any depth", () => {
+  const rows = [row("1"), row("2", "1"), row("3", "2"), row("6")];
+  const keys = rowKeys("/p");
+  const folded = shownChats(rows, { ...keys, folded: new Set(["/p#1"]) });
+  const open = shownChats(rows, { ...keys, folded: new Set() });
+  assert.equal(
+    standInRow(folded, rows, keys, (item) => item.id === "3"),
+    "/p#1",
+  );
+  assert.equal(
+    standInRow(folded, rows, keys, (item) => item.id === "2"),
+    "/p#1",
+  );
+  assert.equal(
+    standInRow(open, rows, keys, (item) => item.id === "3"),
+    undefined,
+    "the subchat's own row shows",
+  );
+  assert.equal(
+    standInRow(folded, rows, keys, (item) => item.id === "6"),
+    undefined,
+    "a top-level Chat stands for itself",
+  );
+  assert.equal(
+    standInRow(folded, rows, keys, () => false),
     undefined,
   );
 });

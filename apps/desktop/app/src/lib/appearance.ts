@@ -97,5 +97,8 @@ export function applyAppearance(a: Appearance) {
   const vars = appearanceVars(a, root.classList.contains("dark"), isFontInstalled);
   for (const name of OPTIONAL_VARS) if (!(name in vars)) root.style.removeProperty(name);
   for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+  // Film grain (styles.css's .window-grain and .panel-grain) shows while <html> carries data-grain.
+  if (a.grain === "off") root.removeAttribute("data-grain");
+  else root.setAttribute("data-grain", "");
   window.dispatchEvent(new Event(APPEARANCE_EVENT));
 }

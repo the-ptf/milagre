@@ -7,7 +7,6 @@ import { useQuoteInbox } from "../lib/quote-inbox";
 import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
-import { SubchatTrack } from "./agents/SubchatTrack";
 import { DelegationReportLine } from "./DelegationReportLine";
 import { SubchatMessage } from "./agents/SubchatMessages";
 import { hiddenSubchatNotes, subchatNote } from "../lib/subchat-transcript";
@@ -33,9 +32,8 @@ import { useEvent } from "../lib/stable";
 import { useRunText } from "../lib/run-text";
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { chatHistory } from "@milagre/shared/chat-history";
-import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, PermissionDecision, QuestionAnswers, Subagent } from "../model";
-import type { SubchatSource } from "../lib/subchat-track";
-import { latestReports, reportMarker } from "@milagre/shared/subchat-states";
+import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../model";
+import { reportMarker } from "@milagre/shared/subchat-states";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -351,8 +349,6 @@ function ReplyContent({
     </>
   );
 }
-
-const NO_REPORTS: ReadonlyMap<string, string> = new Map();
 
 const MessageSection = memo(function MessageSection({
   message,
@@ -992,10 +988,6 @@ interface ChatComposerProps {
   onArchiveSubagent?: (id: string, archived: boolean) => void;
   onStopAdvisor?: (id: string) => void;
   onRetryAdvisor?: (id: string) => void;
-  /** The Chat's Subchats, for the pill beside the composer's PR pills; absent when it has none. Opening one uses onOpenLinkedChat. */
-  subchats?: SubchatSource;
-  onAnswerSubchat?: (chatKey: string, requestId: string, answers: QuestionAnswers) => void;
-  onRespondSubchat?: (chatKey: string, requestId: string, decision: PermissionDecision) => void;
   waitingForSubagents?: boolean;
   /** The Chat's activity (chat-activity.mjs): a background one shows how many background agents still work. */
   activity?: ChatActivity;
@@ -1406,9 +1398,6 @@ export function ChatComposer({
   onArchiveSubagent,
   onStopAdvisor,
   onRetryAdvisor,
-  subchats,
-  onAnswerSubchat,
-  onRespondSubchat,
   waitingForSubagents = false,
   activity,
   plan,
@@ -1478,7 +1467,6 @@ export function ChatComposer({
   onOpenPullRequestLink,
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
-  const subchatReports = useMemo(() => (subchats ? latestReports(messages) : NO_REPORTS), [subchats, messages]);
   const { appearance, newChatGlance } = useSettings();
   const chatWidth = appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
@@ -1486,6 +1474,21 @@ export function ChatComposer({
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
   // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
   const isNewChat = messages.length === 0 && !loading && !loadError;
+  // The docked chip row and composer: their height is the transcript's bottom pad, so the last line scrolls clear of them.
+  const dockRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const dock = dockRef.current;
+    const host = root.current;
+    if (isNewChat || !dock || !host) return;
+    const update = () => host.style.setProperty("--composer-dock", `${Math.ceil(dock.getBoundingClientRect().height)}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(dock);
+    return () => {
+      observer.disconnect();
+      host.style.removeProperty("--composer-dock");
+    };
+  }, [isNewChat]);
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's new
   // Chat keeps the composer centred.
@@ -1777,10 +1780,11 @@ export function ChatComposer({
                   busy={isSending}
                   className="min-h-0 flex-1"
                   // The find bar floats over the top of the chat, so the first message moves below it while it is open.
-                  // The chip row floats over the bottom blur, so the last message can scroll clear of it.
-                  // The bottom pad clears the chip row and its fade (h-16), so the last line rests in full ink.
+                  // The chip row and composer float over the transcript (the composer dock), which scrolls on under their
+                  // glass; the bottom pad is the dock's height plus 16, so the last line rests clear of them.
                   // The first message starts where the top fade ends (bar + 32px), fully readable at the top.
-                  viewportClassName={`${findOpen ? "pt-12" : "pt-7"} pb-12`}
+                  // At the window's bottom edge (one Chat alone) the text fades out over its last 24px instead of being cut.
+                  viewportClassName={`${findOpen ? "pt-12" : "pt-7"} pb-[calc(var(--composer-dock,0px)+16px)] [mask-image:linear-gradient(to_bottom,black_calc(100%-var(--chat-edge-fade,0px)),transparent)]`}
                   contentClassName="min-h-full"
                   // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
                   autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
@@ -1868,247 +1872,243 @@ export function ChatComposer({
             )
           }
         />
+        {/* An open Chat's chip row and composer float over the transcript's bottom, which scrolls on under their glass;
+        the transcript's bottom pad is the dock's height (--composer-dock). A new Chat keeps them in the column's flow. */}
         <div
-          data-chat-width={chatWidth}
-          // While a composer popover (model, permissions, + or a menu) is open over it, the row steps aside instead of peeking out.
-          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 transition-[opacity,visibility] duration-fast empty:hidden [&:has(+[data-composer-wrap]_[data-picker-panel])]:invisible [&:has(+[data-composer-wrap]_[data-picker-panel])]:opacity-0 ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
+          ref={dockRef}
+          data-composer-dock
+          className={isNewChat ? "contents" : "pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col pb-[var(--chat-edge-pad,0px)]"}
         >
-          {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
-          Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
-          <LayoutGroup>
-            {/* The Subchats lead the left side; the last pill there takes the free space to its right. */}
-            {!isNewChat && subchats && onOpenLinkedChat && onAnswerSubchat && onRespondSubchat && (
-              <SubchatTrack
-                key={`subchats-${subchats.parentKey}`}
-                source={subchats}
-                reports={subchatReports}
-                className={pullRequestAction || reviewPill ? "" : "mr-auto"}
-                onOpen={onOpenLinkedChat}
-                onAnswer={onAnswerSubchat}
-                onRespond={onRespondSubchat}
-              />
-            )}
-            <AnimatePresence initial={false}>
-              {!isNewChat && pullRequestAction && (
-                <PillSlot key="pr-action" slot="pr-action" className={reviewPill ? "flex" : "mr-auto flex"}>
-                  <StatusPill
-                    onClick={pullRequestAction.onRun}
-                    disabled={sendBlocked || isSending || imageDraft.loading}
-                    icon={pullRequestAction.tone === "green" ? GitMergeIcon : GitPullRequestIcon}
-                    label={pullRequestAction.label}
-                    tone={pullRequestAction.tone}
-                    className="font-medium"
-                  />
-                </PillSlot>
-              )}
-              {reviewPill && (
-                <PillSlot key="pr-review" slot="pr-review" className="mr-auto flex">
-                  {/* Neutral: orange is for what needs you now; the label says what the count is. */}
-                  <StatusPill
-                    data-review-pill
-                    onClick={reviewPill.onOpen}
-                    leading={
-                      <>
-                        <Icon icon={BubbleChatIcon} size={12} />
-                        <span className="font-medium text-ink tabular-nums">{reviewPill.count}</span>
-                      </>
-                    }
-                    label={reviewPill.count === 1 ? "review comment" : "review comments"}
-                    tone="ink"
-                  />
-                </PillSlot>
-              )}
-            </AnimatePresence>
-            <PortTrack
-              key={`ports-${messages[0]?.session_id ?? "new"}`}
-              ports={ports}
-              onStop={onStopPort}
-              onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
-            />
-            <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
-            {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
-            {browserShown && (
-              <BrowserPanel
-                key={`browser-panel-${browserShown}`}
-                chatKey={browserShown}
-                viewerChatId={agentChatId}
-                ports={ports ?? []}
-                onSendComments={onSendPageComments}
-              />
-            )}
-            <SubagentTrack
-              key={chatId}
-              chatKey={runtimeChat}
-              agents={subagents}
-              provider={sessionProvider ?? selectedModel.provider}
-              onArchiveFinished={onArchiveFinishedSubagents}
-              onArchive={onArchiveSubagent}
-              onStop={onStopAdvisor}
-              onRetry={onRetryAdvisor}
-            />
-            {/* Keyed by Chat: switching drops the old button at once instead of playing its exit over the new Chat. */}
-            <AnimatePresence key={`jump-${transcriptKey}`} initial={false}>
-              {!isNewChat && jumpToBottom?.key === transcriptKey && (
-                <PillSlot key="jump-to-bottom" slot="jump-to-bottom" className="flex">
-                  <Tooltip label="Go to bottom" asChild>
-                    <button
-                      type="button"
-                      aria-label="Go to bottom"
-                      data-jump-to-bottom
-                      onClick={jumpToBottom.jump}
-                      className="status-pill flex size-7 items-center justify-center rounded-full text-ink-2 transition-[color,scale] hover:text-ink active:scale-press"
-                    >
-                      <Icon icon={ArrowDown01Icon} size={14} />
-                    </button>
-                  </Tooltip>
-                </PillSlot>
-              )}
-            </AnimatePresence>
-          </LayoutGroup>
-        </div>
-
-        <div
-          data-chat-width={chatWidth}
-          data-composer-wrap
-          className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}
-        >
-          {/* The update pill floats centred on the chip row's line, outside its flow. */}
-          <UpdatePillSlot className={`bottom-full ${isNewChat ? "mb-2" : "mb-1.5"}`} />
-          {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
-          {saveNotice}
-          {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
-          {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
           <div
-            data-composer-tray={projectNewChat || undefined}
-            data-offline-composer={(!projectNewChat && offlineTray) || undefined}
-            className={
-              projectNewChat || offlineTray ? `rounded-window border bg-inset p-1.5 pt-1 ${projectNewChat ? "border-line" : "border-line-strong"}` : ""
-            }
+            data-chat-width={chatWidth}
+            // While a composer popover (model, permissions, + or a menu) is open over it, the row steps aside instead of peeking out.
+            className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 transition-[opacity,visibility] duration-fast empty:hidden [&:has(+[data-composer-wrap]_[data-picker-panel])]:invisible [&:has(+[data-composer-wrap]_[data-picker-panel])]:opacity-0 ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 mb-3 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
           >
-            {projectNewChat && (
-              <NewChatHeader
-                worktrees={worktrees}
-                selectedWorktreeId={selectedWorktreeId}
-                onWorktreeChange={onWorktreeChange}
-                isolation={isolation}
-                onIsolationChange={onIsolationChange}
-                branches={branches}
-                baseBranch={baseBranch}
-                onBaseBranchChange={onBaseBranchChange}
-                linearActive={linearActive}
-                onStartFromIssue={onStartFromIssue}
-                noGit={noGit}
-                chats={chatsDraft}
-                copies={projectCopies}
-                currentKey={newChatProjectKey}
-                onComputerChange={changeComputer}
+            {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
+          Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
+            <LayoutGroup>
+              <AnimatePresence initial={false}>
+                {!isNewChat && pullRequestAction && (
+                  <PillSlot key="pr-action" slot="pr-action" className={reviewPill ? "flex" : "mr-auto flex"}>
+                    <StatusPill
+                      onClick={pullRequestAction.onRun}
+                      disabled={sendBlocked || isSending || imageDraft.loading}
+                      icon={pullRequestAction.tone === "green" ? GitMergeIcon : GitPullRequestIcon}
+                      label={pullRequestAction.label}
+                      tone={pullRequestAction.tone}
+                      className="font-medium"
+                    />
+                  </PillSlot>
+                )}
+                {reviewPill && (
+                  <PillSlot key="pr-review" slot="pr-review" className="mr-auto flex">
+                    {/* Neutral: orange is for what needs you now; the label says what the count is. */}
+                    <StatusPill
+                      data-review-pill
+                      onClick={reviewPill.onOpen}
+                      leading={
+                        <>
+                          <Icon icon={BubbleChatIcon} size={12} />
+                          <span className="font-medium text-ink tabular-nums">{reviewPill.count}</span>
+                        </>
+                      }
+                      label={reviewPill.count === 1 ? "review comment" : "review comments"}
+                      tone="ink"
+                    />
+                  </PillSlot>
+                )}
+              </AnimatePresence>
+              <PortTrack
+                key={`ports-${messages[0]?.session_id ?? "new"}`}
+                ports={ports}
+                onStop={onStopPort}
+                onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
               />
-            )}
-            {linkNewChat && (
-              <NewChatHeader
-                link
-                worktrees={NO_WORKTREES}
-                onWorktreeChange={() => {}}
-                isolation="worktree"
-                onIsolationChange={() => {}}
-                branches={NO_BRANCHES}
-                baseBranch=""
-                onBaseBranchChange={() => {}}
-                linearActive={linearActive}
-                onStartFromIssue={onStartFromIssue}
+              <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
+              {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
+              {browserShown && (
+                <BrowserPanel
+                  key={`browser-panel-${browserShown}`}
+                  chatKey={browserShown}
+                  viewerChatId={agentChatId}
+                  ports={ports ?? []}
+                  onSendComments={onSendPageComments}
+                />
+              )}
+              <SubagentTrack
+                key={chatId}
+                chatKey={runtimeChat}
+                agents={subagents}
+                provider={sessionProvider ?? selectedModel.provider}
+                onArchiveFinished={onArchiveFinishedSubagents}
+                onArchive={onArchiveSubagent}
+                onStop={onStopAdvisor}
+                onRetry={onRetryAdvisor}
               />
-            )}
-            {offlineTray}
-            {queue && !isNewChat && (
-              <QueuedMessages
-                {...queue}
-                canSteer={queue.canSteer && compactionContext(messages.findLast((message) => compactionContext(message)))?.status !== "preparing"}
-                items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))}
-                disabled={sendBlocked}
-              />
-            )}
-            {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
-            {approval && (isNewChat || messages.length === 0) && (
-              <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>
-            )}
-            {review.view !== "closed" && !isNewChat && (
-              <UndoPanel
-                readOnly={readOnlyHistory}
-                review={review}
-                intent={undoIntent}
-                onHighlight={setHighlightId}
-                onOpenFile={onOpenDiff}
-                onClosed={focusPrompt}
-              />
-            )}
-            <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
-              <PromptComposer
-                offlineName={offlineName}
-                reconnectingName={reconnectingName}
-                imageDraft={imageDraft}
-                projectPath={projectPath}
-                skillScope={skillScope}
-                accountScope={messageScope ?? projectPath}
-                draft={draft}
-                onDraftChange={onDraftChange}
-                quotes={quotes}
-                onRemoveQuote={(id) => onQuotesChange(quotes.filter((quote) => quote.id !== id))}
-                history={promptHistory}
-                onSend={send}
-                canUndo={Boolean(runtimeChat) && !readOnlyHistory}
-                onStop={onStop}
-                onCompact={onCompact}
-                compactionFeedback={compactionFeedback}
-                compacting={Boolean(compactionContext(messages.findLast((message) => compactionContext(message)))?.status === "preparing")}
-                compactQueued={Boolean(queue?.items.some((item) => Boolean(compactionContext(item))))}
-                onCancelCompact={() => {
-                  const item = queue?.items.find((item) => Boolean(compactionContext(item)));
-                  if (item) queue?.onRemove(item.id);
-                }}
-                sendBlocked={sendBlocked}
-                running={isSending}
-                runningProvider={sessionProvider}
-                suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
-                models={models}
-                cliStatus={cliStatus}
-                onModelPickerOpen={onModelPickerOpen}
-                onUpdateCli={onUpdateCli}
-                updatingCli={updatingCli}
-                selectedModel={selectedModel}
-                onModelChange={onModelChange}
-                capability={capability}
-                effort={effort}
-                onEffortChange={onEffortChange}
-                ultracode={ultracode}
-                onUltracodeChange={onUltracodeChange}
-                fastMode={fastMode}
-                onFastModeChange={onFastModeChange}
-                permissionMode={permissionMode}
-                onPermissionModeChange={onPermissionModeChange}
-                contextUsage={contextUsage}
-                placeholder={chatsDraft && isNewChat ? newChatLook("chats").placeholder : undefined}
-              />
-            </div>
+              {/* Keyed by Chat: switching drops the old button at once instead of playing its exit over the new Chat. */}
+              <AnimatePresence key={`jump-${transcriptKey}`} initial={false}>
+                {!isNewChat && jumpToBottom?.key === transcriptKey && (
+                  <PillSlot key="jump-to-bottom" slot="jump-to-bottom" className="flex">
+                    <Tooltip label="Go to bottom" asChild>
+                      <button
+                        type="button"
+                        aria-label="Go to bottom"
+                        data-jump-to-bottom
+                        onClick={jumpToBottom.jump}
+                        className="status-pill flex size-7 items-center justify-center rounded-full text-ink-2 transition-[color,scale] hover:text-ink active:scale-press"
+                      >
+                        <Icon icon={ArrowDown01Icon} size={14} />
+                      </button>
+                    </Tooltip>
+                  </PillSlot>
+                )}
+              </AnimatePresence>
+            </LayoutGroup>
           </div>
-          <InlineError size={12} className="mt-2 px-1">
-            {newChatError}
-          </InlineError>
-          {readOnlyHistory && runtimeChat && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setUndoIntent("Undo");
-                void review.open();
-              }}
+
+          <div
+            data-chat-width={chatWidth}
+            data-composer-wrap
+            className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "pointer-events-auto z-20 -mt-1.5"}`}
+          >
+            {/* The update pill floats centred on the chip row's line, outside its flow. */}
+            <UpdatePillSlot className={`bottom-full ${isNewChat ? "mb-2" : "mb-1.5"}`} />
+            {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
+            {saveNotice}
+            {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
+            {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
+            <div
+              data-composer-tray={projectNewChat || undefined}
+              data-offline-composer={(!projectNewChat && offlineTray) || undefined}
+              className={
+                projectNewChat || offlineTray ? `rounded-window border bg-inset p-1.5 pt-1 ${projectNewChat ? "border-line" : "border-line-strong"}` : ""
+              }
             >
-              View checkpoints
-            </Button>
-          )}
-          {composerNote && (
-            <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
-              {composerNote}
-            </p>
-          )}
+              {projectNewChat && (
+                <NewChatHeader
+                  worktrees={worktrees}
+                  selectedWorktreeId={selectedWorktreeId}
+                  onWorktreeChange={onWorktreeChange}
+                  isolation={isolation}
+                  onIsolationChange={onIsolationChange}
+                  branches={branches}
+                  baseBranch={baseBranch}
+                  onBaseBranchChange={onBaseBranchChange}
+                  linearActive={linearActive}
+                  onStartFromIssue={onStartFromIssue}
+                  noGit={noGit}
+                  chats={chatsDraft}
+                  copies={projectCopies}
+                  currentKey={newChatProjectKey}
+                  onComputerChange={changeComputer}
+                />
+              )}
+              {linkNewChat && (
+                <NewChatHeader
+                  link
+                  worktrees={NO_WORKTREES}
+                  onWorktreeChange={() => {}}
+                  isolation="worktree"
+                  onIsolationChange={() => {}}
+                  branches={NO_BRANCHES}
+                  baseBranch=""
+                  onBaseBranchChange={() => {}}
+                  linearActive={linearActive}
+                  onStartFromIssue={onStartFromIssue}
+                />
+              )}
+              {offlineTray}
+              {queue && !isNewChat && (
+                <QueuedMessages
+                  {...queue}
+                  canSteer={queue.canSteer && compactionContext(messages.findLast((message) => compactionContext(message)))?.status !== "preparing"}
+                  items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))}
+                  disabled={sendBlocked}
+                />
+              )}
+              {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
+              {approval && (isNewChat || messages.length === 0) && (
+                <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>
+              )}
+              {review.view !== "closed" && !isNewChat && (
+                <UndoPanel
+                  readOnly={readOnlyHistory}
+                  review={review}
+                  intent={undoIntent}
+                  onHighlight={setHighlightId}
+                  onOpenFile={onOpenDiff}
+                  onClosed={focusPrompt}
+                />
+              )}
+              <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+                <PromptComposer
+                  offlineName={offlineName}
+                  reconnectingName={reconnectingName}
+                  imageDraft={imageDraft}
+                  projectPath={projectPath}
+                  skillScope={skillScope}
+                  accountScope={messageScope ?? projectPath}
+                  draft={draft}
+                  onDraftChange={onDraftChange}
+                  quotes={quotes}
+                  onRemoveQuote={(id) => onQuotesChange(quotes.filter((quote) => quote.id !== id))}
+                  history={promptHistory}
+                  onSend={send}
+                  canUndo={Boolean(runtimeChat) && !readOnlyHistory}
+                  onStop={onStop}
+                  onCompact={onCompact}
+                  compactionFeedback={compactionFeedback}
+                  compacting={Boolean(compactionContext(messages.findLast((message) => compactionContext(message)))?.status === "preparing")}
+                  compactQueued={Boolean(queue?.items.some((item) => Boolean(compactionContext(item))))}
+                  onCancelCompact={() => {
+                    const item = queue?.items.find((item) => Boolean(compactionContext(item)));
+                    if (item) queue?.onRemove(item.id);
+                  }}
+                  sendBlocked={sendBlocked}
+                  running={isSending}
+                  runningProvider={sessionProvider}
+                  suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
+                  models={models}
+                  cliStatus={cliStatus}
+                  onModelPickerOpen={onModelPickerOpen}
+                  onUpdateCli={onUpdateCli}
+                  updatingCli={updatingCli}
+                  selectedModel={selectedModel}
+                  onModelChange={onModelChange}
+                  capability={capability}
+                  effort={effort}
+                  onEffortChange={onEffortChange}
+                  ultracode={ultracode}
+                  onUltracodeChange={onUltracodeChange}
+                  fastMode={fastMode}
+                  onFastModeChange={onFastModeChange}
+                  permissionMode={permissionMode}
+                  onPermissionModeChange={onPermissionModeChange}
+                  contextUsage={contextUsage}
+                  placeholder={chatsDraft && isNewChat ? newChatLook("chats").placeholder : undefined}
+                />
+              </div>
+            </div>
+            <InlineError size={12} className="mt-2 px-1">
+              {newChatError}
+            </InlineError>
+            {readOnlyHistory && runtimeChat && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setUndoIntent("Undo");
+                  void review.open();
+                }}
+              >
+                View checkpoints
+              </Button>
+            )}
+            {composerNote && (
+              <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
+                {composerNote}
+              </p>
+            )}
+          </div>
         </div>
         {/* The Project's open PRs, plan usage and today's tokens, under a new Chat's composer. */}
         {/* The cards take the room under the composer (two thirds of what's free) and scroll in it when the window is short.

@@ -69,6 +69,21 @@ export function activeFamilyRoot<T>(
 }
 
 /**
+ * The row that draws as the open one in place of a subchat hidden in a folded family: the family's parent, as the GPUI
+ * app lights a Subchat's parent row. undefined while the open row shows itself or nothing on the list is open. `shown` is
+ * shownChats' answer for `rows`. Clicking that row opens the parent, like any row.
+ */
+export function standInRow<T>(
+  shown: readonly { item: T }[],
+  rows: readonly T[],
+  keys: { key: (row: T) => string; parent: (row: T) => string | undefined },
+  isActive: (row: T) => boolean,
+): string | undefined {
+  if (shown.some(({ item }) => isActive(item))) return undefined;
+  return activeFamilyRoot(rows, keys, isActive);
+}
+
+/**
  * Unfolds `root`'s family once each time the active Chat becomes one of its subchats, so folding it by hand afterwards sticks
  * until another subchat opens. `root` is activeFamilyRoot's answer, `active` the open Chat's key.
  */

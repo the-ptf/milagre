@@ -81,16 +81,25 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     const text = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent.trim() ?? null`);
-    const on = (id) => `document.querySelector('[data-add-project-on="${id}"]')`;
-    await waitFor(`document.querySelector('dialog[data-add-project]')?.open && !!${on("c-studio")}`);
+    // The computer is a menu now: its rows exist while it is open.
+    const on = (id) => `document.querySelector('[role=listbox] [data-add-project-on="${id}"]')?.closest('[data-picker-row]')`;
+    const openOn = async () => {
+      await waitFor(`!!document.querySelector('dialog[data-add-project] button[aria-label="Computer"]')`);
+      if (!(await evaluate(`!!document.querySelector('[role=listbox] [data-add-project-on]')`)))
+        await evaluate(`document.querySelector('dialog[data-add-project] button[aria-label="Computer"]').click()`);
+      await waitFor(`!!document.querySelector('[role=listbox] [data-add-project-on]')`);
+    };
+    await waitFor(`document.querySelector('dialog[data-add-project]')?.open`);
+    await openOn();
     assert.equal(await evaluate(`${on("c-studio")}.disabled`), true, "an offline computer can't be chosen");
-    assert.match(await text('[data-add-project-on="c-atlas"]'), /atlas\s*Same network/);
-    assert.match(await text('[data-add-project-on="this-mac"]'), new RegExp(`victor-mbp\\s*${ThisComputer}`));
+    assert.match(await evaluate(`${on("c-atlas")}.textContent.trim()`), /atlas\s*Same network/);
+    assert.match(await evaluate(`${on("this-mac")}.textContent.trim()`), new RegExp(`victor-mbp\\s*${ThisComputer}`));
     await evaluate(`${on("this-mac")}.click()`);
     await evaluate(`[...document.querySelectorAll('dialog button')].find((b) => b.textContent.trim() === 'Choose folder…').click()`);
     await waitFor(`window.localDialogs === 1`);
     console.log("PASS: This Mac's choice runs the folder dialog, and an offline computer is disabled");
 
+    await openOn();
     await evaluate(`${on("c-atlas")}.click()`);
     await waitFor(`!!document.querySelector('[data-folder="Code"]')`);
     assert.equal(await text("[data-folder-path]"), "~ /");
@@ -120,6 +129,7 @@ async function browserChecks() {
     const button = (label) => `[...document.querySelectorAll('dialog button')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})`;
     await evaluate(`document.querySelector('[data-reopen]').click()`);
     await waitFor(`document.querySelector('dialog[data-add-project]')?.open`);
+    await openOn();
     await evaluate(`${on("c-atlas")}.click()`);
     await waitFor(`!!document.querySelector('[data-folder="Code"]')`);
     await evaluate(`document.querySelector('[data-folder="Code"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
@@ -154,6 +164,7 @@ async function browserChecks() {
     await waitFor(`document.querySelector('dialog[data-add-project]')?.open`);
     await evaluate(`${mode("clone")}.click()`);
     await typeUrl(URL);
+    await openOn();
     await evaluate(`${on("c-atlas")}.click()`);
     await waitFor(`!!document.querySelector('[data-folder="Code"]')`);
     await evaluate(`document.querySelector('[data-folder="Code"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
@@ -170,6 +181,7 @@ async function browserChecks() {
       `[{ id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: ${JSON.stringify(state)}, route: null, lastSeen: Date.now(), addedAt: 1, message: null, lan: false, lanRoutes: [] }]`;
     await evaluate(`document.querySelector('[data-reopen]').click()`);
     await waitFor(`document.querySelector('dialog[data-add-project]')?.open`);
+    await openOn();
     await evaluate(`${on("c-atlas")}.click()`);
     await waitFor(`!!document.querySelector('[data-folder="Code"]')`);
     await evaluate(`document.querySelector('[data-folder="Code"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);

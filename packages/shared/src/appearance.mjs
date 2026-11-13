@@ -1,5 +1,7 @@
 export const CHAT_WIDTH_IDS = ["comfortable", "wide", "full", "custom"];
 export const SIDEBAR_USAGE_IDS = ["expanded", "compact"];
+export const SIDEBAR_ROW_IDS = ["classic", "edge"];
+export const GRAIN_IDS = ["on", "off"];
 export const PROVIDER_ICON_IDS = ["original", "simplified"];
 export const DIFF_COLOR_IDS = ["red-green", "blue-orange", "purple-yellow"];
 export const MOTION_IDS = ["normal", "fast", "off"];
@@ -13,6 +15,9 @@ export const DEFAULT_APPEARANCE = {
   chatWidth: "comfortable",
   chatWidthPx: 900,
   sidebarUsage: "expanded",
+  sidebarRows: "classic",
+  /** Film grain over the window background and the side panels (desktop). */
+  grain: "on",
   providerIcons: "original",
   diffColors: "red-green",
   motion: "normal",
@@ -53,6 +58,15 @@ export const CHAT_WIDTHS = [
 export const SIDEBAR_USAGE_MODES = [
   { id: "expanded", label: "Expanded" },
   { id: "compact", label: "Compact" },
+];
+
+/**
+ * The One list's Chat rows: Classic leads with the Project's icon; Title first (design "Alt A", status on the edge) puts
+ * the title first with the Chat's state at its right edge and the Project, computer and PR on line two.
+ */
+export const SIDEBAR_ROW_STYLES = [
+  { id: "classic", label: "Classic" },
+  { id: "edge", label: "Title first" },
 ];
 
 export const PROVIDER_ICON_STYLES = [
@@ -145,6 +159,8 @@ const VALID = {
   codeSize: CODE_SIZES.map((step) => step.id),
   chatWidth: CHAT_WIDTH_IDS,
   sidebarUsage: SIDEBAR_USAGE_IDS,
+  sidebarRows: SIDEBAR_ROW_IDS,
+  grain: GRAIN_IDS,
   providerIcons: PROVIDER_ICON_IDS,
   diffColors: DIFF_COLOR_IDS,
   motion: MOTION_IDS,

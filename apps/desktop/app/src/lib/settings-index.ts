@@ -93,6 +93,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
   {
     page: "general",
+    title: "Title first",
+    group: "Chat list",
+    description: "One list with each Chat's state at the row's edge, Project and PR under the title.",
+    keywords: "status edge alt rows",
+  },
+  {
+    page: "general",
     title: "By Project",
     group: "Chat list",
     description: "A group per Project that folds.",
@@ -203,6 +210,14 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "One row per provider, or provider icons in one line.",
     keywords: "limits compact",
   },
+  {
+    page: "appearance",
+    title: "Film grain",
+    group: "Layout",
+    description: "A faint grain over the window and the side panels.",
+    keywords: "noise texture background",
+  },
+
   { page: "appearance", title: "Diffs" },
   {
     page: "appearance",
@@ -324,13 +339,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Alerts",
     description: "When a chat needs an approval or an answer and Milagre is in the background",
     keywords: "notification approval question",
-  },
-  {
-    page: "notifications",
-    title: "Attention button",
-    group: "Alerts",
-    description: "Top right, when a chat in another project needs an approval or an answer",
-    keywords: "inbox approval",
   },
   {
     page: "notifications",

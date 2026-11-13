@@ -1,5 +1,5 @@
-// Browser check: another project's waiting chat dots its group in the sidebar, and the top-right
-// "Project needs attention" button opens it. No agent calls.
+// Browser check: another project's waiting chat dots its group in the sidebar, and the dot goes once nothing waits there.
+// No agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -11,8 +11,6 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
 import { updateSettings } from "/src/lib/settings";
-import { attentionLabel } from "@milagre/shared/attention";
-import { AttentionButton } from "/src/components/changes/ChangesChrome";
 import "/src/styles.css";
 window.milagre = {
   listRecentProjects: async () => [{ path: "/work/atlas", name: "atlas" }, { path: "/work/milagre-ade", name: "milagre-ade" }],
@@ -22,14 +20,9 @@ window.milagre = {
 updateSettings({ chatList: "grouped" });
 function Fixture() {
   const [waiting, setWaiting] = useState(["/work/milagre-ade", "/work/shop"]);
-  const items = [
-    { key: "/work/milagre-ade#4", project: "milagre-ade", title: "Add attention indicators", asking: false },
-    { key: "/work/shop#9", project: "shop", title: "Which checkout layout?", asking: true },
-  ].filter(item => waiting.some(path => item.key.startsWith(path + "#")));
+  window.clearWaiting = () => setWaiting([]);
   return <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
     <SidebarNav fill workspaceName="atlas" projectPath="/work/atlas" recents={[{ id: "1", label: "Fix the login flow" }]} activeId="1" attentionPaths={waiting} />
-    {waiting.length > 0 && <AttentionButton label={attentionLabel(items.map(item => item.title))} items={items}
-      offset={0} onOpen={key => { window.opened = key; setWaiting(waiting.filter(path => !key.startsWith(path + "#"))); }} />}
   </div>;
 }
 createRoot(document.getElementById("root")).render(<Fixture />);
@@ -57,14 +50,7 @@ async function browserChecks() {
     await delay(300);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const click = async (selector) => {
-    const point = await evaluate(
-      `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`,
-    );
-    window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
-    window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
-    await delay(200);
-  };
+
   const dots = (scope) => evaluate(`document.querySelectorAll(${JSON.stringify(scope + ' [aria-label="Needs attention"]')}).length`);
   try {
     await window.loadURL(process.argv[2]);
@@ -72,28 +58,13 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('${group}')`);
     assert.equal(await dots(group), 1, "The waiting project's group shows a dot");
     assert.equal(await dots('[data-sidebar-scope="/work/atlas"]'), 0, "The open project's group does not");
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "2 waiting", "The chip counts the waiting Chats");
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.getAttribute("aria-label")`), "2 Chats need attention");
+    assert.equal(await evaluate(`!!document.querySelector("[data-attention-button]")`), false, "No attention chip in the top bar");
     await screenshot("button");
-
-    // Two waiting: the button opens a menu to pick one.
-    await click("[data-attention-button]");
-    await waitFor(`!!document.querySelector("[data-attention-menu]")`);
-    assert.equal(await evaluate(`document.querySelectorAll("[data-attention-chat]").length`), 2);
-    await screenshot("attention-menu");
-    await click('[data-attention-chat="/work/shop#9"]');
-    assert.equal(await evaluate("window.opened"), "/work/shop#9", "Picking a row opens that chat");
-    assert.equal(await evaluate(`!!document.querySelector("[data-attention-menu]")`), false, "Picking closes the menu");
-
-    // One left: a click opens it directly.
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "1 waiting");
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.getAttribute("aria-label")`), "Add attention indicators needs attention");
-    await click("[data-attention-button]");
-    await waitFor(`!document.querySelector("[data-attention-button]")`);
-    assert.equal(await evaluate("window.opened"), "/work/milagre-ade#4", "The button opens the only waiting chat");
+    await evaluate("window.clearWaiting()");
+    await waitFor(`document.querySelectorAll('${group} [aria-label="Needs attention"]').length === 0`);
     assert.equal(await dots(group), 0, "The dot goes once nothing waits");
     assert.deepEqual(errors, []);
-    console.log("PASS: other projects' waiting chats dot their sidebar group; the attention button opens one chat, or a menu to pick among several");
+    console.log("PASS: other projects' waiting chats dot their sidebar group, and the dot goes once nothing waits");
     app.exit(0);
   } catch (error) {
     console.error(error);

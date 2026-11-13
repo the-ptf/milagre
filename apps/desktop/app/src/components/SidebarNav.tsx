@@ -33,7 +33,6 @@ import {
   Delete02Icon,
   FolderAddIcon,
   FolderOpenIcon,
-  FlowConnectionIcon,
   LaptopIcon,
   Link04Icon,
   MoreVerticalIcon,
@@ -103,7 +102,20 @@ import { undoHistory, type UndoAction } from "../lib/undo-history";
 import { DELETE_UNDO_MS } from "@milagre/shared/archive";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
-import { activeFamilyRoot, useUnfoldActiveFamily, jumpChatRows, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
+import {
+  activeFamilyRoot,
+  useUnfoldActiveFamily,
+  jumpChatRows,
+  rowKeys,
+  shownChats,
+  standInRow,
+  useSubchatFolds,
+  type ShownRow,
+  type SubchatFolds,
+} from "../lib/subchat-rows";
+
+/** Every family folded: the Title first list shows top-level Chats only. */
+const ALL_FOLDED: SubchatFolds = { has: () => true };
 
 type IconProps = { size?: IconSize; className?: string };
 
@@ -142,7 +154,6 @@ const DEFAULT_RECENTS: SidebarRecent[] = [
 type SidebarNavProps = {
   selectedLink?: { id: string; projects: Array<{ path: string; name: string }> };
   onSwitchLink?: (id: string) => void;
-  onLinkProject?: () => void;
   /** Opens Add computer. */
   onAddComputer?: () => void;
   /** Opens a computer's settings; null for This Mac (Settings › Devices). */
@@ -167,8 +178,6 @@ type SidebarNavProps = {
   /** Current scope shortcut targets, in this sidebar mode's visible order. */
   onJumpChatsChange?: (ids: string[]) => void;
   onOpenSettings?: () => void;
-  onOpenCanvas?: () => void;
-  canvasActive?: boolean;
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
@@ -543,7 +552,6 @@ export default memo(function SidebarNav({
   workspaceName = WORKSPACE.name,
   workspaceImage,
   selectedLink,
-  onLinkProject,
   onAddComputer,
   onOpenComputerSettings,
   onEditLink,
@@ -560,8 +568,6 @@ export default memo(function SidebarNav({
   onPick,
   onJumpChatsChange,
   onOpenSettings,
-  onOpenCanvas,
-  canvasActive = false,
   onOpenRoutines,
   routinesActive = false,
   routinesUnread = false,
@@ -1640,7 +1646,7 @@ export default memo(function SidebarNav({
   }, []);
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
-      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Routines, Link projects and Search.
+      {/* The window's top bar, beside its controls: the sidebar toggle, then Routines and Search (Canvas sits in the window's right corner; Link Projects in the Add Project dialog).
           No capsule behind it: the chat's top band (.chat-top-blur) keeps scrolled text out from under the bar. */}
       <div
         ref={bar}
@@ -1662,11 +1668,6 @@ export default memo(function SidebarNav({
         </div>
         {/* 8px apart, the panel toggles' pitch (CORNER_PITCH), so both ends of the bar keep one rhythm. */}
         <div data-sidebar-tools className="no-drag flex items-center gap-2">
-          {onOpenCanvas && (
-            <Tooltip label="Canvas" side="bottom" shortcut={keys.canvas}>
-              <IconButton size={32} label="Canvas" icon={FlowConnectionIcon} aria-pressed={canvasActive} onClick={onOpenCanvas} />
-            </Tooltip>
-          )}
           {onOpenRoutines && (
             <Tooltip label="Routines" side="bottom">
               <IconButton
@@ -1687,11 +1688,6 @@ export default memo(function SidebarNav({
               </IconButton>
             </Tooltip>
           )}
-          {onLinkProject && (
-            <Tooltip label="Link Projects" side="bottom">
-              <IconButton size={32} label="Link Projects" icon={Link04Icon} data-link-projects onClick={onLinkProject} />
-            </Tooltip>
-          )}
           {onOpenCommands && (
             <Tooltip label="Search commands, Chats and Projects" side="bottom" shortcut={keys.search}>
               <IconButton size={32} label="Command palette" icon={Search01Icon} aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"} onClick={onOpenCommands} />
@@ -1702,7 +1698,7 @@ export default memo(function SidebarNav({
       <aside
         data-sidebar-collapsed={collapsed}
         aria-label="Workspace navigation"
-        className="relative flex min-h-0 shrink-0 overflow-hidden rounded-window bg-surface shadow-card transition-[width]"
+        className="panel-grain relative flex min-h-0 shrink-0 overflow-hidden rounded-window bg-surface shadow-card transition-[width]"
         style={
           {
             width: collapsed ? SIDEBAR_MOTION.collapsedWidth : expandedWidth,
@@ -1866,10 +1862,10 @@ export default memo(function SidebarNav({
 
           <SidebarToast collapsed={collapsed} />
 
-          {usage && <div className={`mt-1 border-t border-line pt-0.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
+          {usage && <div className={`mt-1 pt-0.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
 
           <div
-            className={`flex border-t border-line py-1.5 ${usage ? "mt-0.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
+            className={`flex py-1.5 ${usage ? "mt-0.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
           >
             <div className={collapsed ? "flex flex-col-reverse items-center gap-1" : "flex items-center gap-1"}>
               <Tooltip label="Add Project" shortcut={keys.addProject}>
@@ -2271,7 +2267,12 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
     made.set(scopeKey, { source: scope.list.actions, linkProjectId: scope.list.linkProjectId, actions });
     return actions;
   };
-  const folds = useSubchatFolds();
+  const handFolds = useSubchatFolds();
+  // Title first rows (Settings › General › Chat list) list top-level Chats only, as the GPUI app does: every family is
+  // folded and shows no count; Subchats open from the Details panel's Lineage, and a parent stands in for an open one.
+  const rowStyle = useSettings().appearance.sidebarRows;
+  const titleFirst = inbox && rowStyle === "edge";
+  const folds = titleFirst ? ALL_FOLDED : handFolds;
   // Where each scope's first nine rows sit in its list, the only ones with a ⌘1–9 hint: one pass per scope, not a scan per row.
   const hintPositions = useMemo(() => {
     const positions = new Map<SidebarRecent, number>();
@@ -2301,6 +2302,8 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
   };
   const isFlatActive = (chat: (typeof chats)[number]) => scopes.get(chat.scopeKey)?.list.isActive(chat.row) ?? false;
   const activeFlat = chats.find(isFlatActive);
+  // An open subchat folded away lights its parent's row.
+  const standIn = standInRow(shownFlat, chats, flatKeys, isFlatActive);
   useUnfoldActiveFamily(activeFamilyRoot(chats, flatKeys, isFlatActive), activeFlat && flatKeys.key(activeFlat));
   return (
     <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px" onPointerDown={startDrag}>
@@ -2313,7 +2316,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
           <div key={key} data-chat-key={key} data-offline={offline || undefined} className="contents">
             <ChatRow
               item={row}
-              active={list.isActive(row)}
+              active={list.isActive(row) || key === standIn}
               collapsed={false}
               actions={actionsOf(scopeKey, scope)}
               shortcutHint={position >= 0 && position < 9 ? keys.jump(position) : undefined}
@@ -2326,7 +2329,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               chatKey={key}
               subchat={subchat}
               depth={depth}
-              family={family}
+              family={titleFirst ? undefined : family}
               project={inbox ? scope.name : undefined}
               dragging={dragging === key}
               {...scope.badge}
@@ -2428,6 +2431,8 @@ function ChatList({
   // Whatever opened a subchat (the pill, the bookmark, a notification), its family unfolds so its row shows selected.
   const activeRow = rest.find(isActive);
   useUnfoldActiveFamily(collapsed ? undefined : activeFamilyRoot(rest, rowKeys(scopeKey), isActive), activeRow && `${scopeKey}#${activeRow.id}`);
+  // Folded by hand while one of its subchats is open, the family's parent row draws as the open one.
+  const standIn = collapsed ? undefined : standInRow(shownRest, rest, rowKeys(scopeKey), isActive);
   const byId = (id: string | null) => recents.find((item) => item.id === id);
   const otherList = (scope: string | undefined) => (scope === undefined ? undefined : sidebarLinks.lists().find((handle) => handle.scopeKey === scope));
 
@@ -2766,7 +2771,7 @@ function ChatList({
       depth={shown?.depth}
       family={shown?.family}
       onPick={onPick}
-      active={isActive(item)}
+      active={isActive(item) || `${scopeKey}#${item.id}` === standIn}
       collapsed={collapsed}
       actions={rowActions}
       shortcutHint={showHints && hintOffset + index < 9 ? keys.jump(hintOffset + index) : undefined}

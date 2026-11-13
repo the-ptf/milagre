@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FolderOpenIcon } from "@hugeicons/core-free-icons";
+import { FolderOpenIcon, GitBranchIcon, Link04Icon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { DirListing } from "../electron";
 import type { OpenProject } from "../model";
@@ -11,24 +11,36 @@ import { FIELD_LABEL, Input } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { ScrollArea } from "./primitives/ScrollArea";
+import { Select } from "./primitives/Select";
 import { useOpenFolder } from "./ImportFolderDialog";
 import { ThisComputer, isWindows, thisComputer } from "../lib/shortcut-hints";
 
 const THIS_MAC = "this-mac";
 // Where a clone goes when no folder is chosen (onboarding-projects.cjs: <home>/Code).
 const CODE_FOLDER = isWindows ? "~\\Code" : "~/Code";
-type Mode = "open" | "clone";
-const MODES: { id: Mode; name: string; line: string }[] = [
-  { id: "open", name: "Open a folder", line: "A folder that is already there" },
-  { id: "clone", name: "Clone a repository", line: "From a GitHub or Git address" },
+type Mode = "open" | "clone" | "link";
+const MODES: { id: Mode; name: string; line: string; icon: typeof FolderOpenIcon }[] = [
+  { id: "open", name: "Open a folder", line: "A folder already there", icon: FolderOpenIcon },
+  { id: "clone", name: "Clone a repository", line: "From GitHub or Git", icon: GitBranchIcon },
+  { id: "link", name: "Link Projects", line: "Work across several", icon: Link04Icon },
 ];
 
 /**
- * Add Project with other computers (design add-project-remote v1): choose the computer (offline ones disabled), then a
- * folder on it, or a repository to clone into one. This Mac keeps its folder dialog; another computer's home folder is browsed through fs:list-dirs and the
+ * Add Project: what to add first (open a folder, clone a repository, or Link Projects, which hands over to the Link
+ * dialog through `onLinkProjects`), then the computer it goes on (a menu; offline ones disabled), then a folder on it, or
+ * a repository to clone into one. This Mac keeps its folder dialog; another computer's home folder is browsed through fs:list-dirs and the
  * checkout opens there, whose daemon owns it. Mounted only while open.
  */
-export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; onOpened: (project: OpenProject) => void }) {
+export function AddProjectDialog({
+  onClose,
+  onOpened,
+  onLinkProjects,
+}: {
+  onClose: () => void;
+  onOpened: (project: OpenProject) => void;
+  /** Link Projects: closes this dialog and opens the Link dialog. */
+  onLinkProjects?: () => void;
+}) {
   const { thisMac, computers } = useComputers();
   const [on, setOn] = useState<string>(THIS_MAC);
   const [listing, setListing] = useState<DirListing | null>(null);
@@ -132,11 +144,33 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
 
   return (
     <Dialog data-add-project title="Add Project" onClose={onClose} width={520}>
+      <div className="mt-4 grid grid-cols-3 gap-1.5">
+        {MODES.filter((choice) => choice.id !== "link" || onLinkProjects).map((choice) => (
+          <button
+            key={choice.id}
+            type="button"
+            data-add-project-mode={choice.id}
+            aria-pressed={mode === choice.id}
+            onClick={() => (choice.id === "link" ? onLinkProjects?.() : setMode(choice.id))}
+            className={`flex min-w-0 flex-col items-start gap-2 rounded-card p-3 text-left ring-1 transition-colors duration-fast ${mode === choice.id ? "bg-hover-2 ring-ink" : "ring-line-strong hover:bg-hover"}`}
+          >
+            <Icon icon={choice.icon} size={18} className={mode === choice.id ? "text-ink" : "text-ink-3"} />
+            <span className="w-full min-w-0">
+              <span className="block truncate text-13 font-medium">{choice.name}</span>
+              <span className="block truncate text-12 text-ink-3">{choice.line}</span>
+            </span>
+          </button>
+        ))}
+      </div>
       {computers.length > 0 && (
-        <>
-          <p className={`mt-4 ${FIELD_LABEL}`}>On</p>
-          <div className="mt-1 flex gap-1.5">
-            {[
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className={FIELD_LABEL}>On</p>
+          <Select<string>
+            label="Computer"
+            width={260}
+            value={on}
+            onChange={setOn}
+            options={[
               { id: THIS_MAC, name: thisMac, line: ThisComputer, tone: "online" as const, away: false },
               ...computers.map((item) => ({
                 id: item.id,
@@ -145,44 +179,18 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
                 tone: computerTone(item),
                 away: item.state !== "online",
               })),
-            ].map((choice) => (
-              <button
-                key={choice.id}
-                type="button"
-                data-add-project-on={choice.id}
-                aria-pressed={on === choice.id}
-                disabled={choice.away}
-                onClick={() => setOn(choice.id)}
-                className={`flex h-11 min-w-0 flex-1 items-center gap-2 rounded-card px-3 text-left ring-1 transition-colors duration-fast disabled:opacity-40 ${on === choice.id ? "bg-hover-2 ring-ink" : "ring-line-strong enabled:hover:bg-hover"}`}
-              >
-                <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: DOT_COLOR[choice.tone] }} />
-                <span className="min-w-0">
-                  <span className="block truncate text-13 font-medium">{choice.name}</span>
-                  <span className="block truncate text-11 text-ink-3">{choice.line}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </>
+            ].map((choice) => ({
+              value: choice.id,
+              label: choice.name,
+              description: choice.line,
+              disabled: choice.away,
+              icon: (
+                <span aria-hidden data-add-project-on={choice.id} className="size-2 shrink-0 rounded-full" style={{ background: DOT_COLOR[choice.tone] }} />
+              ),
+            }))}
+          />
+        </div>
       )}
-      <p className={`mt-4 ${FIELD_LABEL}`}>Add</p>
-      <div className="mt-1 flex gap-1.5">
-        {MODES.map((choice) => (
-          <button
-            key={choice.id}
-            type="button"
-            data-add-project-mode={choice.id}
-            aria-pressed={mode === choice.id}
-            onClick={() => setMode(choice.id)}
-            className={`flex h-11 min-w-0 flex-1 items-center rounded-card px-3 text-left ring-1 transition-colors duration-fast ${mode === choice.id ? "bg-hover-2 ring-ink" : "ring-line-strong hover:bg-hover"}`}
-          >
-            <span className="min-w-0">
-              <span className="block truncate text-13 font-medium">{choice.name}</span>
-              <span className="block truncate text-11 text-ink-3">{choice.line}</span>
-            </span>
-          </button>
-        ))}
-      </div>
       {mode === "clone" && (
         <>
           <label className={`mt-4 block ${FIELD_LABEL}`} htmlFor="add-project-url">

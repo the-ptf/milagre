@@ -44,7 +44,6 @@ export function ModelPicker({
   provider,
   onProviderChange,
   models,
-  totalModels,
   query,
   onQueryChange,
   cliStatus,
@@ -68,7 +67,6 @@ export function ModelPicker({
   onProviderChange: (provider: ModelProvider) => void;
   /** The open provider's models, filtered by the search. */
   models: ModelOption[];
-  totalModels: number;
   query: string;
   onQueryChange: (query: string) => void;
   cliStatus: AgentCliStatus | null;
@@ -158,12 +156,6 @@ export function ModelPicker({
         </ScrollArea>
 
         <div onKeyDown={handleKeyDown} className={`flex min-w-0 flex-col pt-2 pl-2 ${hasSettings ? "w-[240px] shrink-0 border-r border-line" : "flex-1"}`}>
-          <div className="flex items-baseline justify-between px-2 pr-3 pb-1.5">
-            <strong className="text-13 font-semibold text-ink">{providerName(provider)}</strong>
-            <span className="text-11 text-ink-3">
-              {totalModels} {totalModels === 1 ? "model" : "models"}
-            </span>
-          </div>
           {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
           {/* PickerPanel's search field. */}
           {/* Bare like the Settings search: its icon starts on the model names' line, and it ends with the rows (which keep 10px

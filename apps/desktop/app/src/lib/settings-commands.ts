@@ -45,6 +45,8 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
     choice("showUsageInSidebar", false, "Sidebar usage: Hide", "off disable plan limits"),
     appearanceChoice("sidebarUsage", "expanded", "Sidebar usage: Expanded", "appearance plan limits rows"),
     appearanceChoice("sidebarUsage", "compact", "Sidebar usage: Compact", "appearance plan limits icons one line"),
+    appearanceChoice("grain", "on", "Film grain: On", "appearance noise texture background"),
+    appearanceChoice("grain", "off", "Film grain: Off", "appearance noise texture background"),
     appearanceChoice("providerIcons", "original", "Provider icons: Original", "appearance logos brand colors"),
     appearanceChoice("providerIcons", "simplified", "Provider icons: Simplified", "appearance logos monochrome black white"),
     choice("chatOrder", "created", "Chat order: Newest Chat first", "sidebar sort created date"),
@@ -57,7 +59,6 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
         ["notifyOnCompletion", "Notify when finished", "notifications completion"],
         ["notifyWhenWaiting", "Notify when waiting", "notifications approval questions"],
         ["showDockBadge", "Dock badge", "unread count"],
-        ["showAttentionButton", "Attention button", "other projects waiting approval questions"],
         ["floatingInbox", "Floating inbox", "experimental notification bar"],
         ["keepAwake", `Keep the ${computerNoun} awake`, "sleep reachable lock screen saver"],
       ] as const

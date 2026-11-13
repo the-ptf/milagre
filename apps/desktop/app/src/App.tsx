@@ -24,7 +24,7 @@ import { BridgeContext, ScopeContext, bridgeFor, bridgeForKey, forgetBridge, isR
 import type { WorktreeRename } from "@milagre/shared/project-edits";
 import { reconcileState } from "@milagre/shared/reconcile";
 import { applyAgentEvent } from "@milagre/shared/agent-runs";
-import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
+import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { reportChatAction } from "./lib/chat-action";
 import { confirmHeldState, isLean, numberedState, seedHeldState, stateEvents } from "./lib/state-events";
 import { chatSummary } from "@milagre/shared/chat-summary";
@@ -88,7 +88,7 @@ import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
 import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
-import { ATTENTION_CHIP_WIDTH, AttentionButton, DiffBar, LayoutToggle, SubchatsButton } from "./components/changes/ChangesChrome";
+import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -170,12 +170,12 @@ import { besideParent, familySplit, swapTile } from "./lib/subchat-split";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { ChatIdentity } from "./components/agents/ChatIdentity";
 import { SubchatBookmark } from "./components/agents/SubchatBookmark";
+import { DetailsPanelHost } from "./components/agents/DetailsPanel";
+import { useChatTerminals } from "./lib/terminal-store";
 import { provideSubchatActions, SubchatWaitingNote, type SubchatActions } from "./components/agents/SubchatMessages";
 import { useStepApprovalScope } from "./components/agents/step-approval";
 import { pendingWaitingNote } from "./lib/subchat-transcript";
 import type { TileMenuControls } from "./components/agents/TileFamilyMenu";
-import type { SubchatSource } from "./lib/subchat-track";
-import { deeperSubchats, directSubchats } from "@milagre/shared/subchat-states";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
@@ -222,6 +222,13 @@ function latestSessionId(state: CoordinatorState) {
 // How long a scope's model lists and CLI status, and its branches, count as current: a switch back within it reads none again.
 const PROVIDERS_FRESH_MS = 60_000;
 const BRANCHES_FRESH_MS = 60_000;
+/** A PR's state in a word, for the Details panel's Links. */
+function prStateWord(pr: { state?: string; isDraft?: boolean } | undefined) {
+  if (pr?.state === "MERGED") return "Merged";
+  if (pr?.state === "CLOSED") return "Closed";
+  return pr?.isDraft ? "Draft" : "Open";
+}
+
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_BRANCHES: string[] = [];
 // Each Project's branches as last read, and when: opening it again shows them at once, and reads them again (git on its
@@ -459,7 +466,6 @@ function App() {
   layoutRef.current = layout;
   useEffect(() => saveChatLayout(localStorage, layout), [layout]);
   const toggleLayout = () => setLayout((current) => (current === "grid" ? "single" : "grid"));
-  const showGrid = () => setLayout("grid");
   // Chats kept in the grid while idle: dropped there from the sidebar, or pinned from a tile's header.
   const [gridPins, setGridPins] = useState<readonly string[]>(() => readGridPins(localStorage));
   const changeGridPins = (change: (pins: readonly string[]) => readonly string[]) =>
@@ -865,6 +871,7 @@ function App() {
   changesAvailableRef.current = changesAvailable;
   // The open Chat's Terminals; a draft has none until it is sent.
   const terminalChatId = view === "chat" && project && selectedSession && !selectedSession.archived ? chatKey(project.path, selectedSession.id) : null;
+  const terminalOpen = useChatTerminals(terminalChatId).open;
   const terminalChatRef = useRef(terminalChatId);
   terminalChatRef.current = terminalChatId;
   useTerminalSync(terminalChatId);
@@ -886,7 +893,6 @@ function App() {
     notifyWhenWaiting,
     notificationChime,
     notificationSchedule,
-    showAttentionButton,
     floatingInbox,
     routineNudges,
   } = useSettings();
@@ -1040,12 +1046,6 @@ function App() {
     [backgroundKey],
   );
   const linkedWork = useLinkedWork();
-  // The open Chat's Subchats, for the pill above its composer; none for a Chat that delegated nothing in its own Project.
-  const subchats = useMemo<SubchatSource | undefined>(() => {
-    if (!project || !selectedSession || selectedSession.id <= 0 || !state) return undefined;
-    const parentKey = chatKey(project.path, selectedSession.id);
-    return directSubchats(state.sessions, parentKey).length ? { parentKey, sessions: state.sessions, runs: agentRuns.runs, work: linkedWork } : undefined;
-  }, [project, selectedSession?.id, state?.sessions, agentRuns.runs, linkedWork]);
   const remoteDelegations = useMemo(
     () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
     [linkedWork, project, selectedSession],
@@ -1165,40 +1165,14 @@ function App() {
   const splitOn = splitShown && view === "chat";
   const shownTiles = splitOn ? liveSplit : gridOn && gridFocusKey ? gridTiles : NO_KEYS;
   // The Subchat bookmark (SubchatBookmark) shows over the one Chat on screen when it has a listed ancestor: not in a split or
-  // grid, under the diff, in a Link or away from the Chat view. The Chat above it leaves the attention button while it shows,
-  // as the open Chat's Subchats do while its pill names them: one alert for one wait.
+  // grid, under the diff, in a Link or away from the Chat view.
   const familySessionsRef = useRef<typeof familySessions>(undefined);
   const familySessions = focusedChatKey && !selectedLink ? (gridStates[projectOfKey(focusedChatKey)] as CoordinatorState | undefined)?.sessions : undefined;
   familySessionsRef.current = familySessions;
   const bookmarkShown = view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && !runPaneOpen;
+  // One open Chat alone, no Terminal drawer under it: its transcript runs to the window's bottom edge.
+  const chatToEdge = bookmarkShown && Boolean(selectedSession && selectedSession.id > 0) && !terminalOpen;
   const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
-  const pillChats = useMemo(
-    () =>
-      new Set(focusedChatKey && view === "chat" ? [...directSubchats(familySessions, focusedChatKey), ...deeperSubchats(familySessions, focusedChatKey)] : []),
-    [familySessions, focusedChatKey, view],
-  );
-  // Each waiting chat's project and title, for the attention menu. Titles change with state, not with each streamed batch.
-  const attentionTitles = useMemo(
-    () =>
-      attentionChats
-        .filter((key) => !shownTiles.includes(key) && key !== bookmarkedParent && !pillChats.has(key))
-        .map((key) => {
-          const path = projectOfKey(key);
-          const other = path === project?.path ? state : (states[path] ?? scopeStates[path]);
-          const session = other?.sessions[sessionIdFromKey(key)];
-          return {
-            key,
-            project: projectName(path),
-            title: session
-              ? chatTitle(
-                  session,
-                  other.messages.filter((message) => message.session_id === session.id),
-                )
-              : undefined,
-          };
-        }),
-    [attentionChats, shownTiles, bookmarkedParent, pillChats, states, scopeStates, projectName, project?.path, state],
-  );
   const shownTilesRef = useRef(shownTiles);
   shownTilesRef.current = shownTiles;
   const focusedChatKeyRef = useRef(focusedChatKey);
@@ -1237,18 +1211,11 @@ function App() {
     () => (focusedChatKey ? chatFamily(gridStates[projectOfKey(focusedChatKey)]?.sessions, focusedChatKey) : null),
     [gridStates, focusedChatKey],
   );
-  const familyShown =
-    splitOn &&
-    focusedFamily !== null &&
-    liveSplit.length === focusedFamily.children.length + 1 &&
-    liveSplit.includes(focusedFamily.root) &&
-    focusedFamily.children.every((key) => liveSplit.includes(key));
+  // The canvas button at the far right, in the Chat view and on the canvas itself.
+  const canvasButtonShown = view === "chat" || view === "canvas";
+  const trailingCorner = canvasButtonShown ? 1 : 0;
   // The buttons in the window's top right corner a bar along <main>'s top keeps clear of (CORNER_PITCH each).
-  const cornerButtons =
-    sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) +
-    (view === "chat" ? 1 : 0) +
-    (view === "chat" && focusedFamily && focusedFamily.children.length > 0 ? 1 : 0);
-  const attentionChipShown = Boolean(showAttentionButton && !floatingInbox && attentionTitles[0]);
+  const cornerButtons = sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" || view === "canvas" ? 1 : 0);
   const endSplit = useEvent(() => {
     setSplitKeys(NO_KEYS);
     setLayout("single");
@@ -1260,14 +1227,12 @@ function App() {
     setSplitKeys(besideParent(parent, open));
     setLayout("split");
   });
-  // "Show all N side by side" and the Subchats button: the whole family, the focused Chat always among it.
+  // "Show all N side by side": the whole family, the focused Chat always among it.
   const showFamily = useEvent(() => {
     if (!focusedFamily) return;
     setSplitKeys(familySplit(focusedFamily, gridFocusKeyRef.current));
     setLayout("split");
   });
-  // The Subchats button turned off always returns to the open Chat alone.
-  const toggleFamily = useEvent(() => (familyShown ? endSplit() : showFamily()));
   useEffect(
     () =>
       gridDrop.register({
@@ -2720,7 +2685,8 @@ function App() {
       if (command === "changes.toggle") {
         if (!changesAvailableRef.current) return;
         event.preventDefault();
-        changes.toggleDefault();
+        // Shows or hides the panel on the view it was left on (Changes or the PR), never switching it.
+        changes.toggle();
       } else if (command === "canvas.open") {
         event.preventDefault();
         changes.closeDiff();
@@ -2730,15 +2696,6 @@ function App() {
         changes.closeDiff();
         setSettingsSection("usage");
         setSettingsOpen(true);
-      } else if (command === "grid.toggle") {
-        event.preventDefault();
-        // Away from the Chat view the grid has nothing to toggle: the shortcut shows it there instead.
-        if (viewRef.current === "chat") toggleLayout();
-        else {
-          changes.closeDiff();
-          setView("chat");
-          showGrid();
-        }
       } else if (command === "chat.parent") {
         // The bookmark's way up: the open Chat's nearest listed ancestor, alone. Nothing on a Chat that has none.
         const open = gridFocusKeyRef.current;
@@ -3006,7 +2963,6 @@ function App() {
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   // One identity each, so memo(SidebarNav) skips the renders a streaming reply or a run change makes here.
   const switchLinkFromSidebar = useEvent((id: string) => void selectLink(id));
-  const linkProjectFromSidebar = useEvent(() => setLinkDialogOpen(true));
   const addComputerFromSidebar = useEvent(() => setAddComputerOpen(true));
   const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
   const deleteLinkFromSidebar = useEvent((id: string) => void deleteLink(id));
@@ -3376,6 +3332,10 @@ function App() {
   const addProjectDialog = addProjectOpen ? (
     <AddProjectDialog
       onClose={() => setAddProjectOpen(false)}
+      onLinkProjects={() => {
+        setAddProjectOpen(false);
+        setLinkDialogOpen(true);
+      }}
       onOpened={(opened) => {
         setAddProjectOpen(false);
         void replaceProject(async () => opened);
@@ -3509,7 +3469,6 @@ function App() {
               onOpenProject={openProjectFromSidebar}
               onSwitchProject={switchProjectFromSidebar}
               onSwitchLink={(id) => void selectLink(id)}
-              onLinkProject={() => setLinkDialogOpen(true)}
               onEditLink={(id) => void editLink(id)}
               onDeleteLink={deleteLinkFromSidebar}
               onAddComputer={() => setAddComputerOpen(true)}
@@ -3677,18 +3636,19 @@ function App() {
           setView("chat");
         },
       });
-    commands.push({
-      id: "chat-layout",
-      label: layout === "grid" ? "Show one Chat" : "Show active Chats as a grid",
-      group: "Actions",
-      icon: "chat",
-      keybinding: "grid.toggle" as const,
-      keywords: "grid layout split multiple chats tiles",
-      run: () => {
-        setView("chat");
-        toggleLayout();
-      },
-    });
+    // A grid comes from dragging a Chat onto the open one; the palette only leaves it.
+    if (layout === "grid")
+      commands.push({
+        id: "chat-layout",
+        label: "Show one Chat",
+        group: "Actions",
+        icon: "chat",
+        keywords: "grid layout split multiple chats tiles",
+        run: () => {
+          setView("chat");
+          toggleLayout();
+        },
+      });
     commands.push(...settingsCommands(getSettings(), updateSettings));
     if (selectedSession && view === "chat" && !settingsOpen) {
       const sessionId = selectedSession.id;
@@ -3876,7 +3836,8 @@ function App() {
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <PanelToggles
-            right={12}
+            // The grid and Subchats buttons sit at the corner's far right; the panel buttons come before them.
+            right={12 + trailingCorner * CORNER_PITCH}
             changes={
               changesAvailable
                 ? {
@@ -3894,33 +3855,7 @@ function App() {
                 : undefined
             }
           />
-          {view === "chat" && (
-            <LayoutToggle
-              grid={layout === "grid"}
-              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber)}
-              onToggle={toggleLayout}
-            />
-          )}
-          {view === "chat" && focusedFamily && focusedFamily.children.length > 0 && (
-            <SubchatsButton
-              count={focusedFamily.children.length}
-              shown={familyShown}
-              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + 1}
-              onToggle={toggleFamily}
-            />
-          )}
-          {attentionChipShown && (
-            <AttentionButton
-              label={attentionLabel(attentionTitles.map((item) => item.title || "Chat"))}
-              items={attentionTitles.map((item) => ({
-                ...item,
-                asking: !agentRuns.runs[item.key]?.approvals.length,
-                waitingFor: waitingFor(agentRuns.runs[item.key]),
-              }))}
-              offset={cornerButtons}
-              onOpen={openChatByKey}
-            />
-          )}
+          {canvasButtonShown && <CanvasButton active={view === "canvas"} onToggle={() => (view === "canvas" ? setView("chat") : openCanvas())} />}
           <div
             className={`flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink ${appEntered ? "" : "app-enter"}`}
             onAnimationEnd={(event) => {
@@ -3936,7 +3871,6 @@ function App() {
                   workspaceName={surfaces.name}
                   workspaceImage={projectImage(project.path)}
                   onSwitchLink={switchLinkFromSidebar}
-                  onLinkProject={linkProjectFromSidebar}
                   onAddComputer={addComputerFromSidebar}
                   onOpenComputerSettings={openComputerSettings}
                   onEditLink={editLinkFromSidebar}
@@ -3958,8 +3892,6 @@ function App() {
                   scopeChatActions={scopeChatActions}
                   onNewChat={startNewChatFromSidebar}
                   onOpenSettings={openSettings}
-                  onOpenCanvas={openCanvas}
-                  canvasActive={view === "canvas"}
                   onOpenRoutines={openRoutines}
                   routinesActive={view === "routines"}
                   routinesUnread={unreadRunRoutineIds.size > 0}
@@ -3986,7 +3918,13 @@ function App() {
               </PullRequestOpenContext.Provider>
             </div>
 
-            <main data-workspace-main className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 pb-3">
+            <main
+              data-workspace-main
+              data-chat-to-edge={chatToEdge || undefined}
+              // One open Chat alone runs its transcript to the window's bottom edge, under the composer: <main> drops its
+              // bottom padding and the composer dock keeps those 12px (--chat-edge-pad) so the composer stays put.
+              className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 ${chatToEdge ? "[--chat-edge-fade:24px] [--chat-edge-pad:12px]" : "pb-3"}`}
+            >
               <DiffBar
                 open={changes.diffOpen}
                 onBack={changes.closeDiff}
@@ -4006,7 +3944,7 @@ function App() {
                 <ChatIdentity
                   title={chats.find((row) => row.id === String(selectedSession.id))?.label ?? chatTitle(selectedSession)}
                   project={surfaces.settings ? surfaces.name : undefined}
-                  corner={cornerButtons * CORNER_PITCH + (attentionChipShown ? ATTENTION_CHIP_WIDTH + 8 : 0)}
+                  corner={cornerButtons * CORNER_PITCH}
                 />
               )}
               {bookmarkedParent && focusedChatKey && (
@@ -4174,9 +4112,6 @@ function App() {
                         onArchiveSubagent={archiveChild}
                         onStopAdvisor={(id) => controlAdvisor("stop", id)}
                         onRetryAdvisor={(id) => controlAdvisor("retry", id)}
-                        subchats={subchats}
-                        onAnswerSubchat={(key, requestId, answers) => void agentRuns.answerQuestion(key, requestId, answers).catch(() => {})}
-                        onRespondSubchat={(key, requestId, decision) => void agentRuns.respond(key, requestId, decision).catch(() => {})}
                         waitingForSubagents={run?.waitingForSubagents}
                         activity={selectedSession ? chatActivity(selectedSession, run) : undefined}
                         plan={selectedSession?.plan}
@@ -4386,6 +4321,28 @@ function App() {
                 }
               />
             </ChangesPanelSlot>
+            {/* The open Chat's Details (Environment, Lineage, Background tasks, Links), from its corner toggle. */}
+            <DetailsPanelHost
+              chatKey={
+                view === "chat" && !selectedLink && project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null
+              }
+              project={project ? { name: project.name, path: project.path } : undefined}
+              worktree={selectedWorktree ? { name: selectedWorktree.name, path: selectedWorktree.path } : undefined}
+              remoteComputer={openComputer ? { name: openComputer.name, offline: isDimmed(openComputer) } : undefined}
+              family={state ? { sessions: state.sessions, runs: agentRuns.runs, work: linkedWork } : undefined}
+              backgroundTasks={selectedSession?.backgroundTasks}
+              ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
+              subagents={subagents}
+              pullRequest={
+                changesAvailable && prNumber
+                  ? { number: prNumber, state: prStateWord(selectedPullRequests.find((pr) => pr.number === prNumber)), onOpen: changes.showPullRequest }
+                  : undefined
+              }
+              onOpenChat={openAlone}
+              onReveal={() => selectedSession && revealChat(selectedSession.id)}
+              chats={chats}
+              chatActions={chatActions}
+            />
           </div>
           {linkDialog}
           {addComputerDialog}

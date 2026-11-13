@@ -1,7 +1,16 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
-import { File01Icon, ComputerTerminal01Icon, Globe02Icon, PaintBoardIcon, SmartphoneIcon, GitPullRequestIcon, FileDiffIcon } from "@hugeicons/core-free-icons";
+import {
+  File01Icon,
+  ComputerTerminal01Icon,
+  Globe02Icon,
+  AlignBoxMiddleRightIcon,
+  PaintBoardIcon,
+  SmartphoneIcon,
+  GitPullRequestIcon,
+  FileDiffIcon,
+} from "@hugeicons/core-free-icons";
 import { IconButton } from "../primitives/Button";
 import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
@@ -9,7 +18,7 @@ import { useWindowChrome } from "../../lib/window-chrome";
 
 /** A side panel the open Chat can show: whether it is open, and what shows or hides it. */
 export type SidePanel = { open: boolean; toggle: () => void };
-type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator";
+type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator" | "details";
 
 // Panels register their availability and actions here; the toolbar shows every offered button inline at the top right.
 let panels: Partial<Record<PanelName, SidePanel>> = {};
@@ -52,8 +61,9 @@ export function useSidePanels() {
 }
 
 // Changes, the theme and the canvas are App's keys. The Terminals take ⌘J by default, as in VS Code; New Terminal is App's.
-// `title`, when the tooltip names the panel differently from its button's accessible name.
-const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command: KeybindingCommandId }[] = [
+// `title`, when the tooltip names the panel differently from its button's accessible name. Details has no shortcut.
+const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command?: KeybindingCommandId }[] = [
+  { name: "details", label: "details", title: "Details", icon: AlignBoxMiddleRightIcon },
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
   { name: "artifacts", label: "artifacts", icon: File01Icon, command: "artifacts.toggle" },
   { name: "designs", label: "designs", icon: PaintBoardIcon, command: "designs.toggle" },
@@ -67,11 +77,14 @@ const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof Pa
  */
 export const CORNER_PITCH = 40;
 
+/** Shown before PR and Changes; the other panels come after them. */
+const LEADING = new Set<PanelName>(["details", "terminal"]);
+
 /** How many buttons PanelToggles shows, for what sits left of them. */
 export const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) =>
   BUTTONS.filter(({ name }) => shown[name]).length + Number(changes) + Number(pullRequest);
 
-/** The active Chat's panel actions, PR and Changes, shown inline at the top right. */
+/** The top-right corner: Details, Terminals, PR, Changes, then the other panels. */
 export function PanelToggles({ right, changes, pullRequest }: { right: number; changes?: SidePanel; pullRequest?: SidePanel & { number: number } }) {
   const shown = useSidePanels();
   // Each button's shortcut, while its button shows.
@@ -91,24 +104,25 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
   const buttons = BUTTONS.filter(({ name }) => shown[name]);
   const chrome = useWindowChrome();
   const { rules } = useKeybindings();
+  const panelButton = ({ name, label, title = label, icon, command }: (typeof BUTTONS)[number]) => {
+    const panel = shown[name]!;
+    return (
+      <Tooltip
+        key={name}
+        label={panel.open ? `Hide ${title}` : `Show ${title}`}
+        shortcut={command && shortcutLabel(rules, command)}
+        compactHint
+        side="bottom"
+        align="end"
+      >
+        <IconButton size={32} label={`Toggle ${label} panel`} icon={icon} aria-pressed={panel.open} data-panel-toggle={name} onClick={panel.toggle} />
+      </Tooltip>
+    );
+  };
   if (!buttons.length && !changes && !pullRequest) return null;
   return (
     <div data-slot="panel-toggles" className="no-drag fixed top-[var(--window-chrome-top)] z-[60] flex gap-2" style={{ right: right + chrome.rightInset }}>
-      {buttons.map(({ name, label, title = label, icon, command }) => {
-        const panel = shown[name]!;
-        return (
-          <Tooltip
-            key={name}
-            label={panel.open ? `Hide ${title}` : `Show ${title}`}
-            shortcut={shortcutLabel(rules, command)}
-            compactHint
-            side="bottom"
-            align="end"
-          >
-            <IconButton size={32} label={`Toggle ${label} panel`} icon={icon} aria-pressed={panel.open} data-panel-toggle={name} onClick={panel.toggle} />
-          </Tooltip>
-        );
-      })}
+      {buttons.filter(({ name }) => LEADING.has(name)).map(panelButton)}
       {pullRequest && (
         <Tooltip label={`Pull request #${pullRequest.number}`} side="bottom" align="end">
           <IconButton
@@ -134,6 +148,7 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
           />
         </Tooltip>
       )}
+      {buttons.filter(({ name }) => !LEADING.has(name)).map(panelButton)}
     </div>
   );
 }
