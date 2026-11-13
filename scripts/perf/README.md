@@ -15,6 +15,16 @@ npm run perf -- soak --turns 20      # replies back to back, memory after a forc
 npm run perf -- compare before.json after.json
 ```
 
+Launch time has its own script. It starts the app several times in a row and reports the median of every launch after the first (the first also starts the background host; later ones find it running, as most real launches do):
+
+```sh
+node scripts/perf/launch.cjs --app release/mac-arm64/Milagre.app --runs 7   # a packaged build
+node scripts/perf/launch.cjs                                                # Electron on apps/desktop and dist/
+node scripts/perf/launch.cjs compare before.json after.json
+```
+
+It reports `windowMs` (spawn to the window's page starting to load: the main process's own start), `firstPaintMs` (the renderer's first contentful paint) and `sidebarMs` (the first sidebar row, once the host has answered), all from the spawn, plus `appArchiveMb` for a packaged build. Package with `npx electron-builder --mac dir --arm64 --publish never --config.mac.identity=- --config.mac.notarize=false` after `npm run build`.
+
 Options: `--visible` (show the window, so paint and GPU work count), `--new-chat` (press ⌘N first: a new Chat's page), `--seconds n` (per scenario, or per reply in a soak), `--turns n`, `--settle n` (seconds to wait after the Chat opens), `--out file`, `--state <.milagre>`, `--heap <prefix>` (a soak writes `<prefix>-before.heapsnapshot` and `<prefix>-after.heapsnapshot`, which Chrome DevTools can compare).
 
 `--state` copies a real Project's `.milagre` into the throwaway repository, gives every Worktree its own path and removes the provider session ids, so a soak can run against real transcripts. The run uses the first Chat in the sidebar, which has to be a Claude Chat. Without `--state` it uses one small synthetic Chat. Compare runs made the same way only.

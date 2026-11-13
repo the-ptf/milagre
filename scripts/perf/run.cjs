@@ -421,7 +421,11 @@ async function main() {
   console.log(`Saved ${out}`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+module.exports = { connect, electronPath, processes, seedRepo, bin, stop, until, round };
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
