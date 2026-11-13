@@ -93,7 +93,7 @@ raw-window-handle = "0.6"
 # appearance and first responder. All three are wry's own (MIT; Zlib OR Apache-2.0 OR MIT), no new crate.
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSResponder", "NSView", "NSWindow"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString"] }
 # The cutouts GPUI controls float in over the page (src/platform/webview.rs): a shape-layer mask on the container.
 # objc2-app-kit's own dependencies, already in the tree at these versions, so no new crate.
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "CATransaction", "objc2-core-graphics"] }

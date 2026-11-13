@@ -50,7 +50,10 @@ pub fn run() {
                 // The diff comments and the merge method are kept beside the window state.
                 crate::workspace::shell::persist::enable();
                 open_main_window(cx);
-                cx.activate(true);
+                // The keyboard probe sends its key events to its own window: it never takes the user's foreground.
+                if std::env::var("MILAGRE_GPUI_WEBVIEW_PROBE").as_deref() != Ok("keys") {
+                    cx.activate(true);
+                }
             }
             Some(path) => {
                 // The snapshot window is never activated, so AppKit may report it occluded (or the display is

@@ -316,6 +316,8 @@ impl Render for Workspace {
         terminal::on_actions(dock::on_actions(div(), &self.panel), &self.terminals)
             .id("workspace")
             .track_focus(&self.focus)
+            // Any press GPUI gets (never one inside a web page) gives the keyboard back to GPUI's view.
+            .capture_any_mouse_down(|_, window, _| crate::platform::webview::reclaim_keyboard(window))
             .on_action(move |_: &ToggleSettings, window, cx| {
                 // Preview: Settings opens; its sections other than Appearance say what is not available yet.
                 settings.update(cx, |modal, cx| modal.toggle(window, cx));

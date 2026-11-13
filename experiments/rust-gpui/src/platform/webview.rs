@@ -276,11 +276,23 @@ impl WebHost {
     }
 
     fn signal(&mut self, signal: Signal, window: &mut Window, cx: &mut Context<Self>) {
+        // A page that is not shown never keeps AppKit's keyboard: WebKit makes the webview first responder by itself
+        // when a page focuses an element as it loads (`autofocus`, `el.focus()`), even while it is hidden, and every
+        // live read can load the page again.
+        if self.placement.is_none() {
+            self.release_native_focus();
+            if let Some(native) = &self.native {
+                native.reclaim_if_orphaned();
+            }
+        }
         match signal {
             Signal::External(url) => cx.emit(WebEvent::External(url)),
             Signal::Ipc(raw) => match host_message(&raw) {
+                // Only a page that is shown and really holds AppKit's keyboard takes GPUI's focus: a page that reports
+                // focus while hidden, loading or never clicked must not pull the keys away from the composer.
                 Some(HostMessage::Focus) => {
-                    if !self.focus_handle.is_focused(window) {
+                    let holds_keys = self.placement.is_some() && self.native.as_ref().is_some_and(native::Native::has_focus);
+                    if holds_keys && !self.focus_handle.is_focused(window) {
                         window.focus(&self.focus_handle, cx);
                     }
                 }
@@ -363,12 +375,24 @@ impl WebHost {
                 native.release_focus();
             }
             native.apply(self.placement, &self.cutouts);
+            if self.placement.is_none() {
+                // Hiding a view AppKit had as first responder leaves the keys with the window itself, where GPUI's
+                // view (which never asks for first responder on a click) would not get them back.
+                native.reclaim_if_orphaned();
+            }
         }
     }
 
     fn release_native_focus(&self) {
         if let Some(native) = &self.native {
             native.release_focus();
+        }
+    }
+
+    /// For checks: makes the page AppKit's first responder, as a click in it or a page's own `focus()` does.
+    pub fn probe_focus_page(&self) {
+        if let Some(native) = &self.native {
+            let _ = native.webview.focus();
         }
     }
 
@@ -422,6 +446,15 @@ impl Render for WebHost {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().id("web-host").track_focus(&self.focus_handle).size_full().child(WebHostElement { host: cx.entity() })
     }
+}
+
+/// Gives AppKit's keyboard back to GPUI's view when something else holds it (a web page, or the window itself after
+/// a focused page was hidden). GPUI's view never asks to become first responder on a click, so without this a page that
+/// once took the keys keeps them: the composer shows focus but nothing typed reaches it. Called on every mouse press
+/// GPUI receives (a press in a page goes to the page's own view, never to GPUI), so clicking the composer or anywhere
+/// else in GPUI's UI always lets the keys follow. No-op without a native window (tests).
+pub fn reclaim_keyboard(window: &Window) {
+    native::reclaim(window);
 }
 
 /// The element the page is placed over: it fills its parent.
@@ -715,7 +748,16 @@ pub mod native {
             unsafe { msg_send![&*self.clip, layer] }
         }
 
-        fn has_focus(&self) -> bool {
+        /// AppKit's first responder is the window itself (or nothing): the keys go back to GPUI's view.
+        pub(super) fn reclaim_if_orphaned(&self) {
+            let Some(window) = self.parent.window() else { return };
+            let orphaned = window.firstResponder().is_none_or(|responder| responder.downcast::<NSView>().is_err());
+            if orphaned {
+                window.makeFirstResponder(Some(&self.parent));
+            }
+        }
+
+        pub(super) fn has_focus(&self) -> bool {
             let page = self.webview.webview();
             let Some(responder) = page.window().and_then(|window| window.firstResponder()) else { return false };
             responder.downcast::<NSView>().is_ok_and(|view| view.isDescendantOf(&page))
@@ -770,6 +812,76 @@ pub mod native {
                 hit_page,
                 focused: self.has_focus(),
             })
+        }
+    }
+
+    /// GPUI's view and its NSWindow, from GPUI's window.
+    fn gpui_view(window: &gpui::Window) -> Option<(Retained<NSView>, Retained<objc2_app_kit::NSWindow>)> {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(handle) = HasWindowHandle::window_handle(window) else { return None };
+        let RawWindowHandle::AppKit(appkit) = handle.as_raw() else { return None };
+        // SAFETY: `ns_view` is the live NSView GPUI renders into, on the main thread; retained for the caller.
+        let view: Retained<NSView> = unsafe { Retained::retain(appkit.ns_view.cast::<NSView>().as_ptr()) }?;
+        let ns_window = view.window()?;
+        Some((view, ns_window))
+    }
+
+    /// For checks: GPUI's NSWindow.
+    pub fn ns_window(window: &gpui::Window) -> Option<Retained<objc2_app_kit::NSWindow>> {
+        gpui_view(window).map(|(_, ns_window)| ns_window)
+    }
+
+    /// For checks: whether GPUI's view is AppKit's first responder (`None` without a native window).
+    pub fn gpui_holds_keys(window: &gpui::Window) -> Option<bool> {
+        let (view, ns_window) = gpui_view(window)?;
+        Some(ns_window.firstResponder().is_some_and(|responder| std::ptr::addr_eq(Retained::as_ptr(&responder), Retained::as_ptr(&view))))
+    }
+
+    /// For checks: types `text` (lowercase a to z) as AppKit key events handed to the window's first responder, as a
+    /// keyboard does in a key window: they go to whatever holds AppKit's keys. Returns `false` without a native window.
+    /// Call it outside any GPUI update of the window (GPUI's key handling borrows the window), with the NSWindow from
+    /// [`ns_window`].
+    pub fn probe_type(ns_window: &objc2_app_kit::NSWindow, text: &str) -> bool {
+        use objc2::runtime::AnyObject;
+        use objc2_foundation::NSString;
+        const CODES: &str = "asdfhgzxcv_bqweryt123465=97-80]ou[ip_lj'k;\\,/nm.";
+        let number = ns_window.windowNumber();
+        for ch in text.chars() {
+            let code = CODES.find(ch).unwrap_or(0) as u16;
+            let chars = NSString::from_str(&ch.to_string());
+            for kind in [10usize, 11usize] {
+                // SAFETY: NSEvent's documented class constructor with valid arguments, on the main thread.
+                let event: *mut AnyObject = unsafe {
+                    msg_send![objc2::class!(NSEvent), keyEventWithType: kind, location: NSPoint::new(0.0, 0.0), modifierFlags: 0usize,
+                        timestamp: 0.0f64, windowNumber: number, context: std::ptr::null_mut::<AnyObject>(), characters: &*chars,
+                        charactersIgnoringModifiers: &*chars, isARepeat: false, keyCode: code]
+                };
+                if event.is_null() {
+                    return false;
+                }
+                // What a key window does with a key event: its first responder gets it (`sendEvent:` drops key events
+                // for a window that is not key, and the probe's window never is). GPUI's view types its text itself.
+                let Some(responder) = ns_window.firstResponder() else { return false };
+                // SAFETY: a fresh autoreleased NSEvent handed to an NSResponder's own key handler, on the main thread.
+                unsafe {
+                    if kind == 10 {
+                        let _: () = msg_send![&*responder, keyDown: event];
+                    } else {
+                        let _: () = msg_send![&*responder, keyUp: event];
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// [`super::reclaim_keyboard`]: GPUI's view becomes AppKit's first responder again if anything else holds it.
+    pub fn reclaim(window: &gpui::Window) {
+        let Some((view, ns_window)) = gpui_view(window) else { return };
+        let already =
+            ns_window.firstResponder().is_some_and(|responder| std::ptr::addr_eq(Retained::as_ptr(&responder), Retained::as_ptr(&view)));
+        if !already {
+            ns_window.makeFirstResponder(Some(&view));
         }
     }
 

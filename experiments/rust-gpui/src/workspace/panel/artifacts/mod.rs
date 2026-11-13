@@ -218,9 +218,14 @@ impl ArtifactsView {
             self.tab = None;
         }
         self.page = page;
+        // Shown again only while the panel really draws this tab (its own word, read now), never on a stale flag.
+        let drawn = self.panel.upgrade().is_some_and(|panel| {
+            let panel = panel.read(cx);
+            panel.is_open() && panel.active() == PanelTab::Artifact
+        });
+        self.shown = drawn;
         if let Some(host) = &self.host {
-            let shown = self.shown;
-            host.update(cx, |host, cx| host.set_shown(shown, cx));
+            host.update(cx, |host, cx| host.set_shown(drawn, cx));
         }
         self.register(cx);
         cx.notify();
@@ -556,6 +561,14 @@ impl Render for ArtifactsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.renders += 1;
         self.ensure_host(window, cx);
+        // The keyboard probe opens the panel on this tab itself (the seeded tab alone leaves the page unshown).
+        if self.probe == Some(probe::Mode::Keys)
+            && !self.shown
+            && self.renders == 1
+            && let Some(panel) = self.panel.upgrade()
+        {
+            cx.defer(move |cx| panel.update(cx, |panel, cx| panel.activate(PanelTab::Artifact, cx)));
+        }
         let theme = *cx.theme();
         let view = cx.entity().downgrade();
         let room = canvas(
@@ -640,12 +653,15 @@ mod probe {
     pub enum Mode {
         Panel,
         Scroll,
+        /// `keys`: the keyboard reaches the composer around the page (`keys::run`).
+        Keys,
     }
 
     impl Mode {
         pub fn from_env() -> Option<Self> {
             match std::env::var("MILAGRE_GPUI_WEBVIEW_PROBE").ok()?.as_str() {
                 "scroll" => Some(Mode::Scroll),
+                "keys" => Some(Mode::Keys),
                 "" | "0" => None,
                 _ => Some(Mode::Panel),
             }
@@ -733,6 +749,10 @@ mod probe {
         }
         let view = cx.entity();
         let Some(window) = cx.windows().first().copied() else { return };
+        if mode == Mode::Keys {
+            keys::run(view, window, cx);
+            return;
+        }
         cx.spawn(async move |_, cx| {
             let executor = cx.background_executor().clone();
             let wait = |ms| executor.timer(Duration::from_millis(ms));
@@ -772,5 +792,166 @@ mod probe {
             }
         })
         .detach();
+    }
+
+    /// The keyboard and the page (`MILAGRE_GPUI_WEBVIEW_PROBE=keys`, panel seeded on the Artifact tab), in a real
+    /// window with AppKit key events sent to it (never to another app):
+    /// 1. the page takes AppKit's keys (as a click or its own `focus()` does), then the panel closes: the keys come
+    ///    back to GPUI's view and typing reaches the composer;
+    /// 2. the page is hidden and grabs the keys by itself (an `autofocus` page loading again on a live read): they
+    ///    come back, and GPUI's focus stays on the composer;
+    /// 3. the panel opens again, the page holds the keys, and a press on the composer gives them back.
+    pub mod keys {
+        use super::*;
+        use crate::platform::webview::native;
+        use gpui::Focusable as _;
+
+        fn composer(window: &mut Window, cx: &mut App) -> Option<Entity<crate::workspace::chat::composer::Composer>> {
+            let root = window.root::<gpui_component::Root>().flatten()?;
+            let workspace = root.read(cx).view().clone().downcast::<crate::workspace::Workspace>().ok()?;
+            let chat = workspace.read(cx).chat.clone();
+            Some(chat.read(cx).composer.clone())
+        }
+
+        /// A frame now: the probe's window is never activated, so AppKit may not ask GPUI for one by itself.
+        fn frame(window: &mut Window, cx: &mut App) {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        }
+
+        fn text(window: &mut Window, cx: &mut App) -> String {
+            composer(window, cx).map(|c| c.read(cx).text().to_owned()).unwrap_or_default()
+        }
+
+        fn composer_focused(window: &mut Window, cx: &mut App) -> bool {
+            composer(window, cx).is_some_and(|c| c.read(cx).focus_handle(cx).contains_focused(window, cx))
+        }
+
+        pub fn run(view: Entity<ArtifactsView>, window: gpui::AnyWindowHandle, cx: &mut Context<ArtifactsView>) {
+            cx.spawn(async move |_, cx| {
+                let executor = cx.background_executor().clone();
+                let wait = |ms| executor.timer(Duration::from_millis(ms));
+                let step = |label: &str, ok: bool| {
+                    eprintln!("probe keys {label}: {}", if ok { "ok" } else { "FAILED" });
+                    ok
+                };
+                wait(800).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                let panel = cx.update(|cx| view.read(cx).panel.upgrade());
+                let Some(panel) = panel else { return };
+                let host = || cx.update(|cx| view.read(cx).host.clone());
+                let Some(host) = host() else {
+                    eprintln!("probe keys: no page host");
+                    return;
+                };
+                let mut ok = true;
+                // The composer has GPUI's focus, as on a Chat's open.
+                let _ = cx.update_window(window, |_, window, cx| {
+                    if let Some(c) = composer(window, cx) {
+                        window.focus(&c.read(cx).focus_handle(cx), cx);
+                    }
+                });
+                wait(200).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                let start = cx.update_window(window, |_, window, cx| text(window, cx)).unwrap_or_default();
+
+                // 1. The page takes the keys, then the panel closes.
+                cx.update(|cx| host.read(cx).probe_focus_page());
+                wait(300).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                ok &= step("page took the keys", cx.update(|cx| host.read(cx).native_report().is_some_and(|r| r.focused)));
+                cx.update(|cx| panel.update(cx, |p, cx| p.close(cx)));
+                wait(300).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                let _ = cx.update_window(window, |_, window, cx| {
+                    if let Some(c) = composer(window, cx) {
+                        window.focus(&c.read(cx).focus_handle(cx), cx);
+                    }
+                });
+                wait(100).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                ok &= step(
+                    "keys back after the panel closed",
+                    cx.update_window(window, |_, w, _| native::gpui_holds_keys(w)).ok().flatten() == Some(true),
+                );
+                if let Ok(Some(ns_window)) = cx.update_window(window, |_, w, _| native::ns_window(w)) {
+                    native::probe_type(&ns_window, "a");
+                }
+                wait(200).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                let now = cx.update_window(window, |_, w, cx| text(w, cx)).unwrap_or_default();
+                ok &= step(&format!("typed 'a' into the composer ({now:?})"), now == format!("{start}a"));
+
+                // 2. Hidden, the page grabs the keys by itself (and reports focus).
+                cx.update(|cx| host.read(cx).probe_focus_page());
+                cx.update(|cx| host.read(cx).run_script("window.dispatchEvent(new Event('focus'))"));
+                wait(400).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                ok &= step(
+                    "a hidden page's focus is given back",
+                    cx.update_window(window, |_, w, _| native::gpui_holds_keys(w)).ok().flatten() == Some(true),
+                );
+                ok &= step(
+                    "GPUI's focus stays on the composer",
+                    cx.update_window(window, |_, w, cx| composer_focused(w, cx)).unwrap_or(false),
+                );
+                if let Ok(Some(ns_window)) = cx.update_window(window, |_, w, _| native::ns_window(w)) {
+                    native::probe_type(&ns_window, "b");
+                }
+                wait(200).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                let now = cx.update_window(window, |_, w, cx| text(w, cx)).unwrap_or_default();
+                ok &= step(&format!("typed 'b' into the composer ({now:?})"), now == format!("{start}ab"));
+
+                // 3. Shown again, the page holds the keys; a press on the composer gives them back.
+                cx.update(|cx| panel.update(cx, |p, cx| p.activate(PanelTab::Artifact, cx)));
+                wait(800).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                cx.update(|cx| host.read(cx).probe_focus_page());
+                wait(300).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                ok &= step("shown page took the keys", cx.update(|cx| host.read(cx).native_report().is_some_and(|r| r.focused)));
+                // A press in GPUI's part of the window (over the transcript), then the composer focused as its click does.
+                let at = gpui::point(px(520.0), px(220.0));
+                let _ = cx.update_window(window, |_, w, cx| {
+                    let event = gpui::MouseDownEvent {
+                        button: gpui::MouseButton::Left,
+                        position: at,
+                        modifiers: Default::default(),
+                        click_count: 1,
+                        first_mouse: false,
+                    };
+                    w.dispatch_event(gpui::PlatformInput::MouseDown(event.clone()), cx);
+                    w.dispatch_event(
+                        gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                            button: event.button,
+                            position: at,
+                            modifiers: Default::default(),
+                            click_count: 1,
+                        }),
+                        cx,
+                    );
+                    if let Some(c) = composer(w, cx) {
+                        w.focus(&c.read(cx).focus_handle(cx), cx);
+                    }
+                });
+                wait(300).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                ok &= step(
+                    "a press on the composer took the keys back",
+                    cx.update_window(window, |_, w, _| native::gpui_holds_keys(w)).ok().flatten() == Some(true),
+                );
+                if let Ok(Some(ns_window)) = cx.update_window(window, |_, w, _| native::ns_window(w)) {
+                    native::probe_type(&ns_window, "c");
+                }
+                wait(200).await;
+                let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                let now = cx.update_window(window, |_, w, cx| text(w, cx)).unwrap_or_default();
+                ok &= step(&format!("typed 'c' into the composer ({now:?})"), now == format!("{start}abc"));
+                eprintln!("probe keys: {}", if ok { "PASS" } else { "FAIL" });
+                cx.update(|cx| cx.quit());
+            })
+            .detach();
+        }
     }
 }

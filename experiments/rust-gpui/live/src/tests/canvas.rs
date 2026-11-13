@@ -212,3 +212,56 @@ fn a_read_only_window_deletes_nothing(cx: &mut TestAppContext) {
     drop(fake);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// Typing reaches the composer in a Chat with designs and a page, with the Artifact tab open and closed, and in a
+/// Chat without them (the Preview's 864fd82a typed nothing).
+#[gpui::test]
+fn the_composer_takes_typing_beside_the_canvas_tabs(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("canvas-typing");
+    let fake = FakeDaemon::start(&data, world());
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    let key = format!("{ALPHA}#2");
+    m.wait_for("the newest Chat", |m| m.open_key().as_deref() == Some(key.as_str()));
+    let panel = m.workspace.read_with(m.vcx, |w, _| w.panel.clone());
+    m.wait_for("both tabs", |m| {
+        panel.read_with(m.vcx, |p, _| p.visible_tabs().contains(&PanelTab::Designs) && p.visible_tabs().contains(&PanelTab::Artifact))
+    });
+    m.vcx.run_until_parked();
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    let text = |m: &mut super::owned::Mounted<'_>| composer.read_with(m.vcx, |c, _| c.text().to_owned());
+
+    m.vcx.simulate_input("hello");
+    assert_eq!(text(&mut m), "hello", "the panel closed");
+
+    panel.update(m.vcx, |p, cx| p.activate(PanelTab::Artifact, cx));
+    m.vcx.run_until_parked();
+    assert!(panel.read_with(m.vcx, |p, _| p.is_open() && p.active() == PanelTab::Artifact));
+    m.vcx.simulate_input(" there");
+    assert_eq!(text(&mut m), "hello there", "the Artifact tab open");
+
+    panel.update(m.vcx, |p, cx| p.toggle_tab(PanelTab::Artifact, cx));
+    m.vcx.run_until_parked();
+    m.vcx.simulate_input("!");
+    assert_eq!(text(&mut m), "hello there!", "the Artifact tab closed again");
+
+    // The Preview's Designs tab is for viewing: no layer editor, by its button or otherwise.
+    let designs = panel.read_with(m.vcx, |p, _| p.designs().clone());
+    assert!(!designs.read_with(m.vcx, |d, cx| d.can_edit(cx)), "no Edit in the Preview");
+    designs.update(m.vcx, |d, cx| d.open_editor("welcome", cx));
+    assert!(designs.read_with(m.vcx, |d, _| d.editor().is_none()), "the editor never opens in the Preview");
+
+    m.open(&format!("{ALPHA}#1"));
+    m.wait_for("the plain Chat", |m| m.open_key().as_deref() == Some(format!("{ALPHA}#1").as_str()));
+    m.vcx.run_until_parked();
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    let before = composer.read_with(m.vcx, |c, _| c.text().to_owned());
+    m.vcx.simulate_input("hi");
+    assert_eq!(composer.read_with(m.vcx, |c, _| c.text().to_owned()), format!("{before}hi"), "a Chat without designs");
+
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}

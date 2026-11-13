@@ -161,8 +161,16 @@ impl DesignsView {
         this
     }
 
+    /// Whether the layer editor is offered: never in the Preview (view only) nor on a data layer's designs.
+    pub fn can_edit(&self, cx: &gpui::App) -> bool {
+        !self.is_live() && !crate::workspace::preview::is_on(cx)
+    }
+
     /// Edit: the design page editor on every design, this one active (`DesignPageEditor`).
     pub fn open_editor(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.can_edit(cx) {
+            return;
+        }
         if self.design(id).is_none() {
             return;
         }

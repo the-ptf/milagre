@@ -170,8 +170,9 @@ fn controls(this: &DesignsView, id: &str, version: u32, last: u32, kit: String, 
         .child(version_text)
         .child(next)
         // Edit opens the design page editor (`editor/`) on this design. Live, its Save would need `artifact:apply`,
-        // which the data layer does not send yet: hidden there.
-        .when(!this.is_live(), |el| {
+        // which the data layer does not send yet: hidden there. The Preview never offers it: its Designs tab is for
+        // viewing (designs, versions, comments, choosing one), not editing layers.
+        .when(this.can_edit(cx), |el| {
             let target = id.to_string();
             el.child(
                 Button::new(SharedString::from(format!("design-edit-{id}")), "Edit")
