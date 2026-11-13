@@ -103,7 +103,7 @@ import { undoHistory, type UndoAction } from "../lib/undo-history";
 import { DELETE_UNDO_MS } from "@milagre/shared/archive";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
-import { activeFamilyRoot, useUnfoldActiveFamily, jumpChatRows, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
+import { activeFamilyRoot, useUnfoldActiveFamily, jumpChatRows, rowKeys, shownChats, standInRow, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
 
 type IconProps = { size?: IconSize; className?: string };
 
@@ -2301,6 +2301,8 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
   };
   const isFlatActive = (chat: (typeof chats)[number]) => scopes.get(chat.scopeKey)?.list.isActive(chat.row) ?? false;
   const activeFlat = chats.find(isFlatActive);
+  // An open subchat folded away lights its parent's row.
+  const standIn = standInRow(shownFlat, chats, flatKeys, isFlatActive);
   useUnfoldActiveFamily(activeFamilyRoot(chats, flatKeys, isFlatActive), activeFlat && flatKeys.key(activeFlat));
   return (
     <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px" onPointerDown={startDrag}>
@@ -2313,7 +2315,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
           <div key={key} data-chat-key={key} data-offline={offline || undefined} className="contents">
             <ChatRow
               item={row}
-              active={list.isActive(row)}
+              active={list.isActive(row) || key === standIn}
               collapsed={false}
               actions={actionsOf(scopeKey, scope)}
               shortcutHint={position >= 0 && position < 9 ? keys.jump(position) : undefined}
@@ -2428,6 +2430,8 @@ function ChatList({
   // Whatever opened a subchat (the pill, the bookmark, a notification), its family unfolds so its row shows selected.
   const activeRow = rest.find(isActive);
   useUnfoldActiveFamily(collapsed ? undefined : activeFamilyRoot(rest, rowKeys(scopeKey), isActive), activeRow && `${scopeKey}#${activeRow.id}`);
+  // Folded by hand while one of its subchats is open, the family's parent row draws as the open one.
+  const standIn = collapsed ? undefined : standInRow(shownRest, rest, rowKeys(scopeKey), isActive);
   const byId = (id: string | null) => recents.find((item) => item.id === id);
   const otherList = (scope: string | undefined) => (scope === undefined ? undefined : sidebarLinks.lists().find((handle) => handle.scopeKey === scope));
 
@@ -2766,7 +2770,7 @@ function ChatList({
       depth={shown?.depth}
       family={shown?.family}
       onPick={onPick}
-      active={isActive(item)}
+      active={isActive(item) || `${scopeKey}#${item.id}` === standIn}
       collapsed={collapsed}
       actions={rowActions}
       shortcutHint={showHints && hintOffset + index < 9 ? keys.jump(hintOffset + index) : undefined}

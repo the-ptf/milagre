@@ -1721,6 +1721,7 @@ const NavigationBody = memo(function NavigationBody({
       currentHostId,
       currentPath,
       activeChatId,
+      openRoot,
       busy,
       wide,
       beside,
@@ -1746,6 +1747,7 @@ const NavigationBody = memo(function NavigationBody({
       currentHostId,
       currentPath,
       activeChatId,
+      openRoot,
       busy,
       wide,
       beside,
@@ -2004,6 +2006,8 @@ type RowView = {
   currentHostId?: string;
   currentPath?: string;
   activeChatId?: number;
+  /** The open Chat's family root (`<project>#<chat>`), when it is a subchat: a folded family's row stands in for it. */
+  openRoot?: string;
   busy: boolean;
   wide: boolean;
   beside: ReturnType<typeof useBesideChat>;
@@ -2149,6 +2153,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     currentHostId,
     currentPath,
     activeChatId,
+    openRoot,
     busy,
     wide,
     beside,
@@ -2523,7 +2528,9 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   );
   // The Chat open beside the open one is selected too.
   const isBeside = wide && activeChatId !== undefined && beside?.hostId === item.hostId && beside.projectPath === item.path && beside.chatId === item.chat.id;
-  const selected = (currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id) || isBeside;
+  // A family folded by hand while one of its subchats is open: its parent's row draws as the open one, as on desktop.
+  const standIn = !!item.family?.folded && currentHostId === item.hostId && openRoot === `${item.path}#${item.chat.id}`;
+  const selected = (currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id) || isBeside || standIn;
   const tone = chatMarkTone(item.mark);
   const pullRequests = rowShow.pullRequests ? item.pullRequests || [] : [];
   const linearIssue = rowShow.linearIssue ? item.linearIssue : undefined;
