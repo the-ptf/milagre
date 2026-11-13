@@ -35,6 +35,8 @@ export type PreviewArea = "sidebar" | "chat" | "code" | "width" | "diff" | "ui" 
 // The miniature is drawn at a real window's size, at the real CSS variables, then scaled down to the card.
 const WINDOW_WIDTH = 1440;
 const WINDOW_HEIGHT = 900;
+// The preview's tallest size, whatever the window's size: past it, a wide Settings page gave the preview most of the screen.
+const MAX_HEIGHT = 300;
 // How long the Changes panel stays open when Panel animations replays it: long enough to finish opening at Normal.
 const PANEL_HOLD_MS = 1400;
 
@@ -490,8 +492,8 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
   useLayoutEffect(() => {
     const node = frame.current;
     if (!node) return;
-    // Fits the card's width, but never takes more than 45% of the window's height so the sticky preview leaves room for the rows.
-    const fit = () => setScale(Math.min(node.clientWidth / WINDOW_WIDTH, (0.45 * window.innerHeight) / WINDOW_HEIGHT));
+    // Fits the card's width, but stays at most MAX_HEIGHT tall (and 40% of the window) so the sticky preview leaves room for the rows.
+    const fit = () => setScale(Math.min(node.clientWidth / WINDOW_WIDTH, Math.min(MAX_HEIGHT, 0.4 * window.innerHeight) / WINDOW_HEIGHT));
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(node);

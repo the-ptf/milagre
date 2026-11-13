@@ -2435,3 +2435,11 @@ svg.onboarding-layer {
     animation-delay: 0s !important;
   }
 }
+
+/* COMPONENT-SPECIFIC — Settings › Appearance preview strip: it repaints what is behind the page so rows vanish under it.
+ * In the Settings dialog that is the dialog's surface, not the window's stripes. */
+dialog [data-slot="appearance-preview-strip"],
+dialog [data-slot="appearance-preview-fade"] {
+  background-color: var(--surface) !important;
+  background-image: none !important;
+}

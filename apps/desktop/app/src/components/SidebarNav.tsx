@@ -1862,10 +1862,10 @@ export default memo(function SidebarNav({
 
           <SidebarToast collapsed={collapsed} />
 
-          {usage && <div className={`mt-3 pt-1.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
+          {usage && <div className={`mt-1 pt-0.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
 
           <div
-            className={`flex py-1.5 ${usage ? "mt-1.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
+            className={`flex py-1.5 ${usage ? "mt-0.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
           >
             <div className={collapsed ? "flex flex-col-reverse items-center gap-1" : "flex items-center gap-1"}>
               <Tooltip label="Add Project" shortcut={keys.addProject}>
