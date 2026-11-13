@@ -78,6 +78,38 @@ directories before file access, bounds images to 5 MiB and keeps symlink targets
 - **Stop order:** Project and repository locks, then the socket, then D's lock (Node releases its runtime's locks, then closes the socket). A failed stop keeps the owner up refusing commands, as Node's does; `daemon:stop` or another signal retries it. Once stopped, D's lock is released even if waiting for the socket or the last request threads timed out (the exit status is then 1 and a socket file may stay, which the next owner removes); only an owner that never stopped exits still holding it, and says so.
 - **`daemon:status` `dataDir`** is the real path; Node reports the argument as passed (the same when D is passed in its real spelling, which the Rust client requires of both).
 
+## CP4a: synthetic multi-Project Chats
+
+The ordinary CLI remains read/settings-only. The opt-in `chat-fixture` feature exposes the Rust library's
+`start_with_providers(options, providers)` constructor for explicitly supplied synthetic providers; the CLI
+has no provider-launch flag and does not discover accounts or executables. This is composition evidence,
+not a production Chat owner or complete CP4.
+
+One shared `ChatHost` owns the profile's `ProjectStates`, with the existing registry, repository and
+Project locks. A send routes by its `projectPath`, `provider` and `model`. First writable admission
+reconciles the read state in memory; a never-saved Project transfers its held lock without releasing it.
+Rejected sends do not save that reconciliation. The fixture adds `chat:send`, `chat:send-status`,
+`chat:all-messages`, `chat:search`, `chat:subagent`, `chat:queue-send`, `chat:queue-remove` and
+`agent:interrupt` (GPUI's stop command). The default CLI advertises none of these additions.
+
+Commands and 20 ms ticks share the profile mutex inside the wire publication transaction. State
+events carry per-Project versions; run events retain sequence numbers; failed publication retains notices for retry, and persistence failure
+and recovery are published. Focused Chat views remain separate per connection. Ownership is checked
+before ticks, reads and shutdown; revoked Projects stop exposing runs and cannot write or launch work.
+Active fixture shutdown force-ends turns before releasing locks. It does not prove provider suspension,
+resume across process restart, or real child-process teardown.
+
+`tests/chat_fixture.rs` uses marked throwaway profiles, the real socket and injected `MockProvider`s.
+It exercises two Projects/providers/models, streaming, duplicate send receipts, queue/remove/send-now,
+interrupt, saved/fresh Projects, active shutdown, lock replacement, save failure/recovery, focus/disconnect,
+and rejected-send non-persistence. After Rust stops, Node's production store and an actual Node daemon
+both reopen the writes and return identical messages/sessions; the daemon stops and Rust opens them again.
+This is not a full Node differential of send semantics. Provider work is synthetic throughout.
+
+Remaining CP4 work: adopting profile account selection/assignment with captured authority, real provider
+composition, `chat:delete`, `chat:reload`, `chat:detach`, usage-limit switch/resume and related lifecycle
+cleanup. The dedicated Rust runtime does not already provide these handlers; they require implementation.
+
 ## Checks
 
 ```sh

@@ -12,6 +12,9 @@ path = "src/lib.rs"
 name = "profile-owner"
 path = "src/main.rs"
 
+[features]
+chat-fixture = []
+
 [dependencies]
 milagre-owner-store = { path = "../rust-owner" }
 milagre-owner-wire = { path = "../rust-owner-wire" }

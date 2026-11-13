@@ -85,7 +85,7 @@ fn js_text(value: &Value) -> String {
     }
 }
 
-struct Loaded {
+pub(crate) struct Loaded {
     git: bool,
     /// The Worktrees found at the last `project:read` (Node's `discovered`).
     worktrees: Vec<Value>,
@@ -110,8 +110,15 @@ fn summaries_last(mut state: Value, unsummarized: &HashSet<String>) -> Value {
     state
 }
 
-struct Core {
-    states: ProjectStates,
+pub(crate) struct Core {
+    host: milagre_owner_store::chat_host::ChatHost,
+    chats_enabled: bool,
+    chat_admitted: HashSet<PathBuf>,
+    run_seq: u64,
+    views: HashMap<u64, ClientContext>,
+    notices: std::collections::VecDeque<milagre_owner_store::chat_host::Notice>,
+    state_events: std::collections::VecDeque<milagre_owner_store::states::Event>,
+    versions: HashMap<PathBuf, (Value, u64)>,
     loaded: HashMap<PathBuf, Loaded>,
     /// The Projects in the order they were opened (the snapshot's order).
     order: Vec<PathBuf>,
@@ -187,7 +194,14 @@ impl Profile {
             epoch: random_uuid(),
             data_lock,
             core: Mutex::new(Core {
-                states,
+                host: milagre_owner_store::chat_host::ChatHost::new(states),
+                chats_enabled: false,
+                chat_admitted: HashSet::new(),
+                run_seq: 0,
+                views: HashMap::new(),
+                notices: Default::default(),
+                state_events: Default::default(),
+                versions: HashMap::new(),
                 loaded: HashMap::new(),
                 order: Vec::new(),
                 repositories: HashMap::new(),
@@ -428,17 +442,20 @@ impl Profile {
             }
             owner.release().map_err(store)?;
         }
-        core.states.get(key).map_err(store)?;
+        core.host.states.get(key).map_err(store)?;
         Ok(None)
     }
 
     /// The whole state Node holds for an open Project: the saved state matched with its Worktrees, Chat summaries kept
     /// current (a Chat made for a Worktree without one gets its summary as Node's compact step gives it).
     fn state(&self, core: &mut Core, key: &Path, project: &str) -> Result<Value, RpcError> {
+        if core.chat_admitted.contains(key) {
+            core.host.require_project_ready(key).map_err(store)?;
+        }
         let saved = if core.loaded[key].unsaved.is_some() {
             None
         } else {
-            Some(core.states.whole_state(key).map_err(store)?)
+            Some(core.host.states.whole_state(key).map_err(store)?)
         };
         Ok(Self::held(core, key, project, saved))
     }
@@ -454,7 +471,7 @@ impl Profile {
             with_chat_summaries(
                 ProjectState::from_value(&reconciled),
                 None,
-                core.states.now(),
+                core.host.states.now(),
             )
             .to_value()
         };
@@ -474,10 +491,19 @@ impl Profile {
     }
 
     /// `{ ...result, version, epoch }`, written as server.cjs `encode` writes it: the state last.
-    fn stamp(&self, mut value: Value) -> Value {
+    fn stamp(&self, core: &mut Core, mut value: Value) -> Value {
+        let path = value["path"].as_str().unwrap_or_default().to_owned();
+        let version = value
+            .get("state")
+            .map(|state| Self::chat_version(core, Path::new(&path), state))
+            .unwrap_or_else(|| {
+                core.versions
+                    .get(Path::new(&path))
+                    .map_or(STATE_VERSION, |(_, version)| *version)
+            });
         if let Some(object) = value.as_object_mut() {
             let state = object.shift_remove("state");
-            object.insert("version".into(), json!(STATE_VERSION));
+            object.insert("version".into(), json!(version));
             object.insert("epoch".into(), json!(self.epoch));
             if let Some(state) = state {
                 object.insert("state".into(), state);
@@ -509,6 +535,9 @@ impl Profile {
         } else {
             self.open(core, Path::new(path))?;
         }
+        if core.chat_admitted.contains(Path::new(path)) {
+            core.host.open_project(Path::new(path)).map_err(store)?;
+        }
         let mut project = self.project(core, path)?;
         // server.cjs: `{ state: false }` answers { path, name, git } and the number of the state last sent.
         if args
@@ -517,7 +546,7 @@ impl Profile {
         {
             project.as_object_mut().unwrap().shift_remove("state");
         }
-        Ok(self.stamp(project))
+        Ok(self.stamp(core, project))
     }
 
     fn state_read(&self, core: &mut Core, args: &[Value]) -> RpcResult {
@@ -532,7 +561,8 @@ impl Profile {
                 "The Rust profile owner doesn't serve Links yet.",
             ));
         }
-        Ok(self.stamp(self.project(core, owner)?))
+        let project = self.project(core, owner)?;
+        Ok(self.stamp(core, project))
     }
 
     fn chat_messages(&self, core: &mut Core, args: &[Value]) -> RpcResult {
@@ -578,11 +608,16 @@ impl Profile {
             // A fresh state holds no messages.
             return Ok(empty());
         }
-        let page = core.states.call("chat:messages", args).map_err(store)?;
+        let page = core
+            .host
+            .states
+            .call("chat:messages", args)
+            .map_err(store)?;
         // A Chat whose Worktree went away isn't in the state Node holds: its page is empty there too.
         let path = scope.unwrap_or_default();
         let key = PathBuf::from(path);
         let mut current = core
+            .host
             .states
             .current(&key)
             .map(|state| state.to_value())
@@ -617,16 +652,17 @@ impl Profile {
         if loaded.unsaved.is_some() {
             return Err(store(StoreError::MessageGone));
         }
-        core.states.call("chat:message", args).map_err(store)
+        core.host.states.call("chat:message", args).map_err(store)
     }
 
     /// Stops reading: every Project saved (nothing is dirty here) and unlocked, then the repositories unlocked.
     fn close(&self) -> Result<(), RpcError> {
+        self.check_owned()?;
         let mut core = locked(&self.core);
         if core.closed {
             return Ok(());
         }
-        core.states.close().map_err(store)?;
+        core.host.shutdown(true).map_err(store)?;
         let mut result = Ok(());
         for (_, loaded) in core.loaded.drain() {
             if let Some(owner) = loaded.unsaved {
@@ -661,7 +697,7 @@ impl Handler for Profile {
         jsjson::utf16_len(text)
     }
     fn methods(&self) -> Vec<String> {
-        METHODS
+        let mut methods: Vec<String> = METHODS
             .iter()
             .chain(crate::settings::METHODS)
             .chain(crate::keybindings::METHODS)
@@ -673,7 +709,22 @@ impl Handler for Profile {
                 "project:image",
             ])
             .map(|method| method.to_string())
-            .collect()
+            .collect();
+        if locked(&self.core).chats_enabled {
+            methods.extend(crate::chats::METHODS.iter().map(|s| s.to_string()));
+        }
+        methods
+    }
+    fn view_changed(&self, context: &ClientContext) -> RpcResult {
+        context.events.transaction(|_| {
+            self.check_owned()?;
+            let mut core = locked(&self.core);
+            if !core.closed && core.chats_enabled {
+                core.views.insert(context.client_id(), context.clone());
+                Self::refresh_chat_views(&mut core);
+            }
+            Ok(Value::Null)
+        })
     }
     fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
         context
@@ -684,12 +735,16 @@ impl Handler for Profile {
     fn snapshot(&self, _context: &ClientContext) -> RpcResult {
         self.check_owned()?;
         let mut core = locked(&self.core);
+        Self::check_chat_projects(&mut core);
         let mut projects = Vec::new();
         for key in core.order.clone() {
+            if core.chat_admitted.contains(&key) && !core.host.is_project_ready(&key) {
+                continue;
+            }
             let saved = if core.loaded[&key].unsaved.is_some() {
                 None
             } else {
-                match core.states.current_whole_state(&key).map_err(store)? {
+                match core.host.states.current_whole_state(&key).map_err(store)? {
                     Some(saved) => Some(saved),
                     None => continue,
                 }
@@ -702,7 +757,8 @@ impl Handler for Profile {
             project.insert("state".into(), state);
             projects.push(Value::Object(project));
         }
-        Ok(json!({"links": [], "projects": projects, "runs": {"runs": {}, "seq": 0}, "ports": {}}))
+        let runs = Self::chat_runs(&mut core);
+        Ok(json!({"links": [], "projects": projects, "runs": runs, "ports": {}}))
     }
     fn shutdown(&self) -> RpcResult {
         self.close().map(|()| Value::Null)
@@ -721,8 +777,30 @@ impl Profile {
         if core.closed {
             return Err(RpcError::new("CLOSING", "The daemon is closing"));
         }
-        core.states.advance(now_ms());
+        Self::check_chat_projects(&mut core);
+        if core.chats_enabled {
+            self.publish_chat_notices(&mut core, publication)?;
+        }
+        core.host.states.advance(now_ms());
         let core = &mut *core;
+        if matches!(
+            method,
+            "chat:messages"
+                | "chat:message"
+                | "chat:send-status"
+                | "chat:all-messages"
+                | "chat:search"
+                | "chat:subagent"
+        ) {
+            if let Some(path) = args.first().and_then(Value::as_str).map(Path::new) {
+                if core.chat_admitted.contains(path) {
+                    core.host.require_project_ready(path).map_err(store)?;
+                }
+            }
+        }
+        if core.chats_enabled && crate::chats::METHODS.contains(&method) {
+            return self.chat_command(core, method, args, publication);
+        }
         if crate::keybindings::METHODS.contains(&method) {
             let (value, event) = core.keybindings.call(&core.settings.files, method, args)?;
             if let Some(event) = event {
@@ -799,12 +877,13 @@ impl Profile {
             "project:read" => self.project_read(core, args),
             "project:snapshot" => {
                 let path = args.first().and_then(Value::as_str).unwrap_or_default();
-                Ok(self.stamp(self.project(core, path)?))
+                let project = self.project(core, path)?;
+                Ok(self.stamp(core, project))
             }
             "state:read" => self.state_read(core, args),
             "chat:messages" => self.chat_messages(core, args),
             "chat:message" => self.chat_message(core, args),
-            "chat:runs" => Ok(json!({"runs": {}, "seq": 0})),
+            "chat:runs" => Ok(Self::chat_runs(core)),
             other => Err(failed(format!("Unknown command: {other}"))),
         }
     }
@@ -858,3 +937,6 @@ impl Profile {
         });
     }
 }
+
+#[path = "chat_handler.rs"]
+mod chat_handler;

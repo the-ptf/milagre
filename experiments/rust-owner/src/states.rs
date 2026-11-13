@@ -397,6 +397,75 @@ impl ProjectStates {
         Ok(())
     }
 
+    /// Reconciles a just-read, clean Project in memory without scheduling or retaining a save. A later
+    /// persisted mutation includes this state. Dirty/transient Projects must use update instead.
+    pub fn reconcile_read(&mut self, project: &Path, state: ProjectState) -> Result<()> {
+        self.assert_owned(project)?;
+        let key = self.key(project)?;
+        let slot = self
+            .slots
+            .get_mut(&key)
+            .ok_or_else(|| StoreError::Invalid("Project isn't loaded".into()))?;
+        if slot.dirty.is_some() || slot.transient {
+            return Err(StoreError::Invalid(
+                "Cannot replace a changed Project's read state".into(),
+            ));
+        }
+        slot.state = state;
+        slot.whole_cache = None;
+        Ok(())
+    }
+
+    /// Adopts the already-held lock of a Project which has never saved state. The seed stays in memory until
+    /// the first persisted change. On refusal the caller receives its owner back, with the lock still held.
+    pub fn adopt_unsaved(
+        &mut self,
+        owner: OwnedProject,
+        state: ProjectState,
+    ) -> std::result::Result<(), Box<(OwnedProject, StoreError)>> {
+        let key = owner.root().to_owned();
+        let check = (|| {
+            if self.closed || self.slots.contains_key(&key) {
+                return Err(StoreError::Invalid(
+                    "Project state is closed or already loaded".into(),
+                ));
+            }
+            if self.isolation.resolve(&key)? != key {
+                return Err(StoreError::Invalid("Project is outside this owner".into()));
+            }
+            owner.verify_owned()?;
+            match std::fs::symlink_metadata(key.join(".milagre/coordination.json")) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                _ => Err(StoreError::Invalid(
+                    "The Project already has saved state".into(),
+                )),
+            }
+        })();
+        if let Err(error) = check {
+            return Err(Box::new((owner, error)));
+        }
+        self.slots.insert(
+            key.clone(),
+            Slot {
+                whole_cache: None,
+                owner,
+                state,
+                dirty: None,
+                timer: None,
+                due: None,
+                transient: false,
+                failure: None,
+                touches: HashMap::new(),
+                read_at: self.now,
+            },
+        );
+        self.order.push(key);
+        if self.timing.lazy && self.sweep_next.is_none() && self.timing.sweep_ms > 0 {
+            self.sweep_next = Some(self.now + self.timing.sweep_ms);
+        }
+        Ok(())
+    }
+
     /// shedOld: a state just read, without the Chats whose last message is older than `idle_ms` and that aren't busy.
     fn shed_old(&self, key: &Path, owner: &mut OwnedProject, state: &ProjectState) -> ProjectState {
         let mut old = BTreeSet::new();

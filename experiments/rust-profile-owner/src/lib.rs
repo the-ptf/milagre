@@ -12,6 +12,7 @@
 //!    the socket and D's lock are released, in that order.
 //!
 //! See README.md for what is served and every known difference from Node.
+mod chats;
 pub mod handler;
 pub mod image;
 pub mod keybindings;
@@ -196,6 +197,25 @@ fn home_default(path: Option<&PathBuf>, under: &str) -> Result<PathBuf, String> 
 /// Opens the isolation, takes D's lock and binds D's socket. Nothing is written before every check passed, and a
 /// failure after the lock was taken releases it.
 pub fn start(options: &Options) -> Result<Owner, String> {
+    start_inner(options, Vec::new())
+}
+
+/// Explicit synthetic provider composition for isolated tests. No CLI flag enables it.
+#[cfg(feature = "chat-fixture")]
+pub fn start_with_providers(
+    options: &Options,
+    providers: Vec<Box<dyn milagre_owner_store::chat_host::Provider>>,
+) -> Result<Owner, String> {
+    if providers.is_empty() {
+        return Err("Pass at least one synthetic provider".into());
+    }
+    start_inner(options, providers)
+}
+
+fn start_inner(
+    options: &Options,
+    providers: Vec<Box<dyn milagre_owner_store::chat_host::Provider>>,
+) -> Result<Owner, String> {
     let data_dir = std::fs::canonicalize(&options.data_dir).map_err(|error| {
         format!(
             "The data directory {} must exist: {error}",
@@ -250,9 +270,11 @@ pub fn start(options: &Options) -> Result<Owner, String> {
             data_lock.clone(),
             options.app_version.clone(),
         )?);
+        profile.register_providers(providers);
         let server = Server::bind_data_dir(endpoint, profile.clone(), Config::default())
             .map_err(|error| error.to_string())?;
         profile.watch_keybindings(server.events());
+        profile.watch_chats(server.events());
         Ok::<_, String>(server)
     })();
     let server = match started {

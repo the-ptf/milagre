@@ -1097,6 +1097,8 @@ pub struct ChatHost {
     turns: HashMap<String, Value>,
     /// The Chat shown in a focused window (Node's openChat with isFocused): a turn ending there isn't unread.
     pub open_chat: Option<String>,
+    /// Chats visible in focused clients of a multi-view owner. Kept current by the owner before folding events.
+    pub focused_chats: HashSet<String>,
     notices: std::collections::VecDeque<Notice>,
     ids: Box<dyn FnMut() -> String + Send>,
     /// Chats the states were told are busy (Node's ProjectStates asks ChatHost.isBusy before unloading a Chat).
@@ -1166,6 +1168,7 @@ impl ChatHost {
             queue_waiters: HashSet::new(),
             turns: HashMap::new(),
             open_chat: None,
+            focused_chats: HashSet::new(),
             notices: std::collections::VecDeque::new(),
             ids: Box::new(crate::ownership::random_uuid),
             busy: HashSet::new(),
@@ -3225,7 +3228,7 @@ impl ChatHost {
         });
         let runs = &mut self.runs;
         let mut added: Vec<MsgRef> = Vec::new();
-        let open = self.open_chat.clone();
+        let visible = self.open_chat.as_deref() == Some(chat) || self.focused_chats.contains(chat);
         let turn = self.turns.get(chat).cloned();
         let mut limit_gap = false;
         let kind = event
@@ -3267,7 +3270,6 @@ impl ChatHost {
                 if !changed {
                     return Ok(None);
                 }
-                let visible = open.as_deref() == Some(chat);
                 let archived = next
                     .sessions()
                     .and_then(|sessions| sessions.get(&session_id.to_string()))
