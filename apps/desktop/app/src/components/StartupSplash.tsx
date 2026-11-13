@@ -1,11 +1,11 @@
 import { useLayoutEffect } from "react";
-import { holdSplash, isSplashDrawnFirst, setSplashLeaving, splashIntroEnded, splashLeft, useSplash } from "../lib/startup-splash";
+import { holdSplash, isSplashDrawnFirst, setSplashLeaving, splashLeft, useSplash } from "../lib/startup-splash";
 
-type Props = { leaving?: boolean; onIntroEnd?: () => void; onLeft?: () => void };
+type Props = { leaving?: boolean; onLeft?: () => void };
 
 /** The app logo assembling itself while the workspace loads: two legs, then the sparkle, which keeps twinkling.
- * It covers the app, and once `leaving` it fades out over the app as the app's panes slide in. */
-function StartupSplash({ leaving = false, onIntroEnd, onLeft }: Props) {
+ * It covers the app until the app is ready, then fades out over it as the app's panes slide in, wherever the logo has got to. */
+function StartupSplash({ leaving = false, onLeft }: Props) {
   return (
     <div
       role={leaving ? undefined : "status"}
@@ -17,7 +17,7 @@ function StartupSplash({ leaving = false, onIntroEnd, onLeft }: Props) {
         if (event.animationName === "splash-leave") onLeft?.();
       }}
     >
-      <LoadingMark onIntroEnd={onIntroEnd} />
+      <LoadingMark />
     </div>
   );
 }
@@ -25,7 +25,7 @@ function StartupSplash({ leaving = false, onIntroEnd, onLeft }: Props) {
 /** The splash over everything, from before the app has loaded until it has faded out. */
 export function BootSplash() {
   const { phase, leaving, shown } = useSplash();
-  return phase === "gone" || !shown ? null : <StartupSplash leaving={leaving} onIntroEnd={splashIntroEnded} onLeft={splashLeft} />;
+  return phase === "gone" || !shown ? null : <StartupSplash leaving={leaving} onLeft={splashLeft} />;
 }
 
 /** Where the app keeps the splash up, and says whether it may fade out over what it renders. */
@@ -36,7 +36,7 @@ export function AppSplash({ leaving }: { leaving: boolean }) {
 }
 
 /** The splash logo on its own, for loading states inside the app (a Chat whose transcript is still on its way). */
-export function LoadingMark({ size = 64, onIntroEnd }: { size?: number; onIntroEnd?: () => void }) {
+export function LoadingMark({ size = 64 }: { size?: number }) {
   return (
     <div className="startup-splash">
       <svg viewBox="-4 -4 154 154" width={size} height={size} fill="none" aria-hidden>
@@ -51,9 +51,6 @@ export function LoadingMark({ size = 64, onIntroEnd }: { size?: number; onIntroE
           />
           <path
             className="startup-splash-star"
-            onAnimationEnd={(event) => {
-              if (event.animationName === "splash-star-in") onIntroEnd?.();
-            }}
             d="M69.528 1.96636C71.0759 -0.655453 74.869 -0.655453 76.4169 1.96636L91.0103 26.6837C91.3538 27.2656 91.8392 27.751 92.4211 28.0945L117.138 42.6879C119.76 44.2358 119.76 48.0289 117.138 49.5768L92.4211 64.1702C91.8392 64.5137 91.3538 64.9991 91.0103 65.581L76.4169 90.2983C74.869 92.9201 71.0759 92.9201 69.528 90.2983L54.9347 65.581C54.5911 64.9991 54.1057 64.5137 53.5238 64.1702L28.8065 49.5768C26.1847 48.0289 26.1847 44.2358 28.8065 42.6879L53.5238 28.0945C54.1057 27.751 54.5911 27.2656 54.9347 26.6837L69.528 1.96636Z"
           />
         </g>

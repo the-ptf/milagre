@@ -3208,8 +3208,8 @@ function App() {
     [worktrees],
   );
 
-  // Fast loads would cut the startup animation off at the bare legs, so the splash stays until the logo is whole,
-  // then fades out over the app while the panes slide in. main.tsx draws it; each tree here says whether it may go.
+  // The splash fades out over the app the moment the app is ready, while the panes slide in, even when its logo is still
+  // drawing: launch waits for nothing but the app. main.tsx draws it; each tree here says whether it may go.
   const { phase: splash } = useSplash();
   const [appEntered, setAppEntered] = useState(false);
   const splashOverlay = (leaving: boolean) => (splash === "gone" ? null : <AppSplash key="startup-splash" leaving={leaving} />);
@@ -3218,7 +3218,7 @@ function App() {
   if (!loading && !project && onboarding)
     return (
       <Onboarding
-        splash={splashOverlay(splash === "done")}
+        splash={splashOverlay(true)}
         onOpened={(opened) => {
           setFirstChat(opened.path);
           adoptProject(opened);
@@ -3486,17 +3486,17 @@ function App() {
     </>
   );
   // A Link with no Project to stand behind it (none open yet) is the whole window.
-  if (selectedLink && (loading || !project || !state || splash === "intro"))
+  if (selectedLink && (loading || !project || !state))
     return (
       <>
-        {splashOverlay(splash === "done")}
+        {splashOverlay(true)}
         {linkWorkspace}
         {linkDialogs}
         {settingsModal}
       </>
     );
 
-  if (!loading && !project && splash !== "intro")
+  if (!loading && !project)
     return (
       <DotBackground>
         {splashOverlay(true)}
@@ -3542,7 +3542,7 @@ function App() {
       </DotBackground>
     );
 
-  if (loading || !project || !state || splash === "intro") {
+  if (loading || !project || !state) {
     return <>{splashOverlay(false)}</>;
   }
 
