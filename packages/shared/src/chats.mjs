@@ -35,6 +35,18 @@ export function shortTitle(line) {
 
 /** The chat's name: the one the user gave it, else the first line of its first message (from its summary when it has one), with image tokens named. */
 export function chatTitle(session, messages = []) {
+  return titleOf(session, messages, shortTitle);
+}
+
+/**
+ * chatTitle without cutting a first-message title at 60 characters, for a place wide enough to show more (the desktop
+ * window's top strip), which truncates it itself. The summary keeps the first 200 characters of that line.
+ */
+export function fullChatTitle(session, messages = []) {
+  return titleOf(session, messages, (line) => line);
+}
+
+function titleOf(session, messages, shorten) {
   if (session.title?.trim()) return session.title.trim();
   if (session.generatedTitle?.trim()) return session.generatedTitle.trim();
   const first = session.summary ? undefined : messages.find((message) => message.role !== "assistant" && message.body.trim());
@@ -43,7 +55,7 @@ export function chatTitle(session, messages = []) {
     ? promptTitle(session.summary.titleLine ?? "", session.summary.titleImages)
     : promptTitle(first?.body.trim().split("\n")[0] ?? "", first?.images?.length ?? 0);
   if (!line) return session.agent_name;
-  return shortTitle(line);
+  return shorten(line);
 }
 
 /** A legacy handover chat (before in-place handoff) that is still being prepared or holds its brief as a draft: it is a live, provider-locked chat even with no messages. */

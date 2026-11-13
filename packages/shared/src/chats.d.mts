@@ -25,6 +25,8 @@ export function chatMarkPresentation(mark: ChatMarkKind): {
 /** A one-line title of at most 60 characters: a longer line keeps its first 57 and an ellipsis. */
 export function shortTitle(line: string): string;
 export function chatTitle(session: AgentSession | LinkChatSession, messages?: readonly ChatMessage[]): string;
+/** chatTitle without cutting a first-message title at 60 characters, for a place that truncates it itself. */
+export function fullChatTitle(session: AgentSession | LinkChatSession, messages?: readonly ChatMessage[]): string;
 export function isHandoverChat(session: AgentSession | LinkChatSession | undefined): boolean;
 /** Whether a Routine's Run created the Chat and keeps it out of the lists (`routine.hidden`) unless `waiting` says it waits on someone. */
 export function isHiddenRunChat(session: AgentSession | LinkChatSession | undefined, waiting?: boolean): boolean;

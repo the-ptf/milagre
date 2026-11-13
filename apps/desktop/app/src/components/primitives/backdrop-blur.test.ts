@@ -31,3 +31,10 @@ test("backdrop blur uses a blur token", () => {
     "Use blur(var(--blur-overlay)), (--blur-chip) or (--blur-edge)",
   );
 });
+
+// The production CSS minifier keeps only the last of `backdrop-filter` and `-webkit-backdrop-filter` in a rule, and
+// Chromium ignores the prefixed one: beta.33's composer, Details glass, top band, status pills and palette backdrop had
+// no blur in the packaged app. Electron is Chromium; the build adds the prefix itself where it needs one.
+test("backdrop-filter is written without the -webkit- prefix", () => {
+  assert.deepEqual(offenders(/-webkit-backdrop-filter\s*:/), [], "Drop -webkit-backdrop-filter: the minifier keeps it over backdrop-filter");
+});

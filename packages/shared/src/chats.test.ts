@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
-import { chatTitle, comparePins, pinOrderAt, shortTitle } from "./chats.mjs";
+import { chatTitle, comparePins, fullChatTitle, pinOrderAt, shortTitle } from "./chats.mjs";
 
 const image = (index: number) => ({ id: `i${index}`, name: `${index}.png`, path: `/${index}.png` });
 const session: AgentSession = { id: 1, worktree_id: 1, agent_name: "main", status: "Created" };
@@ -23,6 +23,14 @@ test("chatTitle prefers the user's name, then the first message's first line", (
   assert.equal(chatTitle({ ...session, title: "   " }, messages), "Fix the login");
   assert.equal(chatTitle(session, []), "main");
   assert.equal(chatTitle(session, [{ id: 3, session_id: 1, body: "x".repeat(80), context: null }]), `${"x".repeat(57)}…`);
+});
+
+test("fullChatTitle keeps a long first line whole and otherwise reads like chatTitle", () => {
+  const long = [{ id: 3, session_id: 1, body: "x".repeat(80), context: null }] as ChatMessage[];
+  assert.equal(fullChatTitle(session, long), "x".repeat(80));
+  assert.equal(fullChatTitle({ ...session, title: "Login bug" }, long), "Login bug");
+  assert.equal(fullChatTitle({ ...session, summary: { count: 1, titleLine: "y".repeat(120) } }), "y".repeat(120));
+  assert.equal(fullChatTitle(session, []), "main");
 });
 
 test("chatTitle names an image-only prompt Image or N images and drops image tokens from other prompts", () => {

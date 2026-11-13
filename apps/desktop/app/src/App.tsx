@@ -78,7 +78,7 @@ import { BLOCKERS, pullRequestAction, rowPullRequests } from "./lib/pr-blockers"
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
-import { chatMark, chatTitle, isChatListed, orderChats } from "./lib/chat-list";
+import { chatMark, chatTitle, fullChatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import type { SessionPatch } from "@milagre/shared/project-edits";
 import { patchChatShowingDone } from "./lib/done-pending.ts";
 import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from "./lib/archive";
@@ -3942,7 +3942,8 @@ function App() {
               )}
               {bookmarkShown && !bookmarkedParent && selectedSession && focusedChatKey && (
                 <ChatIdentity
-                  title={chats.find((row) => row.id === String(selectedSession.id))?.label ?? chatTitle(selectedSession)}
+                  // The whole first line, not the sidebar's 60-character label: the strip truncates it where the corner starts.
+                  title={fullChatTitle(selectedSession, messagesBySession.get(selectedSession.id) ?? NO_MESSAGES)}
                   project={surfaces.settings ? surfaces.name : undefined}
                   corner={cornerButtons * CORNER_PITCH}
                 />
