@@ -2,7 +2,6 @@ import { Linking, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Notification01Icon } from "@hugeicons/core-free-icons";
 import { notificationChimeLabel } from "@milagre/shared/notification-chimes";
-import { useAttentionButton } from "../../attention";
 import { useActivity } from "../../live-activity";
 import { usePush } from "../../push";
 import { useSession } from "../../session";
@@ -29,7 +28,6 @@ export function NotificationsView() {
   const push = usePush();
   const activity = useActivity();
   const session = useSession();
-  const [attentionButton, setAttentionButton] = useAttentionButton();
   const state = push.state;
   return (
     <SettingsScroll>
@@ -83,9 +81,6 @@ export function NotificationsView() {
           onPress={() => void push.preferences({ notifyOnCompletion: !state?.notifyOnCompletion })}
         />
         <Text style={styles.muted}>Completed turns and turns that fail.</Text>
-        <View style={styles.separator} />
-        <Toggle title="Attention button" selected={attentionButton} onPress={() => setAttentionButton(!attentionButton)} />
-        <Text style={styles.muted}>When a Chat in another Project needs an approval or an answer.</Text>
       </View>
       <NotificationScheduleSetting />
       <View style={[styles.card, { gap: 4 }]}>

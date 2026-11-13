@@ -21,7 +21,7 @@ import type { DiffList } from "./changes/useDiffFiles";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
 import { ChangesPanelSlot } from "./changes/ChangesPanelSlot";
 import { DiffView } from "./changes/DiffView";
-import { AttentionButton, ChangesToggle, DiffBar } from "./changes/ChangesChrome";
+import { ChangesToggle, DiffBar } from "./changes/ChangesChrome";
 import { DiffToolbar, useDiffPreferences } from "./changes/DiffPrefs";
 import { useDiffComments } from "./changes/useDiffComments";
 import { formatCommentsMessage } from "../lib/diff-comments";
@@ -36,16 +36,16 @@ import { associatedPullRequest } from "@milagre/shared/chats";
 import { showNotice } from "../lib/notice";
 import { chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
-import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
+import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { useHiddenProjects } from "../lib/hidden-projects";
 import { useSettings } from "../lib/settings";
 import { useChatPins } from "../lib/chat-pins";
-import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { projectOfKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { DotBackground } from "./DotBackground";
 import SidebarNav from "./SidebarNav";
-import { runKeys, scopeChats, useScopeStates } from "../lib/sidebar-scopes";
+import { runKeys, scopeChats } from "../lib/sidebar-scopes";
 import { DraftChatComposer } from "./DraftChatComposer";
 import { useComposerPreferences } from "../lib/use-composer-preferences";
 import { effortFor, type ChatMessage, type CoordinatorState, type ImageAttachment, type ModelOption, type ModelProvider } from "../model";
@@ -72,7 +72,7 @@ import { Notice } from "./Notice";
 import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
-import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./agents/PanelToggles";
+import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
 import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { useLinear } from "./useLinear";
@@ -198,7 +198,9 @@ export function LinkWorkspace({
   const attentionKey = chatsNeedingAttention(agents.runs, "", hiddenProjects, hiddenComputers).join("\n");
   const sidebarRunKeys = runKeys(agents.runs);
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
-  const { showAttentionButton, floatingInbox, chatOrder } = useSettings();
+  const { chatOrder } = useSettings();
+  // The Projects with a Chat waiting on the user, marked in the Link's sidebar.
+  const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
   const pins = useChatPins();
   const runMarks = useMemo(
     () => ({
@@ -208,25 +210,6 @@ export function LinkWorkspace({
     }),
     [sidebarRunKeys.running, sidebarRunKeys.waiting, sidebarRunKeys.asking],
   );
-  const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
-  const { states: attentionStates } = useScopeStates(true, attentionPaths);
-  const sidePanels = useSidePanels();
-  const attentionItems = attentionChats.map((key) => {
-    const other = attentionStates[projectOfKey(key)];
-    const chat = other?.sessions[sessionIdFromKey(key)];
-    return {
-      key,
-      title: chat
-        ? chatTitle(
-            chat,
-            other.messages.filter((message) => message.session_id === chat.id),
-          )
-        : "Chat",
-      project: projectOfKey(key).split("/").pop() ?? key,
-      asking: !agents.runs[key]?.approvals.length,
-      waitingFor: waitingFor(agents.runs[key]),
-    };
-  });
   // A host that keeps messages by Chat (chat-pages-v1) sends states without them: the open Chat reads its own.
   const lean = isLean(state);
   const chatWindow = useChatMessages(lean ? owner : null, sessionId);
@@ -1001,14 +984,6 @@ export function LinkWorkspace({
           </div>
           {!canvasOpen && session && <ChangesToggle open={changes.open} onToggle={toggleChanges} />}
           <PanelToggles right={!canvasOpen && session ? 12 + CORNER_PITCH : 12} />
-          {showAttentionButton && !floatingInbox && attentionChats[0] && (
-            <AttentionButton
-              label={attentionLabel(attentionItems.map((item) => item.title))}
-              items={attentionItems}
-              offset={(!canvasOpen && session ? 1 : 0) + sidePanelCount(sidePanels)}
-              onOpen={(key) => onCanvasChat(projectOfKey(key), sessionIdFromKey(key))}
-            />
-          )}
           {gitChoice !== null && (
             <Dialog
               aria-label="Choose Project for Git"

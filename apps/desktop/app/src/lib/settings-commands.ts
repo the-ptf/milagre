@@ -57,7 +57,6 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
         ["notifyOnCompletion", "Notify when finished", "notifications completion"],
         ["notifyWhenWaiting", "Notify when waiting", "notifications approval questions"],
         ["showDockBadge", "Dock badge", "unread count"],
-        ["showAttentionButton", "Attention button", "other projects waiting approval questions"],
         ["floatingInbox", "Floating inbox", "experimental notification bar"],
         ["keepAwake", `Keep the ${computerNoun} awake`, "sleep reachable lock screen saver"],
       ] as const

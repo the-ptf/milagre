@@ -335,13 +335,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
   {
     page: "notifications",
-    title: "Attention button",
-    group: "Alerts",
-    description: "Top right, when a chat in another project needs an approval or an answer",
-    keywords: "inbox approval",
-  },
-  {
-    page: "notifications",
     title: "Schedule",
     keywords: "quiet hours do not disturb",
   },

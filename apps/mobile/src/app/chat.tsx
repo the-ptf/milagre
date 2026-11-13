@@ -166,7 +166,7 @@ import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
 import { useChatPage } from "../chat-pages";
 import { MessageNavigation } from "../message-navigation";
-import { AttentionPill } from "../attention";
+import { FloatingInboxSlot } from "../attention";
 import { useLinear } from "../use-linear";
 import { useRoutines } from "../use-routines";
 import { useActivityClock } from "../chat-row-store";
@@ -326,15 +326,7 @@ export default function ChatScreen() {
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
       {/* Each pane clips its edge fades, which are as wide as the window so that the sidebar's slide never resizes them. */}
       <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={routedTouched}>
-        <ChatPane
-          key="routed"
-          visibleChat={shown && shown.hostId === (params.hostId || session.client?.url) ? `${shown.projectPath}#${shown.chatId}` : undefined}
-          params={params}
-          pane={shown ? "primary" : "single"}
-          keyboard={!besideTyping}
-          onTyping={routedTypes}
-          onClose={promote}
-        />
+        <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} keyboard={!besideTyping} onTyping={routedTypes} onClose={promote} />
       </View>
       {shown && (
         <>
@@ -364,14 +356,12 @@ export default function ChatScreen() {
  * goes through useSession, which for a Chat beside of another Project is that Project's own (beside-session.tsx).
  */
 function ChatPane({
-  visibleChat,
   params: routeParams,
   pane,
   keyboard: ownsKeyboard,
   onTyping,
   onClose,
 }: {
-  visibleChat?: string;
   params: ChatParams;
   pane: "single" | "primary" | "secondary";
   /** Whether this pane follows the keyboard: always alone, only the last touched one in a split. */
@@ -2715,17 +2705,7 @@ function ChatPane({
                     </View>
                   </Animated.View>
                 )}
-                {/* The capsule says when the Chat above needs you and the Subchats pill when a Chat below does: they leave this
-                    pill, which shrinks to its icon beside the capsule. */}
-                {!secondary && (
-                  <AttentionPill
-                    currentChat={chatId}
-                    visibleChat={visibleChat}
-                    hideChats={[...(bookmark ? [bookmark.parent] : []), ...subchatPanel.keys, ...subchatPanel.deeper]}
-                    compact={!!bookmark}
-                    bottom={dockHeight + 12}
-                  />
-                )}
+                {!secondary && <FloatingInboxSlot bottom={dockHeight + 12} />}
                 {toast ? (
                   <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
                     <ToastPill text={toast.text} />

@@ -1269,13 +1269,6 @@ function NotificationsSettings() {
             onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })}
           />
         </Row>
-        <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
-          <SettingCheckbox
-            label="Attention button"
-            checked={settings.showAttentionButton}
-            onChange={(showAttentionButton) => updateSettings({ showAttentionButton })}
-          />
-        </Row>
       </Group>
       <Group title="Schedule">
         <NotificationScheduleSetting />

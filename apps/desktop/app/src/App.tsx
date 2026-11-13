@@ -24,7 +24,7 @@ import { BridgeContext, ScopeContext, bridgeFor, bridgeForKey, forgetBridge, isR
 import type { WorktreeRename } from "@milagre/shared/project-edits";
 import { reconcileState } from "@milagre/shared/reconcile";
 import { applyAgentEvent } from "@milagre/shared/agent-runs";
-import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
+import { chatsNeedingAttention } from "@milagre/shared/attention";
 import { reportChatAction } from "./lib/chat-action";
 import { confirmHeldState, isLean, numberedState, seedHeldState, stateEvents } from "./lib/state-events";
 import { chatSummary } from "@milagre/shared/chat-summary";
@@ -87,7 +87,7 @@ import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
 import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
-import { ATTENTION_CHIP_WIDTH, AttentionButton, DiffBar, LayoutToggle, SubchatsButton } from "./components/changes/ChangesChrome";
+import { DiffBar, LayoutToggle, SubchatsButton } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -174,7 +174,7 @@ import { useStepApprovalScope } from "./components/agents/step-approval";
 import { pendingWaitingNote } from "./lib/subchat-transcript";
 import type { TileMenuControls } from "./components/agents/TileFamilyMenu";
 import type { SubchatSource } from "./lib/subchat-track";
-import { deeperSubchats, directSubchats } from "@milagre/shared/subchat-states";
+import { directSubchats } from "@milagre/shared/subchat-states";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
@@ -896,7 +896,6 @@ function App() {
     notifyWhenWaiting,
     notificationChime,
     notificationSchedule,
-    showAttentionButton,
     floatingInbox,
     routineNudges,
   } = useSettings();
@@ -1175,40 +1174,12 @@ function App() {
   const splitOn = splitShown && view === "chat";
   const shownTiles = splitOn ? liveSplit : gridOn && gridFocusKey ? gridTiles : NO_KEYS;
   // The Subchat bookmark (SubchatBookmark) shows over the one Chat on screen when it has a listed ancestor: not in a split or
-  // grid, under the diff, in a Link or away from the Chat view. The Chat above it leaves the attention button while it shows,
-  // as the open Chat's Subchats do while its pill names them: one alert for one wait.
+  // grid, under the diff, in a Link or away from the Chat view.
   const familySessionsRef = useRef<typeof familySessions>(undefined);
   const familySessions = focusedChatKey && !selectedLink ? (gridStates[projectOfKey(focusedChatKey)] as CoordinatorState | undefined)?.sessions : undefined;
   familySessionsRef.current = familySessions;
   const bookmarkShown = view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && !runPaneOpen;
   const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
-  const pillChats = useMemo(
-    () =>
-      new Set(focusedChatKey && view === "chat" ? [...directSubchats(familySessions, focusedChatKey), ...deeperSubchats(familySessions, focusedChatKey)] : []),
-    [familySessions, focusedChatKey, view],
-  );
-  // Each waiting chat's project and title, for the attention menu. Titles change with state, not with each streamed batch.
-  const attentionTitles = useMemo(
-    () =>
-      attentionChats
-        .filter((key) => !shownTiles.includes(key) && key !== bookmarkedParent && !pillChats.has(key))
-        .map((key) => {
-          const path = projectOfKey(key);
-          const other = path === project?.path ? state : (states[path] ?? scopeStates[path]);
-          const session = other?.sessions[sessionIdFromKey(key)];
-          return {
-            key,
-            project: projectName(path),
-            title: session
-              ? chatTitle(
-                  session,
-                  other.messages.filter((message) => message.session_id === session.id),
-                )
-              : undefined,
-          };
-        }),
-    [attentionChats, shownTiles, bookmarkedParent, pillChats, states, scopeStates, projectName, project?.path, state],
-  );
   const shownTilesRef = useRef(shownTiles);
   shownTilesRef.current = shownTiles;
   const focusedChatKeyRef = useRef(focusedChatKey);
@@ -1258,7 +1229,6 @@ function App() {
     sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) +
     (view === "chat" ? 1 : 0) +
     (view === "chat" && focusedFamily && focusedFamily.children.length > 0 ? 1 : 0);
-  const attentionChipShown = Boolean(showAttentionButton && !floatingInbox && attentionTitles[0]);
   const endSplit = useEvent(() => {
     setSplitKeys(NO_KEYS);
     setLayout("single");
@@ -3920,18 +3890,6 @@ function App() {
               onToggle={toggleFamily}
             />
           )}
-          {attentionChipShown && (
-            <AttentionButton
-              label={attentionLabel(attentionTitles.map((item) => item.title || "Chat"))}
-              items={attentionTitles.map((item) => ({
-                ...item,
-                asking: !agentRuns.runs[item.key]?.approvals.length,
-                waitingFor: waitingFor(agentRuns.runs[item.key]),
-              }))}
-              offset={cornerButtons}
-              onOpen={openChatByKey}
-            />
-          )}
           <div
             className={`flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink ${appEntered ? "" : "app-enter"}`}
             onAnimationEnd={(event) => {
@@ -4017,7 +3975,7 @@ function App() {
                 <ChatIdentity
                   title={chats.find((row) => row.id === String(selectedSession.id))?.label ?? chatTitle(selectedSession)}
                   project={surfaces.settings ? surfaces.name : undefined}
-                  corner={cornerButtons * CORNER_PITCH + (attentionChipShown ? ATTENTION_CHIP_WIDTH + 8 : 0)}
+                  corner={cornerButtons * CORNER_PITCH}
                 />
               )}
               {bookmarkedParent && focusedChatKey && (

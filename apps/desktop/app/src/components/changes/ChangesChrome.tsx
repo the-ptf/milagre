@@ -1,14 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useShortcutLabel } from "../../lib/keybindings";
 import { ArrowLeft02Icon, FileDiffIcon, GridViewIcon, HierarchySquare02Icon } from "@hugeicons/core-free-icons";
-import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { chatMarkPresentation } from "@milagre/shared/chats";
-import { attentionCount } from "@milagre/shared/attention";
 import Tooltip from "../primitives/Tooltip";
 import { buttonClass, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
-import { MenuRow, Popover } from "../primitives/Popover";
 import { DURATION, EASE_OUT } from "../../lib/ease";
 import { useControlsClearance, useWindowChrome } from "../../lib/window-chrome";
 
@@ -106,7 +102,7 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
   );
 }
 
-/** Top right, left of the panel buttons: shows every active Chat as a grid, or the open one alone. `offset` as AttentionButton's. */
+/** Top right, left of the panel buttons: shows every active Chat as a grid, or the open one alone. `offset` is how many corner buttons sit right of it. */
 export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset: number; onToggle: () => void }) {
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("grid.toggle");
@@ -121,7 +117,7 @@ export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset
 
 /**
  * Top right, left of the layout toggle, on a Chat with subchats (subchat-rows.ts): shows the parent and every subchat side
- * by side, or the open Chat alone again. `offset` as AttentionButton's.
+ * by side, or the open Chat alone again. `offset` is how many corner buttons sit right of it.
  */
 export function SubchatsButton({ count, shown, offset, onToggle }: { count: number; shown: boolean; offset: number; onToggle: () => void }) {
   const chrome = useWindowChrome();
@@ -146,73 +142,6 @@ export function SubchatsButton({ count, shown, offset, onToggle }: { count: numb
           </span>
         </button>
       </Tooltip>
-    </div>
-  );
-}
-
-/** About how wide the attention chip draws ("2 waiting"), for a bar along <main>'s top that keeps clear of it. */
-export const ATTENTION_CHIP_WIDTH = 96;
-
-export type AttentionItem = { key: string; project: string; title?: string; asking: boolean; waitingFor?: string };
-
-/**
- * Top right, left of the panel buttons when they show (the changes toggle, and a Chat's designs and simulator): a calm,
- * fixed chip, an orange dot and "2 waiting", never a Chat's title, so it doesn't change width or outshout the Chat. One
- * waiting Chat opens on click (its title is the tooltip); several open a menu that lists each, oldest first. `label`
- * names them in a sentence, for the tooltip and screen readers.
- */
-export function AttentionButton({ label, items, offset, onOpen }: { label: string; items: AttentionItem[]; offset: number; onOpen: (key: string) => void }) {
-  const chrome = useWindowChrome();
-  const [open, setOpen] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const many = items.length > 1;
-  const go = (key: string) => {
-    setOpen(false);
-    onOpen(key);
-  };
-  return (
-    <div
-      data-attention
-      className="no-drag fixed top-[var(--window-chrome-top)] z-[60] flex h-8 items-center"
-      // Left of the buttons in the corner: `offset` is how many there are, 40px each (PanelToggles' CORNER_PITCH).
-      style={{
-        right: 12 + chrome.rightInset + offset * 40,
-        maxWidth: `max(0px, calc(100vw - ${chrome.controlsEnd + 12 + chrome.rightInset + offset * 40}px))`,
-        animation: "fade-in var(--duration-fast) var(--ease-enter)",
-      }}
-    >
-      <Tooltip label={many ? label : `Open ${items[0]?.title || "the Chat"}`} side="bottom" align="end" asChild>
-        <button
-          ref={trigger}
-          type="button"
-          data-attention-button
-          aria-label={label}
-          aria-haspopup={many ? "menu" : undefined}
-          aria-expanded={many ? open : undefined}
-          onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-          className="flex h-7 max-w-full items-center gap-2 overflow-hidden rounded-control bg-hover px-2.5 text-13 font-medium tabular-nums text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink active:scale-press aria-expanded:bg-hover-2 aria-expanded:text-ink"
-        >
-          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-orange" />
-          <span className="min-w-0 truncate">{attentionCount(items.length)}</span>
-        </button>
-      </Tooltip>
-      {open && many && (
-        <Popover anchor={trigger} width={288} label="Chats waiting for you" onClose={() => setOpen(false)} data-attention-menu>
-          {items.map((item) => (
-            <MenuRow
-              key={item.key}
-              data-attention-chat={item.key}
-              onClick={() => go(item.key)}
-              title={item.title || item.waitingFor || "Chat"}
-              subtitle={
-                <>
-                  {item.project} · <span className="text-orange-ink">{chatMarkPresentation(item.asking ? "question" : "waiting").label}</span>
-                </>
-              }
-            />
-          ))}
-        </Popover>
-      )}
     </div>
   );
 }

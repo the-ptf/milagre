@@ -1,19 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
-import { BlurView } from "@sbaiahmed1/react-native-blur";
-import { router } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { chatTitle } from "@milagre/shared/chats";
-import { attentionLabel } from "@milagre/shared/attention";
-import { readAttentionButton, saveAttentionButton } from "./hosts-native";
+import { AppState, View } from "react-native";
 import { useSession } from "./session";
-import { closeBeside } from "./split-chats";
-import { chrome, lineHeight, radius, space, type } from "./design-tokens";
-
-import { Icon } from "./icons";
-import { pressStyle, PullDown } from "./ui";
+import { radius } from "./design-tokens";
 import { useTheme } from "./theme";
 import { useFloatingInbox } from "./floating-inbox-setting";
 import { FloatingInboxChip } from "./inbox";
@@ -72,145 +60,17 @@ export function useAttention(): string[] {
   return useSyncExternalStore(subscribe, () => (client ? (pollers.get(client)?.keys ?? NONE) : NONE));
 }
 
-// The phone's "Attention button" setting, read once and shared by Settings and every Chat.
-let showButton = true;
-const listeners = new Set<() => void>();
-void readAttentionButton().then((on) => {
-  showButton = on;
-  listeners.forEach((listener) => listener());
-});
-export function useAttentionButton(): [boolean, (on: boolean) => void] {
-  const on = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    () => showButton,
-  );
-  return [
-    on,
-    (next) => {
-      showButton = next;
-      listeners.forEach((listener) => listener());
-      void saveAttentionButton(next);
-    },
-  ];
-}
-
 export function AttentionDot() {
   const { colors } = useTheme();
   return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />;
 }
 
 /**
- * Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first.
- * `hideChats` are Chats another surface already announces (the capsule names a waiting parent, the pill a waiting Subchat), so
- * they aren't counted twice. `compact` shrinks the pill to its icon, so it never meets that capsule on the left.
+ * Under the header's right edge, while the experimental floating inbox is on: its chip. (The "N waiting" pill that sat
+ * here is gone; waiting Chats show in the list and in notifications.)
  */
-export function AttentionPill({
-  currentChat,
-  visibleChat,
-  hideChats,
-  compact = false,
-  bottom,
-}: {
-  currentChat?: string;
-  visibleChat?: string;
-  hideChats?: readonly string[];
-  compact?: boolean;
-  bottom?: number;
-}) {
-  const { colors, scheme } = useTheme();
-  const { client, recent, cachedProject, snapshot } = useSession();
-  const insets = useSafeAreaInsets();
-  const [enabled] = useAttentionButton();
+export function FloatingInboxSlot({ bottom }: { bottom?: number }) {
+  const { client } = useSession();
   const [floatingInbox] = useFloatingInbox();
-  // Skip the open Chat and Projects hidden from the list.
-  const waiting = useAttention().filter(
-    (key) => key !== currentChat && key !== visibleChat && !hideChats?.includes(key) && !recent.find((item) => item.path === projectOfKey(key))?.hidden,
-  );
-  if (floatingInbox && client) return <FloatingInboxChip bottom={bottom} />;
-  if (!enabled || !waiting.length || !client) return null;
-  const name = (path: string) => recent.find((item) => item.path === path)?.name || path.split("/").at(-1) || "Project";
-  // A Project the phone hasn't loaded yet has no titles here, so its rows read "Chat".
-  const items = waiting.map((key) => {
-    const path = projectOfKey(key);
-    const state = (snapshot?.project.path === path ? snapshot : cachedProject(path))?.project.state;
-    const chat = state?.sessions[sessionIdFromKey(key)];
-    return {
-      id: key,
-      title: chat
-        ? chatTitle(
-            chat,
-            state?.messages.filter((message) => message.session_id === chat.id),
-          )
-        : "Chat",
-      subtitle: name(projectOfKey(key)),
-    };
-  });
-  const label = attentionLabel(items.map((item) => item.title));
-  // Like every route to a Chat, it opens alone: a split ends before the route changes.
-  const open = (key: string) => {
-    closeBeside();
-    router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
-  };
-  const pill = (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        minHeight: 32,
-        paddingHorizontal: compact ? 8 : 12,
-        borderRadius: radius.full,
-        borderCurve: "continuous",
-        overflow: "hidden",
-      }}
-    >
-      <BlurView
-        pointerEvents="none"
-        blurType={scheme === "dark" ? "systemThickMaterialDark" : "systemThickMaterialLight"}
-        blurAmount={32}
-        reducedTransparencyFallbackColor={colors.surface}
-        style={StyleSheet.absoluteFill}
-      />
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.orangeTint }]} />
-      {compact ? (
-        <Icon icon={Alert02Icon} tone="orange" size={16} />
-      ) : (
-        <>
-          <Text
-            numberOfLines={1}
-            style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", maxWidth: 220 }}
-          >
-            {label}
-          </Text>
-          <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} />
-        </>
-      )}
-    </View>
-  );
-  // Floating overlays sit 8 under the header, clear of it, level with the top Toast.
-  const place = { position: "absolute" as const, top: insets.top + chrome.header + space.md, right: space.gutter };
-  const first = waiting[0];
-  if (waiting.length === 1 && first)
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${label}. Open the Chat.`}
-        // The 32pt pill still takes a 44pt touch.
-        hitSlop={6}
-        onPress={() => open(first)}
-        style={({ pressed }) => [place, pressStyle({ pressed })]}
-      >
-        {pill}
-      </Pressable>
-    );
-  return (
-    <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} hitSlop={6} style={place}>
-      {pill}
-    </PullDown>
-  );
+  return floatingInbox && client ? <FloatingInboxChip bottom={bottom} /> : null;
 }

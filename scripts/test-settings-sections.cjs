@@ -498,8 +498,8 @@ async function browserChecks() {
     await openSection("Notifications");
     assert.deepEqual(
       await switches(),
-      ["Notify when finished", "Dock badge", "Notify when waiting", "Attention button", "Unread Runs dot"],
-      "Notifications lists the four alerts, the chime picker, then Routines' Unread Runs dot",
+      ["Notify when finished", "Dock badge", "Notify when waiting", "Unread Runs dot"],
+      "Notifications lists the three alerts, the chime picker, then Routines' Unread Runs dot",
     );
     const scheduleTrigger = `document.querySelector('button[aria-label="Notification schedule"]')`;
     assert.equal(await evaluate(`${scheduleTrigger}.textContent.trim()`), "Anytime");
