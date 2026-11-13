@@ -87,10 +87,12 @@ export function PreviewRail({
     const measure = () => {
       const rootRect = root.getBoundingClientRect();
       const rowRect = row.getBoundingClientRect();
-      const maxHeight = Math.max(0, rootRect.height - 12);
+      // A transcript that runs on under the composer (--composer-dock) keeps the card above the composer.
+      const room = rootRect.height - (parseFloat(getComputedStyle(root).getPropertyValue("--composer-dock")) || 0);
+      const maxHeight = Math.max(0, room - 12);
       const height = Math.min(preview.offsetHeight, maxHeight);
       const centeredTop = rowRect.top - rootRect.top + (rowRect.height - height) / 2;
-      const top = Math.max(6, Math.min(centeredTop, rootRect.height - height - 6));
+      const top = Math.max(6, Math.min(centeredTop, room - height - 6));
       const offset = top - centeredTop;
       setPreviewBounds((current) => (current.offset === offset && current.maxHeight === maxHeight ? current : { offset, maxHeight }));
     };
@@ -117,7 +119,7 @@ export function PreviewRail({
         <nav
           aria-label={label}
           onPointerLeave={() => setHoveredId(null)}
-          style={{ gridTemplateRows: rowTemplate }}
+          style={{ gridTemplateRows: rowTemplate, bottom: "var(--composer-dock, 0px)" }}
           className={`absolute inset-y-0 left-0 z-10 grid w-6 content-center ${railClassName}`}
         >
           {items.map((item, index) => {
@@ -165,7 +167,7 @@ export function PreviewRail({
         {showPreview ? (
           <div
             aria-hidden="true"
-            style={{ gridTemplateRows: rowTemplate }}
+            style={{ gridTemplateRows: rowTemplate, bottom: "var(--composer-dock, 0px)" }}
             className={`pointer-events-none absolute inset-y-0 right-16 left-4 z-50 grid content-center ${previewSide === "after" ? "right-4 left-16" : ""} ${previewContainerClassName}`}
           >
             {items.map((item) => (
