@@ -13,6 +13,7 @@ import {
   replaceComputerEntries,
 } from "../lib/agent-runs";
 import { answerSummary } from "../lib/question-answers";
+import { createRunTextStore, onlyTextChanged } from "../lib/run-text";
 import { stateEvents } from "../lib/state-events";
 import { bridgeFor, bridgeForKey } from "../lib/computer-bridge";
 import { useComputers } from "../lib/computers";
@@ -32,13 +33,31 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
   onStateRef.current = onState;
   modelForRef.current = modelFor;
 
-  const setAll = useCallback((next: AgentRuns) => {
-    runsRef.current = next;
-    setRuns(next);
-  }, []);
+  // The streamed text, read from the latest runs: a batch that only grows replies reaches the readers of their text and
+  // leaves `runs` (and the window it feeds) as it was. Every write below also tells the readers of each text it changed,
+  // so they render with the window in the same pass.
+  const [text] = useState(() => createRunTextStore((chatKey) => runsRef.current[chatKey]?.text));
+  const setAll = useCallback(
+    (next: AgentRuns) => {
+      const previous = runsRef.current;
+      runsRef.current = next;
+      setRuns(next);
+      text.notify([...Object.keys(previous), ...Object.keys(next)].filter((key) => previous[key]?.text !== next[key]?.text));
+    },
+    [text],
+  );
   // Streamed events land once per frame, not once each: a reply streaming in a Chat that isn't on screen used to
   // render the whole window per text delta. Every other write flushes them first, so the order stays the arrival order.
-  const [events] = useState(() => createCoalescer<QueuedRunEvent>((batch) => setAll(applyRunEvents(runsRef.current, batch))));
+  const [events] = useState(() =>
+    createCoalescer<QueuedRunEvent>((batch) => {
+      const previous = runsRef.current;
+      const next = applyRunEvents(previous, batch);
+      if (next === previous) return;
+      if (!onlyTextChanged(previous, batch)) return setAll(next);
+      runsRef.current = next;
+      text.notify(batch.map(({ chatId }) => chatId));
+    }),
+  );
   // Per computer, the number of the last agent event its snapshot holds: events it already folded in are skipped.
   const taken = useRef(new Map<string, number>());
   // Per computer, which snapshot is the latest: a getRuns() answer that lands after a newer one, or a removal, is stale.
@@ -197,5 +216,5 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
   /** Removes a suggestion's card from the Chat `chatId` it sits in; the Subchat's own question stays open. False when it is gone already. */
   const dismissSuggestion = useCallback((chatId: string, id: string) => bridgeForKey(chatId).dismissSuggestion(chatId, id), []);
 
-  return { runs, send, interrupt, respond, answerQuestion, dismissSuggestion };
+  return { runs, text, send, interrupt, respond, answerQuestion, dismissSuggestion };
 }

@@ -5,28 +5,49 @@ export type PreferenceBridge = {
   onChanged?(listener: (change: { key: string; value: string | null }) => void): void;
 };
 
-/** The native copy survives an update that moves the app to a different file URL. */
-export function createPreferenceStorage(local: () => LocalStorage, native: () => PreferenceBridge | undefined): LocalStorage {
+/**
+ * The native copy survives an update that moves the app to a different file URL. Each read of it is a synchronous call
+ * to the main process, and the window reads some preferences on every render (the composer's, the hidden computers),
+ * so a key read once is kept here: this window's own writes update it, and a storage event (another window's change,
+ * which the main process reports) makes it read the key again.
+ */
+export function createPreferenceStorage(
+  local: () => LocalStorage,
+  native: () => PreferenceBridge | undefined,
+): LocalStorage & { forget(key: string | null): void } {
+  const cache = new Map<string, string | null>();
   return {
     getItem(key) {
       const bridge = native();
       if (!bridge) return local()?.getItem(key) ?? null;
+      if (cache.has(key)) return cache.get(key) ?? null;
       const result = bridge.get(key);
       if (result.error) throw new Error(result.error);
-      if (result.value !== undefined) return result.value;
+      if (result.value !== undefined) {
+        cache.set(key, result.value);
+        return result.value;
+      }
       // Migrate existing preferences without overwriting a newer native value or a deletion.
       const legacy = local().getItem(key);
       if (legacy !== null) {
         const saved = bridge.set(key, legacy);
         if (saved.error) throw new Error(saved.error);
       }
+      cache.set(key, legacy);
       return legacy;
+    },
+    /** Reads `key` (every key for null) from the main process again next time. */
+    forget(key) {
+      if (key === null) cache.clear();
+      else cache.delete(key);
     },
     setItem(key, value) {
       const bridge = native();
       if (bridge) {
+        cache.delete(key);
         const saved = bridge.set(key, value);
         if (saved.error) throw new Error(saved.error);
+        cache.set(key, value);
       }
       try {
         local().setItem(key, value);
@@ -37,8 +58,10 @@ export function createPreferenceStorage(local: () => LocalStorage, native: () =>
     removeItem(key) {
       const bridge = native();
       if (bridge) {
+        cache.delete(key);
         const saved = bridge.set(key, null);
         if (saved.error) throw new Error(saved.error);
+        cache.set(key, null);
       }
       try {
         local().removeItem(key);
@@ -69,6 +92,9 @@ if (typeof window !== "undefined" && window.milagrePreferences) {
 
 // Native changes also reach windows whose Chromium storage is empty or unavailable.
 if (typeof window !== "undefined") {
+  // Any storage event means the key may have changed behind this window's back: it is read again on its next use.
+  // Registered first, so the listeners that read it again on the event already see the new value.
+  window.addEventListener("storage", (event) => preferenceStorage.forget(event.key));
   window.milagrePreferences?.onChanged?.(({ key, value }) => {
     window.dispatchEvent(new StorageEvent("storage", { key, newValue: value }));
   });

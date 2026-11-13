@@ -179,6 +179,7 @@ const ALLOWED: Record<string, string[]> = {
   // This Mac's own Babysit PRs settings, which its daemon's poller follows.
   "lib/babysit-settings.ts": ["readBabysitSettings", "saveBabysitSettings", "onBabysitSettings"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
+  "lib/terminal-registry.ts": ["setTerminalFocused"],
   // The microphone is on this computer: Whisper transcribes here whichever computer the Chat is on.
   "components/useDictation.ts": ["dictation"],
   "components/useDictationModels.ts": ["dictation"],

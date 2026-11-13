@@ -2,7 +2,8 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
-import { followTerminal, type TerminalFollower } from "@milagre/shared/terminal-client";
+import { followTerminal } from "@milagre/shared/terminal-client";
+import { claimSize, copySelection, dispose, fitTerminal, paste, sessions, type Session } from "./terminal-registry";
 import type { TerminalInfo } from "@milagre/shared/terminal";
 import { THEME_EVENT } from "./theme-sheet";
 import { APPEARANCE_EVENT } from "./appearance";
@@ -14,23 +15,6 @@ import { bridgeForKey } from "./computer-bridge";
 // One xterm per Terminal, kept while the Terminal runs. Switching Chats or tabs moves its element between panels
 // instead of building it again, so scrollback and selection survive and nothing is read twice.
 
-type Session = {
-  id: string;
-  chatId: string;
-  term: Terminal;
-  fit: FitAddon;
-  element: HTMLDivElement;
-  follower: TerminalFollower;
-  opened: boolean;
-  /** Draws the shown Terminal on the GPU; null for one out of view, or where WebGL failed. */
-  webgl: WebglAddon | null;
-  /** The size waiting to be sent to the PTY while the panel is still being resized. */
-  sizing: number | null;
-};
-const sessions = new Map<string, Session>();
-// The PTY learns a new size once the panel has stopped moving: every size on the way would make the program in front
-// redraw its whole screen (vim, htop, an agent's TUI), and that redraw is more output to read back.
-const PTY_RESIZE_MS = 100;
 // Browsers keep a handful of WebGL contexts; only the shown Terminals draw on the GPU, so a few stay well under it.
 let webglBroken = false;
 
@@ -144,36 +128,6 @@ function create(info: TerminalInfo): Session {
   return session;
 }
 
-/** Clears the selection too: the next Ctrl+C then interrupts, as in Windows Terminal. */
-function copySelection({ term }: Session) {
-  const text = term.getSelection();
-  if (!text) return;
-  term.clearSelection();
-  void navigator.clipboard.writeText(text).catch(() => {});
-}
-
-/** A clipboard with no text, such as an image, sends the program in front the key: an agent's TUI reads it by itself. */
-function paste({ term, follower }: Session) {
-  void navigator.clipboard
-    .readText()
-    .then((text) => (text ? term.paste(text) : follower.send("\x16")))
-    .catch(() => {});
-}
-
-export function terminalHasSelection(id: string) {
-  return Boolean(sessions.get(id)?.term.hasSelection());
-}
-
-export function copyTerminalSelection(id: string) {
-  const session = sessions.get(id);
-  if (session) copySelection(session);
-}
-
-export function pasteIntoTerminal(id: string) {
-  const session = sessions.get(id);
-  if (session) paste(session);
-}
-
 /** Shows the Terminal in `container`, building its xterm the first time. */
 export function attachTerminal(info: TerminalInfo, container: HTMLElement) {
   const session = sessions.get(info.id) ?? create(info);
@@ -211,51 +165,13 @@ function drawOnGpu(shown: Session) {
   }
 }
 
-/** Sends the PTY the xterm's size once it has held still; a size claimed again before then replaces it. */
-function claimSize(session: Session) {
-  if (session.sizing !== null) window.clearTimeout(session.sizing);
-  session.sizing = window.setTimeout(() => {
-    session.sizing = null;
-    session.follower.resize(session.term.cols, session.term.rows);
-  }, PTY_RESIZE_MS);
-}
-
-/** Fits the Terminal to its panel and claims the PTY's size for this window: the last viewer to fit or type sets it. */
-export function fitTerminal(id: string) {
-  const session = sessions.get(id);
-  if (!session?.opened || !session.element.isConnected || !session.element.clientWidth || !session.element.clientHeight) return;
-  try {
-    session.fit.fit();
-  } catch {
-    return;
-  }
-  claimSize(session);
-}
-
-export function focusTerminal(id: string) {
-  const session = sessions.get(id);
-  if (!session?.opened) return;
-  session.term.focus();
-  session.follower.resize(session.term.cols, session.term.rows);
-}
-
-export function terminalHasFocus(id: string) {
-  const session = sessions.get(id);
-  return Boolean(session?.term.textarea && document.activeElement === session.term.textarea);
-}
-
-export function dispose(id: string) {
-  const session = sessions.get(id);
-  if (!session) return;
-  sessions.delete(id);
-  if (session.sizing !== null) window.clearTimeout(session.sizing);
-  session.follower.stop();
-  if (session.term.textarea && document.activeElement === session.term.textarea) window.milagre.setTerminalFocused(false);
-  session.term.dispose();
-  session.element.remove();
-}
-
-/** Ends viewers for Terminals the host no longer lists. */
-export function pruneTerminals(chatId: string, live: Set<string>) {
-  for (const session of sessions.values()) if (session.chatId === chatId && !live.has(session.id)) dispose(session.id);
-}
+export {
+  copyTerminalSelection,
+  dispose,
+  fitTerminal,
+  focusTerminal,
+  pasteIntoTerminal,
+  pruneTerminals,
+  terminalHasFocus,
+  terminalHasSelection,
+} from "./terminal-registry";

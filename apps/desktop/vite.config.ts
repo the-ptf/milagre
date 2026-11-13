@@ -19,6 +19,9 @@ export default defineConfig({
   // Packaged builds load dist/index.html over file://, so asset URLs must be relative.
   base: "./",
   plugins: [react(), contentSecurityPolicy],
+  // ASCII output (other characters as \u escapes): Chromium keeps each loaded script's source for the window's lifetime,
+  // two bytes a character once a single character is outside Latin-1, so a 2.6 MB chunk held 5.2 MB.
+  esbuild: { charset: "ascii" },
   // Canvas is lazy-loaded. Prebundle it before first paint so its React runtime
   // stays shared with the renderer when the user first opens it in development.
   optimizeDeps: { include: ["@xyflow/react"] },

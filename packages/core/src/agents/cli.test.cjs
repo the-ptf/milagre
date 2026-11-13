@@ -36,7 +36,17 @@ test("runs --version and keeps the last line of a failure", async () => {
     callback(null, "codex-cli 0.158.0\n", "");
   };
   assert.deepEqual(await runVersion("/bin/codex", { execFileImpl: ok }), { output: "codex-cli 0.158.0\n" });
-  assert.deepEqual(calls, [{ file: "/bin/codex", args: ["--version"], options: { encoding: "utf8", timeout: 10000 } }]);
+  assert.equal(calls.length, 1);
+  const [
+    {
+      file,
+      args,
+      options: { env, ...options },
+    },
+  ] = calls;
+  assert.deepEqual({ file, args, options }, { file: "/bin/codex", args: ["--version"], options: { encoding: "utf8", timeout: 10000 } });
+  // The host's own variables stay with the host (agents/command.cjs).
+  assert.equal(env.ELECTRON_RUN_AS_NODE, undefined);
   const broken = (file, args, options, callback) =>
     callback(Object.assign(new Error("Command failed: /bin/codex --version"), { code: 127 }), "", "env: node: No such file or directory\n");
   assert.deepEqual(await runVersion("/bin/codex", { execFileImpl: broken }), { error: "env: node: No such file or directory" });

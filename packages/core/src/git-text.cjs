@@ -5,6 +5,7 @@ const { advisorCodexConfig } = require("./agents/advisor-policy.cjs");
 const { antigravityModel: acpModel } = require("./agents/antigravity-text.cjs");
 const { kiroAcp } = require("./agents/kiro-acp.cjs");
 const { KIRO_TEXT_MODEL, kiroModelId } = require("@milagre/shared/kiro-models");
+const { agentEnvironment } = require("./agents/command.cjs");
 
 // The commit message, PR title and PR body the "Commit and open PR" dialog starts with: one call to a
 // small model, which returns the three as JSON. Claude chats ask Claude Haiku 4.5, Codex chats ask
@@ -236,7 +237,7 @@ function claudeModel({ getCommand, loadSdk = () => import("@anthropic-ai/claude-
           persistSession: false,
           cwd: os.tmpdir(),
           pathToClaudeCodeExecutable: command,
-          ...(env ? { env } : {}),
+          env: agentEnvironment(env),
           abortController,
         },
       });

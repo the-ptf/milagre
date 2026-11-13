@@ -7,6 +7,7 @@ import type { OpenDelegation, PermissionDecision } from "../../model";
 import { PermissionCard } from "./PermissionCard";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import { useRunText } from "../../lib/run-text";
 
 const STATUS: Record<RemoteRunStatus, string> = {
   sending: "Sending",
@@ -37,7 +38,9 @@ export function RemoteDelegationCard({
 }) {
   const status = remoteRunStatus(delegation, run);
   const step = run?.steps.findLast((item) => item.status === "running") ?? run?.steps.at(-1);
-  const tail = run ? replyTail(run.text) : "";
+  // The run's text grows outside `run` while only text streams (lib/run-text.ts).
+  const text = useRunText(run && delegation.to_chat ? delegation.to_chat : undefined);
+  const tail = run ? replyTail(text ?? run.text) : "";
   const approval = run?.approvals[0];
   const chat = delegation.to_chat;
   return (

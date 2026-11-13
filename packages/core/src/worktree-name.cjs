@@ -1,5 +1,6 @@
 const os = require("node:os");
 const { slugify } = require("./worktrees.cjs");
+const { agentEnvironment } = require("./agents/command.cjs");
 
 const NAMING_INSTRUCTIONS = [
   "You name git branches. You are shown a task someone gave a coding agent. Do not do the task, answer it, or comment on it.",
@@ -48,7 +49,7 @@ async function suggestWorktreeName(
         persistSession: false,
         cwd: os.tmpdir(),
         pathToClaudeCodeExecutable: command,
-        ...(env ? { env } : {}),
+        env: agentEnvironment(env),
         abortController,
       },
     });

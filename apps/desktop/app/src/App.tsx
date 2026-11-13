@@ -56,6 +56,7 @@ import {
   sortedWorktrees,
 } from "./model";
 import { useAgentRuns } from "./components/useAgentRuns";
+import { RunTextContext } from "./lib/run-text";
 import { useAgentPorts } from "./lib/ports";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import {
@@ -162,6 +163,7 @@ import { SettingsModal } from "./components/settings/SettingsModal";
 import { createDraftStore, draftKey } from "./lib/draft-store";
 import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
+import { CommandPalette, DiffView, GitActionsDialog, QuestionCard } from "./components/lazy-views";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { chatFamily } from "./lib/subchat-rows";
 import { besideParent, familySplit, swapTile } from "./lib/subchat-split";
@@ -193,13 +195,9 @@ import { OPEN_STORAGE, openStorage } from "./lib/storage-open";
 import { WorktreeCleanup } from "./components/settings/WorktreeCleanup";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
-const DiffView = lazyView(() => import("./components/changes/DiffView").then((module) => module.DiffView));
-const GitActionsDialog = lazyView(() => import("./components/GitActionsDialog").then((module) => module.GitActionsDialog));
 const SettingsNav = lazyView(() => import("./components/Settings").then((module) => module.SettingsNav));
 const SettingsPanel = lazyView(() => import("./components/Settings").then((module) => module.SettingsPanel));
-const CommandPalette = lazyView(() => import("./components/CommandPalette").then((module) => module.CommandPalette));
 const PermissionCard = lazyView(() => import("./components/agents/PermissionCard").then((module) => module.PermissionCard));
-const QuestionCard = lazyView(() => import("./components/agents/QuestionCard").then((module) => module.QuestionCard));
 const CanvasView = lazyView(() => import("./components/CanvasView").then((module) => module.CanvasView));
 const RoutinesPage = lazyView(() => import("./components/routines/RoutinesPage").then((module) => module.RoutinesPage));
 const LAZY_VIEWS = [DiffView, GitActionsDialog, SettingsNav, CommandPalette, MediaLightbox, PermissionCard, QuestionCard];
@@ -4168,7 +4166,7 @@ function App() {
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         statusLabel={pendingHere && pendingSend && !run ? sendStatusLabel(pendingSend) : undefined}
-                        streamingText={run?.text}
+                        streamingKey={run && project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
                         streamingSteps={run?.steps}
                         subagents={subagents}
                         backgroundTasks={selectedSession?.backgroundTasks}
@@ -4464,7 +4462,7 @@ function App() {
     </BridgeContext.Provider>
   );
   return (
-    <>
+    <RunTextContext.Provider value={agentRuns.text}>
       <WorkspaceSlots
         shown={selectedLink ? "link" : "project"}
         slots={[...(linkWorkspace ? [{ key: "link", element: linkWorkspace }] : []), { key: "project", element: projectWorkspace }]}
@@ -4472,7 +4470,7 @@ function App() {
       {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
       {selectedLink && linkDialogs}
       {settingsModal}
-    </>
+    </RunTextContext.Provider>
   );
 }
 

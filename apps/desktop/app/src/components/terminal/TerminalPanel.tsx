@@ -13,14 +13,14 @@ import { useDismiss } from "../../lib/use-dismiss";
 import { closeTerminal, newTerminal, openTerminal, takeFocusRequest, toggleTerminalPanel, type TerminalPlace } from "../../lib/terminal-actions";
 import { useSidePanel } from "../agents/PanelToggles";
 import {
-  attachTerminal,
   copyTerminalSelection,
   fitTerminal,
   focusTerminal,
+  loadTerminalView,
   pasteIntoTerminal,
   terminalHasFocus,
   terminalHasSelection,
-} from "../../lib/terminal-sessions";
+} from "../../lib/terminal-registry";
 import {
   chatTerminals,
   saveTerminalHeight,
@@ -104,11 +104,27 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
   useLayoutEffect(() => {
     latestShown.current = shown;
   });
+  // xterm loads with the first Terminal a Chat has, while the host starts it, so it is there by the time one shows.
+  const hasTerminals = terminals.length > 0;
+  useEffect(() => {
+    if (open || hasTerminals) loadTerminalView().catch(() => {});
+  }, [open, hasTerminals]);
   useLayoutEffect(() => {
     const current = latestShown.current;
-    if (!open || !current || !body.current) return;
-    attachTerminal(current, body.current);
-    if (takeFocusRequest(current.id)) focusTerminal(current.id);
+    const container = body.current;
+    if (!open || !current || !container) return;
+    let cancelled = false;
+    // Loaded already, this lands before the frame paints.
+    loadTerminalView()
+      .then(({ attachTerminal }) => {
+        if (cancelled) return;
+        attachTerminal(current, container);
+        if (takeFocusRequest(current.id)) focusTerminal(current.id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [open, shownId]);
 
   useEffect(() => {
