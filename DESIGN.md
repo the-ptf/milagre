@@ -295,7 +295,8 @@ The desktop new-Chat tray is 20: the composer's 14 plus its 6 padding.
 | `backdrop-blur-edge`    | 4     | Content scrolling under a window edge, as a progressive blur       |
 
 Never use Tailwind's own blur sizes or a hand-written `backdrop-filter`. The phone's `EdgeFade` uses a native variable
-blur.
+blur. In `styles.css`, write `backdrop-filter` alone, never `-webkit-backdrop-filter`: the minifier keeps whichever comes
+last and Chromium ignores the prefixed one.
 
 ## Motion
 
@@ -563,7 +564,8 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - The model picker has no provider and model-count header above its account and search.
 - No Subchats pill above the composer on desktop: the Details panel's Lineage lists them. The phone keeps its pill (it
   has no Details panel). No "N waiting" chip in the top bar, nor the phone's Attention pill.
-- The Details overlay (from GPUI's Details tab) floats over the Chat under the corner's buttons, never pushing it aside:
+- The Details overlay (from GPUI's Details tab) floats over the Chat under the corner's buttons, never pushing it aside;
+  a panel docked at the right (Changes, Browser, a design, a simulator) pushes Details to the Chat's right edge, 12 from it:
   the composer's glass (surface at 76%, `backdrop-blur-chip`), a 1px ring and a faint shadow, fading in moving down. It
   is the first corner button (a card with right-aligned lines, `AlignBoxMiddleRight`) and has no shortcut: Environment, Lineage
   (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, Done in `ink-3`, not green; under the pointer a muted → takes the place of the state; a right-click opens the Chat's sidebar menu without Report a bug, unread, Finder, the editor, Commit and Pin, Rename editing the title in place), Background

@@ -8,7 +8,8 @@ import { useControlsClearance } from "../../lib/window-chrome";
  * its own: 12px in from <main>, or one gap after the window controls and the sidebar's bar when they reach over it (the
  * sidebar collapsed), where a Subchat's parent crumb starts too. A Subchat shows its SubchatBookmark there instead, which names
  * it with its parent. Its right edge goes into the bookmark reserve (bookmark-reserve.ts), so the Routine chip keeps clear
- * of it; `corner` is the width (px) of the corner's buttons and the attention chip, which it stops short of.
+ * of it; `corner` is the width (px) of the corner's buttons, which it stops short of. With no cap of its own, the title
+ * runs as far as that room allows before it truncates.
  */
 export function ChatIdentity({ title, project, corner }: { title: string; project?: string; corner: number }) {
   const { bar, inset } = useControlsClearance<HTMLDivElement>(true, corner);
@@ -34,7 +35,7 @@ export function ChatIdentity({ title, project, corner }: { title: string; projec
       style={inset}
       className="pointer-events-none absolute inset-x-3 top-[var(--window-chrome-top)] z-[55] flex h-8 select-none items-center"
     >
-      <div ref={group} className="flex min-w-0 max-w-[min(100%,560px)] items-baseline gap-2 text-13">
+      <div ref={group} className="flex min-w-0 max-w-full items-baseline gap-2 text-13">
         <span data-chat-identity-title className="min-w-0 truncate font-medium text-ink">
           {title}
         </span>

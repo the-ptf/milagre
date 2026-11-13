@@ -1,7 +1,7 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
 import type { AgentSession, ChatMessage, LinkChatSession } from "../model";
 import { comparePins, isListedChat } from "@milagre/shared/chats";
-export { chatTitle, pinOrderAt } from "@milagre/shared/chats";
+export { chatTitle, fullChatTitle, pinOrderAt } from "@milagre/shared/chats";
 
 /**
  * Whether the sidebar lists a Chat: it has a message to show, and it isn't a hidden Run Chat, unless that one waits on
