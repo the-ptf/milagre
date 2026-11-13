@@ -153,3 +153,16 @@ fn a_bundle_manifest_stays_inside_its_folder() {
     }
     assert!(DaemonLaunch::bundle(&root.join("missing")).is_err());
 }
+
+#[test]
+fn only_electrons_milagre_app_runs_the_daemon() {
+    let home = std::env::var_os("HOME").unwrap();
+    let gpui = Path::new(&home).join("Applications/Milagre.app");
+    if gpui.is_dir() {
+        // The GPUI app installed under the same name is never taken for Electron's.
+        assert!(DaemonLaunch::installed_app(&gpui).is_err());
+    }
+    if let Ok(found) = DaemonLaunch::find_installed_app() {
+        assert!(format!("{found:?}").contains("/Applications/Milagre.app/Contents/MacOS/Milagre"));
+    }
+}

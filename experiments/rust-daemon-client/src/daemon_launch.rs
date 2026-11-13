@@ -15,6 +15,7 @@ use std::{
 };
 
 const LOG_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
+const ELECTRON_BUNDLE_ID: &str = "com.milagre.app";
 
 /// How to start the daemon. Only the two constructors below exist: the installed app's own daemon, or an explicit
 /// Node runtime and daemon entry shipped with the frontend.
@@ -53,6 +54,13 @@ impl DaemonLaunch {
             }
             Ok(value)
         };
+        // Electron's Milagre only: the GPUI app may sit at ~/Applications/Milagre.app under the same name.
+        if read("CFBundleIdentifier")? != ELECTRON_BUNDLE_ID {
+            return Err(failure(
+                "APP_UNAVAILABLE",
+                "This Milagre.app is not the Electron app",
+            ));
+        }
         let executable = app.join("Contents/MacOS").join(read("CFBundleExecutable")?);
         let asar = app.join("Contents/Resources/app.asar");
         if !executable.is_file() || !asar.is_file() {
@@ -69,7 +77,8 @@ impl DaemonLaunch {
         })
     }
 
-    /// The first installed Milagre.app: `/Applications`, then `~/Applications`.
+    /// The first installed Electron Milagre.app: `/Applications`, then `~/Applications`. Any other app with that
+    /// name (the GPUI app) is skipped.
     pub fn find_installed_app() -> Result<Self> {
         let mut candidates = vec![PathBuf::from("/Applications/Milagre.app")];
         if let Some(home) = std::env::var_os("HOME") {
@@ -77,9 +86,9 @@ impl DaemonLaunch {
         }
         candidates
             .iter()
-            .find(|app| app.is_dir())
+            .filter(|app| app.is_dir())
+            .find_map(|app| Self::installed_app(app).ok())
             .ok_or_else(|| failure("APP_UNAVAILABLE", "Milagre.app is not installed"))
-            .and_then(|app| Self::installed_app(app))
     }
 
     /// A Node runtime and daemon entry shipped with the frontend, for a computer without Milagre.app.
