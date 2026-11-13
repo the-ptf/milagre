@@ -137,6 +137,45 @@ function Section({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
+/** A row whose click copies its text (the repo, the branch), saying Copied for a moment. */
+function CopyRow({
+  name,
+  icon,
+  text,
+  shown,
+  copied,
+  onCopy,
+}: {
+  name: string;
+  icon: Parameters<typeof Icon>[0]["icon"];
+  text: string;
+  shown: string;
+  copied: boolean;
+  onCopy: (row: string, text: string) => void;
+}) {
+  const row = (
+    <button
+      type="button"
+      data-details-copy={name}
+      aria-label={`Copy ${text}`}
+      onClick={() => onCopy(name, text)}
+      className={`${ROW} ${CLICKABLE} w-[calc(100%-16px)]`}
+    >
+      <Glyph icon={icon} />
+      <span className="min-w-0 flex-1 truncate">{shown}</span>
+      {copied && <span className="shrink-0 text-12 text-green-ink">Copied</span>}
+    </button>
+  );
+  // A branch cut in its middle names itself in full under the pointer.
+  return shown === text ? (
+    row
+  ) : (
+    <Tooltip label={text} side="bottom" align="end" asChild>
+      {row}
+    </Tooltip>
+  );
+}
+
 /** A path or branch cut in its middle so both ends show. */
 function middle(text: string, max: number) {
   if (text.length <= max) return text;
@@ -199,10 +238,15 @@ export function DetailsBody({ data }: { data: DetailsData }) {
     folds[name] = !folds[name];
     rerender((n) => n + 1);
   };
-  const [copied, setCopied] = useState(false);
+  // Which row was just copied ("repo", "branch", "path"): it says Copied for a moment.
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (row: string, text: string) => {
+    void navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(row);
+  };
   useEffect(() => {
     if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1500);
+    const timer = window.setTimeout(() => setCopied(null), 1500);
     return () => window.clearTimeout(timer);
   }, [copied]);
   const running = (data.subagents ?? []).filter((agent) => agent.status === "running" || agent.status === "initializing" || agent.status === "waiting");
@@ -232,19 +276,9 @@ export function DetailsBody({ data }: { data: DetailsData }) {
             <Value className={data.computer.offline ? "text-orange-ink" : "text-ink-3"}>{data.computer.state}</Value>
           </div>
         )}
-        {data.repo && (
-          <div className={ROW}>
-            <Glyph icon={FolderGitIcon} />
-            <span className="min-w-0 flex-1 truncate">{data.repo}</span>
-          </div>
-        )}
+        {data.repo && <CopyRow name="repo" icon={FolderGitIcon} text={data.repo} shown={data.repo} copied={copied === "repo"} onCopy={copy} />}
         {data.branch && (
-          <Tooltip label={data.branch} side="bottom" className="w-full">
-            <div data-details-branch className={`${ROW} w-[calc(100%-16px)]`}>
-              <Glyph icon={GitBranchIcon} />
-              <span className="min-w-0 flex-1 truncate">{middle(data.branch, 34)}</span>
-            </div>
-          </Tooltip>
+          <CopyRow name="branch" icon={GitBranchIcon} text={data.branch} shown={middle(data.branch, 34)} copied={copied === "branch"} onCopy={copy} />
         )}
         {data.path && (
           <div data-details-path className={`${ROW} pr-1 transition-colors hover:bg-hover`}>
@@ -252,17 +286,14 @@ export function DetailsBody({ data }: { data: DetailsData }) {
               <button
                 type="button"
                 aria-label={`Copy ${data.path}`}
-                onClick={() => {
-                  void navigator.clipboard.writeText(data.path!).catch(() => {});
-                  setCopied(true);
-                }}
+                onClick={() => copy("path", data.path!)}
                 className="flex h-8 min-w-0 flex-1 items-center gap-2 text-left"
               >
                 <Glyph icon={Folder01Icon} />
                 <span className="min-w-0 flex-1 truncate">{middle(data.path, 26)}</span>
               </button>
             </Tooltip>
-            {copied ? (
+            {copied === "path" ? (
               <span className="shrink-0 pr-1 text-12 text-green-ink">Copied</span>
             ) : (
               <>
