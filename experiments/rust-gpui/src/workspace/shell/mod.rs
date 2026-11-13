@@ -199,7 +199,7 @@ impl Workspace {
         let column_left = if collapsed { RAIL_WIDTH } else { SIDEBAR_WIDTH } + card::CARD_BORDER;
         // The toggle sits at the card's right edge, in the top row: so the panel's tab strip keeps its whole width.
         let trailing = top_bar::chat_trailing_inset(1);
-        let leading = top_bar::chat_leading_inset(column_left);
+        let leading = top_bar::chat_leading_inset(column_left, crate::workspace::preview::is_on(cx));
         self.chat.update(cx, |chat, _| chat.set_header_insets(leading, trailing));
         self.panel.update(cx, |panel, cx| panel.set_header_trailing(gpui::px(0.0), cx));
         let open = self.panel.read(cx).is_open();

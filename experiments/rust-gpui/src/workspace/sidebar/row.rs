@@ -372,6 +372,8 @@ pub struct ChatRowView {
     pub(super) hovered: bool,
     /// The pointer is on the Done action itself: it brightens from ink-2 to ink, as the desktop's `hover:text-ink`.
     done_hovered: bool,
+    /// The pointer is on the PR chip: its state glyph gives way to the link glyph and the number turns ink.
+    pr_hovered: bool,
     /// Snapshot seed: draw the row as hovered, its Done action showing.
     show_hover: bool,
 }
@@ -402,6 +404,7 @@ impl ChatRowView {
             dragging: false,
             hovered: false,
             done_hovered: false,
+            pr_hovered: false,
             show_hover: false,
         }
     }
@@ -469,6 +472,12 @@ impl ChatRowView {
         }
         self.rename = rename;
         cx.notify();
+    }
+
+    /// Drawn as the selected row.
+    #[cfg(test)]
+    pub fn is_selected(&self) -> bool {
+        self.selected
     }
 
     pub fn set_selected(&mut self, selected: bool, cx: &mut Context<Self>) {
@@ -566,11 +575,30 @@ impl Render for ChatRowView {
                 let (glyph, tone) =
                     look.as_ref().map_or((IconName::GitPullRequest, theme.green), |look| (look.glyph(), look.color(&theme)));
                 let ink = theme.ink;
+                // `PullRequestChip`: under the pointer the number turns ink and the state glyph gives way to the link
+                // glyph (`LinkSquare02Icon`), no underline; the PR is named in a tooltip. The swap is the view's state,
+                // so a test can see it.
+                let pr_hovered = self.pr_hovered || (self.show_hover && std::env::var_os("MILAGRE_GPUI_SIDEBAR_PR_HOVER").is_some());
+                let glyph_el = if pr_hovered {
+                    div()
+                        .debug_selector(move || format!("chat-row-pr-link-{ix}"))
+                        .flex_none()
+                        .child(Icon::new(IconName::LinkSquare02).size(IconSize::S12).color(ink))
+                } else {
+                    div()
+                        .debug_selector(move || format!("chat-row-pr-glyph-{ix}"))
+                        .flex_none()
+                        .child(Icon::new(glyph).size(IconSize::S12).color(tone))
+                };
                 div()
                     .id("chat-row-prs")
                     .debug_selector(move || format!("chat-row-prs-{ix}"))
-                    // `PullRequestChip`: the number underlined in ink under the pointer, and the PR named in a tooltip.
-                    .hover(move |style| style.text_color(ink).underline())
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        if this.pr_hovered != *hovered {
+                            this.pr_hovered = *hovered;
+                            cx.notify();
+                        }
+                    }))
                     .when_some(look.zip(number), |el, (look, number)| el.tooltip(look.tooltip(number)))
                     .when_some(number, |el, number| {
                         // A plain click opens the PR in the Chat's PR panel (`openRowPullRequest`), not the row's click.
@@ -583,8 +611,8 @@ impl Render for ChatRowView {
                     .flex_none()
                     .items_center()
                     .gap(px(META_GAP))
-                    .text_color(tone)
-                    .child(Icon::new(glyph).size(IconSize::S12).color(tone))
+                    .text_color(if pr_hovered { ink } else { tone })
+                    .child(glyph_el)
                     .child(prs)
             }));
 

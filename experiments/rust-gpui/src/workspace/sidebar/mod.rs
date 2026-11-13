@@ -391,13 +391,14 @@ impl Sidebar {
     /// while the pointer moved) and churned every cached row paint.
     fn sync_row_views(&mut self, cx: &mut Context<Self>) {
         let dragging = self.dragging().map(str::to_owned);
+        let highlighted = self.highlighted();
         let renaming = self.renaming.as_ref().map(|renaming| (renaming.key.clone(), renaming.view()));
         let mut kept = HashMap::with_capacity(self.row_views.len());
         for (ix, row) in self.rows.iter().enumerate() {
             let Some((view, events)) = self.row_views.remove(&row.key) else { continue };
             let place = row::Place {
                 ix,
-                selected: self.selected == Some(ix),
+                selected: highlighted == Some(ix),
                 pinned: ix < self.pinned,
                 dragging: dragging.as_deref() == Some(row.key.as_ref()),
                 show_hover: self.show_hover == Some(ix),
@@ -474,19 +475,43 @@ impl Sidebar {
         self.pick(row, cx);
     }
 
-    /// Shows a Chat that has no list row: nothing in the list is selected.
+    /// Shows a Chat that has no list row: nothing in the list is selected, but a Subchat's topmost listed ancestor is
+    /// drawn as selected ([`Self::highlighted`]), as Electron keeps the parent's row lit while one of its Subchats is open.
     fn pick(&mut self, row: ChatRow, cx: &mut Context<Self>) {
-        if let Some(view) = self.selected.and_then(|row| self.view_at(row)).cloned() {
+        if let Some(view) = self.highlighted().and_then(|row| self.view_at(row)).cloned() {
             view.update(cx, |view, cx| view.set_selected(false, cx));
         }
         self.selected = None;
         self.picked = Some(row);
+        if let Some(view) = self.highlighted().and_then(|row| self.view_at(row)).cloned() {
+            view.update(cx, |view, cx| view.set_selected(true, cx));
+        }
         cx.notify();
+    }
+
+    /// The list row drawn as selected: the selected one, else, while a Chat without a row is on screen (a Subchat, at
+    /// any depth), the row of its nearest ancestor that has one. Clicking that row opens the ancestor itself.
+    pub fn highlighted(&self) -> Option<usize> {
+        if self.selected.is_some() {
+            return self.selected;
+        }
+        let picked = self.picked.as_ref()?;
+        let (scope, mut id) = self.locate(&picked.key)?;
+        let key_scope = self.data.scopes[scope].project.scope();
+        // Bounded: a malformed parent loop ends here.
+        for _ in 0..64 {
+            id = self.data.scopes[scope].state.sessions.get(&id)?.parent?;
+            let key = key_scope.chat_key(id);
+            if let Some(ix) = self.rows.iter().position(|row| row.key.as_ref() == key) {
+                return Some(ix);
+            }
+        }
+        None
     }
 
     /// New Chat: nothing is selected, in the list or among the Done rows.
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if let Some(view) = self.selected.and_then(|row| self.view_at(row)).cloned() {
+        if let Some(view) = self.highlighted().and_then(|row| self.view_at(row)).cloned() {
             view.update(cx, |view, cx| view.set_selected(false, cx));
         }
         self.selected = None;
@@ -626,7 +651,7 @@ impl Sidebar {
             return;
         }
         // Only the two rows that changed render again; the list itself does not need to.
-        for (row, selected) in [(self.selected, false), (Some(ix), true)] {
+        for (row, selected) in [(self.highlighted(), false), (Some(ix), true)] {
             if let Some(view) = row.and_then(|row| self.view_at(row)).cloned() {
                 view.update(cx, |view, cx| view.set_selected(selected, cx));
             }
@@ -673,7 +698,7 @@ impl Sidebar {
         let view = match self.row_views.get(&row.key) {
             Some((view, _)) => view.clone(),
             None => {
-                let (selected, renders) = (self.selected == Some(ix), self.rows_built.clone());
+                let (selected, renders) = (self.highlighted() == Some(ix), self.rows_built.clone());
                 let renaming = self.renaming.as_ref().filter(|renaming| renaming.key == row.key.as_ref()).map(|renaming| renaming.view());
                 let dragging = self.dragging() == Some(row.key.as_ref());
                 let pinned = ix < self.pinned;
@@ -734,7 +759,7 @@ impl Sidebar {
             .filter_map(|ix| {
                 let row = self.rows.get(ix)?.clone();
                 let name = list::project_label(&self.data.scopes[self.meta[ix].scope].project);
-                let item = rail::item(&row, name, self.selected == Some(ix));
+                let item = rail::item(&row, name, self.highlighted() == Some(ix));
                 Some(
                     div()
                         .flex()

@@ -726,7 +726,7 @@ impl Sidebar {
             && let Some(row) = self.rows.get(ix).cloned()
         {
             let name = super::list::project_label(&self.data.scopes[self.meta[ix].scope].project);
-            let item = rail::item(&row, name, self.selected == Some(ix));
+            let item = rail::item(&row, name, self.highlighted() == Some(ix));
             let card = sidebar.clone();
             out.push(rail::popover(&item, &row, y, window, cx, move |on, _, cx| {
                 card.update(cx, |this, cx| this.rail_card_pointer(on, cx))
@@ -768,6 +768,11 @@ impl Sidebar {
             // The hovered row of the design: its state swapped for the Done action.
             "hover-done" => {
                 self.show_hover = Some(3);
+                self.sync_row_views(cx);
+            }
+            // The pointer on row 0's PR chip (with `MILAGRE_GPUI_SIDEBAR_PR_HOVER=1`): the link glyph in its state's place.
+            "hover-pr" => {
+                self.show_hover = Some(0);
                 self.sync_row_views(cx);
             }
             "filters" => self.filters_open = Some(None),

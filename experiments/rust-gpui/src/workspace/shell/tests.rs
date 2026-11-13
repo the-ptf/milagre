@@ -45,15 +45,37 @@ fn the_collapsed_rail_shares_the_one_top_row_with_the_lights_and_the_bar(cx: &mu
         "the rail's icons start under the top row"
     );
     let chat = workspace.read_with(cx, |w, _| w.chat.clone());
-    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, top_bar::chat_leading_inset(RAIL_WIDTH + 1.0), "clear of the bar");
+    assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, top_bar::chat_leading_inset(RAIL_WIDTH + 1.0, false), "clear of the bar");
     // The bar's toggle expands it again.
     cx.simulate_click(toggle.center(), Modifiers::none());
     assert!(!sidebar.read_with(cx, |s, _| s.is_collapsed()));
     assert_eq!(chat.read_with(cx, |c, _| c.header_insets()).0, px(top_bar::TITLE_INSET - super::card::CARD_BORDER));
-    // The title starts TITLE_INSET in from the Chat card's left edge, as the desktop's identity does in its panel.
+    // The title stands on the Chat card's left edge (its border line).
     cx.run_until_parked();
     let (title, card) = (cx.debug_bounds("chat-identity-title").unwrap(), cx.debug_bounds("chat-card").unwrap());
-    assert_eq!(title.left() - card.left(), px(top_bar::TITLE_INSET));
+    assert_eq!(title.left(), card.left(), "the title's left edge is the card's");
+}
+
+/// The title's place in both sidebar states, in the Preview (whose bar is the sidebar toggle alone): on the Chat
+/// card's left edge with the sidebar open, right after the toggle (one gap) as a rail, as Electron's
+/// `useControlsClearance`. A Subchat's breadcrumb starts at the same place.
+#[gpui::test]
+fn the_title_sits_on_the_card_edge_open_and_after_the_toggle_as_a_rail(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    cx.update(|_, cx| cx.set_global(crate::workspace::preview::PreviewMode { account: "test".into(), model: "test".into() }));
+    cx.refresh().unwrap();
+    cx.run_until_parked();
+    let (title, card) = (cx.debug_bounds("chat-identity-title").unwrap(), cx.debug_bounds("chat-card").unwrap());
+    assert_eq!(title.left(), card.left(), "open: on the card's edge");
+    cx.simulate_keystrokes("cmd-b");
+    let sidebar = workspace.read_with(cx, |w, _| w.sidebar.clone());
+    assert!(sidebar.read_with(cx, |s, _| s.is_collapsed()));
+    cx.run_until_parked();
+    let toggle = cx.debug_bounds("bar-sidebar-toggle").unwrap();
+    let title = cx.debug_bounds("chat-identity-title").unwrap();
+    assert!(cx.debug_bounds("bar-routines").is_none(), "the Preview's bar is the toggle alone");
+    assert_eq!(title.left(), toggle.right() + px(top_bar::GAP), "rail: one gap after the toggle");
+    assert_eq!(title.left(), px(top_bar::controls_end(true)));
 }
 
 /// Collapsing the sidebar and closing the panel move nothing vertically: the Chat header, the panel's tab strip, the
@@ -148,9 +170,15 @@ fn the_corner_item_is_one_panel_toggle() {
 
 #[test]
 fn chat_header_insets() {
-    assert_eq!(top_bar::controls_end(), 224.0, "80 + 4 x 28 + 3 x 8 + 8");
-    assert_eq!(top_bar::chat_leading_inset(305.0), px(19.0), "open sidebar: the title 20 in from the card's edge (inside its 1px border)");
-    assert_eq!(top_bar::chat_leading_inset(45.0), px(179.0), "rail: clear of the bar");
+    assert_eq!(top_bar::controls_end(false), 224.0, "80 + 4 x 28 + 3 x 8 + 8");
+    assert_eq!(top_bar::controls_end(true), 116.0, "80 + 28 + 8: the Preview's toggle alone");
+    assert_eq!(
+        top_bar::chat_leading_inset(305.0, false),
+        px(-1.0),
+        "open sidebar: the title on the card's edge (back over its 1px border)"
+    );
+    assert_eq!(top_bar::chat_leading_inset(45.0, false), px(179.0), "rail: clear of the bar");
+    assert_eq!(top_bar::chat_leading_inset(45.0, true), px(71.0), "Preview rail: right after the toggle");
     assert_eq!(top_bar::chat_trailing_inset(0), px(16.0));
     assert_eq!(top_bar::chat_trailing_inset(3), px(120.0), "12 + 3 x 36");
 }

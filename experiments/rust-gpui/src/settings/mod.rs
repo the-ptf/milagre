@@ -491,6 +491,9 @@ impl Render for SettingsModal {
             .debug_selector(|| "settings-scrim".into())
             .absolute()
             .inset_0()
+            // Settings owns the pointer while open, as Electron's page over the window: no press, release, move or
+            // wheel reaches the Chat, sidebar or panel under it (its own controls and scroll areas sit above this).
+            .occlude()
             .bg(theme.scrim)
             .px(px(24.0))
             .py(px(44.0))

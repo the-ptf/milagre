@@ -42,31 +42,35 @@ pub const CORNER_BUTTON: f32 = 32.0;
 pub const HEADER_PAD: f32 = 16.0;
 /// Buttons in the bar: the sidebar toggle, Routines, Link Projects, Search.
 pub const BAR_BUTTONS: usize = 4;
+/// Buttons in the Preview's bar: the sidebar toggle alone (the others are not backed by its data layer).
+pub const PREVIEW_BAR_BUTTONS: usize = 1;
 
 /// The bar's buttons centred on the traffic lights, in the top row.
 fn bar_top() -> Pixels {
     px(TOP_ROW_CENTRE - BUTTON / 2.0)
 }
 
-/// The bar's width.
-pub fn bar_width() -> f32 {
-    BAR_BUTTONS as f32 * BUTTON + (BAR_BUTTONS - 1) as f32 * GAP
+/// The bar's width with `buttons` buttons.
+pub fn bar_width(buttons: usize) -> f32 {
+    buttons as f32 * BUTTON + buttons.saturating_sub(1) as f32 * GAP
 }
 
-/// Where what follows the bar may start (`controlsEnd`: the bar plus one gap).
-pub fn controls_end() -> f32 {
-    BAR_LEFT + bar_width() + GAP
+/// Where what follows the bar may start (`controlsEnd`: the bar as drawn plus one gap); `preview` draws only the
+/// sidebar toggle.
+pub fn controls_end(preview: bool) -> f32 {
+    BAR_LEFT + bar_width(if preview { PREVIEW_BAR_BUTTONS } else { BAR_BUTTONS }) + GAP
 }
 
-/// Where the Chat's title (and a Subchat's breadcrumb) starts, from the Chat card's left edge: the desktop's
-/// `ChatIdentity` sits `inset-x-3` in its content panel with `px-2` round its text, so the title starts 20 in.
-pub const TITLE_INSET: f32 = 20.0;
+/// Where the Chat's title (and a Subchat's breadcrumb) starts, from the Chat card's left edge: on it. Victor's call
+/// for this app: the title's first glyph stands on the card's left border line.
+pub const TITLE_INSET: f32 = 0.0;
 
-/// The Chat header's leading padding when its column starts at `column_left` (inside the card's border): the title
-/// [`TITLE_INSET`] from the card's edge, or clear of the traffic lights and the bar when those reach over it (the
-/// sidebar is a rail), as the desktop's `useControlsClearance`.
-pub fn chat_leading_inset(column_left: f32) -> Pixels {
-    px((controls_end() - column_left).max(TITLE_INSET - super::card::CARD_BORDER))
+/// The Chat header's leading inset when its column starts at `column_left` (inside the card's border): the title on
+/// the card's left edge ([`TITLE_INSET`]; negative, so the header reaches back over the border), or right after the
+/// bar when the bar reaches over it (the sidebar is a rail), as the desktop's `useControlsClearance`. Collapsing and
+/// expanding the sidebar is instant in this shell, so the title moves with it in the same frame.
+pub fn chat_leading_inset(column_left: f32, preview: bool) -> Pixels {
+    px((controls_end(preview) - column_left).max(TITLE_INSET - super::card::CARD_BORDER))
 }
 
 /// The Chat header's trailing padding with `buttons` corner toggles: clear of them and one gap, else its own 16.

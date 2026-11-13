@@ -360,6 +360,8 @@ impl Transcript {
                 .debug_selector(|| "viewer".into())
                 .absolute()
                 .inset_0()
+                // The full-size viewer owns the pointer: the transcript under it neither scrolls nor hovers.
+                .occlude()
                 .flex()
                 .items_center()
                 .justify_center()

@@ -410,3 +410,47 @@ fn preview_settings_draw_backed_pages_less_hidden_rows(cx: &mut TestAppContext) 
     let hits = settings.read_with(cx, |s, cx| s.current_hits(cx));
     assert!(hits.iter().any(|h| h.entry.title == "Archive Done Chats after"), "{hits:?}");
 }
+
+/// Settings owns the pointer while it is open (item 7): a wheel over it never scrolls the Chat transcript under it,
+/// and a press on the scrim over a sidebar row closes Settings without selecting that row.
+#[gpui::test]
+fn settings_owns_the_pointer_nothing_under_it_scrolls_or_takes_a_click(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    settle(cx);
+    let (sidebar, chat) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.chat.clone()));
+    let transcript = chat.read_with(cx, |c, _| c.transcript.clone());
+    let selected = sidebar.read_with(cx, |s, _| s.selected());
+    let top = transcript.read_with(cx, |t, _| t.list_state().logical_scroll_top());
+    cx.update(|window, cx| window.dispatch_action(Box::new(ToggleSettings), cx));
+    settle(cx);
+
+    // The wheel inside Settings, over where the transcript is.
+    let main = bounds(cx, "settings-main");
+    let transcript_box = bounds(cx, "transcript");
+    let at = point(main.center().x, transcript_box.center().y.min(main.bottom() - px(20.0)));
+    for _ in 0..5 {
+        cx.simulate_event(gpui::ScrollEvent {
+            position: at,
+            delta: gpui::ScrollDelta::Pixels(point(px(0.0), px(400.0))),
+            modifiers: Modifiers::none(),
+            touch_phase: gpui::TouchPhase::Moved,
+            ..Default::default()
+        });
+    }
+    settle(cx);
+    assert_eq!(transcript.read_with(cx, |t, _| t.list_state().logical_scroll_top()), top, "the transcript did not scroll");
+
+    // A press and release on Settings' own body: nothing under it takes them.
+    cx.simulate_click(at, Modifiers::none());
+    settle(cx);
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), selected);
+
+    // A press on the scrim over a sidebar row: Settings closes, the row is not picked.
+    let row = bounds(cx, "chat-row-3");
+    let dialog = bounds(cx, "settings-dialog");
+    assert!(row.center().x < dialog.left(), "the row is outside the dialog, under the scrim");
+    cx.simulate_click(row.center(), Modifiers::none());
+    settle(cx);
+    assert!(!workspace.read_with(cx, |w, cx| w.settings.read(cx).is_open()), "the scrim closed Settings");
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), selected, "the row under the scrim took no click");
+}

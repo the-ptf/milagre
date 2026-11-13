@@ -396,6 +396,54 @@ fn rows_are_54px_two_apart_with_their_content_14px_in(cx: &mut TestAppContext) {
     assert_eq!(first.right() - state.right(), px(14.0));
 }
 
+/// A Subchat on screen, at any depth, lights its parent's row (the nearest listed ancestor), as Electron does;
+/// clicking that row opens the parent itself.
+#[gpui::test]
+fn an_open_subchat_lights_its_parents_row_and_the_row_opens_the_parent(cx: &mut TestAppContext) {
+    let (workspace, cx) = crate::testing::mount_workspace(cx);
+    let sidebar = workspace.read_with(cx, |w, _| w.sidebar.clone());
+    let family = sidebar.read_with(cx, |s, _| s.family_chats());
+    let key_of = |title: &str| family.iter().find(|chat| chat.title == title).expect("the data has it").key.clone();
+    let parent = key_of("Migrate desktop to Rust PoC");
+    let parent_ix = sidebar.read_with(cx, |s, _| (0..s.row_count()).position(|ix| s.row(ix).is_some_and(|r| r.key.as_ref() == parent)));
+    let parent_ix = parent_ix.expect("the parent is listed");
+    for subchat in [key_of("Port the sidebar to GPUI"), key_of("Sidebar snapshot check")] {
+        cx.update(|_, cx| workspace.update(cx, |w, cx| w.open_chat_key(&subchat, cx)));
+        cx.run_until_parked();
+        assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), None, "no row is the Chat on screen");
+        assert_eq!(sidebar.read_with(cx, |s, _| s.highlighted()), Some(parent_ix), "{subchat}: its top parent's row is lit");
+        let lit = sidebar.read_with(cx, |s, cx| s.view_at(parent_ix).map(|view| view.read(cx).is_selected()));
+        assert_eq!(lit, Some(true), "the row's own view draws it selected");
+    }
+    // The lit row opens the parent.
+    let selector: &'static str = Box::leak(format!("chat-row-{parent_ix}").into_boxed_str());
+    let row = cx.debug_bounds(selector).expect("the parent's row is drawn");
+    cx.simulate_click(row.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(sidebar.read_with(cx, |s, _| s.selected()), Some(parent_ix));
+    let chat = workspace.read_with(cx, |w, _| w.chat.clone());
+    assert_eq!(chat.read_with(cx, |c, _| c.key().map(str::to_owned)), Some(parent));
+}
+
+/// The PR chip under the pointer (`PullRequestChip`): its state glyph gives way to the link glyph, never an underline;
+/// the pointer leaving brings the state glyph back.
+#[gpui::test]
+fn the_pr_chip_swaps_its_glyph_for_the_link_glyph_under_the_pointer(cx: &mut TestAppContext) {
+    let (_sidebar, cx) = mount(cx);
+    assert!(cx.debug_bounds("chat-row-pr-glyph-0").is_some() && cx.debug_bounds("chat-row-pr-link-0").is_none());
+    let chip = cx.debug_bounds("chat-row-prs-0").expect("row 0's PR");
+    cx.simulate_mouse_move(chip.center(), None, Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("chat-row-pr-link-0").is_some(), "the link glyph under the pointer");
+    assert!(cx.debug_bounds("chat-row-pr-glyph-0").is_none(), "in the state glyph's place");
+    let glyph = cx.debug_bounds("chat-row-pr-link-0").unwrap();
+    assert_eq!(glyph.size.width, gpui::px(12.0), "the same 12px glyph");
+    let row = cx.debug_bounds("chat-row-0").unwrap();
+    cx.simulate_mouse_move(gpui::point(row.left() + gpui::px(20.0), row.center().y), None, Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("chat-row-pr-glyph-0").is_some() && cx.debug_bounds("chat-row-pr-link-0").is_none());
+}
+
 /// Every Done Chat is in the Done section, the ones marked minutes ago too; none stays in the list.
 #[test]
 fn every_done_chat_is_in_the_done_section_and_none_in_the_list() {

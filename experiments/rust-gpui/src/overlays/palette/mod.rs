@@ -450,6 +450,8 @@ impl Render for PaletteView {
             .debug_selector(|| "palette-scrim".into())
             .absolute()
             .inset_0()
+            // The palette owns the pointer: nothing under the scrim hovers, takes a press or scrolls.
+            .occlude()
             .bg(theme.scrim)
             .flex()
             .flex_col()
