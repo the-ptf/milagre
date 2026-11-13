@@ -1,0 +1,1331 @@
+# Integration status (2026-11-12)
+
+**Current plan (2026-11-12):** GPUI is the desktop target and runs on the installed Node daemon
+for now; the Tauri shell is parked. See "Current plan" in
+[BACKEND-MIGRATION.md](BACKEND-MIGRATION.md) for the client commits and open items. The checkpoints
+below describe the owned Rust backend, which stays the later replacement for the Node daemon.
+
+Local branch `poc/rust-tauri-local`, parent Chat `/Users/victor/Code/personal/milagre-ade#10904`. Nothing pushed. The migration is **not complete**: the ordinary installed Rust shell still needs the production Node owner; the separate Rust Preview owns its dedicated Rust backend. Keep the existing React UI and retained features. Only browser embedding, voice, floating inbox and decorative effects may be omitted.
+
+Never restart/replace the production host, take over live locks, launch a second live writer or change the native mobile fingerprint without explicit approval. Experimental ownership checks use separate dedicated roots or isolated copies. Real-provider evidence is stated explicitly below; other provider checks remain fake-process evidence. A passing library test is not a production cutover.
+
+## Current checkpoint
+
+At 08:00 Toronto, `bf688ece` is accepted and installed after two independent
+reviews and root combined checks: 160 runtime and 237 owner checks pass, with
+strict feature Clippy and formatting. Configured Codex per-turn Ask/Auto/Full
+policies match actual Node/native frame and approval fixtures. Full remains
+unconfined as in Node; mid-turn mode changes and real Codex/account validation
+remain open. The installed root keeps its selected Claude account.
+
+Whole-state hydration is cached by exact immutable state identities, with
+ownership verified on every hit. Actor snapshot reuse retains live runs,
+terminal/content/Git checks, open state and epoch/version checks. The tick cadence
+is unchanged. Large unloaded-history microbenchmark read CPU fell from about
+9 seconds to 6-52 ms per 200 reads, but empty-state savings were small. This does
+not establish that the benchmark's approximately 1% whole-runtime idle CPU is fixed.
+
+Normal staged `Ja7sGV` and installed `DOk6oC` observers pass Sidebar/read/native
+Quit and actual socket/profile/shell cleanup, with zero sends. Reports use the
+observer prefix below. Installed shell SHA-256:
+`31e10df2d7388c09306cf2c97b1a35455a745b822a4fbeeecf070aede278a140`.
+Runtime SHA-256:
+`b2ba55df836ed26b1b4c70ce6baafd2e3cc24bf29bb1cf5ed832829a2488018c`.
+Provenance/retained prior bundle:
+`/private/tmp/milagre-rust-preview-package-q54i7oth/install-report.json`.
+GPUI received matching hashes and test limits; client API remains `f946e184`.
+No further real turn was spent and production start times remain unchanged.
+
+The new PR-details reader passes nine isolated tests and complete Node panel
+normalization, but is NOT accepted or routed yet. A subagent is binding a separate
+explicit selected-GitHub/repository grant, viewer identity verification, bounded
+retained read executor and typed client. The ordinary agent-account service has
+no GitHub provider; no ambient credentials or always-successful callback may
+stand in for selected-account authority. Absent grant means no capability. No
+real GitHub grant is created in the installed root. GPUI's PR panel stays blocked
+until this binding is tested. Full services, phone and data upgrade remain open.
+
+At 07:30 Toronto, Codex ordinary composer checkpoint `dfda9b1e` is accepted and
+installed. Independent review found no P1/P2; root reran the actual entrypoint
+wire test. Saved validation passes 131 normal runtime checks, strict Clippy,
+formatting/lint and a failing old-behavior mutation control. Codex now accepts the
+global Claude reply preference (concise/normal/null/absent), matching actual Node
+Codex `beginTurn`, which does not consume it. Actual child frames match Node at
+null/high effort across restart/resume. Invalid types still refuse before workers.
+This remains fake-CLI evidence; no real Codex turn/account test was run.
+
+Staged `o5M09s` and installed `mHUGqC` observers pass Sidebar/read/metadata/native
+Quit and actual socket/profile/shell cleanup, with zero sends. Reports use the
+same temporary observer prefix below. Installed shell SHA-256:
+`3faffc928292add2976b2b70d37160783d1b5ef3650e87ca215a8245a2c61bcd`.
+Runtime SHA-256:
+`77c2ba7f37d41b0bb6faa29b518229c7b14f308945531c7f5184b07437c7e64b`.
+Provenance and retained prior bundle:
+`/private/tmp/milagre-rust-preview-package-iesnbi7g/install-report.json`.
+GPUI received matching pins; its measured benchmark remains tied to its original
+builds. Production start times are unchanged. No further real turn was spent.
+
+The benchmark suggests about 1% idle CPU in the debug shared runtime. Source audit
+found repeated unchanged whole-state hydration/copying on the 20 ms tick. A
+subagent is implementing and measuring an identity-keyed cache while retaining
+authority checks and timer cadence; no performance improvement is claimed yet.
+A separate subagent is porting configured Codex per-turn Auto/Full policy through
+existing native controls. Both increments are unaccepted/uninstalled. Full
+services, phone and existing-data upgrade remain incomplete.
+
+At 07:00 Toronto, combined integration `f946e184` is accepted and the separate
+normal Rust Preview is refreshed. Three independent source/log reviews report
+no remaining P1/P2. Root's combined full runs pass 157 runtime and 236 owner
+checks, strict normal/feature Clippy and all four touched crate format checks.
+The shared client passes 86 ordinary tests plus seven doctests and four actual
+owned-child checks. Git passes 24 tests including 22 new Node comparison cases.
+
+The normal dedicated entrypoint now supports explicitly captured Codex alongside
+legacy default-Claude manifests. Actual fake-CLI/wire evidence covers selected
+environment/instructions, streaming, persistence, reopen without send and native
+resume. Real Codex/account interoperability is NOT verified. Ask/text/fixed TLDR
+limits remain, and no Milagre content MCP endpoint is advertised to Codex. Local
+`pr:diff-files`/`pr:diff-file` now route through the actor and typed shared client;
+they never fetch/authenticate and do not supply remote PR metadata. The routine
+reply-extraction P2 is closed with one Node-compatible live/saved extractor and
+nine differential vectors; automatic routine execution remains synthetic-only.
+
+Staged `rOvSo4` and installed `rJ5kT6` observers pass saved reads, Sidebar edits,
+native Quit/exit 0 and actual socket/profile/shell cleanup with zero model sends.
+Reports use `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-<id>/report.json`.
+Package/provenance/retained rollback:
+`/private/tmp/milagre-rust-preview-package-ch1uct_1/install-report.json`.
+Installed shell SHA-256:
+`5873ba6c06b27b53924236127fbc6439c806b96a81e7470a204001935f83b761`.
+Installed runtime SHA-256:
+`30bdfd09631b4a223b6f560a690fa71034714cee684a4d5b6201f00c77f2e389`.
+GPUI received matching client revision/API/hash for its own staged repin. Earlier
+real Claude acceptance remains tied to its original hashes; it was not repeated
+or reclassified. Production start times are unchanged; full services, phone and
+existing-data upgrade remain unfinished.
+
+At 06:30 Toronto, broader integration lanes resumed their saved implementation
+without repeating completed work. The captured Codex bridge passes three native
+child tests, sixteen existing bridge tests and 93 default runtime checks; it
+still needs dedicated manifest/provider/catalog wiring and independent review.
+Local PR diff reads pass 24 Git tests (including 22 new Node comparison cases)
+and four configured-service cases; actor and typed-client exposure are now in
+progress. Both reuse selected MonoCode code with retained MIT notices. Neither
+increment is accepted or installed yet.
+
+Routine live annotation remains blocked by a review P2: Node classifies the last
+qualifying reply after non-thinking tool-step offsets; Rust live/saved paths
+selected different raw replies. A separate subagent is implementing one shared
+Node-compatible extractor and differential vectors before acceptance. Installed
+Preview pins, completed one-real-turn/reopen/native cleanup evidence and production
+remain unchanged. GPUI received routing plans, and its interrupted benchmark was
+authorized to restart on throwaway data without model turns.
+
+Victor explicitly prioritized broader backend integration through direct MIT
+MonoCode reuse. Two collaboration lanes now target pinned upstream
+`09d04436babb39ad72198cdf22f735067027fc04`: dedicated Codex launch/provider
+integration using the existing `rust-providers` transport, and missing Git service
+operations using existing dedicated-root Git authority. Copied code retains
+copyright/license notices in source and third-party notices, with no UI notice
+required. No imported implementation or new route is accepted yet. Shared
+actor/launcher edits remain coordinated with the frozen routine annotation
+increment; installed previews stay unchanged.
+
+At 06:00 Toronto, exact terminal unread provenance and explicit unread-intent
+protection are accepted after independent rereview. The same-value Mark unread
+P2 is closed: admitted read/unread commands expire that Chat's rollback receipt
+even when the saved value is unchanged; refused commands do not. Root reran the
+actual actor interleaving regression. Saved full validation passes 151 runtime
+and 234 owner tests with strict feature/normal checks; removing the hook fails
+the regression cleanly. This is default-off synthetic routine behavior, not an
+installed scheduler. Installed Preview signature verifies and its accepted pins
+remain unchanged. GPUI received a stable-pin update. A collaboration subagent is
+planning the remaining pre-publication quiet terminal-event seam before edits.
+Full retained services, phone interoperability and data upgrade remain incomplete.
+
+At 05:30 Toronto, unread provenance is implemented but NOT accepted. Saved source
+passes 234 owner and 150 runtime tests with strict feature/normal checks, and
+root reran the native quiet completion/restart test. Independent review found a
+P2: successful explicit `unread:true` when already true returns no state change,
+so metadata identity alone cannot protect that user action from later rollback.
+A collaboration subagent is adding exact-Chat invalidation on admitted explicit
+unread commands, including no-op patches, with an actual actor interleaving
+regression. This increment stays uncommitted and uninstalled pending the fix and
+rereview. Installed pins/accepted real-turn and native cleanup evidence remain
+unchanged; GPUI has been informed. No new model turn or production action occurred.
+
+At 05:00 Toronto, saved quiet routine completion effects are accepted after
+independent source/log review with no remaining P1/P2. Full saved validation passes
+150 runtime and 232 owner tests, strict feature/normal Clippy and formatting.
+Root independently reran the fixed-native quiet completion/restart case. Divider
+quiet/summary, quiet title and origin-Chat archive effects flush before durable
+Run completion; successor user work refuses, uncertain writes fence without
+replay. This remains synthetic-fixture-only, not installed or publicly enabled.
+Unread rollback, pre-publication quiet events and model-generated acted titles
+remain open. A new collaboration subagent is implementing exact bounded unread
+mutation provenance, with explicit protection against user interleavings.
+Installed Preview pins and completed real-turn/native cleanup evidence remain
+unchanged; GPUI received the stable-pin coordination update.
+
+At 04:30 Toronto, installed hashes still match the accepted preference shell and
+`6054d7d6` runtime. Root rechecked the retained native-Quit observer (zero sends)
+and real-turn/reopen report (exactly one send); both remain passed. Production
+process start times are unchanged. GPUI received the stable-pin update and needs
+no repin. A collaboration subagent is porting fixture-only quiet completion
+title/archive behavior and auditing exact turn-bound unread provenance. This is
+unfinished: current unread alone cannot prove the terminal marked it, and must
+not authorize clearing a later user mark. Model-generated acted-run naming has no
+captured naming-service authority yet and remains deferred. Public scheduling
+and normal installed binaries are unchanged on this beat.
+
+At 04:10 Toronto, durable Tauri preference checkpoint `dca7cdbc` is accepted and
+installed as a shell-only Preview refresh. Independent review closed both staging
+identity/cleanup findings; 59 shell tests pass (one optional ignored), strict
+Clippy/fmt pass, and root reruns all ten private-store cases plus actual owned-child
+preference restart. Normal staged `hpwUCo` and installed `jCrGGt` observers pass
+Sidebar/read/metadata/native-Quit checks, with no model send and actual temporary
+profile/socket/shell cleanup. This is not a native settings-click test.
+
+Installed shell SHA-256:
+`e7c8663afd7da5f7489eeecbc85b74b17a07b93fb87cd7109eaba0ebee17730b`.
+The runtime is deliberately retained at accepted `6054d7d6`, not the newer dirty
+package build. Exact provenance and prior bundle are retained at
+`/private/tmp/milagre-rust-preview-package-5vz_p3g4/shell-refresh-install.json`.
+The original package report records a different initially built runtime and is
+not the final shell-only manifest. GPUI needs no client/runtime repin.
+
+Routine-created primary Project Chats are now accepted only behind the existing
+default-off synthetic fixture gate. The content-capacity P2 is closed: the
+scheduler retains the actor's actual content owner and refuses before creation at
+1,024 Chats. Root reran that saturation case; independent source/log review found
+no remaining P1/P2. Full checks pass 148 runtime and 231 owner tests, strict feature
+and normal Clippy, formatting and JS checks. Actual actor/native cases prove fresh
+creation, durable attachment before send, saved transcript and restart without
+replay; fault cases retain failed/uncertain evidence. Public automatic execution
+stays refused and this increment is not installed. Final naming/quiet archive,
+Worktree/Link creation and broader routine triggers remain open.
+
+At 04:00 Toronto, both installed previews remain on accepted pins. Two resumed
+subagents are implementing durable Tauri-only preferences on the dedicated root
+and synthetic routine-created Project Chats with durable attachment before send.
+Neither increment is accepted, installed or production-enabled yet. The installed
+real-turn/reopen/native-cleanup acceptance is already complete; no further model
+turn is required for that milestone. Full services, phone and data upgrade remain
+unfinished.
+
+GPUI reports Sidebar adoption `2f34146e`, client `1b180e46`, runtime `6054d7d6`:
+Rename, Done/unread-clear, Reopen and Done undo now use typed SidebarActions;
+failed writes reread rows and show the reason. Pin/Delete remain disabled. Its
+fake-provider persistence/restart and exit checks pass, and its zip/installed
+Preview are refreshed. Root read the latest-pin real text-turn report and log:
+`~/Library/Application Support/Milagre GPUI Preview Smoke/run2/run3-6054.json`
+passed with one turn/no reported errors, and the log records Complete cleanup and
+data retention. The AppKit sandbox-extension warning remains. This is saved GPUI
+evidence, not a root live rerun. Its overlong rename refusal exercised only the
+client UTF-16 bound; it is not runtime-refusal evidence. Tauri/GPUI remain separate.
+
+At 03:00 Toronto, Sidebar integration `1b180e46` is accepted and the separate
+normal Rust Preview is refreshed. Node differential/restart tests and 130 runtime
+checks pass; typed SidebarActions passes root's 85 tests/seven doctests. Final
+independent review closes the post-acceptance send P2: failed later metadata saves
+preserve the accepted receipt plus dirty-state diagnostics; direct patch failures
+still reject. The actual disk-fault regression saves exactly one SQLite user row,
+starts no extra provider turn, and proves retry/shutdown recovery. Stale SDK error
+wording was corrected before commit. Modern pins remain frontend/device-local.
+
+Normal staged and installed verifiers pass Rename, Done and Reopen, restore the
+original title/unread mark, and preserve transcript/summary. They send no model
+request, require no existing schedules, and observe native Quit/exit 0, empty stderr,
+actual socket/profile/shell cleanup and retained data. Installed evidence:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-qIgZ8y/report.json`;
+staged evidence `.../milagre-installed-preview-check-bbLjHW/report.json`.
+Package/retained rollback: `/private/tmp/milagre-rust-preview-package-nbata4vt/package-report.json`.
+Current shell SHA-256: `5a1f27edc8f2a02de841a9a67f5bbdc82173f8c9876bc3d17822567b5f554faa`.
+Current runtime SHA-256: `6054d7d6759262ec4d463380589261d954e1f8be79e75bb5d1a5d0be2142d70a`.
+GPUI received matching client/runtime pins and typed API; its subsequent adoption
+and real-turn evidence are recorded above.
+The one real-turn check already passed on earlier `862f4cd2`; it was not repeated
+or relabelled as new-pin real-provider evidence. No public routine enabling, phone,
+production-data adoption or completed-migration claim is made.
+
+At 02:30 Toronto, dedicated Sidebar metadata edits are implemented but not yet
+accepted or installed. Node differential/persistence tests and saved full 129-test
+runtime validation pass. Review of the ordinary edits found no P1/P2, but deeper
+frontend comparison found a post-acceptance send P2: `CHAT_SENT_METADATA_PENDING`
+rejects a send already accepted by the owner, while React restores the composer
+and reports unsent; no frontend consumes details.sent. A subagent is replacing
+that branch with Node-equivalent fulfilled-send semantics plus retained metadata
+persistence diagnostics and deterministic post-accept fault coverage. Direct patch
+save failures must still reject. This fix needs rereview before backend acceptance.
+
+The additive SidebarActions client (rename, Done/reopen, keep, restore) is frozen
+under separate review; root rerun passes 85 feature tests and seven doctests.
+Modern pins remain device-local; no raw patch/pin-sync authority is exposed. No
+SDK/backend/UI adoption or new installed pin is claimed yet. GPUI was informed that
+accepted pins stay unchanged. The earlier one-real-turn acceptance is complete;
+no further real send was spent. Both previews and production remain untouched.
+
+At 02:00 Toronto the installed normal Preview passed the authorized fresh real
+Claude check after quota reset. Exactly one no-tools Ask send streamed and saved
+two messages. A second runtime (different PID/profile) reopened the identical
+transcript with ZERO sends. Both native Quits exited 0 with drained empty stderr,
+actual socket/profile/shell/Project-lock cleanup and retained data. Installed
+hashes remain `125c2f59...fd5c1fa` / `862f4cd2...6d70502`. Evidence:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-live-9Gumqg/report.json`.
+Verifier committed as `393d6497`. This is external-wire verification through the
+installed process, not a new composer/screenshot test. Earlier quota failure stays
+failed evidence. This one-send requirement is DONE: do not repeat it on later beats.
+
+Isolated actor timer `567b2c78` is accepted after final review and root's successor
+regression rerun. The fenced scheduled-A/user-B shutdown P2 is closed with exact
+TurnId checks; old behavior fails. Saved full suite passes 138 tests, strict normal
+and feature Clippy. Actual synthetic actor/socket cases cover timer/native turn,
+persistence, restart/no replay, manifest failure and active Stop. Activation still
+requires the default-off feature and explicit synthetic-root preset; no public
+schedule enabling or installed scheduling is shipped. Installed previews remain
+on accepted `3410109b`, and GPUI was notified of the successful real check.
+
+Next subagent is porting bounded actual Sidebar Done/Reopen/Pin/Rename behavior
+for the dedicated runtime with Node differential/restart tests. That work is not
+accepted or installed yet. Full services, phone and existing-data upgrade remain
+unfinished. Production and unrelated output directories remain untouched.
+
+At 01:30 Toronto, the actor timer increment is staged but NOT accepted or committed.
+Its author reports 137 passing runtime tests, feature/normal strict Clippy and two
+actual fixture socket/timer cases (due native turn, persistence/restart, manifest
+fault and active Stop). Independent review found a remaining shutdown P2: a fenced
+old scheduled Turn A can see a newer user Turn B on the same Chat as active and
+return Pending before generic cancellation reaches B. The author is reproducing
+and fixing that exact case; final rereview is required. No new timer is installed.
+
+Installed Preview signature and runtime hash still match `862f4cd2`. GPUI was
+notified that pins are unchanged. A separate subagent is preparing a hard-timegated
+single-real-send/reopen verifier for after 07:00 UTC; it must not launch the app or
+spend a turn earlier. Production and unrelated untracked outputs remain untouched.
+
+At 01:00 Toronto, isolated execution prototype `51943146` is accepted. Both
+previous P2s are closed: canonical Chat validation precedes busy/send, and failed
+fixture close/shutdown/drain retains actual owners plus root/profile. Independent
+source/log review reports no P1/P2. Root's corrected focused run passes all nine
+cases (`/tmp/milagre-routine-execution-root-focused.log`); its first filter matched
+zero tests and is not acceptance evidence. Saved full runs pass 134 runtime and
+228 owner tests with strict checks and failing old-behavior mutation controls.
+
+This remains default-off/test-build-only: no actor timer, execution RPC or installed
+scheduling. The next subagent is integrating a bounded actor timer only on explicit
+fixture roots/features, using the same durable writer; normal Preview remains
+unchanged and no real sends occur before 07:00 UTC. GPUI reports its completed
+independent preview/morning artifact, with signing and latest-pin live limits intact.
+
+At 00:30 Toronto, durable routine execution transactions are accepted separately
+as `bd0e8738`: typed claim/start/finish/recover/expire/complete/attach operations,
+actual Node results/effects/file-byte comparisons, restart/no-redelivery and save
+uncertainty tests. Root rerun passes 88 library tests (two ignored), 14 cron, two
+source-pin tests and three doctests; independent storage review has no P1/P2.
+Logs: `/tmp/milagre-routines-transactions-root-full.log` and agent transaction logs.
+No timer, executor, RPC or installed capability is supplied by that library commit.
+
+At the earlier 00:30 checkpoint, the owner/runtime prototype was not accepted.
+That source review found two P2s: fixture teardown can remove retained data after a
+failed close, and noncanonical Chat aliases can bypass its busy check. The author
+subsequently fixed both with regressions; final acceptance is recorded above. Its
+fixed-native test results are prototype evidence only. Installed Preview still
+matches runtime `862f4cd2` with valid signature; production PID start times match
+previous evidence. Real selected-account sends remain forbidden before 07:00 UTC.
+
+GPUI final peer checkpoint `db5348e0` adopts client `3410109b` and runtime
+`862f4cd2`, with daemon terminal `96e6c476`. Root read the real approval artifact
+`~/Library/Application Support/Milagre GPUI Preview Smoke/run2/run1.json` and log:
+passed, no reported errors, one AllowOnce, and reported Complete cleanup. The app
+log still contains the AppKit sandbox-extension warning. This real approval was
+on the earlier client/runtime pin, not the final one; final-pin checks are fake
+provider plus snapshot-open/shutdown only. GPUI reports reverified exit paths and
+a zip/unzipped launch check. Root confirms the zip exists at
+`output/gpui-preview/Milagre-GPUI-Preview.zip` (35,328,096 bytes). It is ad-hoc
+signed; Developer ID/notarization requires Victor's certificate action. No temporary
+root sweep was performed. Old failed-run directories remain evidence/unknown owners.
+
+The isolated routine-execution lane found the owner's normal routine-context gate.
+A separate default-off fixture-only trusted admission amendment is authorized;
+normal send gates stay intact. No scheduled execution is installed or claimed.
+
+At the 2026-11-12 00:00 Toronto continuation, all previous implementation agents
+were complete and tracked sources clean. Installed Preview hashes/signature still
+match the accepted build below, and production PID start times remain unchanged.
+GPUI reports daemon-terminal commit `96e6c476` and is adopting the final matching
+client/runtime pair. No real send is retried before 07:00 UTC.
+
+The next parallel lane is durable schedule execution transactions in rust-routines
+plus an isolated, explicitly opt-in runtime scheduler. Agents are coordinating
+claim/start/finish/recovery semantics and actual owner dispatch. This is work in
+progress: the installed build remains paused-storage-only, with no timers enabled.
+No new execution capability or completed-port claim follows from dispatching it.
+
+Latest accepted integration is `3410109b`. The default-disabled dedicated runtime
+now supplies Node-exact starter metadata and missing-only legacy repair, typed
+`CHAT_ROOT_BUSY` startup refusal, and a separate launcher-loss cleanup policy.
+Actual fixed-native controller-crash tests reproduce the old orphan, then prove
+exit 0, native-child reap, retained data and saved failed-turn reopen with stderr
+open and closed. Accepted-command drain timeouts retry without reopening admission;
+real save/owner failures retain authority. Ordinary RPC Stop/viewer disconnect
+semantics are unchanged. Runtime 125 tests, wire 34 tests and root shared-client
+79 tests/six compile-fail doctests pass with strict checks and independent reviews.
+
+The final normal app passes both staged and installed no-args lifecycle checks,
+including metadata and paused-storage reads, native Quit and actual temporary
+resource removal. Installed proof:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-GC8XF3/report.json`.
+Package/rollback report: `/private/tmp/milagre-rust-preview-package-gul8ira_/package-report.json`.
+Current shell SHA-256:
+`125c2f591b65f1ea795d3f15322a4ed9e1fea7363eaf98a6891250410fd5c1fa`.
+Current runtime SHA-256:
+`862f4cd2f7a7d243da524852320554e09fd8d11835523a3a6a4fdfa956d70502`.
+The actual existing preview root gained the missing names/IDs while preserving
+all existing session fields, summary times, native ID and next ID, independently
+checked in `/private/tmp/milagre-preview-metadata-before-2rtjtqes/verified.json`.
+No new real turn was sent before the selected account's 02:00 Toronto quota reset.
+
+GPUI received matching client/runtime pins. Root read its real run1/run2 JSON and
+logs and verified marker recall, distinct runtime PIDs, reported Complete cleanup
+and later path absence, without rerunning its live provider or touching its root:
+`/private/tmp/milagre-gpui-peer-evidence-review-elb33fbz/report.json`. Those reports
+contain no permission answers and do contain an AppKit sandbox-extension warning;
+no real approval or empty-app-stderr claim is made. Its final repin and approval
+check remain owned by Chat 11899. Both frontends stay independent.
+
+### Earlier paused-storage package checkpoint
+
+Latest separate normal Preview is installed from runtime `85f4e539`. Source tests
+pass 118 runtime checks and 83 routine library/16 integration/one doctest checks
+(one optional ignored), plus final target/readiness and strict checks. Routine
+storage is paused-only: actual Node create-then-disable result/file parity, no
+scheduler or fake enabled execution. Normal staged and installed app checks pass
+saved reads, routine flags/list and native Quit with actual socket/profile/shell
+removal and retained data. Installed proof:
+`/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-installed-preview-check-Soi2iI/report.json`.
+Package/rollback report: `/private/tmp/milagre-rust-preview-package-bq9_btkh/package-report.json`.
+Post-signing shell SHA-256 is
+`5e5f1c5687a6365c625701cd06438cadadab62bb5f8f3f8cbb46de86c3f50e71`;
+runtime is `2c0eb52b943b4f5ec0fa77cf297acf652ea933ca75db764a8a4e6782ada6c882`.
+No model request ran during these checks. The selected account quota reset remains
+the next fresh installed-real-turn gate.
+
+Shared client `0fe0bbe6` adds typed GitReads after TerminalActions `130d553c`.
+Root 77 tests/six compile-fail doctests pass. Independent review closes both
+capability slices; actual staged checks prove PTY operations and four private
+Git read routes against a synthetic repository, with Complete cleanup. Git
+mutations/PR operations remain absent. GPUI received both additive contracts.
+
+GPUI reports installed/zipped real-data Preview `6692ef28` on its own authorized
+account and root: three real turns, echo, clean Quit and restart recall. Those
+are peer-reported artifacts in `~/Library/Application Support/Milagre GPUI Preview Smoke/`;
+root has not independently rerun them. Its real approval card is still pending.
+The orphan report concerns an earlier failed synthetic harness, with no retained
+logs and unknown client-death signal. Source inspection found a launcher-EOF
+busy-shutdown retry gap; deterministic reproduction/fix is in progress, as are
+typed busy-start errors and Node-exact starter metadata. Normal quit evidence
+remains valid; crash-owner-loss is a separate unfinished gate.
+
+### Earlier base workflow evidence
+
+The shared client checkpoint `90922b6c` is accepted: default-disabled owned Chat
+launch, reads and typed connection-bound actions, independent of GPUI/Tauri. Root
+ran a real selected-account Claude turn through this public API: stream, completion,
+exactly two saved messages, matching send status and Complete cleanup with data
+retained. Default 56 tests/four compile-fail doctests and all-feature 63/five pass;
+the old five-child fixture check and new four-child dedicated check pass.
+GPUI has the API, tested binary pin and public example and is wiring its preview.
+
+Configured Rust content, terminal and Git integration now passes root 114 runtime
+tests, 44 native-terminal tests, and strict feature checks. The real Node wire client
+is only a verifier: it drives actual Rust-owned PTYs and explicitly creates a test
+Git repo through that terminal, then verifies Changes, diff and history. Blocking
+terminal reads do not hold the actor. Shutdown retains the Project lock until
+successful native child reap, completed waiter callback, joined I/O and kill cleanup.
+Independent review closed premature completion and post-spawn error ownership P2s;
+deterministic mutants reproduce both. Unknown cleanup still retains ownership.
+
+Real native content now passes through the unchanged production React controls:
+one composer Send, two exact Allow once MCP cards, HTML and Design creation,
+Design edit/save from version 1 to 2, four nonblank native captures and reload
+without resend/resave. The fresh test's first observer rejected the human-readable
+permission label despite both native stages passing. The corrected exact-label
+assertions revalidated the original saved evidence without replay; the original
+failure remains. Evidence: `/private/tmp/milagre-native-chat-observer-Ywg8gx/verified.json`
+and `/private/tmp/milagre-chat-evidence-qbXE6W/`. Cleanup checks in that revalidation
+were later observations, not measurements immediately after exit. An independent
+actual daemon restart returns the identical four message IDs, HTML and edited
+Design (`milagre-native-content-full-nzmdde58/native-state-readback.json`).
+
+The earlier normal combined runtime SHA-256 is
+`846ee97abc1d8ab38d2ea53c3e510fba726c305e1b58f7256fe07cd9805113f2`.
+Root desktop tests pass 46 (one optional ignored) before the later Finder-launch
+helper tests; default shell tests pass 41 (one ignored). Strict combined Clippy
+also covers feature-on fixture compilation. The earlier hidden-WebKit failures,
+missing preview registration, assetless-source refusal and absent watchdog are
+retained and corrected. Smoke builds request synthetic reduced motion because
+hidden WebKit pauses animation frames; normal builds do not override it. Native
+HTML observes source, helper readiness, opaque sandbox, geometry and pixels; it
+does not inspect the cross-origin iframe DOM. PNG feedback/export, content deletion,
+comments authoring and all unported service errors remain outside this checkpoint.
+
+The separate normal `~/Applications/Milagre Rust Preview.app` is installed and
+strictly signature-verified. A first real startup turn completed. A later installed
+real turn reached Claude but failed at the selected account's five-hour quota,
+reset 2026-11-12 07:00 UTC (02:00 Toronto); that failure is retained and not counted
+as a pass. The normal no-args staged and installed lifecycle checks now pass saved
+reads and native AppKit Quit with actual daemon/profile/socket/shell cleanup and
+data retained. Root found/fixed Tao's native termination bypass before accepting
+that path. Exact hashes, original failures and two passing reports are in
+[PREVIEW.md](PREVIEW.md). No fresh model completion is claimed for those no-send checks.
+
+GPUI reports real-data launcher `58bc79d5d`, fixed-child acceptance and preview
+packaging in progress; its real-provider turn is not yet verified. Both frontends
+remain independent and use their own dedicated roots. Neither replaces production
+or imports existing production data. The ordinary installed Rust shell and
+app-fixture pin remain unchanged.
+
+Routines durable CRUD library `bf9812a3` passes root's full 82-test feature suite
+(one optional ignored), independent review and actual Node result/file-byte
+comparisons. Test subprocesses now share the copied-writer lifecycle mutex to
+prevent inherited fork descriptors from racing cleanup; the initial failed run is
+retained. Agent default 71/feature 82 and ten full feature repeats pass. Shared-client terminal capability `130d553c` passes root 71 tests/five compile-fail
+doctests, independent review and actual PTY output/resize/reconnect/cleanup checks.
+Its serialized I/O requires an explicit second same-daemon Client for long-poll
+reads; both connections must open/apply/accept/drain notifications. GPUI received
+the tested contract. Runtime paused-storage composition is still in progress;
+automatic routine execution remains absent. Phone connectivity, account/login
+adoption, broader services and full upgrade/rollback remain required. No
+migration-complete claim or percentage inferred from tests. Overnight continuation
+heartbeat `b4c9aa19` runs every 30 minutes until 08:19 Toronto, with real quota retry
+forbidden before its stated reset. No production host replacement or push.
+
+### Earlier real Chat checkpoint (4e0ecb47c)
+
+The separate native `milagre-rust-chat` now starts its exact fixed-sibling configured Rust backend, checks the child/peer and persistent-root identities, and uses the production React renderer without Node fallback. Its launcher preserves custom `MILAGRE_DATA_DIR` exclusion before clearing the child's environment. It never deletes the persistent Project, and successful Quit waits for the owned daemon before removing private shell storage. The default installed route and production host are unchanged.
+
+Actual native Allow and Deny runs pass: `dXjCEY` and `QYYFNl` under `/private/tmp/milagre-native-chat-observer-*/observer.json`, with captures in `milagre-chat-evidence-cQyaBg` and `nRzEuO`. Each makes one actual production composer Send and one permission-button click, receives real Claude streaming/resolution/completion, saves two messages (6 to 8, then 8 to 10), reloads with unchanged message IDs/native ID/epoch and performs no resend. Root verified exact allowed-file bytes, denied-file absence, both process exits, socket/owner-lock cleanup, retained data and actual PNGs. Each shell exit is 0 with empty stderr and nonpersistent WebKit. Independent review accepts launcher, unread-state patch and Allow evidence; root separately validated Deny.
+
+Earlier native `QoBrKl`/`7T5NjQ` passes had a visible `chat:patch` error. They remain historical send/render evidence, not a clean-workflow claim. A narrow configured-only `{unread:boolean}` patch now validates connection view, exact scope and existing Chat, updates and flushes through the one owner, then publishes/replies. False deletes the field as Node does. Node reducer/restart checks, save-failure tests and the stronger native assertion pass. Four truthful Project/Canvas/account-scope reads were added; unverified CLI readiness returns a typed refusal.
+
+Root checks: 100 runtime tests, strict all-target feature Clippy/fmt; default desktop 41 tests (one ignored live-host test), fixture 37 (one ignored), 15 JS tests. Agent dedicated-bin validation: 34 tests (one ignored), strict Clippy/lint and fresh production-renderer/native builds. Full evidence, source scope and binary hashes are in [CHAT-DESKTOP.md](CHAT-DESKTOP.md). Current diagnostics still record 36 distinct unavailable service methods, including required content, usage, terminal, Git and routine/integration work. This does not complete the full migration.
+
+Sonnet Chat 10929 was read using its full Chat reference and remains archived/idle at its historical source review. GPUI Chat 11899 is active and received the real-backend checkpoint; its shared-client `9aa5deb3` and fixture `51e90342...36a15d` pins remain unchanged. The earlier cross-Chat read failure was an incomplete identifier, not a production permission change. Current implementation/review uses in-chat subagents. Installed shell signature/hash and production PID start times remain unchanged. No install of the development binary, production restart, mobile fingerprint change or push. Heartbeat remains active.
+
+The restartable `chat-runtime` now passes a real Claude text/stream/save/stop/relaunch/resume workflow without Milagre's Node daemon. It uses one new dedicated Project, explicit executable/account/OS identity and actual bundled instructions. Native Claude Code 2.1.322 completed both Ask-mode turns; the second process read the unchanged saved transcript and recalled the first turn's random marker through the same native session ID. Message totals were two then four. Both exits were 0 with empty stderr, distinct wire epochs, removed private profiles/sockets/owner locks and retained Project data. The external check used the Node wire client, not a Node backend or SDK sidecar.
+
+The first real run failed authentication because the scrubbed launch omitted `USER`/`LOGNAME`. An explicit nonsecret `userName` supplies both; public auth status and the repeated real workflow pass. The failed run is retained. Final source review also closed two cleanup problems: final-Arc explicit flock release prevents fork-inherited descriptors prolonging ownership, and worker lease release precedes drain notification. The deterministic duplicate-description test failed before the fix. Root passes 96 runtime tests, strict feature Clippy/fmt and the normal-feature binary build. Fixed-child three-launch acceptance additionally covers permission answers and duplicate sends. Evidence and exact scope: [CHAT-RUNTIME.md](../rust-runtime/CHAT-RUNTIME.md#accepted-real-claude-checkpoint-2026-11-11), `/tmp/milagre-chat-runtime-root-*-final.log` and private real report `milagre-rust-live-chat-jhwpjdfs/report.json`.
+
+This closes the ordinary real-Claude restart milestone, not full backend replacement. Real tool/permission/image/background behavior, other providers, retained host tools/services, desktop/phone routing, existing-data adoption and upgrade/rollback remain open. Installed Tauri SHA-256 `5ff830b95e9887e8d88838a2b3ad377c69866d3c64f8a270a844ffbf300f5114` still verifies; the GPUI-pinned fixture remains `51e90342bf427d7160ff658f7e5c73e50ed7d9b4dad8148b80cc7688bc36a15d`. Historical Hix1TF WebKit evidence was reread, not rerun. Production PIDs 20674/20679 retain their earlier start times. Neither frontend was rebuilt or installed for the backend entrypoint. Cross-Chat reads were refused by the current tool scope, so no fresh Sonnet/GPUI Chat status is claimed; the in-chat source review is current. Heartbeat remains; nothing pushed.
+
+Image checkpoint `9c5909e7` is accepted within the isolated existing-Chat Claude scope.
+Direct and queued sends preserve Node metadata, native image ordering and content bytes.
+Only owner-selected queued entries can read saved content, through bounded no-follow
+descriptors with type, single-link and digest checks. New-Chat, steering, restore and
+other-provider images remain gated. Invalid/missing queued images hold the queue rather
+than silently dropping an attachment. The fixture's 1 MiB expanded-frame preflight runs
+before content/message writes and session replacement; its 4 KiB wire limit stays intact.
+
+Root passes 226 owner tests (two optional ignored), 159 Claude tests (one live ignored),
+87 default runtime tests and sixteen production Node-client scenarios. The new image
+scenario records two turns, four saved image records and a drained queue. Strict Clippy/fmt,
+runtime all-feature compilation, fresh actual Node prompt-image checks and targeted JS
+lint/format pass. Independent review closes the empty-client-ID hydration P2. Existing
+Read-tool image fixtures remain unchanged. Initial failures are retained: Node 26 changed
+an existing SQLite boolean-binding oracle result; explicit Node 24.13.0 passes. Root's
+initial incorrect runtime NODE_PATH caused module resolution failure; the corrected run
+passes. Two lint-only storage fixes followed. Evidence: `/tmp/milagre-images-root-*` and
+[CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md#image-input-checkpoint).
+
+The installed ordinary shell remains SHA-256 `5ff830b95e9887e8d88838a2b3ad377c69866d3c64f8a270a844ffbf300f5114`
+with a valid strict signature. The GPUI-pinned app-fixture remains `51e90342bf427d7160ff658f7e5c73e50ed7d9b4dad8148b80cc7688bc36a15d`;
+neither was rebuilt or installed for this private provider checkpoint. Historical Hix1TF
+WebKit evidence was reread, not rerun; it does not prove image UI or real-provider behavior.
+Production Node ownership and the heartbeat remain. Local commit hooks reported missing
+lefthook; acceptance is the explicit checks above, not a claimed hook pass.
+
+### Priority change: one runnable Node-free Chat workflow
+
+The user said the hours spent at the repeated 40% to 55% estimate were unacceptable.
+Track end-to-end milestones and concrete blockers instead of reusing that range. The
+next implementation composes existing code into one restartable single-project runtime:
+
+1. Persistent marked data root using existing Isolation create/open, seeded only once;
+   fresh wire profile/socket receipt on each launch, no production-profile adoption.
+2. Reusable Claude provider lifecycle with explicit executable/account environment and
+   real bundled instructions, native session persistence and normal cleanup deadlines.
+3. Truthful bootstrap and one workflow: open, send, stream, approve, finish, stop,
+   relaunch the same data root, read the saved Chat and resume its native session.
+
+Collaboration subagents own provider composition and the runtime entrypoint separately.
+Root owns integration and acceptance. Process-restart tests use the same core with a fixed
+child; real CLI validation remains a distinct required check. No production restart,
+credential discovery, phone change or frontend replacement follows from this direction.
+Further optional fixture polish is deferred unless it blocks the end-to-end milestone.
+
+Background-retention checkpoint `caee6436` is accepted in the isolated Claude fixture.
+Four turns reuse the same native fake process while children or tasks remain active;
+after settlement, the fifth resumes the native id in a new process with TLDR off.
+The lower session lock makes the idle check and logical close atomic. Exact worker
+session/executor pairing retains cleanup; unknown mapper state refuses replacement.
+Explicit close still settles background activity and reaps the worker.
+
+Root passes 157 Claude tests (one live test ignored), 84 default runtime tests and all
+fifteen production Node-client scenarios. The fresh manager oracle matches fifteen
+actual Node SessionManager cases using synthetic sessions, with nine source pins.
+Strict Clippy/fmt, all-feature/all-target compilation, fresh instruction/session recorders
+and targeted JS lint/format pass. Independent source review closes all P1/P2 findings
+within this scope. Two mutations reproduce the busy-restart defect and shutdown refusal.
+
+The first full client run exposed a timing-dependent `PROJECT_NOT_READY` from `daemon:stop`
+after forget. The runtime now audits every refused pre-pump event, then performs the
+unchanged owner shutdown validation. Deterministic tests prove no reopening, writing or
+state publication from late/foreign events; actual save failure retains the lock and a
+stuck terminal fold retains its active turn. The full rerun passes with native PID evidence
+`[80576,80576,80576,80576,80577]` and cleanup true. Failure logs remain alongside accepted
+logs under `/tmp/milagre-retention-root-*`; exact commands and limits are in
+[CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md#ordinary-launch-and-tldr-restart).
+The client detaches its renderer subscription before forget, so active-subscription forget
+is not covered. Implicit extra turns, real CLI equivalence, account routing, images and
+broader workspace/provider authority remain open. No production gate is lifted.
+
+Live permission-mode checkpoint `6e553232` is accepted within the isolated Claude fixture.
+`agent:set-permission-mode` now reaches the captured active or retained idle session and
+holds its RPC reply until the mode result and kept Chat preference are published. Full
+resolves a waiting card; a subsequent Ask change restores prompting in the same turn.
+The fixed fake process checks actual Node control/answer traces. The shared client,
+app-fixture capability and other providers do not gain this command.
+
+Root passes 154 Claude tests (one live test ignored), 74 default runtime tests, nineteen
+owner lifecycle tests plus its real Node oracle, and fourteen production Node-client
+fixture scenarios. The implementation agent's full owner suite passes 211 tests with two
+ignored; root inspected its log. Strict Rust Clippy/fmt, runtime all-feature/all-target
+compilation and fresh non-writing Node recorders pass. Targeted JS lint has no errors and
+six existing recorder shadow warnings; formatting passes. Independent source review closes
+the premature-close release, replacement-session identity and discarded-receipt P2s.
+Unknown mode operations retain capacity; exact cleanup receipts survive forget/quit and
+overflow disposal without preference writes or replay. Real CLI behavior, steering-carried
+mode changes, broader workspace/account authority and production execution remain open.
+
+Logs and the corrected missing-NODE_PATH and wrong-linter setup attempts are recorded in
+[CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md#live-permission-changes).
+No pattern signals or cleanup scans were used. Root commits printed that lefthook was not
+found; the explicit checks above are the validation evidence, not commit-hook success.
+
+Implementation agents are settled and Sonnet Chat 10929 remains archived/idle; independent
+review is now handled by subagents. GPUI Chat 11899 reports 1,400 tests and installed build
+`a031d4b2`; root read its report, not a fresh GPUI run. Its client/daemon pins remain unchanged.
+The installed ordinary shell again matches SHA-256 `5ff830b9`, and strict signature verification
+passes. Production PIDs 20674/20679 retain their original starts. Saved Hix1TF evidence was
+reread: both actual WebKit content runs pass with zero observed main-document errors and
+two expected CSP probes per phase; their generated roots remain absent. Those runs used
+historical daemon `71f174eb`, not the current pinned `51e90342`. No fresh native or real-provider
+pass follows from this backend checkpoint. No shell change required reinstalling; no fixture
+was installed or production restarted. The migration remains incomplete and the heartbeat
+remains enabled. The planning range stays 40% to 55% of retained backend engineering;
+production owner cutover remains 0%.
+
+Auto/Full Project-Chat checkpoint `6a57ae05` is accepted within the isolated fake-provider
+scope. Fresh root checks pass 151 Claude tests (one live test ignored), 69 default runtime
+tests and thirteen production Node-client fixture scenarios. Strict Clippy/fmt,
+all-feature/all-target compilation and fresh Node recorder checks pass, including the
+three-mode trace and 61 workspace cases. Independent source rereview closes all P2s.
+
+The review exposed stale turn/mode decisions, premature inbound-capacity release, panic
+falling through to Full allow, and queued checks entering after revocation. The final
+fix uses turn/mode epochs, retained handler capacity, eight blocking-worker permits and
+an entry gate after both queues. Eleven lifecycle tests include eight entered callbacks
+plus one queued request under withdrawal, close, Drop and turn end. Close drains admitted
+policy bodies; queued wrappers and final handler bookkeeping may finish later. A policy
+that never returns still retains ownership and keeps close waiting. Full is unrestricted
+after guard/access decisions. Steering-carried mode routing, broader workspace authority,
+real-CLI behavior and production execution remain open.
+
+Historical process-handling incident: the author disclosed a broad fake-claude SIGTERM
+and about sixteen pattern SIGKILL commands for access_lifecycle tests, without timing or
+matched-process evidence. Cross-test impact is unknown. Those earlier cleanup claims
+are not acceptance evidence. The fresh root checks above used no external test-process
+signals or timeout cleanup. Further handling must use exact retained ownership.
+The pinned GPUI fixture remains `51e90342`; no fixture was installed.
+
+Root acceptance logs: `/tmp/milagre-claude-access-root-final-{tests,clippy,fmt}.log`,
+`/tmp/milagre-runtime-access-root-final-{tests,allfeatures,clippy,fmt,build,node}.log`,
+and `/tmp/milagre-access-root-final-{instructions,session}.log`. Earlier failing review
+checkpoints and logs are retained in history.
+
+Ordinary Claude assembly `991d730b` is accepted within the fixed native fake scope.
+Root passes 137 rust-claude tests (one live test ignored), 93 combined runtime tests,
+all twelve production Node-client fixture scenarios, strict all-target Clippy and fmt.
+Both non-writing recorders match fresh actual Node behavior: 81 instruction texts,
+eight existing session traces, two ordinary launch queries and 40 prompt-suggestion
+cases. Independent source review finds no P1/P2 in that scope. The default TLDR/reply
+settings and a no-background idle TLDR-change restart/resume are now admitted.
+Background-aware session retention, real-CLI private-file versus initialize prompt
+equivalence, broader workspace authority, images, account routing and broader tools remain
+open. No MonoCode code was copied. Detailed evidence and the corrected initial missing
+NODE_PATH test attempt are recorded in [CLAUDE-FIXTURE.md](../rust-runtime/CLAUDE-FIXTURE.md).
+
+Routine slice 3 `2a6fff36` is accepted as test-only retained-parent crash/reopen evidence.
+Root passes 87 Rust tests plus one doctest, strict Clippy/fmt, three native controls and
+all six compiled native mutants. Seven new tests exercise fourteen owned child processes;
+reconciliation requires exact reap plus the original retained descriptors and candidate
+inode. Independent review finds no P1/P2. Four OS/setup/IPC failure paths remain
+source-only; arbitrary restart recovery, lost-parent recovery, power-loss durability and
+production storage remain open. See [CRASH-WRITER-CHECKPOINT.md](../rust-routines/CRASH-WRITER-CHECKPOINT.md).
+
+The runtime rebuild replaced the development app-fixture binary with SHA-256
+`51e90342bf427d7160ff658f7e5c73e50ed7d9b4dad8148b80cc7688bc36a15d`.
+Root reran the shared client's five real owned-child scenarios against it, with Complete
+cleanup and removed stage (`/tmp/milagre-client-ordinary-root-fixture.log`). The client
+API/tree is unchanged. GPUI adopted the new daemon pin in its separate commit
+`a053654f`, after twelve actual adapter fixture tests passed at GPUI `296e300b` and
+backend `f5188740`. Root inspected that commit and the saved
+`chat-tie0/experiments/rust-gpui/daemon-check/target/check-gpui-adapter.log`, rather than
+rerunning the GPUI suite. The shared-client pin remains `9aa5deb3`; only the adapter
+fixture hash and its separate lockfile changed. This remains off-default fixture
+integration, not production UI/authority evidence. The installed ordinary Tauri
+binary/signature and production host PIDs are unchanged; no fixture is installed.
+
+Offline HTTP probe `5dacc23e` is accepted as a standalone prerequisite. It drives real Hyper HTTP/1 over bounded generated memory IO without sockets, a runtime, production authority or HTTP Begin. Root passes its single aggregate Rust test (30 parser rows and nine ownership/cancellation rows), strict Clippy, formatting and all seven source/manifest/lock hashes; an independent subagent review found no code blocker. Every captured allocation is released after final disposal. The full 8 MiB upload plus 64 MiB response/trailer trace peaks at 76,009,090 requested-layout bytes. This is measurement, not a certified heap/RSS or admission bound. Transport overhead, forwarded headers, original request capacity, server/socket ownership and composed prepayment still need evidence before actual HTTP integration. Root logs: `/tmp/milagre-http-probe-root-{tests,clippy,fmt}.log`.
+
+Fresh routine writer `e5c34652` is accepted after root 80 Rust tests plus one doctest, strict Clippy/fmt and Claude Sonnet's independent source rereview closing all four findings. The added post-rename Drop regression proves retained locks/capacity, saved candidate bytes, close-only cleanup and no claim redelivery. Source pins now account for all ten plan rows; unused intent bookkeeping is removed and poisoned-writer refusal is explicitly permanent. Root's preceding copied-file and model fixtures each matched 841 actual Node observations plus 98 separate refusals; the implementation agent repeated the copied-file oracle after amendments. These are isolated in-process writer checks, not crash/reopen, native-owner mutation or production durability evidence. Logs: `/tmp/milagre-routines-writer-root-amended-{tests,clippy,fmt}.log`; exact transient test-artifact cleanup and the initial over-specific assertion are recorded in `COPIED-WRITER-CHECKPOINT.md`.
+
+The user retained the full feature scope and asked Claude to accelerate. Ordinary Claude assembly and the bounded Auto/Full Project-access increment are accepted above. New service authority or policy enforcement gaps require a concrete proposal; live provider execution remains gated. Background-aware TLDR restart is still outstanding. Claude advisors run in this Chat, without new sidebar subchats. Root retains integration, commits and final validation.
+
+At the user's request, root and a read-only subagent inspected `hardbeat920/monocode` at `7e5a9e3690d5b96a7d93ebf884397835e57b9b7e`. The user explicitly authorizes direct reuse of suitable MIT-licensed code, superseding the intervening reference-only direction. Preserve copyright/license notices and separately applicable third-party notices; record copied-source provenance. This does not require an MIT attribution badge in the product UI. Both the Claude implementation advisor and GPUI Chat 11899 received the correction. Monocode's remote host still packages Node 24.21.0; its storage/protocol assumptions do not replace Milagre ownership or compatibility work. GPUI is evaluating its headless Metal snapshot approach and clipping/blur patches. At the assessment checkpoint no upstream code was installed or run, and no frontend replacement or shared-client pin change followed.
+
+Routine candidate checkpoint `9fdf0c0c` implements the first slice of accepted writer plan `785989a3`. A prepared change remains inside its originating Model, with checked identity/generation, one pending operation, prebuilt publication data and exact-once installation. Results/effects remain withheld; pre-I/O failure discards only that candidate and preserves consumed IDs. Root passes 61 Rust tests plus one doctest, strict Clippy/fmt, 157 actual Node tests, 841 store observations, 98 separate refusals and six compiled store mutants. The implementation agent also rechecked the unchanged 4,168 cron vectors and six cron mutants. Independent source review found no P1/P2. Caught dispatch panic and save-counter exhaustion remain documented private branch-coverage gaps. Logs are `/tmp/milagre-routines-candidate-root-{tests,clippy,fmt,node,parity,mutations}.log`. The private fresh copied-store disk writer is now being implemented; this candidate seam itself performs no filesystem I/O.
+
+Remote follow-up `f3e5215e` adds the 16-queue/two-retained-worker saturation regression. Three carrier replacements preserve occupied neighbors and reject stale tickets; every measured window visits all 16 current queued IDs while both old workers remain unjoined. Releasing one exact worker permits unrelated progress. Root 391 Rust tests plus nine doctests, the final five fairness tests and strict Clippy pass. Independent review also caught and closed a test-barrier cleanup gap. Replacement occurs between windows; continuous replacement with a free core and saturated lanes remains a separate combined gap. Production code is unchanged. Logs: `/tmp/milagre-remote-saturation-root-tests.log` and `/tmp/milagre-remote-saturation-root-final-{focused,clippy}.log`.
+
+Accepted direction `c2a24457` scopes real authority-owned loopback HTTP through joined Ready, with the full 64 MiB response bound and no HTTP MaySend/Completed. Audit `fa23ed5f` identifies the 13-package sync-only parser/driver candidate and records 19 verified candidate archive checksums. Root checked hashes and arithmetic; independent source review found no P1/P2. Transport/container overhead remains uncertified. A standalone offline allocation/ownership probe is now authorized, with its own manifest and no network, base dependency changes or HTTP Begin. Proposed private 128 MiB connection/device counters retain the original 256 MiB global pool and do not change ordinary defaults. Actual HTTP, multipart encrypted delivery and real-phone interoperability remain open.
+
+This checkpoint reverified the installed ordinary shell signature/hash and unchanged production PIDs 20674/20679. Saved real WebKit Hix1TF evidence still has two passing content runs and was reread, not rerun for these unconnected backend changes. GPUI Chat 11899 reports all planned UI packages committed through `3ffdd6f4`, 1,367 passing tests and an active final wiring/icon pass; these are its reports, not root validation or production daemon integration. Shared-client pins and the frontend separation remain unchanged. Sonnet Chat 10929 stays archived and idle; current independent reviews use collaboration subagents. Unrelated untracked `.build/` and `pnpm-workspace.yaml` were preserved. Nothing pushed; no production restart, fixture installation or mobile fingerprint change.
+
+Native content-health checkpoint `7bb09e43` strengthens the real WebKit evidence. The final observer explicitly requires `--content` and independently checks the exact retained assistant/Chat, positive viewport intersection, zero counted main-document uncaught/rejection/console errors, and complete CSP records containing only the two intentional image probes. Root observed two fresh passes in `/private/tmp/milagre-native-fixture-observer-Hix1TF/observer.json`, after an initial strengthened `Q5709f` pass. All four phases retain assistant 11 / Chat 1 and saved Design version 2; phase 1 repeats neither send nor save. Exits are zero, stderr empty, stores nonpersistent, Stop/Exit cleanup succeeds and roots remain absent through five seconds. Independent source/artifact review found no P1/P2; root and reviewer viewed the Q5709f after-reload PNG. Geometry does not cover clipping/occlusion, and startup/iframe/resource errors remain outside the main-document observation. Root 53 shell-target and 38 fixture-target tests pass (one ignored each), nine helper tests, strict Clippy and targeted JS lint/format pass. Logs `/tmp/milagre-content-health-{tests,clippy,helper,renderer,build,daemon,native-final}.log`. No production component changed or fixture installed.
+
+Routine state checkpoint `4ff6175e` implements the accepted `7f9a2b66` scope: private schedule/heartbeat CRUD, due/manual claims, finish, maintenance and recovery. Root passes 48 Rust tests plus one doctest, 157 real Node store/cron tests, 25 real Node traces with 841 exact observations, six compiled store mutants, strict Clippy/fmt and the retained 4,168 cron comparisons. Eight unsupported-seed and 90 non-string-ID observations are deliberate refusals outside the parity count. Independent review closes numeric/string ID aliasing, inherited object-name behavior and signed-zero ordering; missing-value and lazy error-interpolation regressions also pass after a fresh fixture rebuild. Logs are `/tmp/milagre-routines-store-root-accepted-{tests,clippy,parity,mutations}.log`, `/tmp/milagre-routines-store-root-node-tests.log` and `/tmp/milagre-routines-store-root-cron-parity.log`. This proves logical publication and Node state behavior within the explicit domain, not disk durability, scheduler/dispatch authority or production admission. A fresh copied-store writer proposal is next.
+
+Remote checked wakes `c2e535a4` and rotating device turns `e5827fb7` complete the private synthetic 2B.3 checkpoint. Root final 390 Rust tests, nine doctests, strict Clippy/fmt, rebuilt examples and all seven Node checks pass. Independent source review found no P1/P2 in both increments; six wake and seven fairness mutants fail at their intended assertions. Checked generation/unpark survives scan-to-park races, overflow refuses final commits, and exact worker/packet cleanup remains the completion evidence. Sixteen physical queued-device buckets advance one visit each round, with control and ordinary command progress and checked reuse. Backing is prepaid before writer acquisition; no production/network/phone authority is added. The combined continuous-replacement plus maximum retained-core/queue-pressure trace remains an explicit P3 test gap. Root logs: `/tmp/milagre-remote-fair-root-{tests,clippy,examples}.log` and `/tmp/milagre-remote-fair-root-node-{wire,phone,policy,proof,registry,http,restart}.log`.
+
+The first root wake suite hit OS 28 (`No space left on device`) in an existing temporary-record save. The isolated test and full suite then passed without code changes or root cleanup; the failure log is retained. GPUI Chat 11899 separately reported a full disk during agent builds and its own cache cleanup. Root later observed 280 GiB free. The archived Sonnet Chat 10929 remains idle with its older source/artifact review; current checkpoints were reviewed by collaboration subagents. GPUI now reports a fixture-only Simulator viewer at `36866ca6` and 1,355 library tests, not rerun by root. Real simulator relay remains unconnected. Coordination confirmed shared client `9aa5deb3`, the app-fixture binary and frontend separation are unchanged. Installed shell signature and SHA-256 were reverified, and production PIDs 20674/20679 retain the same starts. No fixture was installed, production restarted, mobile fingerprint changed or push performed.
+
+Pure routine checkpoint `2e28e486` is accepted: `parseCron`, `everyToCron` and `nextRun` are ported within the documented typed/bounded IANA domain, without timers, persistence, process execution or production registration. Explicit embedded IANA 2025b bytes match the actual Node v24.13.0 / ICU 77.1 oracle; ambient timezone discovery is disabled. Root 15 Rust tests plus one compile-fail doctest, 19 existing Node tests, 4,168 exact differential vectors, six deliberate-refusal observations and six compiled semantic mutation checks pass. Strict Clippy/fmt pass. Independent source review found no P1/P2; its refusal-evidence length/cause P3 is repaired. Logs: `/tmp/milagre-routines-root-{tests,clippy,node,parity,mutations}.log`. SystemV ICU-only identifiers and the explicit input limits are still compatibility gaps, so this is neither complete cron parity nor the full routines port.
+
+Remote wake/fairness plan `61d46d53` incorporates independent review on lock-free wake acquisition, retained weak-allocation accounting, a park predicate that permits idle blocked work, checked bucket generations and Registry-owned expiry. Checked wakes are the next separate implementation, before rotating buckets. Amendment `d84fb96d` is independently reviewed and accepted: a Shared-held split retains the hub and local-counter allocation charge through old strong clients, with explicit existing Shared weak-tail accounting limits. The checked-wake and rotating-bucket implementations are now accepted at `c2e535a4` and `e5827fb7` with the validation above. Routine state/claims are accepted separately at `4ff6175e`; durable writer design follows. None grants production authority.
+
+The installed ordinary shell signature still verifies, with executable SHA-256 `5ff830b95e9887e8d88838a2b3ad377c69866d3c64f8a270a844ffbf300f5114`. Production PIDs 20674/20679 retain November 11 09:37:50/51 starts. Saved real WebKit observer `YpZlgj` remains passing and was reread, not rerun for these unconnected backend changes. No fixture is installed; production Node ownership, the user's frontend choice and the heartbeat remain. Nothing pushed, no production restart or native mobile change.
+
+Frontend choice is explicitly deferred to the user at the end. Tauri keeps the React UI and GPUI remains an independent worktree/crate. Both target the same frontend-independent Rust daemon/client. Installed Tauri still uses its existing transport and Node owner; GPUI currently uses the shared client in an off-by-default fixture check crate. No backend dependency on GPUI or replacement of Tauri is authorized by these checks.
+
+Shared client `9aa5deb3` implements `FixtureGuard::scripted_actions(&Client)` with async send/interrupt, exact guard authority, weak connection lifetime and fixed scripted provider/Ask policy. Bounds are checked before enqueue. Pre-open `ISOLATED_SCOPE_ONLY` is preserved; no retry, reconnect or implicit open. Root 56 unit tests, four compile-fail doctests, strict Clippy and actual public send/interrupt checks pass. `/tmp/milagre-public-actions-real.log` records all five children and their cleanup, with unchanged daemon SHA-256 `0a909ce5aa8887a7cf3174a1c6f98d849a7bdd5bba3bfec5e48d3381cb20ca5c` and runner `0aa7199319d61e82843cc1ec84b9c13b06ed3c68fb579aaa8571d2e18d1ef8da`. Native fixture UI was not rerun for this client-only change.
+
+GPUI `801f9fee` fixes the snapshot-limit P2 from `9a50ea52`; independent source/log review found no remaining P1/P2 in that change. `af8fbd4a` now has 11 actual fixture passes, live reducer run/text/terminal evidence, cancellation and six messages rendered through a manual transcript-entity swap. Independent source/log review found no P1/P2 in that scope. Composer submission, automatic base-app wiring and visible streaming are still unverified. Reported 23 ordinary / 542 unchanged base tests are GPUI results, not root reruns. Absolute wire and run counters differ by design. Populated `session-started` may omit state and an already-ready `project:open` may publish no event; the shared contract now states those conditions. Small assertion/documentation follow-ups were sent back.
+
+ACP `bccf6b69` implements the private native core under agreed contract `a2bc3352`. Root 58 default / 117 all-feature tests, one doctest, 12 standalone tests, strict Clippy and five actual native cases pass. Logs `/tmp/milagre-acp-core-root-{default,all,context,clippy,context-clippy,real}.log`. Native binary SHA-256 `6dbd6329c5d99908a498ebe0fafc9273c95d5636d983fb14b37cda0e1d9b7b44`, runner `247ed292c5b1f69b5e5f8324c9a684fac7b6d848883799104066d07d13e194ba`. Source review found no P1/P2. Copied-service ownership/admission is the next separate checkpoint, with native spawning disconnected until reviewed.
+
+Remote `bd46a369` implements bounded private owner admission, 512 global/32-device retained statuses, 16 preparation/submission cells and exact existing-mailbox adoption. A source-review P2 found that an expired inspected request could promote its successor without waking the owner; a failing real-actor regression reproduced it, and actual promoted tokens now reassert WorkAvailable before refusal. Root final 315 tests, nine doctests, strict Clippy and formatting pass in `/tmp/milagre-remote-admission-root-final{,-clippy}.log`. Independent source review closes the P2. Agent examples/seven Node checks pass. Queued workers are not executed in this stage; fairness, delivery and real HTTP/phone integration remain open.
+
+Shared-client follow-up `555d892b` pins the empty cancelled assistant body/role for `fixture:blocked-start` before any text delta. The repeated real five-child check passes and all 15 profile/socket/launch paths are absent; log `/tmp/milagre-client-cancel-body-real.log`, runner SHA-256 `3c23c9a35fd7d02d7227431642ea652b5e31c1ac6b0e560d1f3a12d2e260f2f1`, unchanged daemon. GPUI `f17d8a0b` saved evidence has 11 actual passes, explicit accepted snapshot/run watermarks, both pre-open action refusals and exact completed/cancelled transcripts. Root read its source and log. Follow-up GPUI `8305226a` closes the incidental project:state-on-open assumption: its required positive proof sends after accepting the snapshot, then checks state-bearing admission/terminal events, counts 6/2, model/outcome, payload stamp and saved bodies. Root read the source and saved 12-pass actual-fixture log; 23 ordinary and 576 base passes are GPUI-reported results. The checkpoint is accepted within its off-by-default/manual mounted-transcript scope. This is a test-contract correction, not a daemon behavior change.
+
+Remote stage 2A `18229be6` implements agreed plan `7a2c93b7`: consuming submissions now reach exact tracked-core start/cancel/poll/disposal with Ready retained, no delivery or Completed yet. Begin shares cancellation/stop synchronization, generic flush preserves exact tracked fences, actual promotions notify readiness, and core drainage precedes row/backing release. Root 335 tests, nine doctests, strict Clippy/fmt and the final saturated Begin race check pass in `/tmp/milagre-remote-lifecycle-root{,-clippy,-final-race}.log`. Independent final source review found no P1/P2. Agent example builds and seven Node checks also pass. Stage 2B peer delivery, completion wakes and full fairness remain separately gated; no HTTP or phone transport is added.
+
+ACP `2a5ea049` closes the unstamped-worker deadline gap: terminal publication revokes its retained Control before publishing completion. Root 117 all-feature tests, one compile-fail doctest, both strict Clippy contexts and six actual staged cases pass. The new case retains Control through the five-second deadline, observes no spawn and removed resources, refuses a later capture, then runs another child to prove capacity was released. Logs: `/tmp/milagre-acp-service-root-all.log`, `/tmp/milagre-acp-service-root-clippy.log`, `/tmp/milagre-acp-service-root-context-clippy.log`, `/tmp/milagre-acp-unstamped-root-real.log`. Independent source review found no P1/P2 in this separate fix.
+
+ACP `3ab4a9e7` integrates copied-account/registry/ChatHost admission, still disconnected from native execution. Actual ChatHost send allocates the Chat and turn; no Chat or transcript is seeded. Selection, readiness epochs, registry grants and held directory descriptors are revalidated. Review caught a consumed-slot lock-release failure that could make a later close look successful. The repair retains cleanup uncertainty and the remaining account writer across retry, finish, Drop and attempted account reopen. Root 12 native-context plus 12 service tests and strict standalone Clippy/fmt pass in `/tmp/milagre-acp-service-root-final{,-clippy}.log`; independent source rereview closes the P2. The standalone dependency graph confirms no owner test-fixtures or milagre-acp dependency. The ignored retaining child runs through an ordinary parent test, which removes only its identity-checked roots after process exit. Service evidence remains observational; the next checkpoint must join its authorization and cleanup to the native core. Neither this nor remote stage 2A is production adoption.
+
+ACP `ea5e57fe` implements the first seam under `c2769427`: native reservation precedes activation, registered workspace input owns descriptor copies only, scratch deletion is separate, and an exact non-Clone cleanup acknowledgment requires actual worker join or proven no-thread disposal. One immutable deadline governs preparation/stamp/commit; normal success requires observed natural zero exit. Review tightened registered ACTIVE retention through descriptor destruction while preserving the existing wrapper's publication behavior. Root 58 default / 119 all-feature tests, one doctest, 14 native-context plus 12 service tests, strict Clippy/fmt and seven actual staged cases pass. Logs `/tmp/milagre-acp-reservation-root-{default,final-all,final-context,final-clippy,final-context-clippy,final-real}.log`. Independent final source review found no P1/P2.
+
+The new staged native case observes registered cwd identity and prompt digest, holds clean-looking public progress before descriptor destruction, proves another reservation stays Busy, then obtains the exact joined acknowledgment and observes closed descriptor copies with original service directories preserved. It also covers expiry after stamp with no spawn, replacement refusal, thread-creation/spawn failure, caught panic and cancellation. Final staged binary SHA-256 `120587fc82a50c09899833af14787b02df4b7910616dd777184fc630882fd838`, runner `3ed0e5488cd6821df127f8a13f653afc82ca944048424bfc29dd7066c33b6474`; manifest explicitly disclaims source attestation. These descriptors come from fresh test-owned directories, not actual service admission. The next authorized implementation connects the actual ServiceOwner and host ProviderEvents, with cleanup gated on this joined acknowledgment.
+
+Remote `fd467e61` implements plan `cbf19757` increment 2B.1: charged actor-owned synthetic peer setup, original-session budget descriptors, a combined 16-cell pending/installed peer ledger, consuming transfer and fixed requests through the real Registry. Accepted replies remain pinned through abandonment; post-seal failures close only the exact carrier. Root 346 tests, nine doctests, strict all-target Clippy/fmt, example builds and all seven Node checks pass. Logs `/tmp/milagre-remote-peer-root-{test,clippy,examples,node}.log` record the Rust checks and initial reciprocal Node check; the six remaining Node checks also passed directly. Independent source review found no P1/P2. Results still stop at Ready. The later delivery checkpoint is described below; wake/fairness increment 2B.3 remains separately gated. GPUI coordinator 11899 recorded terminal ownership in its `107844e9` port map: its local drawer PTY is interim UI evidence; final ownership will be the common Rust daemon through the frontend-independent client. Its adapter remains pinned to `9aa5deb3`.
+
+ACP `feb7d182` connects the real copied-service ChatHost to the retained native core for a fixed empty turn. Actual host TurnId, prompt digest and registered cwd are checked; service/account release requires exact joined cleanup acknowledgment. Root's cancellation-versus-completion and pre-enqueue bookkeeping findings are fixed, with deterministic races and saved-state checks. Unactivated reservation panic, account reopen before disposal, delayed native cleanup, failed service saves and sticky lock release all retain ownership correctly. Independent source review found no P1/P2. A P3 remains: the fixture terminal observation stays unset after an initially retained save even if later close succeeds; this never substitutes for actual save/close evidence.
+
+Root 58 default tests, 124 all-feature tests plus one doctest, 53 standalone tests, all three strict Clippy contexts and formatting pass. All 18 staged native cases pass in `/tmp/milagre-acp-composition-root-real.log`; the generated stage was removed. Other logs use `/tmp/milagre-acp-composition-root-{default,all,context,default-clippy,clippy,context-clippy,features}.log`. Native SHA-256 is `04c6d7312a366abcfec9c5eebcc503f4e71953dde47a9217f2c26279fb9bf4ce`, composed runner `fd20d91f87d1527864e38f12f1323c5d04a61166173392c9fdbf9bfb08ce58fa`. The manifest disclaims source attestation. The unchanged owner fallback remains "The agent finished without a reply." This proves synthetic native lifecycle composition, not a full ACP session, model-generated reply or production provider authority.
+
+The next missing-service work is the pure routine cron/timezone port under a new isolated `rust-routines` crate, compared against actual Node scheduling functions. It will add no timer, live routine writer or runtime registration in its first checkpoint. Remote `9f91940e` implements private increment 2B.2 under plans `f14e88f2` / `b8490ec3`. Actual peer verification, Packet Drop returned credit and worker join now reach Completed through shared-path commits, with fresh clock checks against exact claim/session/fragment/completion expiry. Post-seal loss closes only the exact carrier. Root validation exposed owner expiry being published ahead of Registry timeout after two differing clock samples. A deterministic regression reproduces it; owner expiry now requires actual Registry TimedOut evidence and preserves one real successor promotion/deadline. Root 365 tests, nine doctests, strict Clippy/fmt, rebuilt examples and all seven Node checks pass in `/tmp/milagre-remote-delivery-root-final-*.log`. Independent source review of delivery and the expiry repair found no P1/P2. The original failed run and discriminating mutation remain in `/tmp/milagre-remote-delivery-root-test.log` and `/tmp/milagre-remote-expiry-mutant.log`.
+
+Remote follow-ups are explicit: owner queue crossings for claim/completion expiry and clock rollback, plus duplicate-attempt observation lifetime after another attempt extends the shared Registry token. These grant no replay authority. Private wake/fairness increment 2B.3 is under plan review, without implementation authorization yet. Real networking, HTTP execution, live phones and production profile admission remain absent.
+
+The saved WebKit `YpZlgj` observer still records two passing content/send/save/reload runs with nonpersistent stores and both roots absent through five seconds. It was reread, not rerun. Installed ordinary Rust app signature verifies and binary SHA-256 remains `5ff830b95e9887e8d88838a2b3ad377c69866d3c64f8a270a844ffbf300f5114`. Production PIDs 20674/20679 retain November 11 09:37:50/51 starts. Previously observed installed Rust PID 26860 is now absent; this work did not stop or restart it. No production restart, fixture installation, mobile change or push. The Node owner and heartbeat remain.
+
+### Earlier integrated checkpoints
+
+Runtime shutdown P2 repaired in `e4fd033c`: a failed release no longer becomes `PROJECT_NOT_READY` or drops its stranded-lock notice. The generated-lock regression checks original error, one audit notice, revoked retained content, hidden Project/runs and an explicit shutdown retry, both before and after a delivery failure. Root 85 tests and strict Clippy pass (`/tmp/milagre-runtime-shutdown-{root,clippy}.log`). Remote failed-Begin P2 repaired in `6195a051` (agent `ff97c4d3`): failed immediate starts cancel/join, terminalize their exact claim and refund the slot before returning without an ID. Root 279 tests plus 8 doctests and strict Clippy pass (`/tmp/milagre-remote-begin-refund-{root,clippy}.log`). Independent local source review found no P1/P2 in either fix. Defensive unexpected-execution cleanup and early-pump-error plus later-publication-error combinations are source-reviewed, not directly covered by the new regressions.
+
+Sonnet 10929 later completed its saved desktop/content and shared-client source review (`rust-desktop-native-content-smoke-and-daemon-client-review.md`), finding no P1/P2 in `36ca91b8` and `b15bd69d`. This was source/artifact review only. At the user's request, new backend work uses collaboration subagents. Completed checkpoint Chats 10960, 11038, 11013, 10929, 10975 and 11150 are archived; worktrees, commits and reports remain. GPUI coordinator 11899 stays active.
+
+Remote reservation/fence `0febbd3a` and packet/peer-verification `e69819b0` are integrated. Completion requires actual join, exact synthetic peer acceptance and a packet Drop receipt after bytes and lease are destroyed. Post-seal loss closes and physically drains the exact carrier. Root 298 tests plus 8 doctests, strict Clippy and formatting pass (`/tmp/milagre-remote-tracked-{root,clippy}.log`); the agent also passed seven Node checks and example builds. Local independent source review found no P1/P2. Owner queue/fair-pump contract `e68201cc` is agreed; a subagent is implementing its first private preparation/status/mailbox-adoption stage. The fair delivery pump, HTTP and real phones remain unwired.
+
+ACP proposal `4b148532` (agent `88a15410`) records synthetic host-binding requirements only. Default-off native backend `0d9e0a26` is now integrated: root 58 default tests, 114 all-feature tests, one compile-fail doctest, strict Clippy and formatting pass. Actual `/tmp/milagre-acp-private-copy-root-real.log` verifies the compiled native fake's PID/cwd/nonce/consumed frame and text digests, normal reap/removal, cancellation, observer drop, injected panic, failed spawn and both sides of commitment revocation. The expected injected panic prints during the passing test. Staged binary SHA-256 is `b812c4b93ff8573d6945fc8b544d8db6746c27ad9267014f4489fe3c62b2c9b4`; runner `f67d7f224e32c96cc7dd08ea741d373692950a7bad405ebf1857d10594dd7329`; stage cleanup passes. Agent validation also passed four Node recorders.
+
+This is deliberately cooperative same-UID private-path execution, exact-child-only cleanup, no descendant guarantee, no full ACP session and no account/ChatHost binding yet. The existing supervisor's post-reap group signaling is not reused. Local source review found no P1/P2 after fixing competing waiters and partial-preparation ownership. Full-worker uncertain-preparation/Busy retention coverage remains a P3; the primitive ownership path is tested. The next subagent checkpoint specifies the exclusive synthetic coordinator and two-phase host cleanup. No real provider gate is lifted.
+
+Integrated usage `766968a4`, ACP `28b3a456`, remote contract/core `79f7fe03` / `d797e6d1`, and owner summaries `2aae849f`. Root integration checks pass: owner 187 tests (2 optional ignored), ACP 58 default / 69 planner / 104 all features, remote 275 tests plus 8 doctests, and usage 79 base tests with admission off/on plus 11 trusted adapter tests. All four ACP recorders, seven remote Node checks and nine usage Node traces pass, as do strict Clippy and formatting. The usage adapter also passes against current committed dependencies, without changing its reproducible pinned export. Logs: `/tmp/milagre-integrated-*.log`. The completed and pending review scopes are recorded above; these counts remain the earlier integration baseline.
+
+The shared GPUI/backend client contract is agreed with Chat 11899. Backend owns `experiments/rust-daemon-client`; GPUI owns mappings and reducers. Hydration `a2c6d73d` holds unresolved oversized events behind explicit snapshot acceptance, reads only the exact owned Project, bounds all replacement bytes and preserves global envelopes. Hydrated state is current deferred state, not historical at the envelope's sequence. Failures close visibly. Worker unwinding now closes notifications.
+
+Populated fixture `5eb6d63f` adds `FixtureGuard::launch_populated()` and the closed `--populated-transcript` preset. Three real Scripted turns produce six messages across two Chats before socket binding; summaries and timestamps come from the owner and a flush must succeed. Startup notices are audited and drained with the maximum owner run sequence retained. A deterministic no-actor test guards the snapshot-first ordering. Default native-send fixture behavior is unchanged.
+
+Root 47 client tests, 3 compile-fail doctests, 86 combined runtime tests, strict Clippy and formatting pass. `/tmp/milagre-populated-real-final.log` records the actual four-child fixture check: live hydration, six reads, result/snapshot paging, reconnect, cancellation/drop cleanup and the populated preset's before/turns/limit paging with zero client sends. All 12 profile/socket/launch-root paths were independently rechecked absent. Final daemon SHA-256: `0a909ce5aa8887a7cf3174a1c6f98d849a7bdd5bba3bfec5e48d3381cb20ca5c`; runner: `52cb0897ff383e361c123bf431d3cf7fcf260fa38439f39b50a267c8226df5c3`. The manifest identifies binaries without claiming checkout HEAD attests their source. Local independent review found no P1/P2 in the final hydration and populated changes.
+
+GPUI `094fa785` reports 542 base tests, 9 mapping tests and four actual fixture checks. Its six-read adapter is a standalone check crate with a pinned client export; it does not yet drive the installed app. The empty baseline produced zero sidebar rows, and its event recorder did not apply events. Local source review found no P1/P2 in that stated scope, but the recorder's unbounded Vec must be replaced/bounded before live streaming. Root sent the populated constructor, new binary hash and hydration changes to 11899. GPUI follow-up `eeb902ee` reports six actual passes and unchanged 542 base tests. Local source/log review confirms mounted rows 2 then 1 with real summaries, direct transcripts of 4/2 messages, distinct paging results and complete cleanup. These are direct transcript reads, not a mounted row-selection/transcript render. The recorder now has a bounded tail but still retains one oversized event and promotes zero capacity to one; those P3s and the rendering gap were sent back. Live events remain recorded rather than applied. No new subchat was created. Tauri transport replacement, concurrent multiplexing and public write capabilities remain open.
+
+Native content testing found that publishing the owner's in-memory state after idle unloading erased the visible transcript and unmounted the Design editor. The edit itself saved version 2 correctly. Owner `9389bdb4` now reads a complete existing owned state without open/recovery/touch; four focused tests and both Clippy configurations pass. Runtime `2c13dd74` now uses that projection for snapshots and state events. Its idle-unload regression and all 84 combined tests pass, with strict Clippy. The short fixture idle interval remains unchanged. Native content checkpoint `36ca91b8` now passes two fresh runs in `/private/tmp/milagre-native-fixture-observer-YpZlgj/observer.json`; prior failing runs remain documented.
+
+## Installed app and actual WebKit evidence
+
+- `~/Applications/Milagre Rust.app` has the requested golden-yellow blueprint icon without a tool, bundle `com.milagre.rust-poc`. The ordinary default shell was rebuilt and installed after 41 passing default tests (1 live-host test ignored), 6 renderer checks, strict Clippy and a locked release build. The fixture is never installed.
+- Signature verifies. Built/installed Mach-O UUID: `758707B2-5EE6-30C7-ACCB-BDEA1B7BC288`. Installed Rust PIDs 32791 and the later observed 26860 are now absent. This work did not stop or restart them. The executable still hashes to `5ff830b95e9887e8d88838a2b3ad377c69866d3c64f8a270a844ffbf300f5114` and its signature was reverified. Saved smoke is historical evidence from the earlier launch. Production app/host PIDs 20674/20679 started 09:37:50/51 and were rechecked unchanged. No production process was restarted. Receipt: `/tmp/milagre-content-installed-shell.json`. Bundle signing changes the executable hash.
+- Fresh `/tmp/milagre-rust-smoke.json` after the refresh passes content isolation/raw IPC denial and five read-only workflow checks: Changes panel, eight terminal profiles, four providers/nine accounts, attachment controls and background download cancellation with zero writes. It uses the existing Node owner. Interactive terminal input, attachment send and save dialogs were not exercised.
+- `/tmp/milagre-rust-capture.json` confirms a fresh real 2880x1800 WKWebView capture at `/tmp/milagre-rust-ui.png`. The earlier `/tmp/milagre-rust-{chat,designs,artifacts}.png` captures and real Claude QA Chat 11013 evidence remain historical. Never resend to that nonempty QA Chat.
+- Rust-owner fixture send/list/reload/reopen has two actual native passes in `FXjY5u`. Native content/editor rendering, versioned save and reload now pass in `YpZlgj`. Fixture captures are test evidence, not production-provider PR images.
+
+Interactive save/clipboard, notification delivery/click, cross-frame shortcuts, attachment sending, terminal UI actions, phone synchronization and upgrade/rollback remain unverified. `desktop:register` priority/standby, fully bidirectional preferences and Electron safeStorage/keychain wrapper migration remain blockers. Do not read or print live secrets or replace a missing master key.
+
+## Earlier integrated backend checkpoints (historical counts)
+
+All tests below use isolated copies, scripted provider processes or disposable synthetic carriers unless explicitly identified as saved shell evidence. None removes the production Node owner.
+
+| Area            | Integrated checkpoint and validation                                                                                                                                                                                                                                                                      | Remaining boundary                                                                                                                                                                                                                                                                           |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner           | `eb896d2e`, `fff6087b`, `21aa9490`: retained-event heap estimates, bounded replay errors, preserved Git index timestamps and deterministic filter probes. Root168 tests and strict all-target/release-library Clippy pass.                                                                                | Review closes original readiness P2-A/B but finds retained-terminal/parked-Exited replay-order P2. Fix assigned. New heap/timestamp changes await review.                                                                                                                                    |
+| Codex           | `25cbcfe1`, `337efd2a`: root141 tests,579 event cases,189 policy cases,561 image cases.                                                                                                                                                                                                                   | Trusted execution conditions, account/tool/media wiring and real owner runs remain.                                                                                                                                                                                                          |
+| Claude          | `ff07398a`: root132 tests plus8 actual ContentOwner checks againstafba0d21. Non-UTF8 non-JSON diagnostics remain nonfatal; bounded display-text fallback, strict protocol identities.                                                                                                                     | Independent parser safety review closes the P2. Request-local denial still absent; invalid tool arguments end the session. Analysis roles refused and no real owner provider run.                                                                                                            |
+| ACP             | `69f13ed0`: bounded native prompt receipts after the fixed Node child parses stdin. Root86 fake-session tests, strict Clippy and all3 Node recorder checks pass. Ordinary and Restore frame/text hashes are verified by runtime63d0f96b.                                                                  | Fixed fake only. Receipts prove parsing, not execution or interpretation by a real provider. Production launch/auth/roles and same-process reuse remain gated.                                                                                                                               |
+| Runtime         | `4cb991e8` readiness regressions passed the earlier72-test baseline and source review with no P1/P2.                                                                                                                                                                                                      | The earlier full rerun failed scripted-owner Node snapshot paging with DAEMON_CLOSED. After independent capacity correction d849c05e, root72 tests pass again; the intermittent disconnect cause remains unproven. Real providers, production admission and standalone cutover remain gated. |
+| Content/tools   | `1e69dd81`, `894f40a5`, `afba0d21`: root36 tests; callbacks leave writer lane, receipts retain uncertain outcomes, worker health tracked.                                                                                                                                                                 | Production chat handlers and packaging remain. Started writes must never replay automatically.                                                                                                                                                                                               |
+| Git/classifier  | Git21 tests/99 cases; classifierbe363f96 root9 tests/405 cases and real Git arity probes. P1s closed.                                                                                                                                                                                                     | Trusted shell/PATH/config and production owner integration remain. Arity proof is Git-version specific.                                                                                                                                                                                      |
+| Accounts        | `09710e8f`, `76c169d6`: pending-creation identity/abandonment, recoverable Removing intent and ambiguous-I/O latch. Full36 root tests pass, including both recovery/crash matrices (300 injected errors and87 abrupt exits).                                                                              | Independent review closes assigned P2s. Whole-owner restart, live profile admission/login and routing remain absent; journal compaction/read cost remain P3s.                                                                                                                                |
+| Registry        | `a7834031`: root25 tests including compile-fail grant check; Outside/foreign paths and unusable-id edges retained without grants, malformed endpoints pruned, positive Node kept-set parity checked. Strict Clippy passes.                                                                                | Independent review closes Outside and malformed-edge P2s. No production registry adoption or runtime wiring.                                                                                                                                                                                 |
+| Usage           | `f86f62b8`: root79 tests; poison recovery preserves last-good snapshots and skips exports until a successful refresh. Disk reads remain outside the budget mutex. Aggregate background loads, successful-read preservation, notified retries, cooperative scan cancellation and bounded shutdown reports. | Synthetic capability only. Load-charge lifetime and independent export poison handling fixes pass root tests; real transports/routing and whole-process recovery remain.                                                                                                                     |
+| Remote          | `bee70780`, `79d0f710`, `60f5eb23`: root168 Rust tests,7 doctests,7 Node checks and strict Clippy pass. Independent review found no P1/P2 in the store safety chain.                                                                                                                                      | Persistent-supervisor composition underway. Existing-profile import, broker-loss recovery, production routing/networking, real HTTP claim/cancellation and phone interoperability remain unfinished.                                                                                         |
+| Terminals/ports | 38 terminal tests,30 port tests, disposable real PTYs/listeners and identity checks.                                                                                                                                                                                                                      | Production roots/registry, Windows execution and provider integration remain.                                                                                                                                                                                                                |
+
+## Earlier contracts and work ownership (historical assignments)
+
+Provider events carry host TurnId; close targets that generation. Accepted answers mean transport acceptance, not tool execution. Ambiguous delivery stays Uncertain and must not replay. Turn completion releases admission slots, retaining bounded historical receipts; late results may resolve them. AnswerForgotten makes history eviction visible. Failed shutdown permanently closes admission and retains locks/dirty state; another shutdown retries persistence only.
+
+Provider inputs are RawJson. Only prompt and answer text decode lossily; identities and every object key remain strict. The explicit outbound table refuses unknown fields and nonempty images. Provider output encodes exactly once in deliver. Runtime must never decode twice. Owner release and Drop now apply the same root identity checks as writes.
+
+Classifier P1 fixes remain independently reviewed. Trusted shell/PATH/config preconditions and independent MCP guards are still required. External content handlers run outside the writer lane; uncertain writes must not replay. Analysis roles remain refused in Claude. Compact child updates merge by id and preserve prior transcript rows.
+
+- Root owns integration, isolated validation and this report. Runtime agent owns runtime source, including panic cleanup; immediate per-registration close revocation is tested.
+- Owner10960 completed the test-only restore lifecycle, mandatory readiness API and release gate. Root owns paired runtime integration; the owner continues scoped Git path/metadata hardening. Production restore and switching remain gated.
+- Reviewer10929 is checking owner0e8be144 and runtime4cb991e8 for closure of the two readiness P2s. The existing Git filter regression failed the root rerun and remains a separate validation blocker. Test results do not replace source review.
+- Registry agent committed da95e712. Accounts agent is idle after76c169d6; both full fault/crash matrices passed. Usage and remote checkpoints are integrated.
+- Use scoped commits because local agents share the index. Never delete another writer's index lock or touch production locks. Persistent Worktrees live under `/Users/victor/.milagre/worktrees/milagre-ade/`.
+
+## Comparison Artifact and measurements
+
+Artifact1442139e, "Milagre Rust migration: working comparison", version38. Six real Electron/Rust screenshots remain. Corrected streaming results replace the earlier provisional table; independent review closes the owner containment/boundary and Claude diagnostics findings. Updated Status/Measurements pass340/720 previews without horizontal overflow or console errors.
+
+Root independently rebuilt ed32aa05 and corrected18203711 into separate fresh Cargo targets, using the identical benchmark source copied into both. Executable hashes differ. Three alternating release runs per revision produced matching notice/run/saved-state digests for every workload. Median events/s (full range):
+
+| Workload   | Before                | Fixed                       |
+| ---------- | --------------------- | --------------------------- |
+| long-reply | 9,375 (9,241 to9,869) | 196,404 (167,724 to242,119) |
+| many-steps | 531 (513 to535)       | 32,431 (32,335 to34,185)    |
+| subagents  | 1,319 (1,293 to1,338) | 2,004 (1,845 to2,074)       |
+| multi-chat | 757 (754 to771)       | 16,190 (15,468 to16,844)    |
+
+These are synthetic Rust-before/after results under concurrent development load, not Node/Electron or model/renderer performance. Root checks run before writes; saves are debounced. Raw samples/hashes: `/private/var/folders/wv/yw79bvld7gzd8gk7dn2bs0bw0000gn/T/milagre-streaming-fixed-46nq8z2s/results.json`; log `/tmp/milagre-rust-streaming-fixed-root.log`; runner `/tmp/milagre-streaming-fixed-audit.py`. An initial extraction attempt refused macOS /var alias paths before build; canonicalizing the newly created scratch root fixed the runner. Historical unsafe-optimization figures are superseded. The still earlier shared-Cargo-target measurement is INVALID because it reused one executable.
+
+Five earlier shell observations:55 RSS samples/50 CPU intervals. Median of run RSS medians: limited Electron922.4MiB, Rust plus3 WebKit helpers514.8MiB, shared Node359.8MiB. Rust was not steady-state, other agents varied and hidden-window visibility differed. These are observations, not a full-app speedup/memory reduction. Raw `/tmp/milagre-rust-paired-observation/summary.json`.
+
+Two saved Designs in `/tmp/milagre-real-design-copy` match Node/Rust HTML and same-engine Chromium pixels, not independent cross-engine proof. Cold/warm startup, equivalent foreground latency/FPS, standalone process footprint and upgrade/rollback remain unmeasured.
+
+## Earlier validation checkpoints (retained evidence)
+
+Root tests after integrating the latest checkpoints:
+
+- Registry20 at808c144d: `/tmp/milagre-rust-registry-grants-root.log`; strict Clippy `/tmp/milagre-rust-registry-grants-clippy.log`.
+- Design route at0998ba6a: full runtime43 tests in `/tmp/milagre-rust-runtime-design-root.log`; native MCP PNG240x240 pixels, saved versions1/2, renderer version3 and actual owner artifact steps. No automatic transcript image step is claimed.
+- Latest safety integration: owner77, Claude132, ACP79(feature enabled), runtime45, all passing in `/tmp/milagre-rust-{owner,claude,acp,runtime}-safety-root.log`. Owner/Claude/ACP strict Clippy pass;12 Node ACP lifecycle traces verify in `/tmp/milagre-rust-acp-session-node-root.log`. Claude8 ContentOwner checks pass in `/tmp/milagre-rust-claude-parser-content-root.log`.
+
+- Claude127: `/tmp/milagre-rust-claude-heartbeat-root.log`;8 real isolated ContentOwner tests: `/tmp/milagre-rust-claude-retention-content-root.log`.
+- Runtime43: `/tmp/milagre-rust-runtime-heartbeat-root.log`. Actual production Node clients drive scripted providers, including queued turns and the shared native MCP content route.
+- Usage56: `/tmp/milagre-rust-usage-heartbeat-root.log`.
+- Remote79 plus4 compile-fail checks: `/tmp/milagre-rust-remote-heartbeat-root.log`. All5 Node scripts pass, including fresh reciprocal signatures, phone envelopes and new registry/window predicates.
+- Claude/usage/remote strict Clippy: `/tmp/milagre-rust-{claude,usage,remote}-heartbeat-clippy.log`.
+- Accounts32 is an implementation-agent result, not a new root rerun. Accounts log `/tmp/milagre-accounts-recovery-final.log`; reservation leak fix underway.
+
+Historical owner70 tests remain valid test results but missed the newly reviewed containment regression. Earlier full repository baseline7226 tests/18 skipped/660 files and shell39 tests/1 optional live skip are checkpoint results, not fresh whole-repository checks. No PR or push, no simulator boot, no mobile fingerprint change.
+
+Task phase review. Heartbeatf3fd7e41 remains enabled every10min throughNovember17. Installed shell source still matches440f06d1; signature passes. Production hostPID55108 and RustPID16468 retain their recorded start times. Saved WebKit smoke passes at its November10 timestamp; no fresh interactive workflow run is claimed. Backend-only commits do not require replacement of the installed shell.
+
+Next: implement the agreed active handoff lifecycle, wire state-patch epochs/versions, production registration and existing-data upgrade/rollback, then real phone interoperability. The shared Node owner remains required.
+
+## Latest root validation
+
+- Owner85, ACP83 with fake-session and usage64 pass in `/tmp/milagre-rust-{owner,acp,usage}-lifecycle-root.log`. Owner release-library strict Clippy passes in `/tmp/milagre-rust-owner-release-root.log`.
+- Registry23 passes in `/tmp/milagre-rust-registry-malformed-root.log`; strict Clippy passes in the adjacent `-clippy.log`.
+- Integrating AnswerForgotten initially exposed an exhaustive runtime match error. Runtime155c4902 fixes it and adopts ACP admit_answer; all52 combined root tests pass in `/tmp/milagre-rust-runtime-lifecycle-root.log`.
+- Full36 accounts tests pass in `/tmp/milagre-rust-accounts-full-root.log`, including both long fault/crash matrices. Remote103 plus4 compile-fail checks pass in `/tmp/milagre-rust-remote-supervisor-root.log`; strict Clippy passes in `/tmp/milagre-rust-remote-supervisor-clippy.log`. All5 Node reciprocal/source checks pass in `/tmp/milagre-rust-remote-supervisor-node.log`. The first script attempt used a hyphenated example name and failed to spawn it; corrected underscore binary names pass.
+
+Shell source remains unchanged from440f06d1, installed signature passes, production/Rust process start times remain unchanged, and saved WebKit/live-Chat evidence was inspected without resending. Keep heartbeatf3fd7e41 enabled. The shared Node owner is still required.
+
+Runtime efc18d2c passes53 root tests in `/tmp/milagre-rust-runtime-mcp-close-root.log`. Closing revokes the per-slot registration before detach; old writes fail remaining guards, while a mutation already beyond its final guard remains potentially committed. Independent review requested. Artifact16 keeps all6 real captures and updates these bounded test results.
+
+ACP panic supervision8929ebb7 passes54 combined root tests (`/tmp/milagre-rust-runtime-panic-root.log`): failures before spawn, during a turn and after answer admission settle once, preserve uncertain answers and reap observed children. Independent review requested; no live provider run.
+
+## State-patch and handover checkpoint
+
+Root92ac87be adds a pure bounded state-patch generator to rust-owner-wire. All12 wire tests pass, including3,600 comparisons against production Node diffState/applyStatePatch; strict Clippy, lint and formatting pass. It handles JavaScript numeric equality/integer-key ordering and refuses unsafe `__proto__` keys. No state-patch capability is advertised: client epochs/versions, projections and publication wiring remain absent. Evidence: `/tmp/milagre-rust-state-patch-{root,clippy}.log`.
+
+Owner fdbcc22f/1069a818/6975ab35 adds acquisition-time root pins, stranded-lock notices, pure handover formatting and an unwired lifecycle proposal. Root94 tests pass. Usage92b8a95e root71 tests and remote251271fa/83c069e0 root112+4 tests pass. Logs: `/tmp/milagre-rust-{owner,usage,remote}-handover-root.log`. Runtime2206b620 root56 tests pass; newer28768be2 cleanup guard has57 agent tests and awaits combined validation with the new owner LockStranded notice. Registrya7834031 root25 checks pass (`/tmp/milagre-rust-registry-preservation-root.log`). All new commits are submitted to independent review.
+
+The installed shell source, signature and process start times were rechecked. Saved WebKit content/five workflows and one-send/one-reply evidence pass. A fresh smoke launch would conflict with the existing shell's preference-writer lock; no second instance was launched and no new WebKit run is claimed. No production host or mobile fingerprint change. Heartbeat remains enabled.
+
+Runtime276b09e9 now adapts LockStranded as bounded count/sticky status and pins the content root with the revised API. Combined57 root tests pass against the new owner and wire helper (`/tmp/milagre-rust-runtime-stranded-root.log`). Runtime28768be2 retains cleanup ownership through drain/publication panics. Independent review requested. Artifact17 updates counts and the unwired state-patch boundary. Active handoff contract negotiation is at round2: pre-stage capacity refusal accepted, job delivery must be non-lossy and shutdown must retain unresolved job ownership.
+
+## Borrowed patch and permission-receipt checkpoint
+
+Root960489f6 checks serialized output against the limit before copying replacement payloads. All14 wire tests and strict Clippy pass. The4,328 Node comparisons include728 cases from182 actual ChatHost run-state trace steps at four depths; recursive applied key order is compared too. A separate allocation test rejects a2MiB payload under a64-byte output cap with less than64KiB allocated. Plan metadata remains input-bounded, and this is not a total heap or live-provider performance claim. Logs: `/tmp/milagre-rust-patch-budget-{root,clippy}.log`.
+
+ACP6b50443b passes all84 root feature tests (`/tmp/milagre-rust-acp-two-answers-root.log`). Stop distinguishes an entered permission write (Uncertain) from a different answer still queued (NotSent); runtime99688c2a verifies both distinct receipts without replay. Runtime42bb6ea5/99688c2a passes58 root tests and preserves unrelated diagnostics through the rustOwnerAudit namespace; malformed namespaces return DIAGNOSTIC_SCHEMA_CONFLICT. Its job integration plan is documentation pending the concrete owner API.
+
+The restore contract is concluded: jobs are taken once outside notices, completion guards report Staged/Failed/Unknown, exact temporary cleanup uses pinned handles, and QUIT_PENDING retains locks and worker ownership. The host starts only after the completed divider is durably saved. Restore is implemented first; provider switching stays gated. Owner and remote implementation agents are active. No live model or production routing is enabled.
+
+Installed signature and unchanged shell source/process start times were checked again. Saved November10 WebKit smoke and live Chat evidence remain valid with their stated coverage. No new smoke, restart, second writer, mobile change or push occurred. Heartbeatf3fd7e41 remains enabled because Node ownership, handoff/runtime integration, phone interoperability and upgrade/rollback are unfinished.
+
+Comparison Artifact1442139e version20 retains all six real captures and updated bounded checkpoint counts. Status previews at340 and720 have zero horizontal overflow and no console messages.
+
+Runtime99688c2a combined root validation passes58 tests in `/tmp/milagre-rust-runtime-two-answers-root.log`. It replaces the duplicate-permission test with two distinct native IDs, observes one writing and one queued before Stop, checks Uncertain versus Failed mapping and one terminal. An earlier agent full run failed the existing content-close/reopen test with STORE_OWNED; targeted and full reruns pass, but the possible retained-descriptor lock lifetime is not resolved. Content agent is investigating a deterministic regression; no retries or sleeps were added to hide it. ACP strict Clippy passes in `/tmp/milagre-rust-acp-two-answers-clippy.log`.
+
+## Transcript jobs, usage recovery and content lock checkpoint
+
+Integrated4fd731af/52d6b5d1/6140df6c: bounded stranded-lock diagnostics drain before shutdown returns; transcript jobs hold pinned directory descriptors, create exclusive0600 files, self-report Staged/Failed/Unknown once and retain reservations until commit/cleanup. Four jobs maximum,32MiB transcript limit. Safe brief requests neutralize opening/closing transcript delimiters; pure Node formatting remains unchanged. Root106 tests and strict Clippy pass (`/tmp/milagre-rust-owner-transcript-{root,clippy}.log`). Host take_jobs/quit_state and active restore lifecycle are still absent; API shape confirmed with the runtime agent, implementation proceeds without lifting gates.
+
+Usageab027e76 passes76 root tests and strict Clippy (`/tmp/milagre-rust-usage-load-{root,clippy}.log`). Disk reads no longer hold the budget mutex; reservations survive ownership changes and roll back on failure. Poison recovery discards partial scanner/pricing state and records diagnostics. Deleted-file history may be lost after poison recovery; high-water charging remains intentional.
+
+Contente7613976 replaces plain File locks with an acquiring-pid guard and explicit LOCK_UN. A retained duplicate reproduces STORE_OWNED before the fix; fork fixtures prove child Drop cannot release the parent or successor and owner release admits exactly one successor before child exit. All29 root content tests pass (`/tmp/milagre-rust-content-lock-root.log`), plus36 tools tests (`/tmp/milagre-rust-tools-lock-root.log`) and58 combined runtime tests (`/tmp/milagre-rust-runtime-transcript-foundation-root.log`). This proves and fixes descriptor-retention behavior; it does not prove that behavior caused the original intermittent runtime failure. No sleeps/retries weaken those regressions. Runtime74038a4b adapts its dependency lock and documents pending host integration.
+
+Independent review closes prior patch-preflight, diagnostic namespace and distinct-answer classification findings with no P1/P2. New owner, usage and content commits are submitted for review. Installed app signature, unchanged source/process start times, saved five-workflow WebKit smoke and one-send/one-reply evidence were rechecked without a restart or fresh send. Backend-only changes require no shell replacement. Artifact21 preserves six captures; no production writer, phone fingerprint or push changed. Keep heartbeatf3fd7e41: Node owner removal, active restore, standalone migration and phone interoperability remain incomplete.
+
+## Remote HTTP checkpoint and held owner integration
+
+Remote9b639b3f separates OwnerClient from generation-bound CarrierClient and replaces per-request Work events with WorkAvailable plus bounded DrainWork pages. The default256 in-flight requests fit without overflowing the authoritative event queue. Remote cdbe9636 adds owner-only one-shot synthetic HTTP dispatch, bounded response assembly, stale-token refusal, queued promotion and unknown-delivery no replay. Root128 tests plus6 compile-fail doctests and strict Clippy pass (`/tmp/milagre-rust-remote-http-{root,clippy}.log`). All6 actual Node checks pass; `/tmp/milagre-rust-remote-{node-fixtures,phone-node,host-proof-node,registry-node,policy-node,http-node}.mjs.log`. No real HTTP client/listener, credentials, phone connection or profile is involved.
+
+Latest independent review reports no P1, three P2s in previously integrated owner/usage foundations: transcript rendering allocates before its32MiB check; safe brief generation can exceed256KiB in release with large headers; poisoned usage export can replace last good persisted history with reset state. These are assigned to the owner and usage agents. Owner524612ca/3a1dae0d (reported118 tests) remain held, not integrated; take_jobs/quit_state/BriefModel wiring waits for corrected boundaries. Pure formatter parity remains, but passing tests alone do not close these findings. The content lock fix is reviewed with no P1/P2; original intermittent runtime failure causation remains unproven.
+
+Installed shell source/signature and production/Rust process start times remain unchanged. Saved November10 WebKit content/five-workflow smoke and the single real send/reply evidence were rechecked; no fresh smoke, resend, host restart, mobile fingerprint change or push. Artifact22 and the task list record the open P2 gates. Heartbeat remains enabled. Next: validate fixes before integrating host jobs and active restore; real networking and standalone upgrade/rollback remain unimplemented.
+
+## Corrected host boundaries and remote review gates
+
+Integrated held owner524612ca/3a1dae0d with fixes5228d6ba/d2140f3b/9487bc42 as0ae803cd/4dd332de/f1e044b3/6ea7d374/79b48787. take_jobs and quit_state now exist; job completion and cleanup keep locks held through QUIT_PENDING, and BriefModel has bounded requests/replies and deadlines. Input selection measures one Chat before copying under a32MiB per-job and64MiB shared serialized-input budget. Rendering checks each message; this is not a total heap bound. Safe brief generation cuts oversized headers and enforces256KiB in release. All121 root tests and strict Clippy pass (`/tmp/milagre-rust-owner-bounded-jobs-{root,clippy}.log`); both safe-brief release tests pass (`/tmp/milagre-rust-owner-brief-release-root.log`). Independent re-review pending; active restore is not implemented and no provider gate is lifted. Runtime agent is implementing worker and pending-shutdown integration, still uncommitted at this checkpoint.
+
+Usagef86f62b8 passes79 root tests plus the targeted release settlement test. Poison recovery restores last-good scanner/pricing snapshots, preserves deleted-file history and timestamps, and suppresses recovered exports until successful refresh. Logs: `/tmp/milagre-rust-usage-preserved-{root,clippy}.log`, `/tmp/milagre-rust-usage-capacity-release-root.log`. Fix awaits independent re-review.
+
+Conte7d4619e passes32 root tests with lock-fixture (`/tmp/milagre-rust-content-diagnostics-root.log`). Default release excludes that fixture; contention, interrupted acquisition and I/O errors are distinct, and failed unlocks have bounded diagnostics. Tests include96 concurrent spawn/handover rounds without retries. Original intermittent runtime failure causation remains unproven.
+
+Latest remote review found three P2s despite prior passing tests: shared carrier commands can prevent owner revoke admission; response preflight does not reserve final frame leases; registry deadline equals fetch timeout. Assigned to remote agent before restart/persistence work. Proposal4934c282 is not implemented or integrated. Real HTTP, owner authentication, persistence/restart and phone interoperability remain unwired.
+
+Installed source/signature/process start times and saved November10 WebKit five-workflow/content/single-send evidence were rechecked. No new WebKit run, second writer, production restart, mobile fingerprint change or push. Artifact23 preserves all six captures and separates fixed-but-awaiting-review owner/usage findings from open remote P2s. Heartbeat remains enabled. Next: validate runtime job/quit integration and the review fixes, then restore recovery traces before production adoption.
+
+## Streamed transcripts and runtime job ownership
+
+Owner9f20ba52/84eb5e34/67b0ea11 integrates the handover store lease/sweep plus the corrections for single-message expansion and forked unlocks. Rendering streams JavaScript array coercion into a bounded buffer; allocation regressions cover a25MiB string, a2-million-element array and an actual job.run exceeding its32MiB rendered limit. The lease locks the pinned directory itself and releases only from the acquiring pid. The startup sweep removes only provable temporary names through held descriptors, retaining committed transcripts. All124 root tests and strict Clippy pass (`/tmp/milagre-rust-owner-streamed-{root,clippy}.log`). Independent review is pending; this is not a total process memory bound. Restore lifecycle and its Node recovery traces are the next isolated checkpoint; provider switching and production routing remain gated.
+
+Runtime36e3c076 passes60 root tests (`/tmp/milagre-rust-runtime-jobs-root.log`). Four bounded off-actor workers, completion inboxes and repeated QUIT_PENDING retain the socket, profile and Project locks until jobs join; final notices drain after shutdown. Root identified a separate forced-Server-Drop profile lifetime gap. Wireca2f3642 introduces an opaque ProfileLease, with15 passing wire tests and strict Clippy (`/tmp/milagre-rust-wire-profile-lease-{root,clippy}.log`). The regression retains the temporary profile after forced server destruction until the final worker lease drops, including unwinding. Runtimee7c7a668 adopts the lease for State and saved/owned backends; all62 combined root tests pass (`/tmp/milagre-rust-runtime-profile-lease-root.log`). The paused transcript worker and retained backend regressions prove the directory survives until cleanup finishes. Forced Drop remains a crash boundary and does not claim a successful save.
+
+Sonnet review closes the brief prompt bound and usage last-good-history P2s. Three remote P2s remain assigned: control admission under carrier saturation, full response-budget reservation before invocation, and the fetch/deadline margin. The remote restart proposal remains held.
+
+Installed bundle signature passes; shell source is unchanged from440f06d1. Production PID55108 and Rust PID16468 retain their November10 start times. Saved November10 WebKit content/five bounded workflow checks and the single real Chat send/reply were rechecked. No fresh WebKit run, duplicate send, second live writer, host restart, mobile fingerprint change or push. No shell rebuild is needed for these isolated backend changes. Heartbeatf3fd7e41 stays enabled because the shared Node owner and required migration behavior remain unfinished.
+
+Runtime profile-lease strict Clippy also passes (`/tmp/milagre-rust-runtime-profile-lease-clippy.log`). Comparison Artifact1442139e version24 retains all six real screenshots and updates owner124/runtime62/wire15 evidence; previews at340 and720 have zero horizontal overflow and no console messages. Current commits are submitted to independent review.
+
+## Remote control, response budget and deadline corrections
+
+Integrated baccaeb3/068fea5e/d8f0b2ec as706c3772/de6c34fd/0da1b180. The supervisor pre-reserves18KiB for priority control commands and limits queued carrier/source traffic; Retire and RemoveDevice remain admitted under the tested carrier flood. Refused drains preserve readiness and approvals precede readiness notifications. Synthetic HTTP reserves scratch plus final frame leases before invoking and transfers those leases to mailboxes. Exact required-minus-one/required connection-budget tests cover the former post-side-effect failure. A five-second completion margin allows a504 at340seconds and immediately before expiry; requests at expiry are refused.
+
+Root validation passes135 Rust tests,6 doctests, strict Clippy and formatting (`/tmp/milagre-rust-remote-safety-{root,clippy}.log`). All6 Node checks pass: node-fixtures, phone-node, host-proof-node, registry-node, policy-node and http-node (`/tmp/milagre-rust-remote-safety-<name>.log`). Independent review is pending; passing synthetic tests do not establish real network fairness or phone interoperability. Real HTTP still needs an atomic claim/cancellation lifecycle.
+
+The owner restore implementation and Sonnet review are active. Restart proposal4934c282 is under contract negotiation: fresh synthetic capabilities and a retained test broker only; explicit clean close, no Clean write from Drop, descriptor/writer exclusion and typed ownership on close failure. No restart implementation, existing-profile admission or production cutover is enabled by this negotiation.
+
+Installed shell source remains unchanged from440f06d1 and its code signature passes. Production PID55108 and Rust PID16468 retain their November10 start times. Saved WebKit content/five bounded workflows and one-send/one-reply evidence were rechecked without a fresh launch or resend. No second writer, host restart, mobile fingerprint change or push. Heartbeatf3fd7e41 remains enabled. Next: independent review of these fixes, restore recovery traces and the isolated restart contract.
+
+## Gated restore and explicit quit refusal
+
+Independent review closes the owner single-message expansion P2 and the three remote safety P2s (timeout completion remains synthetic-only). Runtime review found a new latent P2: a busy refusal could leave actor and wire admission permanently closed. Wire2c01e728 adds per-attempt ShutdownError::Refused/Incomplete; legacy handlers default to Incomplete. Only an explicit refusal reopens admission. A real socket regression accepts a command after refusal, then refuses commands after an incomplete save, and permits a later successful stop. All16 wire tests and strict Clippy pass (`/tmp/milagre-rust-wire-quit-refusal-{root,clippy}.log`). Runtime7c8f0824 supplies a command-owned refusal proof only after the host remains Running and final publication succeeds. All63 combined root tests and strict Clippy pass (`/tmp/milagre-rust-runtime-quit-refusal-{root,clippy}.log`). A production Node client verifies refusal, continued command access, explicit interrupt, QUIT_PENDING and successful retry. EOF refusal reports an operator retry path without forcing shutdown. The forced-drop test now signals from actual worker join entry. Independent re-review is pending.
+
+Integrated ownerbc2e0b29 as58eceffa. Explicit HandoffMode::Restore stages and flushes a divider plus message, reserves the turn, runs transcript/brief preparation, saves the completed divider before starting, cancels preparation on Stop, and recovers preparing dividers including switch rollback. All133 root tests and strict Clippy pass (`/tmp/milagre-rust-owner-restore-{root,clippy}.log`). Default mode remains Gated and switching stays refused. The9 restore tests are not Node conformance traces; those and the hardened changed-files Git job remain required. The temporary whole-state copy in staging is tracked for removal. No live or runtime restore gate is lifted.
+
+Remote restart contract881de763 is agreed and integrated asf3202b98 after2592c3e1. Only fresh synthetic profiles under a retained broker are in scope. A valid Clean snapshot also needs the matching post-sync broker acknowledgment; missing acknowledgment quarantines. Drop never writes Clean; failed close returns a revoked guard retaining both locks. Store and authority implementation proceed separately before supervisor integration. No existing-profile import or production restart is enabled.
+
+Installed app signature, unchanged shell source and November10 process start times were rechecked. Saved WebKit content/five bounded workflow checks and one-send/one-reply evidence still pass. No new launch, resend, second writer, production restart, native mobile change or push. The shared Node owner remains required and heartbeatf3fd7e41 stays enabled.
+
+## Borrowed restore traces and shutdown delivery
+
+Integrated ownerdaa203d0/9a70f142 asf4e2dd44/aeabc989. stage_restore now borrows ProjectState instead of serializing the whole Project; only the selected Chat subset is measured/copied. Its allocator regression keeps a1KiB Chat beside40MiB under1MiB allocation. All133 root tests and strict Clippy pass (`/tmp/milagre-rust-owner-restore-traces-{root,clippy}.log`). Node conformance now compares224 steps across14 traces, including model brief/failure/no-model/deadline, preparation Stop/recovery and ACP second send. Changed-files remains an explicit empty-list stub on both sides, so that gate is not closed. Review found queued Send now during restore can miss synchronous cancellation; its fix and related preparation edge cases are assigned to the owner agent. No gate is lifted.
+
+Review closes the runtime quit-refusal P2. Rootwiree2187d8f fixes the adjacent lost-stop-reply issue: once the owner confirms shutdown, stopped is latched before acknowledgement/event delivery. Both notifications are attempted; client closure and bounded flush still run after a delivery error. Repeated stop never calls the stopped owner again. The regression covers a disconnected acknowledgement and event encoder failure through profile cleanup. All17 wire tests and strict Clippy pass (`/tmp/milagre-rust-wire-stop-delivery-{root,clippy}.log`). Wireb5f4c368 expands the recorded trace pin to224; total patch comparisons are4,496 (3,600 synthetic plus896 recorded projections). These remain run projections, not full-state or live-provider coverage.
+
+Runtime390b42a9 now sends a real Restore-mode message through the production Node client before Stop; the earlier refusal test had a preparation without a run. It checks one cancellation, QUIT_PENDING until the paused job joins, no replay/provider start, and a final saved user message plus failed divider. All64 combined root tests and strict Clippy pass (`/tmp/milagre-rust-runtime-real-restore-{root,clippy}.log`). Runtime default mode remains Gated; successful end-to-end restore is still unverified. Remote descriptor-store implementation continues under the concluded synthetic-only contract.
+
+Installed signature, unchanged shell source and original November10 production/Rust process start times were checked. Saved WebKit content/five bounded workflows and the single real send/reply still pass. No fresh launch, resend, second writer, host restart, mobile fingerprint change or push. Heartbeatf3fd7e41 stays enabled because Node ownership and required standalone behavior remain unfinished.
+
+## Restore queue, admission and pending-save corrections
+
+Integrated a12402f8/b93eb664/a9410720 as ab801c4d/bc78272e/6e44b2eb. Send now records its queue pick before synchronous restore cancellation and preserves Node's held-queue behavior. Selected-Chat transcript measurement and usable message-id checks now precede staging. Stop also fails a done divider whose save is pending; repeated failures emit one notice while only the existing save is retried. All137 owner tests pass, including231 Node trace steps across15 traces, with strict Clippy (`/tmp/milagre-rust-owner-send-now-{root,clippy}.log`). Independent review of these three fixes is pending. The prior borrowed-source and shutdown-delivery review found no P1/P2.
+
+Wire conformance now pins231 recorded run projections at four depths, for4,524 comparisons including3,600 synthetic cases. All17 wire tests and strict Clippy pass (`/tmp/milagre-rust-wire-send-now-root.log`, `/tmp/milagre-rust-owner-wire-send-now-clippy.log`). The README clarifies that notification failure can return an error after the owner stopped, only the first delivery error is returned, and executable cleanup must use Server::finish rather than polling stopped and dropping. All64 combined runtime tests and strict Clippy pass against the integrated owner (`/tmp/milagre-rust-runtime-send-now-{root,clippy}.log`). Additional cleanup assertions are assigned to the runtime agent.
+
+The owner agent continues the hardened changed-files Git job. Restore remains Gated by default, switching is refused, and recovery-on-open, production gate enforcement and successful runtime restore remain unfinished. Remote descriptor-store work continues under the agreed fresh-synthetic-profile contract. Shared Node ownership, real provider routing, phone interoperability and standalone upgrade/rollback remain required.
+
+Installed Milagre Rust.app still matches shell source440f06d1 and passes strict code-signature verification. Production PID55108 and Rust PID16468 retain their November10 start times. Rechecked saved November10 WebKit content isolation, five bounded workflows and the separate single-send/single-reply evidence. These were not new runs; terminal input, attachment send and interactive dialogs remain unverified. No shell rebuild was needed for backend-only changes. No second writer, production restart, native mobile change or push. Heartbeatf3fd7e41 stays enabled.
+
+## Changed-files Git foundation and restore cleanup
+
+Integrated owner5b8f205c as6c767991. The transcript worker runs changed-files Git off the actor only for explicitly admitted canonical repositories inside the host Isolation, with an own .git directory, config restrictions, cleared environment, a three-second child limit and bounded retained output. The minimal brief now includes the resulting list. Root140 tests, strict Clippy and formatting pass (`/tmp/milagre-rust-owner-changed-files-{root,clippy}.log`). Three tests cover the Node-style mapping on real temporary repositories, admission/config refusal and a minimal-brief restore. This mapping oracle reproduces Node's JavaScript mapping; it does not import runtime.cjs. Existing231 ChatHost trace steps remain unchanged. Independent Git containment and lifecycle review is pending.
+
+Runtime4f4d3023 strengthens the real restore cancellation regression: it directly observes QuitState::Done, zero stranded-lock notices and no remaining .tmp or committed .md transcript after the late job joins. Its targeted test and strict Clippy pass. Runtimee9430be2 adapts TranscriptSource.changed to None in fixture inputs; all64 combined tests and strict Clippy pass (`/tmp/milagre-runtime-changed-source-full.log`). No Git admission call is enabled: the existing runtime GitService owns a different isolated root, so its paths cannot be admitted to the actor. A future fixture must create and admit a trusted repository inside the same actor Isolation. Recovery-on-open ordering and private, test-only Restore enablement are under API agreement before implementation.
+
+Sonnet closes the prior Send-now P2 and four prioritized staging/save P3s. Remaining required work includes Git admission review, recovery-on-open, successful runtime restore, real providers and shared Node service replacement. Remote descriptor persistence remains in progress under the agreed synthetic-only contract.
+
+Rechecked installed app signature, unchanged shell source440f06d1 and original production/Rust process start times. Saved WebKit content isolation and five bounded workflow checks pass; the separate real Chat evidence remains one send and one exact saved reply. No fresh launch or resend was performed. The shell needs no rebuild for these backend-only changes. No production restart, second writer, native mobile fingerprint change or push. Heartbeatf3fd7e41 remains enabled.
+
+## Lazy restore and confirmed Git execution gate
+
+Integrated2c0cb224/efe45b04 as a040bd02/983d9846. Ordinary sends no longer acquire/sweep the handover store; the first restore opens it before staging, then retries its still-unstaged send once. Transcript selection refuses an unloaded Chat. A full ChatHost::send allocation test compares restore with an ordinary send in a Project holding60MiB in other Chats; restore adds under2MiB. The existing save cost remains large, so this is not a total heap bound. Root142 owner tests, strict Clippy and64 combined runtime tests pass (`/tmp/milagre-rust-owner-lazy-restore-{root,clippy}.log`, `/tmp/milagre-rust-runtime-lazy-restore-root.log`). Independent review is requested.
+
+Sonnet found three P2s in6c767991: repository-controlled commands can run during Git status, descendant-held pipes can defeat the timeout, and alias expansion lacks an aggregate bound. Root reproduced the first through GitGrants::admit and changed_files in a disposable repository, with no live data. After committing tracked.txt containing `before\n`, configure `filter.marker.clean` as `touch FILTER_EXECUTED; cat`, add `tracked.txt filter=marker` to .gitattributes and write same-size `after!\n`. The Rust API accepts the repository, returns a list and creates the marker. The first different-size edit did not trigger the filter because Git could use the size difference. Evidence: `/tmp/milagre-git-boundary-probe-same-size.log`; source directory recorded in `/tmp/milagre-git-boundary-probe-path`. Post-run metadata checks cannot undo this execution.
+
+Commit5b447895 is held: process-group timeout and aggregate budgets are useful, but its receiver deadline drops ownership of readers still blocked on escaped descendants. Git admission stays disabled in runtime. The owner is preparing a preventive config/metadata boundary and owned pipe cleanup. Open-project API negotiation remains pending: partial-open state must refuse sends/events until explicit retry durably completes recovery; test-only Restore enablement and distinct OWNER_CLOSING/HANDOVER_STORE_BUSY codes are planned. No production gate is lifted.
+
+Installed bundle signature passes and shell source remains unchanged from440f06d1; production PID55108 and Rust PID16468 retain their November10 start times. Saved WebKit content isolation, five bounded workflows and the separate one-send/one-exact-reply evidence were rechecked, not rerun. No new app launch, production restart, second live writer, mobile fingerprint change or push. Heartbeatf3fd7e41 remains enabled.
+
+## Private Git metadata and owned pipe reads
+
+Integrated5b447895/8c01f5c6/ee04045d as235d8636/44874266/95ca3c5c. Git status uses a private directory with allowlisted config and copied metadata; it ignores submodules and does not use repository filter definitions. Scratch creation, writes and cleanup use held descriptors, source reads have byte caps, invalid indexes/config reads refuse instead of silently changing the answer, and pipe reads run nonblocking on the job thread. Aggregate time/output/list budgets and preallocation alias checks are included. Git still opens paths between identity checks; independent re-review and runtime admission remain gates. Node differences include excluded submodules and user config/global excludes.
+
+Root145 owner tests, strict Clippy and64 runtime tests pass (`/tmp/milagre-rust-owner-sanitized-git-{root,clippy}.log`, `/tmp/milagre-rust-runtime-sanitized-git-root.log`). Root8ffc7689 adds a permanent four-case filter regression, also passing separately (`/tmp/milagre-rust-owner-filter-regression.log`): .gitattributes and info/attributes, each with same-size content changes and restored-mtime variants. Each Rust API call reports the tracked-file change with no marker, then ordinary Git must execute the configured harmless marker as a positive control. This prevents a false pass caused by Git's stat fast path or an unexercised filter. The external reproduction log is `/tmp/milagre-git-boundary-probe-sanitized.log`. Full owner validation including the new regression passes146 tests and strict Clippy (`/tmp/milagre-rust-owner-sanitized-git-final.log`, `/tmp/milagre-rust-owner-sanitized-git-final-clippy.log`).
+
+The open_project contract is concluded: explicit readiness before sends/answers/events, locks and not-ready state retained after partial failure, durable recovery before exactly one ProjectReady notice, ownership/lease checks on reopen, and test-only Restore enablement. Runtime5c6f924c records the adapter plan. Only explicit open/switch retries recovery; current/snapshot/state reads cannot reopen after forget. Owner readiness query/guard support is requested so runtime publication and content scope cannot use stale readiness. Paired implementation is pending; no runtime Git admission or production Restore enablement.
+
+Installed code signature, unchanged shell source440f06d1 and original production/Rust process start times were rechecked. Saved WebKit content/five bounded workflows and the single real send/reply still pass. These were saved evidence checks, not fresh runs. No app rebuild was needed for backend-only changes; no second live writer, production restart, native mobile change or push. Heartbeatf3fd7e41 remains enabled because shared Node ownership and required standalone behavior remain unfinished.
+
+## Synthetic persistence and guarded authority restart
+
+Integrated77e15f51/4584bd1e as49de7c16/09ce423c. Fresh SyntheticProfile capabilities own the descriptor store and dual writer locks. PersistentAuthority privately owns Registry, persists boot/device/removal generations, revokes old capabilities and cancels owned work before consuming clean close or retirement. Clean replacement requires the matching retained-broker acknowledgment after sync and lock release; lost acknowledgment or ambiguous IO quarantines the next run. Failed close returns an already-revoked guard retaining writer ownership. Drop never writes Clean. Existing TemporaryAuthority/Supervisor behavior is unchanged; no existing-profile importer or persistent supervisor is exposed.
+
+Root validation passes159 Rust tests,7 doctests and strict all-target Clippy (`/tmp/milagre-rust-remote-persistence-{root,clippy}.log`), with formatting and example builds passing. All7 Node checks pass (`/tmp/milagre-rust-remote-persistence-<name>.log`: node-fixtures, phone-node, host-proof-node, registry-node, policy-node, http-node, restart-node). The new check executes actual devices.cjs against in-memory dependencies to inventory serialization/reload/removal; it explicitly does not establish Rust disk-format or metadata compatibility. Subprocess tests cover clean replacement, lost acknowledgment, ambiguous sync and abrupt exit after removal revocation. Independent source review is requested.
+
+Sonnet closes all3 Git P2s on95ca3c5c. Root's four committed clean-filter probes remain the empirical evidence; the reviewer executed no Git or tests. Remaining P3s include worktree/scratch path races, intermediate metadata symlinks, scratch retention/caps, descendant/drain edge cases and unsupported linked-worktree admission. The owner agent continues mandatory open_project/readiness and test-only Restore. Runtime5c6f924c remains the pending adapter plan. Remote agent is preparing a persistent-supervisor proposal before implementation; production storage/network, broker-loss recovery, real HTTP claim/cancellation and actual phone interoperability remain unfinished.
+
+Installed shell source remains unchanged from440f06d1, strict code signature passes, and production PID55108/Rust PID16468 retain their November10 start times. Saved WebKit content isolation/five bounded workflows and one exact real send/reply were rechecked without a fresh run or resend. No shell rebuild needed; no second live writer, production restart, native mobile change or push. Heartbeatf3fd7e41 stays enabled because shared Node runtime replacement and required behavior remain incomplete.
+
+## Mandatory readiness paired with the runtime adapter
+
+Integrated owner6dd694a5/2acd011a as57f4ceb9/025b3c89, together with runtime8ab550d9. open_project is the sole ready transition: acquire and verify ownership, acquire the handover lease, recover orphaned preparations and flush before ProjectReady. Failed opening retains state and locks but refuses new work. A ready reopen checks ownership and the retained store; a failed check removes readiness. Forget cannot be undone by a late event or read. The handoff field is private and Restore can be enabled only by the test-fixtures setter on a fresh host.
+
+The runtime explicitly opens its trusted fixture at startup; only project:open/project:switch retry recovery. current/snapshot/state/content reads require readiness. Partial Project/run snapshots and state events stay hidden, and readiness loss revokes the content generation. Existing MCP grants never become valid again after reopening. Actual Node-client regressions cover a busy handover lease, recovered memory whose final save fails, explicit repaired retry and reads after forget. A moved handover folder invalidates renderer access and retained MCP grants. Earlier initial visibility of the fixed fixture Project is documented; this is not production registry admission.
+
+Root validation:151 owner tests and231 Node steps across15 traces,17 wire tests with4,524 Node patch comparisons,57 default runtime tests and67 with acp-fixture. Strict Clippy passes for owner all-target/release-library and runtime default/ACP; formatting and whitespace checks pass. Logs: `/tmp/milagre-rust-owner-ready-{root,clippy,release-clippy}.log`, `/tmp/milagre-rust-wire-ready-root.log`, `/tmp/milagre-rust-runtime-ready-{root,clippy,acp-root,acp-clippy}.log`. A separate release dependent without test-fixtures fails to access the setter with E0599 and the private handoff field with E0616 (`/tmp/milagre-rust-owner-ready-release-api.log`). These expected compile failures verify the gate. Independent source review of the paired readiness changes is requested.
+
+Owner9cebf2f3 initially used a shared fixed marker path; its corrected8a59c0b4 is isolated. Both duplicate commits are omitted because root8ffc7689 already covers both attributes locations, same-size/restored-mtime cases and fixture-owned positive controls. The owner continues scoped worktree identity and intermediate-metadata path hardening without further API changes.
+
+Sonnet found no P1/P2 in49de7c16/09ce423c synthetic persistence. The joined persistent-supervisor proposal0bff0880 is under negotiation, not implemented or integrated. Requested refinements include corrected-limit retry without poisoning a clean profile, safe interrupted-transaction cleanup, removal of retired secrets, ownership-preserving approval rejection and retained failure guards. Production persistence/network, broker-loss recovery, real HTTP claim/cancellation and phone interoperability remain gates.
+
+Installed shell440f06d1 is unchanged and passes strict signature verification. Production PID55108 and Rust PID16468 retain their November10 start times. Saved WebKit content isolation/five bounded workflows and one real send/exact reply were rechecked, not rerun. Terminal input, attachment sending, interactive native dialogs and standalone upgrade/rollback remain unverified. Artifact1442139e version33 preserves six screenshots and updates the evidence; dark340/720 previews have zero horizontal overflow and no console errors. No shell rebuild, second live writer, production restart, native mobile change or push. Heartbeatf3fd7e41 remains enabled because the shared Node runtime is still required.
+
+## Git identity fixes and successful isolated Restore
+
+Integrated42690937/e11a647a/3cd7aa57 asaa46ec62/1e786ed0/e745793a. Each changed-files run holds the worktree, .git and objects descriptors and checks path identities before and after Git. Metadata components are opened beneath held descriptors without following ancestor links; config parsing reads private captured bytes. Failed pipe reads or waits now refuse the list, interrupted reads retry, and accepted boolean/config forms preserve Git semantics. Root155 owner tests and strict all-target/release-library Clippy pass (`/tmp/milagre-rust-owner-git-pins-{root,clippy,release-clippy}.log`). Source review is pending. Scratch/path opens inside Git remain check/use races; normal-exit descendants and early-spawn failure cleanup remain separate WNOWAIT/RAII work. No production Git admission is enabled.
+
+Runtime04148397 adds successful two-turn ACP Restore using the production Node client and fixed fake processes. An off-actor transcript job is paused while the saved preparing divider/user and actor responsiveness are checked. The second Provider.start_turn observes the committed transcript and durably done divider; the framed minimal brief names edited.txt/fresh.txt from an explicitly admitted disposable own-.git repository inside the same actor Isolation. There are two exact Hello replies, one user message per send, no extra start for duplicate clientMessageId, distinct reaped child PIDs, Done and joined profile cleanup. Root68 combined tests pass against the integrated Git changes (`/tmp/milagre-rust-runtime-restore-git-root.log`). This proves the adapter boundary, not exact native-child prompt consumption; ACP fixture evidence is requested. Production Restore and Git admission remain disabled.
+
+Sonnet reports two P2s in mandatory readiness. A provider event consumed by pump is dropped when its loaded Project is not ready, which can lose terminal/Exited/answer outcomes and strand a busy Chat after reopening. Separately, tick-driven preparation can start a provider while not ready, currently reachable only with test-only Restore. The owner is implementing bounded ordered deferral and preparation/launch/receive/retry guards; neither finding is closed by the passing happy-path tests. Runtime follow-ups cover validation without renderer activity, publication/revocation ordering, startup cache, sequence/coalescing and on-disk recovery assertions. The handoverPending cleanup matches Node legacy behavior and does not cancel a live Rust preparation.
+
+The joined persistent-supervisor proposal and concluded revision are integrated asfeba1780/ee6a1502 (source0bff0880/885e37ad), documentation only. The remote agent is implementing three prerequisite store fixes: pre-write InvalidLimits retry without poisoning clean eligibility, descriptor-checked destruction of reserved interrupted transactions and zeroed retired serialized secrets. Persistent supervision, real networking, broker-loss recovery and phone interoperability remain unfinished.
+
+Installed shell440f06d1 remains unchanged; signature verification passes and production PID55108/Rust PID16468 retain their November10 start times. Saved WebKit content/five bounded workflows and one real send/exact reply were rechecked without launching or resending. Interactive terminal input, attachments, native dialogs and standalone upgrade/rollback remain unverified. No shell rebuild, second live writer, production restart, native mobile change or push. Heartbeatf3fd7e41 remains enabled.
+
+Runtimebda92d21 addresses publication follow-ups without claiming the owner P2s fixed. It checks readiness every250ms before host tick/pump, synchronizes content revocation before delivery-failure returns, enables content only after revalidation and populates the snapshot before bind. Identical state notices coalesce per publication; run watermarks advance only after successful event delivery. Tests inspect saved JSON and read-only SQLite immediately after recovery, verify one state frame and distinguish successfully emitted sequence7 from failed9. Root69 combined runtime tests and strict Clippy pass (`/tmp/milagre-rust-runtime-readiness-followups-{root,clippy}.log`). Independent source review is requested. Artifact1442139e version34 records both open owner P2s and the new evidence, preserves six real screenshots, and passes dark340/720 previews with no overflow or console errors.
+
+## Native ACP prompt consumption verified
+
+Integrated631a7341 as69f13ed0. The fixed Node child emits a receipt only after parsing session/prompt from stdin. It hashes the actual line excluding LF and the decoded text separately; Rust retains at most8 receipts with at most4096 bytes of complete text each (larger text is null), under a64KiB receipt charge. Admission and write completion create no receipt. Root86 feature tests, strict Clippy and formatting pass (`/tmp/milagre-rust-acp-native-receipts-{root,clippy}.log`). All3 Node recorders pass: wire/envelope/permission fixtures,921 mapper traces and12 lifecycle traces (`/tmp/milagre-rust-acp-native-{traces,events,session}.log`).
+
+Runtime63d0f96b extends the successful Restore test with cfg(test)-only observation before each process shuts down. Each native receipt must match the observed host TurnId/PID, per-process count1/sequence1, exact ordinary or framed Restore text/UTF-8 length/SHA-256 and reconstructed native frame length/SHA-256. Duplicate clientMessageId creates no additional native prompt. The fixed receipt scenario replies live; this is scripted evidence, not a real model. The earlier adapter-boundary gap is closed for this fixture. The monitor retains at most16 observations of at most80KiB each with a one-second inspection deadline; no release constructor or scenario was added. Root69 combined runtime tests and strict Clippy pass (`/tmp/milagre-rust-runtime-native-prompts-{root,clippy}.log`). The same commit replaces the second whole-Project cache clone after publication with a watermark-only update. Independent source review of the receipt pair is requested.
+
+Sonnet found no P1/P2 inaa46ec62/1e786ed0/e745793a or04148397, and no new P1/P2 inbda92d21. These do not resolve the two owner readiness P2s: consumed events can still be lost while not ready, and preparation continuation can still start before readiness returns. The owner is implementing bounded deferral and lifecycle guards. The250ms check remains isolated-fixture behavior; content revocation does not itself gate preparation. Recovery readback proves cross-process visibility, not crash/power-loss durability. Git swap-and-restore races, config-parity questions and descendant cleanup remain P3 follow-ups.
+
+Implementation agents remain active on owner readiness and the three persistent-store safety prerequisites. Installed Milagre Rust.app remains shell440f06d1, signature-valid, with unchanged source and original Rust/production process start times. Rechecked saved WebKit content/five limited workflows and one exact real send/reply, without relaunch or resend. No shell rebuild was required. Artifact1442139e version35 records native receipt evidence and open P2s, retains all six screenshots and passes340/720 dark previews with no overflow or console errors. No second writer, production restart, native mobile fingerprint change or push. Shared Node runtime replacement and required standalone behavior remain incomplete; heartbeatf3fd7e41 stays enabled.
+
+## Readiness retention, runtime recovery and remote store safety
+
+Integrated owner15223921 as0e8be144. Loaded Projects retain provider events in order while not ready under shared4096-event/16MiB serialized-byte budgets. Overflow drops that Project's retained events, closes active provider sessions and ends affected turns once after successful reopening. Answers become Uncertain instead of replaying. Never-opened and forgotten Projects are not reopened. Preparation jobs, briefs, deadlines, terminal-fold retries, debounced writes and unloads wait for readiness; explicit open flushes and releases retained work. This is not a total heap bound. Independent review of the two prior readiness P2s is pending.
+
+Runtime4cb991e8 adds three actual Node-client regressions. Mid-stream loss hides Project data, retains answer/text/end/Exited, and leaves JSON/SQLite bytes and published watermark unchanged across ticks. Explicit reopen settles the answer and terminal once with no busy run or replay. Paused Restore transcript and brief cases cannot start the second process until reopen; exact native receipt and joined cleanup assertions remain. Root72 combined tests pass (`/tmp/milagre-rust-runtime-parked-root.log`), as does strict Clippy (`/tmp/milagre-runtime-readiness-loss-clippy.log`). The vacuous `(turn, requestId)` uniqueness assertion is removed. Receipt text is exact against Provider admission, not an independent golden/model-generated brief.
+
+Root owner validation is not fully green. `/tmp/milagre-rust-owner-parked-root.log` fails `sanitized_git_never_runs_clean_filters_for_same_size_or_racy_edits` at `tests/git_filter_boundary.rs:74`: `safe status missed edited file`. The worktree same-size case passed; restored-mtime failed without filter execution. The copied index timestamp and Git racy-stat semantics are under investigation. The assertion has not been weakened. A separate run explicitly skipping that one case passes161 tests (`/tmp/milagre-rust-owner-parked-rest.log`). Strict all-target and release-library Clippy pass (`/tmp/milagre-rust-owner-parked-{clippy,release-clippy}.log`). Earlier full-pass counts above are historical checkpoints, not current full-suite evidence.
+
+Integrated remotea39ad3fa/a8198714/58322fb9 asbee70780/79d0f710/60f5eb23. Pre-write InvalidLimits rejection retains corrected retry and checked restoration of prior clean eligibility, without a new Clean receipt. Interrupted reserved transaction files can be destroyed only under both writer locks and descriptor/identity checks. Retired snapshots zero serialized credentials; typed failures retain ownership. These changes do not claim memory zeroization, secure physical erasure, production profile migration or broker-loss recovery. Root168 Rust tests,7 doctests,7 Node checks, strict Clippy and example builds pass (`/tmp/milagre-rust-remote-store-safety-*.log`). Independent review is pending. The remote agent is starting the separately agreed persistent-supervisor composition.
+
+Installed shell440f06d1 remains unchanged and signature-valid; production PID55108 and Rust PID16468 retain their original November10 start times. Saved real WebKit content/five bounded workflows and one exact real send/reply were rechecked, not rerun. Backend-only changes require no shell rebuild. Artifact1442139e version36 records the passing runtime/storage checks and explicit owner failure, preserves six screenshots and passes340/720 dark previews with zero overflow and no console errors. No production restart, second live writer, native mobile fingerprint change or push. Shared Node ownership and required standalone behavior remain incomplete; heartbeatf3fd7e41 stays enabled. Next integration gate: fix and rerun the Git regression, then consume the readiness/store reviews.
+
+## Preserved Git index timestamps and bounded readiness diagnostics
+
+Integrated5eb474c0/58402045 aseb896d2e/fff6087b. Retained provider events now count an estimated Value heap footprint instead of serialized JSON bytes; the16MiB budget remains an estimate, not a total measured heap cap. Replay refusals retain at most256 errors plus a counted summary. Five new cases cover failed jobs held while not ready, recovery publication after a failed flush, two-Project shared-budget overflow, repeated release errors and a dense array's estimated memory.
+
+The Git failure was real: the private index copy had a newer timestamp and trusted an equal-size/restored-mtime entry that native Git would re-hash. fff6087b copies access/modification times from fstat on the descriptor used to read the index and applies them with futimens. Its deterministic native comparison covers both racy and settled entries. Root21aa9490 also fixes the filter probe's setup: a fixed old file timestamp and equal index timestamp make the racy premise independent of clock boundaries. Changed-file, no-filter and positive-control assertions are retained. All four cases pass (`/tmp/milagre-rust-owner-racy-filter.log`). A disposable copied-crate mutation removing timestamp preservation fails the unchanged changed-file assertion (`/tmp/milagre-rust-owner-racy-mutation.log`); the shared source was never mutated for that check.
+
+Full root owner validation now passes168 tests, including the previously failed filter probe,231 Node trace steps and131 handover cases (`/tmp/milagre-rust-owner-index-times-root.log`). Strict all-target/release-library Clippy pass (`/tmp/milagre-rust-owner-index-times-{clippy,release-clippy}.log`). Independent review of the new changes is requested.
+
+Sonnet closes both original readiness P2s in0e8be144 and finds no P1/P2 in the remote store safety chain or runtime4cb991e8. One new narrow owner P2 remains: open releases parked Exited before retrying a terminal retained after a failed fold, so a completed turn can become failed. The owner agent is implementing ordered retry with tests for another failed retry, preserving the terminal rather than allowing Exited to overtake it.
+
+The root runtime rerun is not green: production_node_clients_drive_scripted_owner_actor fails at tests/node_compat.rs:123 with DAEMON_CLOSED during Fixture2 daemon:snapshot/result-page (`/tmp/milagre-rust-runtime-index-times-root.log`). The other seven node_compat cases passed. The runtime agent is investigating connection backpressure under concurrent paged snapshots; no claim of cause or closure yet. Earlier72-test success remains historical evidence. No assertions or concurrency requirements were reduced.
+
+Installed shell440f06d1 is unchanged and passes strict signature verification. Production PID55108 and Rust PID16468 still have their November10 start times. Saved WebKit evidence was reread, not rerun: content isolation, five bounded workflows and the separate one-send/exact-reply record. Artifact1442139e version37 preserves the six screenshots and passes340/720 dark previews with zero overflow and no console errors. Backend-only changes require no shell rebuild. No host restart, second writer, native mobile fingerprint change or push; heartbeatf3fd7e41 remains enabled. Next: resolve replay ordering and diagnose the runtime connection closure before production adoption can advance.
+
+## Independent outgoing queue capacity and bounded failure diagnostics
+
+Wire5d9a9d52 separates the per-client outgoing byte budget from frame size. None retains the old two-frame byte budget; explicit budgets are bounded by frame size plus one through32MiB. Checked atomic reservation precedes enqueue. The64-frame queue,32-pending-request limit and actual frame-size checks are unchanged. Root20 wire tests and strict Clippy pass (`/tmp/milagre-rust-wire-outgoing-{root,clippy}.log`), including exact-limit admission, next-byte rejection, unchanged oversized-frame rejection, queue-count saturation and invalid configuration.
+
+Runtime d849c05e sets128KiB only for the isolated actor fixture, retaining4KiB frames and20 concurrent snapshot requests. Failure wrappers create their own Error instead of mutating the one rejection shared by pending requests. A failure-only bounded probe records whether the isolated owner is still alive/closing and the last4KiB of stderr. The agent's full72-test runtime suite and strict Clippy pass (`/tmp/milagre-runtime-outgoing-capacity-{full,clippy}.log`); root independently reran all72 tests successfully (`/tmp/milagre-rust-runtime-outgoing-root.log`).
+
+This does not prove the original disconnect was byte-budget exhaustion. The diagnostic reproduced EPIPE with the same owner PID alive and closing=false. Ten traced ordinary trials,100 batches of20 snapshots and two original parallel workloads did not reproduce the byte-budget marker. Temporary tracing was removed before commit. The intermittent connection-local failure remains an open investigation; independent capacity correction and passing reruns do not close its cause. Source review of both commits is requested.
+
+At the user's request, Chats10759,10975,11013 and11038 were marked Done through the existing production daemon's chat:patch command and verified with state:read. Active migration, review and unresolved issue Chats remain open. This used the existing single writer and did not launch or replace a host.
+
+Artifact1442139e version38 records the independent outgoing-capacity correction and the still-unproven disconnect cause, preserves six real screenshots and passes340/720 dark previews with zero overflow or console errors.
+
+## Retained-terminal ordering and private persistent composition
+
+Integrated b19c658a as a3a264d6. Retained terminal folds are retried before later parked events; if retry fails again, that Chat's later events remain queued while other Chats proceed. Live events join the same ordered queue, so Exited cannot replace the retained completion on a later pump. Repeated-failure coverage verifies one completed end and one queued successor start. Independent review is pending; passing checks alone do not close the replay-order P2.
+
+Integrated c3796e2c as d4372f0b. Private Running/Quiesced/Aborted phases, sticky abort, consuming carrier tickets, ticket-derived approval deadlines and guarded ciphertext lease transfer prepare the persistent supervisor. Root180 Rust tests and7 doctests and strict Clippy pass (`/tmp/milagre-remote-composition-{root,clippy}.log`). The agent reports all7 unchanged Node checks passing; root did not rerun those this checkpoint. Quiescence is not a join receipt. Retained worker ownership, joined shutdown, approval queue rejection and automatic ticks remain assigned to the remote agent. No production profile or network wiring was added.
+
+Sonnet found no P1/P2 in the earlier heap/error bounds, Git timestamp fix and deterministic filter probe, or wire5d9a9d52/runtime d849c05e. The original connection closure remains unexplained; write timeout and other close paths are leads, not established causes. The runtime agent is adding replay integration evidence and proposing bounded typed disconnect diagnostics before further reproduction.
+
+Installed shell440f06d1 remains signature-valid with unchanged production PID55108 and Rust PID16468 start times. Saved WebKit content/five bounded workflows and one exact real send/reply were reread without relaunch or resend. No shell source change requires rebuilding the installed bundle. No push, host replacement, second writer or native mobile fingerprint change. Heartbeatf3fd7e41 remains enabled because shared Node services and standalone upgrade/rollback remain unfinished. Artifact version38 remains the prior checkpoint; this log is newer.
+
+Root owner validation passes169 tests, strict all-target and release-library Clippy (`/tmp/milagre-owner-replay-{root,clippy,release-clippy}.log`). Runtime integration and independent replay review remain pending.
+
+## Replay and composition review closed; next integration work
+
+Sonnet reviewed a3a264d6/d4372f0b and found no P1/P2. The retained-terminal/parked-Exited P2 is closed, including repeated retries and live-event ordering. Remote composition matches its stated contract, but quiescence still does not prove joined worker shutdown. Source review ran no tests. Root evidence remains169 owner tests and180 remote tests plus7 doctests and strict Clippy. Runtime baseline72 passes against a3a264d6 (`/tmp/milagre-runtime-replay-baseline.log`).
+
+The new real-Node replay regression is blocked by its one-shot failure fixture: host.tick pumps twice, so the terminal retry succeeds before observation. Owner10960 is adding cfg(test-fixtures)-only set_commit_failure_for_tests(Option<&str>) at the existing precommit boundary, with explicit clearing and unchanged one-shot behavior. Runtime WIP is preserved privately until that hook lands; real tick semantics will not be bypassed. The owner will also exclude retained ends from overdue forced-end replacement and test ready-queue overflow.
+
+The runtime agent now owns wire/runtime bounded typed disconnect diagnostics: first observed cause, fixed saturating counters, separate graceful/forced shutdown and secondary error-reply failures, no identifiers or payloads. Existing timeouts and queue limits remain unchanged. This enables further diagnosis without assuming the unproven connection closure was byte-budget exhaustion. Remote11150 continues retained-worker/joined-shutdown implementation.
+
+Installed shell signature and original process start times remain unchanged; saved WebKit content/workflows/live-send evidence was reread, not rerun. Artifact1442139e version39 records review closure and remaining work, preserves screenshots and passes340/720 dark previews without overflow or console errors. No build replacement, production restart, second writer, mobile fingerprint change or push. Heartbeatf3fd7e41 remains enabled.
+
+## Persistent failure fixture, retained deadlines and disconnect diagnostics
+
+Integrated e3dcb354/1bc6dcee as ba9e0e80/d9829f94. ProjectStates::set_commit_failure_for_tests is compiled only with test-fixtures, stays active until explicitly cleared and fires at the existing precommit boundary. The unchanged one-shot fault fires first if both are set. Overdue interrupt handling now skips retained terminal ends, preserving completion until its save succeeds. Tests cover repeated real ticks, queued successor start and bounded waiting events while the Project remains ready. Runtime's preserved actual Node replay regression is now unblocked and being completed.
+
+Wirefae15212 adds finite typed first-observed disconnect reasons, fixed saturating counters once per closed connection, separate graceful/forced shutdown, bounded secondary error-reply and pre-admission counters. Runtime bdc89106 includes them in the failure-only status probe and tests a malformed connection while the main client survives. No payload, path, token or connection history is retained. Timeout and queue policies are unchanged. Agent29 wire/72 runtime tests and strict Clippy pass; root wire rerun passes29 tests. Independent review requested; first observed local reason is not proof of remote root cause. No further stress reproduction yet.
+
+Owner, runtime and remote agents remain assigned: deterministic replay integration, deadline safety review, disconnect diagnostics review and joined persistent supervision. Installed shell signature and original process start times are unchanged. Saved WebKit content/workflows/live evidence was reread, not rerun. No rebuild is needed for these backend-only changes; no host restart, second writer, native mobile change or push. Node remains required and heartbeatf3fd7e41 stays enabled.
+
+Root owner suite passes172 tests, including the root-only Git filter regression, and strict all-target/release-library Clippy (`/tmp/milagre-owner-persistent-fault-{root,clippy,release-clippy}.log`). Root wire29 tests and strict Clippy pass (`/tmp/milagre-wire-diagnostics-{root,root-clippy}.log`). Runtime's new actual Node retained-completion case passes targeted; its full suite is still running. Artifact1442139e version40 records this checkpoint and passes340/720 dark previews with zero overflow or console errors.
+
+Runtime5bd7851f subsequently completed the actual Node retained-completion checkpoint: two parked old exits cannot overtake repeated failed completion folds, the queued successor starts once with the exact prompt, and shutdown reaches Done with joined workers. Agent73 tests and strict Clippy/lint/format pass (`/tmp/milagre-runtime-retained-completion-{targeted,full,clippy}.log`); root has not independently rerun this new checkpoint. Independent source review requested.
+
+## Joined persistent service integrated and independently tested
+
+Integrated remote5950296e/1fdd54e8 as288570b0/6ded181d. The fresh synthetic service retains writer/profile ownership outside the worker unwind boundary, drains and joins before terminal persistence, and returns owning typed failure guards. Its second checkpoint adds bounded owner/carrier queues, consuming approval permits (Full returns the same unqueued permit), automatic deadlines and cancellation without replay. It does not add real HTTP execution, production profile admission, broker-loss recovery or actual phone interoperability.
+
+Root validation passes209 Rust tests and8 doctests (`/tmp/milagre-remote-joined-root.log`), strict all-target Clippy (`/tmp/milagre-remote-joined-clippy.log`), example builds and all7 Node checks (`/tmp/milagre-remote-joined-*-node.log`, plus `node-fixtures.log`). These checks compare actual Node source fixtures and synthetic transport; they are not live network or production persistence evidence. The earlier agent disposable-supervisor timing assertion failure remains tracked despite passing reruns. Sonnet independent review is assigned. Remote follow-up is deterministic flake repair and a real HTTP Claim/cancellation contract before implementation.
+
+Root independently reran all73 combined daemon-runtime tests with acp-fixture (`/tmp/milagre-runtime-joined-root.log`). Sonnet found no P1/P2 in the persistent owner fault/deadline fixes, typed wire diagnostics or runtime retained-completion regression. The original intermittent DAEMON_CLOSED cause remains unproven. Runtime work is assigned for retryable accept errors, bounded failure reporting and the review's injection-handshake race. Owner work continues on safe descendant cleanup and held-answer/deadline behavior.
+
+Installed shell440f06d1 remains unchanged and passes strict codesign verification. Production PID55108 and Rust PID16468 retain their November10 start times. Saved WebKit evidence was reread, not rerun: the smoke record passes content isolation and five bounded workflows; the separate liveChat record passes one send, one saved user/assistant pair and exact reply with six events. That separate record's general workflow section had a no-selected-Chat terminal-metadata failure; the later smoke record covers metadata only, never terminal input/resize. No new live send or host restart was performed. Backend-only changes do not require a shell rebuild. Node remains required; standalone migration/rollback and required live behaviors remain unverified. Heartbeatf3fd7e41 remains enabled. No push, second live writer or native mobile fingerprint change.
+
+## Listener recovery and deterministic fault activation
+
+Runtime457f176d waits until the actor acknowledges persistent commit-fault installation before injecting completion, eliminating the review's setup race. It asserts the exact fold failure and unchanged published agent watermark. Wire0dbbdff7 retries EINTR/ECONNABORTED after5ms and EMFILE/ENFILE/ENOBUFS/ENOMEM with10..250ms exponential backoff. Successful accept or WouldBlock resets the backoff. Non-retryable errors stop the listener, set listenerFailed and emit one bounded static stderr message; listenerRetryIo counts transient failures. This does not change authentication/write timeouts, request/frame/byte limits, or claim the owner stopped. Runtimeb4c248c3 verifies the added fields through the actual Node client.
+
+Root wire validation passes33 tests and strict all-target Clippy (`/tmp/milagre-wire-accept-root.log`, `/tmp/milagre-wire-accept-root-clippy.log`). Injected accept errors are followed by two real Unix-socket status replies, persistent resource pressure still permits bounded shutdown, and permanent failure is latched without retry. Root also passes all73 runtime tests and strict all-target Clippy with acp-fixture (`/tmp/milagre-runtime-accept-root.log`, `/tmp/milagre-runtime-accept-root-clippy.log`). Sonnet review is queued after the joined-service review. The earlier intermittent DAEMON_CLOSED cause remains unproven; these are independently demonstrated fixes, not a claimed diagnosis.
+
+Implementation agents continue owner descendant cleanup/held-answer handling and remote deterministic flake repair/HTTP Claim contract. Runtime is preparing the next integration proposal: production React/WebKit driven by an isolated Rust daemon with scripted providers, without touching the live profile. No new production admission or fixture gate removal is authorized by this proposal.
+
+Installed bundle passes strict signature verification and both production/Rust processes retain their original start times. Saved real WebKit smoke and liveChat evidence were reread, not rerun. No shell source changed, so no bundle replacement is needed. Node backend removal and standalone required workflows remain incomplete; heartbeat stays enabled. No push, production restart, second live writer or native mobile fingerprint change.
+
+## Owned Git child lifecycle and forced-close ordering
+
+Integrated da43b4a5/a7987954 as8f2b56be/e975e686. Changed-files owns Git immediately after spawn, including setup failures and unwind. waitid WNOWAIT observes exit without releasing the pid; the group is killed before exactly one reap on every owned path. Escaped process groups remain outside that ownership. Forced forget now retries retained completions and later events before forcing remaining failed saves, preserving completed turns when persistence has recovered. Held answer-receipt and forced-quit tests document settlement and discard behavior. No production API or gate changed.
+
+Root73 runtime tests pass against this owner (`/tmp/milagre-runtime-owned-child-root.log`); strict owner all-target/release-library Clippy passes (`/tmp/milagre-owner-owned-child-{clippy,release-clippy}.log`). The full root owner suite passes177 tests, including transcript-memory and the root-only Git regression (`/tmp/milagre-owner-owned-child-root.log`). Sonnet review of these two owner commits is assigned.
+
+Sonnet found no P1/P2 in remote288570b0/6ded181d, runtime457f176d and wire0dbbdff7. Review is source-only. Remote priority follow-ups concern approval-event capacity under memory pressure and whether automatic maintenance needs outbound flushing; the latter is a question to verify, not an established bug. The remote agent has these plus its existing deterministic flake fix and HTTP Claim contract.
+
+Proposal7fb366bb identifies the next end-to-end gap: production React/WebKit cannot bootstrap against the actor's current18-command surface. The runtime agent is now implementing the agreed fresh-profile bootstrap/catalog slice with one owner, owner-backed Project/run/registry reads and a truthful scripted model catalog. Desktop launch context remains a separate coordinated change; no live profile, production fallback or fixture gate removal is included. Existing Node service categories and adoption gates are enumerated in rust-runtime/APP-FIXTURE-ADOPTION-PROPOSAL.md.
+
+Installed shell signature passes, production/Rust process start times are unchanged, and saved smoke/liveChat evidence was reread rather than rerun. No shell rebuild is needed for backend-only changes. Node remains required and heartbeat stays enabled; no host replacement, push, second live writer or native mobile fingerprint change.
+
+## Fresh Rust app bootstrap catalog
+
+Runtimec100e803 adds feature-gated app-fixture with one fresh profile, one actor/ProjectStates/ChatHost, an exclusive RegistryCopy and pure Accounts metadata. Thirteen bootstrap/catalog command names cover Project/read/run/registry/Link and fixed scripted catalog/scope responses. All reads require current readiness; no live CLI/account discovery, arbitrary Project admission, second reader owner or Node fallback exists. Unsupported operations remain errors. Handover/steering stay Gated. This is a daemon composition checkpoint, not a WebKit launch or installed app cutover.
+
+Root exact-commit validation passes75 tests with app-fixture,acp-fixture (`/tmp/milagre-runtime-bootstrap-final-root.log`), strict all-target Clippy (`/tmp/milagre-runtime-bootstrap-final-clippy.log`) and default all-target check (`/tmp/milagre-runtime-bootstrap-default-root.log`). Fifteen responses compare with actual Node runtime/registry/account metadata implementations. Tests also cover Node ownership exclusion, root loss/forget without implicit reopen, registry tampering, fixed send admission, run consistency, Stop and cleanup. Final test stabilization observes the scripted session-started fold before comparing two independent snapshots; structural JSON comparison avoids formatter-only oracle differences. Earlier WIP results are superseded by this exact-commit rerun. Independent review is assigned.
+
+The next agreed contract is a feature-gated developer shell spawning only its fixed sibling app-fixture and retaining Child/stdin, with bounded private identity receipt validation and no production fallback. The daemon retains exclusive profile ownership; shell preferences/WebKit/window data need a separate shell-owned lifetime. No content permission follows from the profile path. Refused/QUIT_PENDING quit must keep the fixture reachable; only joined daemon success plus window/storage release proves cleanup. Receipt identity additions are assigned; desktop launch/context and demonstrated WebKit storage isolation remain unimplemented. Existing installed shell and live owner are unchanged.
+
+Source review closes P1/P2 for owner8f2b56be/e975e686. ECHILD/lost-child cleanup is a separate follow-up assigned to owner10960. Remote11150 continues its recorded flake correction, approval-capacity investigation and real HTTP Claim contract. Task list remains active. Installed signature and original process start times were checked; saved real smoke/liveChat evidence was reread, not rerun. No shell source change requires a new installed bundle. Node removal, required real-provider/UI behavior and standalone upgrade/rollback remain incomplete; heartbeat remains enabled. No push, second live writer, production restart or native mobile fingerprint change.
+
+## Lost-child ownership, approval shortage isolation and bootstrap identities
+
+Integrated owner34c22446 as188698b8. Non-EINTR wait errors mark a Git child lost; cleanup rechecks ownership before signalling and never signals/waits again after loss or reap. Dedicated SIGCHLD-ignore coverage is isolated in its own test process. A source search of runtime/owner/terminal/provider crates found no other explicit SIGCHLD or wait-any-child reaper in their src; dependency behavior and the documented final-check/external-reaper race remain assumptions, not a process-wide proof. Root181 owner tests and strict all-target/release-library Clippy pass (`/tmp/milagre-owner-lost-child-*.log`).
+
+Integrated remote27b69532/326a3b13 as416917fd/63a951b1. Disposable ingress leases release before receipt publication, with deterministic success/failure barriers. Approval event shortage cancels only that ticket/carrier, retaining existing phones and clean restart eligibility. Registry ticks produce no outbound frames; an idle test covers expiry/promotion without commands. Root212 Rust tests,8 doctests,7 Node checks, example builds and strict Clippy pass (`/tmp/milagre-remote-approval-*.log`). HTTP Claim proposal14eb9cdd is integrated as288d4d4f, documentation only. Its owner-only consuming attempt/status, prepaid response/completion and bounded synthetic execution contract is in negotiation; no HTTP implementation or real endpoints are included.
+
+Runtime9a99e884 adds UID plus profile/Project/socket-directory/socket identities, decimal-string dev/ino, modes/kinds and a4096-byte receipt bound including newline. Root77 combined app-fixture/acp-fixture tests and strict Clippy pass (`/tmp/milagre-runtime-receipt-{root,clippy}.log`). Source review of these three chains is assigned. The receipt is metadata from a fixed owned child, not authentication or arbitrary profile adoption. c100e803 bootstrap review found no P1/P2; its single-Project/empty-Link parity limits remain explicit.
+
+Desktop fixture LaunchContext/fixed-child lifecycle implementation is assigned under rust-desktop only. It must preserve production defaults, separate preferences/WebKit/window/lock storage, forbid fallback, retain pending quit, and remain compile/test-only until real macOS storage isolation is established. No desktop launch or installation has occurred. Installed bundle remains signature-valid with original production/Rust process start times; saved WebKit smoke/liveChat evidence was reread, not rerun. Node remains required and heartbeat stays enabled. No push, second live writer, host restart or native mobile fingerprint change.
+
+## Desktop fixture launch boundary under validation
+
+Independent source review found no P1/P2 in188698b8/416917fd/63a951b1/9a99e884. The remote ingress-receipt race is now explained and fixed at publication ordering, not merely hidden by reruns. Persistent rejection-path ingress ordering remains a separate review follow-up. Runtime/bootstrap receipt remains informational and requires fixed-child/peer verification.
+
+Desktop fixture implementation is in progress: a separate feature-gated binary/config, private shell roots, fixed sibling daemon child, bounded receipt and exact peer PID/UID validation, no installed-host fallback, explicit limited native commands and normal pending-quit retry. Source evidence traces incognito(true) to WKWebsiteDataStore::nonPersistentDataStore, with a planned runtime isPersistent check. This is not yet observed WebKit isolation. Root WIP headless checks pass21 fixture and39 default tests (one installed-host test ignored in each), plus strict all-target Clippy. Those results precede final cleanup changes and are not final-commit validation.
+
+Root found crash cleanup conflated try_wait errors with a live child before signalling. The agent fixed it with explicit alive/exited/unknown branches and deterministic no-signal tests; agent fixture count is now23. Its lifetime audit also identified a global shortcut monitor retaining AppHandle; fixture-only release is being added. Final commit/review/native validation remain outstanding. No window or bundle installation was performed.
+
+Dependency source audit: portable-pty0.9.0 resets SIGCHLD inside child pre_exec and waits through exact std Child handles. Tokio1.54.1 registers SIGCHLD notifications and polls its owned orphan handles via std try_wait, rather than wait-any-child in the inspected paths. The owner agent has a contract-wording follow-up distinguishing notification handlers from SIG_IGN/SA_NOCLDWAIT/foreign reapers. This is a bounded source audit, not a proof covering every dependency/build.
+
+Installed signature remains valid, both production/Rust process start times are unchanged, and saved smoke/liveChat evidence was reread, not rerun. The installed bundle remains the last validated shell while desktop WIP awaits completion. Node removal and native fixture behavior remain incomplete; heartbeat stays enabled. No push, production restart, second live writer or mobile fingerprint change.
+
+## Reviewed fixture exit blocker and synthetic HTTP Claim checkpoint
+
+Integrated owner2535c78e as e38692f6 and remote6198ac5b/40b95663 as 8d8ba1b6/c006c081. Root reruns pass181 owner tests,231 remote tests plus8 doctests, and strict all-target Clippy for both. All seven Node protocol checks and remote example builds pass on this checkpoint (`/tmp/milagre-remote-claim-*.log`). The synthetic Claim state machine has no registry/worker wiring or real HTTP execution yet. Independent source review found no P1/P2 in these owner/remote checkpoints. Owner non-panicking lost-child diagnostics and remote worker composition are assigned follow-ups.
+
+Desktopbd033676 final headless rerun passes23 fixture tests with one installed-host test ignored. Sonnet found a P2: Tauri App::run exits the process, so the trailing drop(context) is unreachable and the shell's temporary storage survives exit. Explicit clean-only cleanup in RunEvent::Exit, setup-failure handling and bounded child cleanup are under repair. No native fixture window has launched. Source-confirmed nonpersistent WebKit selection is not runtime evidence; storage isolation and teardown remain required before installation.
+
+The installed app's icon was updated by661e3a2f to the requested golden-yellow Milagre blueprint mark without the hammer. Only icon resources changed in the installed bundle; its signature verifies. Production PID55108 and Rust PID16468 retain their original start times. Saved WebKit smoke and live-Chat evidence were reread, not rerun: the bounded workflow smoke passes; the separate live-Chat run passed one real send but its terminal metadata check failed because no Chat was selected. No duplicate send was made.
+
+Installed Milagre Rust still depends on the shared Node owner. No production host restart, second live writer, mobile fingerprint change or push. The migration and heartbeat remain active.
+
+## Explicit fixture exit cleanup and non-panicking owner diagnostics
+
+Desktop3f536072 removes shell storage explicitly on clean RunEvent::Exit, even with retained Arcs. It refuses replacement roots/active writes and blocks late writes. Clean status is atomic; setup errors and Rust panics are caught inside setup, with synchronous bounded child cleanup before permitting failure exit. Root26 fixture tests and strict all-target Clippy pass; one installed-host test stays ignored. Agent39 default-shell tests pass. Independent review is assigned; actual WebKit storage mode, window teardown and absence of post-exit file recreation remain unverified. No native fixture was launched or installed.
+
+Owner9e878cd5 is integrated as87511693. Lost-child stderr failures no longer panic during Drop, and held-to-lost transitions count exactly once, including failed reap. Root184 owner tests pass (one explicit test remains ignored), strict all-target/release-library Clippy pass, and all77 combined app-fixture/acp-fixture runtime tests pass. Logs: `/tmp/milagre-owner-stderr-*.log`, `/tmp/milagre-fixture-exit-root*.log`, `/tmp/milagre-runtime-owner-stderr-root.log`. Production exposure of the diagnostic counter remains absent.
+
+Implementation agent is preparing the native smoke procedure; the remote agent continues synthetic authority/worker composition. Installed app signature still verifies, and production/Rust process start times remain unchanged. Saved WebKit evidence was reread without sending another live Chat. The installed app retains the validated golden icon and still requires the shared Node runtime. No push, production host restart, mobile fingerprint change or production writer cutover. Heartbeat remains active.
+
+## Cleanup source review closed; native probe implementation started
+
+Sonnet found no P1/P2 in desktop3f536072 and owner9e878cd5/87511693. The explicit Exit cleanup P2 is closed in source. This does not prove native cleanup: pending-quit Drop behavior, failure-path storage retention and late AppKit/WebKit callbacks remain documented limitations. The desktop agent is implementing a compile-time fixture-native-smoke feature with a fixed sequence, separate evidence root, real WKWebView PNG, observed storage mode, localStorage/preferences/IndexedDB markers across reload and fresh process, normal quit, and external five-second path observations. Cookies are deferred. No new native evidence is claimed yet.
+
+Runtime28413052 rejects bootstrap registry shapes outside current parity coverage before creating its registry: exactly one generated Project and empty Link/group arrays. This addresses the earlier empty-Link test gap by refusing unsupported scope rather than claiming Link-kind behavior. Root78 combined app-fixture/acp-fixture tests and strict all-target Clippy pass (`/tmp/milagre-runtime-bootstrap-scope-{root,clippy}.log`). Independent review is assigned.
+
+Installed bundle signature verifies. Production and installed Rust start times are unchanged. Saved WebKit smoke/liveChat results were reread only; the separate liveChat evidence retains its terminal-metadata failure. No production restart, push, mobile fingerprint change or live owner cutover. Node dependency and heartbeat remain.
+
+## Joined claim composition and first actual native fixture failure evidence
+
+Integrated remote55ccc749/99d0165d as1e02d0e1/b72e24c0. Persistent rejection releases ingress before publishing NotExecuted. The private one-claim fixed-response composition uses actual joined workers and scoped encrypted-output loans, retains status200/502/504 and MaySend evidence, and accepts no caller boolean as cleanup proof. Root244 tests plus8 doctests, strict all-target Clippy, examples and all7 Node checks pass (`/tmp/milagre-remote-composition-*.log`). Independent review is assigned. Supervisor dispatch, multi-worker scheduling, full-body HTTP and real endpoints remain unwired.
+
+The native desktop smoke implementation is still uncommitted work by the desktop agent. Actual background WKWebView reports isPersistent=false, but renderer readiness/storage probes have not passed. Root inspected the real2880x1800 screenshot: only canvas background and a grid control, not a completed UI boot. Evidence `/private/tmp/milagre-native-fixture-observer-oR38iG/observer.json` and `/private/tmp/milagre-fixture-evidence-Vl2dW0/before-reload.png` records the80-second native probe deadline, successful ownerStop, exit code1, explicit Exit cleanup, and shell/daemon roots absent at0/250/1000/5000ms after exit. This is observed orderly cleanup after a failed probe, not native object-deallocation proof or UI parity.
+
+An earlier observer timeout used SIGKILL; its report `/private/tmp/milagre-native-fixture-observer-z2zjPg/observer.json` retains the shell root and shows the daemon profile removed on EOF after250ms. It is not counted as clean shutdown. Native eval diagnostics and bounded invocation waits are being added to locate the startup/probe stall. Cookie isolation and full WebKit/IndexedDB filesystem attribution remain unverified; the observer compares only two installed preference files.
+
+Installed app signature verifies and original production/Rust process start times remain unchanged. No fixture installation, live data/provider use, production host restart, mobile fingerprint change or push. Installed app still needs Node; heartbeat remains active.
+
+## Native fixture startup/storage passes; composer request compatibility fixed
+
+Committed desktop5367a830 has actual two-fresh-run WebKit evidence in `/private/tmp/milagre-native-fixture-observer-NxClI0/observer.json`. Root read both reports and inspected the native PNG. Both views reported isPersistent=false; real production UI was ready on the generated Project. localStorage, private preferences and an extra marker in the existing production outbox IndexedDB survived reload, started absent in the next process, and left the outbox state record unchanged. Four2880x1800 PNGs live under `/private/tmp/milagre-fixture-evidence-Bj6yMX` and `...-jycFGX`. Both owner/shell exits succeeded and both roots stayed absent through0/250/1000/5000ms. Two installed preference hashes stayed unchanged. Root27 fixture and39 default tests plus strict all-target Clippy pass; live-host checks remain ignored. Independent review is assigned.
+
+The earlier apparent renderer stall was a smoke assumption: empty saved sessions are hidden by the normal sidebar. The corrected probe checks exact Project/saved sessions and has bounded calls/native deadlines. Hidden finite presentation animations were finished through Animation APIs for capture; no UI layout was substituted. Unsupported services remain explicit errors. Cookie/full-filesystem isolation, native object deallocation, real providers, performance and full workflow parity are not established.
+
+Native send preparation found a real request mismatch: the production composer always sends Claude reply-style preferences, even for Kiro. Runtime015983df accepts concise/normal only for explicit scripted Kiro, preserving the payload. Both styles pass the real Node ChatHost forwarding oracle; a real Node client sends concise to the Rust fixture. All78 combined runtime tests and strict Clippy pass (`/tmp/milagre-runtime-replies-*.log`). Native composer send/reload validation now proceeds; no send success or same-run disk-durability claim yet.
+
+Remote1e02d0e1/b72e24c0 source review found no P1/P2 in its one fixed-response scope. Authority retention under forgotten Claim, actual output-drop receipts and20-second scheduling expiry are assigned follow-ups before broader integration. Installed app is not replaced by the fixture; production host, mobile fingerprint and remote branches remain untouched. Node dependency and heartbeat remain active.
+
+## Real composer send exposes missing owner summary maintenance
+
+Desktop257191b8 preserves a failing native regression rather than bypassing the production sidebar. Real Settings disables TLDR, the model picker chooses Kiro/Scripted, and the real composer/Send button issues one request with replies=concise. Phase0 observes one user10, one assistant11, text-delta and exactly one turn-completed (sequence1..5). Owner reads still contain both messages after reload, but session.summary remains count0. The sidebar says No Chats yet, and the reloaded view cannot render the reply. This is not a native send/reload pass or same-run disk durability proof.
+
+Root inspected the actual pre-reload PNG and reports. Latest evidence: `/private/tmp/milagre-native-fixture-observer-dTEZWF/observer.json`, screenshots `/private/tmp/milagre-fixture-evidence-EBJch8`; earlier send evidence Uav9IX/krSHbh is retained. Both roots are absent through five seconds after orderly failure exit. Separate storage-only two-run observerKdGDtn still passes. Agent27 fixture/39 default tests and strict Clippy pass.
+
+Source confirms an oracle blind spot: production compactProjectState wraps compactProjectDetails with withChatSummaries, whereas the owner chat-node comparison driver uses only compactProjectDetails. The owner agent is porting summary maintenance and correcting the oracle, including unloaded summaries and activity semantics. No frontend fallback, seed-summary removal or fake success is allowed. The strict native reload assertion will be rerun after the owner fix.
+
+Root1e3df24b adds invalid-replies cases with an explicit Kiro provider, so rejection no longer passes merely because provider is absent. Null acceptance and invalid string/type rejection pass the targeted runtime test and strict Clippy. Independent review of the native regression is assigned. Installed app signature and production/Rust start times remain unchanged. Node runtime is still required; no push, installation, host restart, mobile fingerprint change or production writer cutover.
+
+## Remote retention fixes and native evidence correction
+
+Integrated remote0e3955af/fc1634c3/55115fb6 as ce26238a/2cdd88b4/7abb9228. Scoped with_claim retains worker ownership through forgotten references/loans and unwind, including execution credits until join. Packet destruction returns the output receipt after bytes/lease release; unread loans are Discarded/Cancelled without replay. Missed private20-second scheduling deadlines terminalize as Expired/TimedOut, release slots and promote work; tick expires prepared candidates. Root254 Rust tests plus8 doctests, strict all-target Clippy, example builds and all7 Node checks pass (`/tmp/milagre-remote-retention-*.log`). Independent retention review is assigned. No broader scheduler, real HTTP or production networking is enabled.
+
+Correction to the dTEZWF native send report: productionPreferencesUnchanged is false. Root confirmed the installed Electron preference hash changed while the Rust preference hash did not. Both live apps were running. The responsible writer is not established, so this comparison is inconclusive for fixture isolation; attributing it to live-app activity would be inference only. Earlier storage-only runs with unchanged hashes remain narrower evidence. The native agent is recording process/mtime context and this limitation explicitly.
+
+Sonnet confirms the missing summary behavior and oracle blind spot. The owner agent is working on the production summary port and both comparison paths. The native send regression is being strengthened to require a sidebar row immediately after send, and after reload to find and click that actual row before asserting the reply. Automatic selection restoration is recorded separately, not presumed. Inputs are synthetic DOM beforeinput/click events through production components, not human keyboard/mouse input. Owner-read evidence is not disk durability, and existing event-type ordering is not claimed as Node parity.
+
+The installed app signature verifies and both production/Rust process start times remain unchanged. No fixture install, production host restart, live provider use, mobile fingerprint change or push. Node dependency, incomplete native send/reload parity and heartbeat remain.
+
+## Native listing assertion and remote channel-order review
+
+Desktop7d3203ad now requires a sidebar row immediately after the scripted send. Actual WebKit observer `/private/tmp/milagre-native-fixture-observer-ewMjQV/observer.json` fails at phase0 with two owner messages, summary.count0 and no listed row. Reload assertions require the row, a synthetic DOM click and the reply; automatic selection restoration is only recorded. Owner summary maintenance and both Node oracle paths remain under repair. No send/reload pass is claimed. Root reran all4 observer tests; agent27 fixture tests and strict Clippy pass. Independent review is assigned.
+
+The observer records bounded executable identities and preference file metadata, never argv/environment. The latest comparison observed no change, but always reports isolationClaim:false and unattributed. The prior dTEZWF changed Electron hash remains explicitly documented. Both generated roots are absent through five seconds after the latest orderly failure exit. Installed bundle signature still verifies; the fixture was not installed.
+
+Remote retention source review found one P2: sealing advances the outgoing counter, so a discarded or cancelled-after-seal packet can permanently desynchronize its carrier. The fix and post-discard/cancel/forgotten-loan regressions are assigned to the remote owner before broader integration. The254-test checkpoint remains passing evidence for its covered paths, not closure of this new finding. No production host restart, mobile fingerprint change or push. Shared Node runtime and heartbeat remain.
+
+## Summary port restores native send/list/reload; corrected oracle exposes inbox mismatch
+
+Integrated owner727837aa/e0c3e3ca as a1db434d/37e0c0f3: full Chat summary maintenance on read and kept changes, scoped handoff recovery, and production compactProjectState in both owner Node oracles. Root185 owner tests pass, including summary comparisons and16 traces/262 steps. Integrated remote6f774368/529f9dba as47c3348d/f1f86121: lost sealed output closes its carrier, with real peer-counter and eight loss-path regressions. Root256 remote tests plus8 doctests, all7 Node checks, examples and strict owner/runtime/remote Clippy pass. Independent source review is assigned. Logs: `/tmp/milagre-summary-owner-root.log`, `/tmp/milagre-sealed-remote-*.log`, `/tmp/milagre-summary-*-clippy.log`.
+
+Desktop36475536 has two actual native scripted send/list/reload passes in `/private/tmp/milagre-native-fixture-observer-cTjQ8F/observer.json`. Root checked both reports and viewed HzdRMm/after-reload.png: production React sidebar contains the Chat and transcript contains the scripted reply. Each run sends once, retains user10/assistant11 and summary.count2, then reloads and opens the listed row via synthetic DOM click with zero resends. Both report nonpersistent WKWebView storage, exit0, ownerStop and explicit Exit cleanup; generated roots remain absent through observed5000/5002ms. Preferences had no observed content/metadata change, with attribution unresolved and isolationClaim:false. Agent27 fixture/39 default/five helper tests and strict Clippy pass. This is scripted fixture evidence, not real-provider or direct-disk durability proof.
+
+Runtime root suite failed one owned-state comparison because its third Node oracle omitted compaction entirely. Root5054029d now uses actual production compactProjectState and asserts the repaired alpha summary. The corrected oracle then exposes an existing malformed-body divergence: actual Node inboxState throws `TypeError: body?.slice is not a function`, while Rust substitutes an empty preview. The failing regression is retained and assigned to the owner agent; the runtime suite is not claimed green. Evidence: `/tmp/milagre-summary-runtime-root.log` and `/tmp/milagre-summary-owned-compat.log`.
+
+Installed bundle signature verifies and production/installed Rust process start times remain unchanged. No fixture installation or production host restart, mobile fingerprint change or push. The installed shell still uses Node, and standalone services/providers/phone/upgrade verification remain incomplete. Heartbeat remains.
+
+## Inbox refusal parity closes runtime failure; sidebar navigation independently verified
+
+Owner8d75b40c integrated as33a183a6. Loaded inbox bodies now follow Node: string UTF-16 slice, array first240items, null/missing empty, object/number/boolean refusal. Unloaded SQLite previews retain their existing text behavior. Runtime1c856020 compares valid inboxes before admitting malformed alpha, then requires actual Node TypeError and the same Rust RPC error message. Root185 owner and78 combined runtime tests pass; both strict all-target Clippy checks pass. The final owned-compat script also passes4copied Projects/5lazy Chats/search/pages/PTY. Logs `/tmp/milagre-inbox-{owner,runtime}-root.log`, `/tmp/milagre-inbox-owned-compat-root.log` and matching Clippy logs. Independent review is assigned.
+
+Sonnet reports no P1/P2 for summary/recovery, sealed-carrier-loss and prior native send/reload checkpoints. The carrier-loss P2 is closed within the existing in-memory transport scope; explicit delivery/loss acknowledgment remains required for a future real adapter. Summary grouping still walks all loaded messages and clones sessions, so selected-Chat-only cost is not established.
+
+The stronger actual WebKit observer `/private/tmp/milagre-native-fixture-observer-FXjY5u/observer.json` passes both fresh runs. After reload each probe navigates away through the production New chat button and requires the sent Chat unselected and reply absent before clicking its sidebar row. The same reply then appears with zero resends. Both exit0, owner stop and cleanup succeed, roots absent through5000ms. Root read both reports; screenshots are fixture evidence only. Agent27 fixture tests,6 observer/helper tests and strict Clippy pass. No production UI or seeds were changed.
+
+Usage integration contract negotiation is open: fixture-only real registry/account dependencies, retained owner/generation, descriptor-pinned copied directories, readiness checks before reads and acceptance, and revoked results unable to overwrite lastgood history. No implementation approval implies production admission.
+
+Installed Rust bundle signature verifies; PID16468 still starts November10 23:32:28. The previous production PID55108 is gone; observed Milagre app/child PIDs20674/20679 start November11 09:37:50/51, consistent with the reported Milagre restart. This work issued no restart or replacement. No fixture installed, live provider accessed, mobile fingerprint changed or push performed. Node runtime and heartbeat remain.
+
+## Usage fixture adapter contract agreed; inbox and navigation reviews closed
+
+Independent source reviews report no P1/P2 in owner33a183a6/runtime1c856020 and desktop e7ea1406 with FXjY5u evidence. The inbox refusal and discriminating sidebar navigation findings are closed within their documented fixture scope. These reviews ran no tests; root/agent checks remain the earlier recorded evidence.
+
+Quota-only trusted-accounts fixture contract is agreed with the usage owner. Async FixtureOwner create/capture/mutate/close and FixtureSession handle privately bind account owner/generation/Selection/readiness epoch, actual registry Snapshot/Project/Link grants, and descriptor-pinned explicit synthetic directories. A feature-gated serialized admission commit covers provider completion, cached delivery and events; revocation denies delivery and cannot overwrite lastgood history. No awaited external work runs inside the final bounded in-memory apply. Real registry/account mutation, readiness roundtrip, paused reads, directory replacement and close are required regressions. No production API, token scanning or live transport is enabled by this agreement.
+
+Root verified the reproducible dependency export at33a183a66f2c99ed5c8f5b7f9ccf481afd4b6765: registry tree83b2330d8da076d720de410feb8443d33170f64d, accounts tree9aa49548bf3b832afa983415f4dc661b95bf6aec, owner tree56d987b52fdd099c99bcdbbfc14d442d3b2d816a. Ordered tar SHA256 is c91196b45273ceba99999a5efb1c1f6a4cba70226e2396cfa05d100165eaafcb. Dependencies remain in the standalone fixture manifest, with offline validation in a disposable export. Implementation is assigned to the existing usage owner; no implementation or new test pass is claimed here.
+
+## ACP receipt rejection and framing integration
+
+Integrated ACP948b5e44/fea5c35f as11d104b0/3fa1aeb3. Retained receipt text now verifies SHA256; malformed digest/sequence/weight inputs are rejected, fake receipt barriers replace timing assumptions, and the fixed child parses bounded LF-only frames so U+2028 cannot split a prompt. Rejected prompts no longer advance its count. All APIs remain fake-session gated. Root58 default/93 feature ACP tests, all3 actual Node recorder checks,78 combined runtime tests and strict default/feature/runtime Clippy pass. Logs `/tmp/milagre-receipt-*.log`. Runtime95d45814 updates only the lockfile dependency edge to feature-gated sha2, with no version changes. Independent source review is assigned.
+
+ACP production launch contract is inventory/proposal only. The agent is implementing the next pure bounded synthetic launch planner, disconnected from real spawning and authority issuance. Required real account/install/workspace/process cleanup bindings remain gates. Remote c8ce1abb is integrated as835b4b35, documentation only; negotiation is open for the first private authority-owned two-slot executor checkpoint, before tracked output or scheduler/client integration. Explicit delivery evidence remains required before asynchronous egress. Usage fixture implementation was dispatched under the concluded contract; posting the agreement alone had left its Chat idle.
+
+Saved FXjY5u real WebKit two-run evidence was reread, not rerun for this receipt-only change. Installed Rust signature verifies; Rust PID16468 and production app/child20674/20679 start times match the prior checkpoint. No fixture installation, live provider, production restart, mobile fingerprint change or push. Shared Node runtime and heartbeat remain.
+
+## Stored bootstrap guards and app-fixture content integration
+
+Runtime 8f26af0b validates the actual normalized registry Snapshot and recent metadata after writer acquisition, as well as the seed. Non-UTF8 Project paths refuse before copy creation; serving-path shape failures return FIXTURE_BOOTSTRAP_INVALID instead of panicking. A regression mutates real isolated copies after writer acquisition and verifies unexpected Link/recent scope refusal. All81 combined runtime tests and strict all-target Clippy pass. Runtime134f4714 additionally checks the exact malformed-inbox wire error: COMMAND_FAILED with the Node message, no result and no paged/partial data from valid Projects. The production Node-client owned-compat check passes4copied Projects/5lazy Chats. Independent source review is assigned.
+
+Runtime bbd7235c connects app-fixture to the existing single SharedContent/ContentOwner. Trusted startup creates one HTML Artifact, one Design and a saved asset through its Dispatcher after explicit Project open and before socket bind. Designs status reads and the retired save switch match Node behind connection-view and live-readiness guards. All83 combined runtime tests, strict all-target Clippy and the default-feature check pass. Actual Node-client and separate Node-store comparisons cover saved reads, asset bytes, versioned Design edits/conflicts, reconnect, foreign scopes, forget/root replacement, explicit reopen and shutdown cleanup. No Node process is part of the fixture backend; Node remains the test oracle. APP-CONTENT.md records missing delete/comment mutations, arbitrary new Chat resolution, PNG tool feedback and injected partial-initialization failure evidence. Native WebKit content integration is still being implemented; daemon conformance is not a native content pass.
+
+Desktop be5e1976 fixes the known fixture preference temporary-file leak. The owned temporary is removed on write/sync/rename failure; memory changes only after successful replacement. The deterministic rename-failure/retry test passes, as do all6 renderer bridge/helper tests. Full desktop validation accompanies the pending native content checkpoint.
+
+The provider receipt/production-contract source review reports no P1/P2 in11d104b0/3fa1aeb3. Pure provider launch planning, quota authority composition and retained remote executors are active in their existing implementation Chats. Summary performance/edge-case work is also assigned. Saved FXjY5u evidence still proves only the prior scripted native send/list/reopen flow; it was not rerun for these runtime changes. Installed Rust signature verifies, Rust PID16468 and production PIDs20674/20679 retain their recorded start times. No fixture install, production restart, live-provider use, mobile fingerprint change or push. Shared production Node runtime and heartbeat remain.
+
+## Backend coverage audit and checked default-shell refresh
+
+The current retained backend estimate is40% to55% of engineering toward a verified Node-free release, including service implementation, production composition, real-provider/phone checks and migration/rollback. It is judgment, not a test-count or code metric. Production owner cutover remains0%. Whole routines/delegation/linked-host, local MCP, settings/discovery and credential/login areas still need implementation. GPUI Chat11899 reports441 tests at its last complete baseline but remains fixture-driven. A negotiation is open for one shared UI-independent Rust daemon client; backend owns transport, GPUI owns data mappings/reducers/subscriptions. No adapter agreement or implementation is claimed yet.
+
+Root default-shell checks pass:41 tests with1 live-host test ignored,6 renderer checks, strict Clippy and locked release build. install-local.sh rebuilt and refreshed the ordinary Milagre Rust.app after quitting only its prior PID16468. Signature verifies and installed/built Mach-O UUID matches758707B2-5EE6-30C7-ACCB-BDEA1B7BC288; code signing changes the binary hash. Updated installed shell PID32791 was launched in background for a read-only smoke, with live-send/capture-plan environment inputs removed. Receipt `/tmp/milagre-content-installed-shell.json`, logs `/tmp/milagre-content-{default-tests,default-clippy,default-release,install,installed-shell}.log`. At this checkpoint the new live smoke result is pending; the old `/tmp/milagre-rust-smoke.json` is not new evidence. Production app/host PIDs20674/20679 and their start times remain unchanged. The installed shell still uses the Node owner.
+
+Native content testing found the fixture omitted the already-existing frame-aware navigation handler. Reusing it admits child Artifact/srcdoc frames while preserving the main-origin restriction; the production shell already installed that handler. Subsequent fixture runs reached real HTML sandbox observation and a Design inspector save reread at version2, but the complete content smoke remains failing during its further assertions. No full native content pass, installation of the fixture, live-provider turn, mobile fingerprint change, production host restart or push is claimed.
+
+## Native content pass and shared-client protocol checkpoint
+
+Desktop `36ca91b8` passes two fresh background WKWebView runs after runtime `2c13dd74` fixed whole-state publication. Root read both reports and viewed the real HTML and post-reload Design PNGs under `/private/tmp/milagre-fixture-evidence-Uz7hIe` and `4QY9wO`. Each run makes one scripted send and one real production Design inspector save, reads version 2, reloads and reopens with zero further sends/saves. The actual Design controller creates its guides/selection outline and renders the edited text. Artifact and Design frames expose no Tauri/bridge or parent access. Main and HTML-frame CSP probes observe HTTPS and absolute-media image refusals; the retained preview returns 404 after reload. No production React components, fixture seeds or request payloads were rewritten to force the pass.
+
+Observer `YpZlgj` records exit 0, empty stderr, nonpersistent WebKit stores, owner Stop and explicit Exit cleanup for both processes. Both shell and daemon roots are absent at about 2/3, 250/251, 1001 and 5000 ms. The two preference files show no observed change, always unattributed with `isolationClaim:false`; production PIDs 20674/20679 and installed Rust PID 32791 retain their start times. This is fixture evidence with synthetic DOM input and reduced motion. It does not prove real-provider execution, direct SQLite persistence, raster tool feedback, foreground animation behavior or full filesystem/network isolation. Desktop checks: 38 fixture tests (1 installed-host test ignored), 7 JavaScript tests, strict Clippy, lint and formatting pass.
+
+Client `b15bd69d` adds the agreed UI-independent async read facade, bounded protocol-v1 result/snapshot paging, explicit reconnect and acknowledged snapshot event barriers. Its tests use private Unix socket pairs. Opaque endpoint authority cannot be publicly constructed until the owned-child launcher exists. It exposes no production profile/socket, fallback or raw RPC. The focused review found and closed a paging timeout that could falsely report an already-submitted operation as unsubmitted, plus a reply wake that preceded admission-credit release. All 25 tests and 3 compile-fail doctests pass. Real daemon integration, automatic oversized-state hydration and multiplexing remain gates. Tauri has not switched transports and GPUI has not added the dependency.
+
+The installed default shell remains current with its checked production-visible code and golden icon; its signature and UUID were rechecked. The fixture was never installed. Source review of the new owner/runtime/native/client checkpoints is assigned to Chat 10929. Shared Node ownership is still required, so the migration and heartbeat remain active. Nothing pushed, no production host restart or native mobile fingerprint change.

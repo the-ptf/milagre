@@ -1,0 +1,40 @@
+{
+  "productName": "Milagre Rust Chat",
+  "version": "0.1.0",
+  "identifier": "com.milagre.rust-chat",
+  "build": {
+    "frontendDist": "dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Milagre Rust Chat",
+        "width": 1440,
+        "height": 900,
+        "visible": false,
+        "create": false,
+        "minWidth": 980,
+        "minHeight": 680,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 16
+        }
+      }
+    ],
+    "security": {
+      "csp": "img-src 'self' data: blob: milagre-artifact:; media-src 'self' data: blob: milagre-artifact:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; frame-src 'self' milagre-artifact:"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icon.icns"
+    ]
+  }
+}

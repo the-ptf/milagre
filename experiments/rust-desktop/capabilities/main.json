@@ -1,0 +1,6 @@
+{
+  "identifier": "main-window",
+  "description": "Only the local application UI may call the native bridge.",
+  "windows": ["main"],
+  "permissions": ["core:event:default", "allow-daemon", "allow-native-call", "allow-preferences-read", "allow-preferences-write", "allow-smoke-result"]
+}
