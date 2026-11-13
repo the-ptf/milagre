@@ -758,14 +758,6 @@ a {
   display: none;
 }
 
-/* The transcript's message rail: a slight frosted pill behind its ticks, the composer pills' glass at a lower fill. */
-.rail-glass {
-  background: color-mix(in oklab, var(--surface) 52%, transparent);
-  backdrop-filter: blur(var(--blur-chip));
-  -webkit-backdrop-filter: blur(var(--blur-chip));
-  box-shadow: 0 0 0 1px var(--line);
-}
-
 /* The composer row's pills: frosted glass over the transcript, a tint of their tone, a hairline ring (a ring, not a
  * border, so a PillMorph panel inside the surface lines up with its edge) and a lit top edge. */
 .status-pill {

@@ -118,7 +118,7 @@ export function PreviewRail({
           aria-label={label}
           onPointerLeave={() => setHoveredId(null)}
           style={{ gridTemplateRows: rowTemplate }}
-          className={`rail-glass absolute top-1/2 left-0 z-10 grid max-h-full w-6 -translate-y-1/2 content-center rounded-full py-1.5 ${railClassName}`}
+          className={`absolute inset-y-0 left-0 z-10 grid w-6 content-center ${railClassName}`}
         >
           {items.map((item, index) => {
             const selected = item.id === selectedId;
@@ -127,7 +127,7 @@ export function PreviewRail({
             const scale = highlighted ? 1 : distance === 1 ? 0.68 : distance === 2 ? 0.44 : 0.25;
 
             return (
-              // The ticks start near the column's left edge (the Chat's), shrinking toward it, on a frosted pill.
+              // The ticks start near the column's left edge (the Chat's), shrinking toward it.
               <button
                 key={item.id}
                 data-slot="preview-rail-item"
@@ -148,7 +148,7 @@ export function PreviewRail({
                 }}
                 onClick={() => selectItem(item)}
                 style={{ height: "100%" }}
-                className="relative flex size-6 items-center justify-start pl-1 text-ink-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="relative flex size-6 items-center justify-start text-ink-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <motion.span
                   data-slot="preview-rail-tick"
