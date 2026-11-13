@@ -102,7 +102,7 @@ export function MessageSelection({
       <button
         type="button"
         aria-label="Quote selected text"
-        className="fixed z-50 flex h-8 items-center gap-2 rounded-control bg-surface px-3 text-13 font-medium text-ink shadow-raised hover:bg-hover focus-visible:outline-accent"
+        className="fixed z-50 flex h-8 items-center gap-2 rounded-control bg-surface px-3 text-13 font-medium text-ink shadow-raised transition-colors hover:bg-[linear-gradient(var(--hover),var(--hover))] focus-visible:outline-accent"
         style={{ left: passage.left, top: passage.top }}
         onPointerDown={(event) => event.preventDefault()}
         onClick={(event) => {

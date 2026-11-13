@@ -2722,7 +2722,8 @@ function App() {
       if (command === "changes.toggle") {
         if (!changesAvailableRef.current) return;
         event.preventDefault();
-        changes.toggleDefault();
+        // Shows or hides the panel on the view it was left on (Changes or the PR), never switching it.
+        changes.toggle();
       } else if (command === "canvas.open") {
         event.preventDefault();
         changes.closeDiff();
