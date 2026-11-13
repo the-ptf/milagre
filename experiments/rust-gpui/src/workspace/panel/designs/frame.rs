@@ -295,7 +295,6 @@ pub fn frame(
                 .bg(gpui::white())
                 .overflow_hidden()
                 .when_some(scene, |el, scene| el.child(render::scene(&scene, view.scale)))
-                .children(pins(this, &id, version, theme))
                 .when_some(border, |el, color| {
                     el.child(div().absolute().size_full().rounded(radius).border(p((2.0 * view.scale).max(1.0))).border_color(color))
                 }),
@@ -317,37 +316,6 @@ pub fn frame(
             )
         })
         .into_any_element()
-}
-
-/// The comments sent on this version of a design (`artifact:comments`), as the desktop's canvas pins them: a 20px
-/// badge with its number, its point the top-left corner, on the spot; green once the agent resolved it.
-fn pins(this: &DesignsView, id: &str, version: u32, theme: &Theme) -> Vec<AnyElement> {
-    this.pins()
-        .iter()
-        .filter(|pin| pin.design == id && pin.version == version)
-        .map(|pin| {
-            let (fill, ink) = if pin.resolved { (theme.green_ink, theme.on_green) } else { (theme.accent_ink, theme.on_accent) };
-            let selector = format!("design-pin-{}", pin.id);
-            div()
-                .debug_selector(move || selector.clone())
-                .absolute()
-                .left(gpui::relative(pin.x as f32))
-                .top(gpui::relative(pin.y as f32))
-                .size(px(20.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .rounded_tl(px(0.0))
-                .bg(fill)
-                .shadow(theme.shadow_raised())
-                .text_size(px(10.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(ink)
-                .child(pin.number.to_string())
-                .into_any_element()
-        })
-        .collect()
 }
 
 /// The floating zoom bar (`ZoomBar`): zoom out, the zoom (back to 100%), zoom in, Fit.

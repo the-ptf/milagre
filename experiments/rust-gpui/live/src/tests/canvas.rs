@@ -7,7 +7,11 @@
 //!   An agent step that shows a design reads it all again once it ends (versions already read are not); Delete sends
 //!   `artifact:delete [{chatId, id}]` and the board follows the read; Send with a chosen version sends Electron's
 //!   message through `chat:send`. A Chat without any shows neither tab.
-//! - `a_read_only_window_deletes_nothing`: Delete is refused before any connection.
+//! - `a_read_only_window_deletes_nothing`: Delete (and recording comments) is refused before any connection.
+//! - `comments_send_and_record_like_electron`: a comment pinned on a design and one on the page, each written in its
+//!   bubble, go to the Chat with Send as Electron's message (`chat:send`) and are then recorded with
+//!   `artifact:add-comments [{chatId, comments}]`; the read after shows them as sent pins; typing still reaches the
+//!   composer.
 
 use gpui::TestAppContext;
 use milagre_gpui_spike::workspace::panel::PanelTab;
@@ -206,6 +210,20 @@ fn a_read_only_window_deletes_nothing(cx: &mut TestAppContext) {
     m.wait_for("the refusal", |m| m.controller.read_with(m.vcx, |c, cx| !c.live_canvas().unwrap().read(cx).refused().is_empty()));
     m.vcx.run_until_parked();
     assert!(methods(&fake, "artifact:delete").is_empty(), "nothing reached the daemon");
+    // A comment's record is refused too (its message would be: chat:send is the composer's, refused alike).
+    panel.update(m.vcx, |p, cx| p.activate(PanelTab::Designs, cx));
+    m.vcx.run_until_parked();
+    designs.update_in(m.vcx, |d, window, cx| {
+        d.set_commenting(true, cx);
+        d.pin_comment("welcome", 0.5, 0.5, window, cx);
+    });
+    m.vcx.simulate_input("x");
+    designs.update(m.vcx, |d, cx| d.send(cx));
+    m.wait_for("the comment's refusal", |m| {
+        m.controller
+            .read_with(m.vcx, |c, cx| c.live_canvas().unwrap().read(cx).refused().iter().any(|r| r.starts_with("artifact:add-comments")))
+    });
+    assert!(methods(&fake, "artifact:add-comments").is_empty());
     m.wait_for("the board back from the read", |m| designs.read_with(m.vcx, |d, _| d.design("sign-in").is_some()));
     m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);
@@ -277,6 +295,94 @@ fn the_composer_takes_typing_beside_the_canvas_tabs(cx: &mut TestAppContext) {
     let before = composer.read_with(m.vcx, |c, _| c.text().to_owned());
     m.vcx.simulate_input("hi");
     assert_eq!(composer.read_with(m.vcx, |c, _| c.text().to_owned()), format!("{before}hi"), "a Chat without designs");
+
+    m.controller.update(m.vcx, |c, _| c.disconnect());
+    drop(m);
+    drop(fake);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[gpui::test]
+fn comments_send_and_record_like_electron(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let data = data_folder("canvas-comments");
+    let fake = FakeDaemon::start(&data, world());
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    let key = format!("{ALPHA}#2");
+    m.wait_for("the newest Chat", |m| m.open_key().as_deref() == Some(key.as_str()));
+    let panel = m.workspace.read_with(m.vcx, |w, _| w.panel.clone());
+    m.wait_for("both tabs", |m| {
+        panel.read_with(m.vcx, |p, _| p.visible_tabs().contains(&PanelTab::Designs) && p.visible_tabs().contains(&PanelTab::Artifact))
+    });
+    let (designs, artifacts) = panel.read_with(m.vcx, |p, _| (p.designs().clone(), p.artifacts().clone()));
+    panel.update(m.vcx, |p, cx| p.activate(PanelTab::Designs, cx));
+    m.vcx.run_until_parked();
+
+    // A design: comment mode, a pin on welcome (it shows version 3), its text, Send.
+    designs.update_in(m.vcx, |d, window, cx| {
+        d.set_commenting(true, cx);
+        d.pin_comment("welcome", 0.25, 0.12, window, cx);
+    });
+    m.vcx.run_until_parked();
+    m.vcx.simulate_input("Bigger title");
+    let id = designs.read_with(m.vcx, |d, _| d.comments_state().drafts[0].key.clone());
+    designs.update(m.vcx, |d, cx| d.send(cx));
+    m.wait_for("the message", |_| {
+        sent(&fake).iter().any(|r| r["body"].as_str().is_some_and(|b| b.starts_with("A comment on the designs")))
+    });
+    let body = sent(&fake).into_iter().find_map(|r| r["body"].as_str().map(str::to_owned).filter(|b| b.starts_with("A comment"))).unwrap();
+    assert!(
+        body.contains(&format!(
+            "1. (comment {id}) On the design \"Welcome\" (welcome, version 3), 25% across and 12% down, layer \"title\""
+        )),
+        "{body}"
+    );
+    m.wait_for("artifact:add-comments", |_| !methods(&fake, "artifact:add-comments").is_empty());
+    assert_eq!(
+        methods(&fake, "artifact:add-comments")[0],
+        json!([{"chatId": key, "comments": [{"id": id, "design": {"id": "welcome", "title": "Welcome", "version": 3}, "x": 0.25, "y": 0.12,
+            "text": "Bigger title", "nodeId": "title"}]}])
+    );
+    m.wait_for("the sent pin", |m| designs.read_with(m.vcx, |d, _| d.pins().iter().any(|p| p.id == id && p.version == 3)));
+    assert_eq!(designs.read_with(m.vcx, |d, _| d.feedback()), 0);
+
+    // The page: comment mode, a press the helper reports on the Status tab, its text, Send.
+    panel.update(m.vcx, |p, cx| p.activate(PanelTab::Artifact, cx));
+    m.vcx.run_until_parked();
+    artifacts.update_in(m.vcx, |a, window, cx| {
+        milagre_gpui_spike::workspace::panel::comments::set_commenting(a, true, cx);
+        a.pin_on_page((0.4, 0.6), "h1:1@0.5,0.5".into(), "Status".into(), (30.0, 40.0), window, cx);
+    });
+    m.vcx.run_until_parked();
+    // A headless window has no native view for the page (it shows its error), so its bubble is not drawn here: the
+    // text goes into the bubble's field directly (typing in the bubble is the base crate's `artifacts` test).
+    let field = artifacts.read_with(m.vcx, |a, _| a.comments_state().editor().cloned()).expect("the bubble's field");
+    m.vcx.update(|window, cx| field.update(cx, |f, cx| f.set_value("Which week?", window, cx)));
+    let page_id = artifacts.read_with(m.vcx, |a, _| a.comments_state().drafts[0].key.clone());
+    artifacts.update(m.vcx, |a, cx| a.send(cx));
+    m.wait_for("the page's message", |_| {
+        sent(&fake).iter().any(|r| r["body"].as_str().is_some_and(|b| b.starts_with("A comment on the artifact")))
+    });
+    m.wait_for("the page's record", |_| methods(&fake, "artifact:add-comments").len() == 2);
+    assert_eq!(
+        methods(&fake, "artifact:add-comments")[1],
+        json!([{"chatId": key, "comments": [{"id": page_id, "design": {"id": "report", "title": "Report", "version": 4, "format": "html"},
+            "x": 0.4, "y": 0.6, "text": "Which week?", "anchor": "h1:1@0.5,0.5", "near": "Status", "tab": {"id": "status", "title": "Status"}}]}])
+    );
+    m.wait_for("the page's sent comment", |m| {
+        artifacts.read_with(m.vcx, |a, _| a.page().comments.iter().any(|c| c.id.as_ref() == page_id))
+    });
+
+    // The composer still types: a click in it, then keys.
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    let before = composer.read_with(m.vcx, |c, _| c.text().to_owned());
+    let input = m.vcx.debug_bounds("composer-input").expect("the composer's text area");
+    m.vcx.simulate_click(input.center(), gpui::Modifiers::none());
+    m.vcx.run_until_parked();
+    m.vcx.simulate_input("go");
+    assert_eq!(composer.read_with(m.vcx, |c, _| c.text().to_owned()), format!("{before}go"));
+    assert!(m.controller.read_with(m.vcx, |c, cx| c.live_canvas().unwrap().read(cx).errors().is_empty()));
 
     m.controller.update(m.vcx, |c, _| c.disconnect());
     drop(m);

@@ -368,10 +368,21 @@ fn live_designs_load_as_a_skeleton_then_draw_with_their_kept_versions_and_pins(c
         number: 1,
         text: "Bigger title".into(),
         resolved: true,
+        note: Some("Made it 32px".into()),
     };
     view.update(cx, |v, cx| v.set_live(live_designs(), vec![pin], cx));
     settle(cx);
     assert!(cx.debug_bounds("designs-skeleton").is_none());
+    // A resolved comment shows only with "Show resolved comments" (right-click on the comment button).
+    assert!(cx.debug_bounds("design-pin-c1").is_none(), "resolved: hidden");
+    let button = testing::bounds(cx, "designs-comment");
+    cx.simulate_mouse_down(button.center(), MouseButton::Right, Modifiers::none());
+    cx.simulate_mouse_up(button.center(), MouseButton::Right, Modifiers::none());
+    settle(cx);
+    let row = testing::bounds(cx, "designs-show-resolved");
+    cx.simulate_click(row.center(), Modifiers::none());
+    settle(cx);
+    assert!(view.read_with(cx, |v, _| v.comments_state().show_resolved));
     let body = testing::bounds(cx, "design-body-welcome");
     let drawn = testing::bounds(cx, "design-pin-c1");
     assert!((drawn.origin.x - (body.origin.x + body.size.width * 0.5)).abs() < px(1.0), "{drawn:?} on {body:?}");
@@ -414,4 +425,138 @@ fn live_delete_and_send_are_events_for_the_data_layer(cx: &mut TestAppContext) {
         "Electron's designFeedbackMessage for a choice"
     );
     assert!(view.read_with(cx, |v, _| v.design("sign-in").is_none()), "gone from the board at once");
+}
+
+// Comment mode.
+
+fn events(view: &gpui::Entity<DesignsView>, cx: &mut VisualTestContext) -> std::rc::Rc<std::cell::RefCell<Vec<super::DesignsEvent>>> {
+    let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = events.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(view, move |_, event: &super::DesignsEvent, _| sink.borrow_mut().push(event.clone())).detach();
+    });
+    events
+}
+
+/// `ArtifactCanvas`'s comment mode: the comment button (or C) arms it, a click on a design pins a comment there (with
+/// the layer under it) and opens its bubble with the text field focused; Enter keeps it, its pin stays; Send sends the
+/// choice and the comment as Electron's message and records the comment; comment mode ends.
+#[gpui::test]
+fn a_click_in_comment_mode_pins_a_comment_and_send_sends_it(cx: &mut TestAppContext) {
+    let (view, cx) = mount(cx);
+    view.update(cx, |v, cx| v.set_live(live_designs(), Vec::new(), cx));
+    settle(cx);
+    let events = events(&view, cx);
+    let at = testing::bounds(cx, "designs-comment").center();
+    cx.simulate_click(at, Modifiers::none());
+    settle(cx);
+    assert!(view.read_with(cx, |v, _| v.comments_state().commenting));
+    let body = testing::bounds(cx, "design-body-welcome");
+    let spot = point(body.origin.x + body.size.width * 0.5, body.origin.y + body.size.height * 0.1);
+    cx.simulate_click(spot, Modifiers::none());
+    settle(cx);
+    testing::bounds(cx, "comment-bubble");
+    assert_eq!(view.read_with(cx, |v, _| v.active().map(str::to_string)), None, "a click in comment mode hands no design the mouse");
+    cx.simulate_input("Bigger title");
+    settle(cx);
+    cx.simulate_keystrokes("enter");
+    settle(cx);
+    assert!(cx.debug_bounds("comment-bubble").is_none(), "Enter keeps it and closes the bubble");
+    let draft = view.read_with(cx, |v, _| v.comments_state().drafts.clone());
+    assert_eq!(draft.len(), 1);
+    assert_eq!((draft[0].target.id.as_str(), draft[0].target.version, draft[0].text.as_str()), ("welcome", 2, "Bigger title"));
+    assert!((draft[0].x - 0.5).abs() < 0.01 && (draft[0].y - 0.1).abs() < 0.01, "{:?}", (draft[0].x, draft[0].y));
+    // The Send bar came (feedback waits), so the board refitted: the pin keeps its spot on the design.
+    let pin = testing::bounds(cx, "design-draft-1");
+    let body = testing::bounds(cx, "design-body-welcome");
+    let spot = point(body.origin.x + body.size.width * draft[0].x as f32, body.origin.y + body.size.height * draft[0].y as f32);
+    assert!(
+        (pin.origin.x - spot.x).abs() < px(1.0) && (pin.origin.y - spot.y).abs() < px(1.0),
+        "the pin point is the spot: {pin:?} vs {spot:?}"
+    );
+    assert_eq!(view.read_with(cx, |v, _| v.feedback()), 1);
+
+    // C leaves comment mode; the comment waits. Choose a design too, then Send.
+    cx.simulate_keystrokes("c");
+    assert!(!view.read_with(cx, |v, _| v.comments_state().commenting));
+    view.update(cx, |v, cx| v.choose("sign-in", cx));
+    settle(cx);
+    let at = testing::bounds(cx, "designs-send").center();
+    cx.simulate_click(at, Modifiers::none());
+    settle(cx);
+    let sent = events.borrow().clone();
+    let [super::DesignsEvent::Send(message), super::DesignsEvent::AddComments(recorded)] = sent.as_slice() else { panic!("{sent:?}") };
+    let id = &draft[0].key;
+    assert!(
+        message
+            .starts_with("I chose the design \"Sign in\" (sign-in, version 1). Continue from this one.\n\nA comment on the designs:\n\n"),
+        "{message}"
+    );
+    assert!(
+        message.contains(&format!("1. (comment {id}) On the design \"Welcome\" (welcome, version 2), 50% across and 10% down")),
+        "{message}"
+    );
+    assert!(
+        message.ends_with("Keep its id. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.")
+    );
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0]["id"], serde_json::json!(id));
+    assert_eq!(recorded[0]["design"], serde_json::json!({"id": "welcome", "title": "Welcome", "version": 2}));
+    assert_eq!(recorded[0]["text"], serde_json::json!("Bigger title"));
+    assert!(view.read_with(cx, |v, _| v.feedback() == 0 && v.comments_state().drafts.is_empty()));
+}
+
+/// A bubble closed empty drops its pin; Escape closes the bubble, then leaves comment mode; Delete removes a comment;
+/// a sent comment's pin opens its text read back.
+#[gpui::test]
+fn bubbles_close_drop_and_read_back(cx: &mut TestAppContext) {
+    let (view, cx) = mount(cx);
+    let pin = super::DesignPin {
+        id: "c9".into(),
+        design: "welcome".into(),
+        version: 2,
+        x: 0.3,
+        y: 0.6,
+        number: 1,
+        text: "Too dark".into(),
+        resolved: false,
+        note: None,
+    };
+    view.update(cx, |v, cx| v.set_live(live_designs(), vec![pin], cx));
+    settle(cx);
+    // C arms comment mode once the canvas has the keyboard (a press on it).
+    let body = testing::bounds(cx, "design-body-welcome");
+    cx.simulate_click(point(body.origin.x - px(30.0), body.origin.y - px(80.0)), Modifiers::none());
+    cx.simulate_keystrokes("c");
+    assert!(view.read_with(cx, |v, _| v.comments_state().commenting));
+    let body = testing::bounds(cx, "design-body-welcome");
+    let spot = point(body.origin.x + body.size.width * 0.7, body.origin.y + body.size.height * 0.2);
+    cx.simulate_click(spot, Modifiers::none());
+    settle(cx);
+    testing::bounds(cx, "comment-bubble");
+    cx.simulate_keystrokes("escape");
+    settle(cx);
+    assert!(cx.debug_bounds("comment-bubble").is_none());
+    assert!(view.read_with(cx, |v, _| v.comments_state().drafts.is_empty()), "closed empty: dropped");
+    assert!(view.read_with(cx, |v, _| v.comments_state().commenting), "the first Escape only closed the bubble");
+    // Write one, then Delete it.
+    cx.simulate_click(spot, Modifiers::none());
+    settle(cx);
+    cx.simulate_input("x");
+    let at = testing::bounds(cx, "comment-delete").center();
+    cx.simulate_click(at, Modifiers::none());
+    settle(cx);
+    assert!(view.read_with(cx, |v, _| v.comments_state().drafts.is_empty()), "Delete removes it");
+    cx.simulate_keystrokes("escape");
+    assert!(!view.read_with(cx, |v, _| v.comments_state().commenting), "Escape leaves comment mode");
+    // The sent comment's pin (ink) opens its text, "Sent to the agent".
+    let at = testing::bounds(cx, "design-pin-c9").center();
+    cx.simulate_click(at, Modifiers::none());
+    settle(cx);
+    testing::bounds(cx, "comment-bubble");
+    assert_eq!(view.read_with(cx, |v, _| v.comments_state().open.clone()), Some("sent:c9".into()));
+    // A press on the canvas closes it.
+    cx.simulate_click(point(body.origin.x - px(30.0), body.origin.y - px(80.0)), Modifiers::none());
+    settle(cx);
+    assert!(cx.debug_bounds("comment-bubble").is_none());
 }

@@ -26,6 +26,8 @@ pub struct SentComment {
     pub anchor: Option<SharedString>,
     pub text: SharedString,
     pub resolved: bool,
+    /// The agent's note on what it did, once it resolved it.
+    pub note: Option<SharedString>,
 }
 
 /// An Artifact page (`HtmlArtifact`): its tabs (one, with the page's own title, when it has none) and files.
@@ -50,12 +52,19 @@ impl HtmlArtifact {
         self.tabs.len() > 1
     }
 
+    /// Whether a comment belongs on `tab` (`onArtifactTab`): one left on another tab waits there; one from before
+    /// tabs sits on the first.
+    pub fn on_tab(&self, comment_tab: &str, tab: &str) -> bool {
+        let first = self.tabs.first().map(|t| t.id.as_ref()).unwrap_or("");
+        (if comment_tab.is_empty() { first } else { comment_tab }) == tab
+    }
+
     /// The sent comments on `tab`, as the pins the page draws, numbered in the order they were sent.
     pub fn pins(&self, tab: &str, ink: &str, surface: &str, green_ink: &str, on_green: &str) -> Vec<PagePin> {
         self.comments
             .iter()
             .enumerate()
-            .filter(|(_, comment)| comment.tab.as_ref() == tab || (comment.tab.is_empty() && !self.has_tabs()))
+            .filter(|(_, comment)| self.on_tab(&comment.tab, tab))
             .map(|(ix, comment)| PagePin {
                 key: format!("sent:{}", comment.id),
                 x: comment.x,
@@ -65,6 +74,7 @@ impl HtmlArtifact {
                 fill: if comment.resolved { green_ink } else { ink }.to_string(),
                 ink: if comment.resolved { on_green } else { surface }.to_string(),
                 label: format!("Sent comment {}{}: {}", ix + 1, if comment.resolved { ", resolved" } else { "" }, comment.text),
+                hide: false,
             })
             .collect()
     }
@@ -168,6 +178,7 @@ pub fn pages() -> Vec<HtmlArtifact> {
                     anchor: Some("h1:1@0.62,0.5".into()),
                     text: "Say which week this is.".into(),
                     resolved: false,
+                    note: None,
                 },
                 SentComment {
                     id: "c2".into(),
@@ -177,6 +188,7 @@ pub fn pages() -> Vec<HtmlArtifact> {
                     anchor: Some("table:1/tbody:1/tr:3/td:3@0.5,0.5".into()),
                     text: "Is 140 ms the Worker deploy?".into(),
                     resolved: true,
+                    note: Some("Yes: the 14:02 deploy. Marked on the chart.".into()),
                 },
             ],
         },

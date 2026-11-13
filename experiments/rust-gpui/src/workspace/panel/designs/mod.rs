@@ -11,9 +11,12 @@
 //! - Fixture designs (`fixture.rs`), or a data layer's ([`DesignsView::set_live`]: the Chat's designs as Milagre's
 //!   daemon keeps them, `artifact:list` and `artifact:get` per version, with the comments sent on them as pins). Live,
 //!   Delete and Send are [`DesignsEvent`]s the data layer carries out (`artifact:delete`; the choice as Electron's
-//!   message, "I chose the design …"); while the first read is on its way the board is a skeleton. Placing new
-//!   comment pins and their bubble, live agent drafts and replays, Share and the transcript's design cards are not
-//!   ported.
+//!   message, "I chose the design …"); while the first read is on its way the board is a skeleton. Live agent
+//!   drafts and replays, Share and the transcript's design cards are not ported.
+//! - Comment mode (`../comments.rs`): the comment button floats at the canvas's top-right (C toggles it too); a click
+//!   on a design pins a comment there (with the layer under it), written in its bubble; Send sends the choice and the
+//!   comments as Electron's message and records them ([`DesignsEvent::AddComments`], `artifact:add-comments`). The
+//!   pins draw over the frames, outside their clipping, so a bubble near an edge stays whole.
 //! - Edit opens the design page editor (`editor/`, WP-55) over the window; its Save adds a version here.
 //!
 //! Pan: drag the background or a design that does not have the mouse, or scroll. Zoom: pinch, ⌘- or ctrl-scroll
@@ -43,6 +46,7 @@ use self::board::{Board, View};
 use self::editor::{DesignEditor, EditorEvent};
 use self::fixture::DesignArtifact;
 use self::scene::{IconCache, Scene};
+use super::comments::{self, Bubble, CommentHost, Comments, Draft, Target};
 use crate::theme::{ActiveTheme, TEXT_11, TEXT_12, TextStepExt, Theme};
 use crate::ui::{EmptySize, EmptyState, IconName};
 
@@ -58,6 +62,8 @@ pub struct DesignPin {
     pub number: u32,
     pub text: String,
     pub resolved: bool,
+    /// The agent's note on what it did, once it resolved it.
+    pub note: Option<String>,
 }
 
 /// What the Designs tab asks a data layer to do (live only; the fixture does them in place).
@@ -65,8 +71,10 @@ pub struct DesignPin {
 pub enum DesignsEvent {
     /// Delete a design with every version (`artifact:delete [{chatId, id}]`).
     Delete(String),
-    /// Send the choice to the Chat as this message (Electron's `designFeedbackMessage`).
+    /// Send the choice and the comments to the Chat as this message (Electron's `designFeedbackMessage`).
     Send(String),
+    /// Record the comments just sent (`artifact:add-comments [{chatId, comments}]`, Electron's `DesignComment`s).
+    AddComments(Vec<serde_json::Value>),
 }
 
 impl gpui::EventEmitter<DesignsEvent> for DesignsView {}
@@ -120,6 +128,27 @@ pub struct DesignsView {
     live: bool,
     loading: bool,
     pins: Vec<DesignPin>,
+    comments: Comments,
+}
+
+impl CommentHost for DesignsView {
+    fn comments(&self) -> &Comments {
+        &self.comments
+    }
+
+    fn comments_mut(&mut self) -> &mut Comments {
+        &mut self.comments
+    }
+
+    fn send_feedback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.send(cx);
+        self.bubble_left(window, cx);
+    }
+
+    /// The canvas keeps the keyboard for C and Escape once the bubble is gone.
+    fn bubble_left(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus_handle, cx);
+    }
 }
 
 impl DesignsView {
@@ -147,6 +176,7 @@ impl DesignsView {
             live: false,
             loading: false,
             pins: Vec::new(),
+            comments: Comments::default(),
         };
         this.apply_env_seed();
         if !cfg!(test)
@@ -240,6 +270,7 @@ impl DesignsView {
         self.focus = None;
         self.moved = false;
         self.editor = None;
+        self.comments.reset();
         cx.notify();
     }
 
@@ -373,7 +404,82 @@ impl DesignsView {
             frames.push(frame::frame(self, item, version, scene, &theme, cx));
         }
         let zoom = (!self.designs.is_empty()).then(|| frame::zoom_bar(self.view.scale, &theme, cx));
-        div().relative().size_full().children(groups).children(frames).children(zoom).into_any_element()
+        let pins = self.comment_layer(&board, &theme, cx);
+        let button = (!self.designs.is_empty()).then(|| {
+            div()
+                .absolute()
+                .top(px(16.0))
+                .right(px(16.0))
+                .p_1()
+                .rounded(px(18.0))
+                .bg(theme.surface)
+                .shadow(theme.shadow_raised())
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(comments::comment_button(self, "designs", "Comment on a design", &theme, cx))
+        });
+        div().relative().size_full().children(groups).children(frames).children(pins).children(zoom).children(button).into_any_element()
+    }
+
+    /// The pins over the frames in view (`CommentLayer`): sent comments on the version each shows (resolved ones only
+    /// with "Show resolved comments" or while open), then the comments waiting; the open one as its bubble.
+    fn comment_layer(&mut self, board: &Board, theme: &Theme, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        let view = self.view;
+        let room = self.room;
+        let open = self.comments.open.clone();
+        let mut out = Vec::new();
+        let mut place = |el: gpui::AnyElement, x: f64, y: f64, opened: bool| {
+            let left = if opened { x.min(room.0 - f64::from(comments::BUBBLE_WIDTH) - 8.0).max(0.0) } else { x };
+            out.push(div().absolute().left(px(left as f32)).top(px(y as f32)).child(el).into_any_element());
+        };
+        for item in &board.frames {
+            let version = self.shown_version(&item.id);
+            let at = |x: f64, y: f64| view.to_screen(item.body.x + x * item.body.width, item.body.y + y * item.body.height);
+            let sent: Vec<DesignPin> = self
+                .pins
+                .iter()
+                .filter(|p| p.design == item.id && p.version == version)
+                .filter(|p| self.comments.show_resolved || !p.resolved || open.as_deref() == Some(&format!("sent:{}", p.id)))
+                .cloned()
+                .collect();
+            for pin in sent {
+                let key = format!("sent:{}", pin.id);
+                let (x, y) = at(pin.x, pin.y);
+                if open.as_deref() == Some(key.as_str()) {
+                    let content =
+                        Bubble::Sent { text: pin.text.clone(), resolved: pin.resolved.then(|| pin.note.clone().unwrap_or_default()) };
+                    place(comments::bubble(self, content, theme, cx).into_any_element(), x, y, true);
+                    continue;
+                }
+                let (fill, ink) = if pin.resolved { (theme.green_ink, theme.on_green) } else { (theme.ink, theme.on_ink) };
+                let face = comments::pin_face(format!("design-pin-{}", pin.id), pin.number, fill, ink, theme)
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pin(&key, window, cx)));
+                place(face.into_any_element(), x, y, false);
+            }
+            let drafts: Vec<(usize, Draft)> = self
+                .comments
+                .drafts
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| d.target.id == item.id && d.target.version == version)
+                .map(|(n, d)| (n, d.clone()))
+                .collect();
+            for (n, draft) in drafts {
+                let (x, y) = at(draft.x, draft.y);
+                let number = n as u32 + 1;
+                if open.as_deref() == Some(draft.key.as_str()) {
+                    let content = Bubble::Draft { key: draft.key.clone(), number };
+                    place(comments::bubble(self, content, theme, cx).into_any_element(), x, y, true);
+                    continue;
+                }
+                let key = draft.key.clone();
+                let face = comments::pin_face(format!("design-draft-{number}"), number, theme.accent_ink, theme.on_accent, theme)
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pin(&key, window, cx)));
+                place(face.into_any_element(), x, y, false);
+            }
+        }
+        out
     }
 
     fn fit(&mut self, id: Option<&str>) {
@@ -442,20 +548,90 @@ impl DesignsView {
         cx.notify();
     }
 
-    /// How many things Send sends: the choice (comments are not ported).
+    /// How many things Send sends: the comments written and the choice.
     pub fn feedback(&self) -> usize {
-        usize::from(self.pending.is_some())
+        self.comments.written() + usize::from(self.pending.is_some())
     }
 
+    pub fn comments_state(&self) -> &Comments {
+        &self.comments
+    }
+
+    /// Send (`ArtifactDock`'s `send`): the choice and the comments as one message to the Chat, then the comments are
+    /// recorded so the agent can resolve them by id; comment mode ends. In the fixture the comments become sent pins.
     pub fn send(&mut self, cx: &mut Context<Self>) {
-        if let Some(choice) = self.pending.take() {
-            if self.live {
-                let title = self.design(&choice.0).map(|d| d.title.clone()).unwrap_or_default();
-                cx.emit(DesignsEvent::Send(choice_message(&choice.0, &title, choice.1)));
-            }
-            self.sent = Some(choice);
-            cx.notify();
+        if self.feedback() == 0 {
+            return;
         }
+        let written = self.comments.take_written(cx);
+        let choice = self.pending.take();
+        let titled =
+            choice.as_ref().map(|(id, version)| (id.clone(), self.design(id).map(|d| d.title.clone()).unwrap_or_default(), *version));
+        let message = comments::feedback_message(titled.as_ref().map(|(id, title, v)| (id.as_str(), title.as_str(), *v)), &written);
+        if self.live {
+            cx.emit(DesignsEvent::Send(message));
+            if !written.is_empty() {
+                cx.emit(DesignsEvent::AddComments(written.iter().map(comments::comment_value).collect()));
+            }
+        } else {
+            for draft in &written {
+                let number = self.pins.iter().filter(|p| p.design == draft.target.id).count() as u32 + 1;
+                self.pins.push(DesignPin {
+                    id: draft.key.clone(),
+                    design: draft.target.id.clone(),
+                    version: draft.target.version,
+                    x: draft.x,
+                    y: draft.y,
+                    number,
+                    text: draft.text.trim().to_string(),
+                    resolved: false,
+                    note: None,
+                });
+            }
+        }
+        if let Some(choice) = choice {
+            self.sent = Some(choice);
+        }
+        self.comments.commenting = false;
+        cx.notify();
+    }
+
+    /// Comment mode on or off (the comment button, C).
+    pub fn set_commenting(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on {
+            self.active = None;
+        }
+        comments::set_commenting(self, on, cx);
+    }
+
+    /// Pins a comment on design `id` at `(x, y)` (fractions of its screen), on the version it shows, naming the layer
+    /// there, and opens its bubble.
+    pub fn pin_comment(&mut self, id: &str, x: f64, y: f64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(design) = self.design(id) else { return };
+        let (title, version) = (design.title.clone(), self.shown_version(id));
+        let node_id = self.scene(id, version, cx).and_then(|scene| {
+            let node = crate::logic::design_layout::layout::node_at(&scene.document, &scene.layout, x * scene.width, y * scene.height)?;
+            Some(scene.document.nodes[node].id.clone())
+        });
+        let draft = Draft {
+            key: comments::new_comment_id(),
+            target: Target { id: id.to_string(), title, version, html: false },
+            x: x.clamp(0.0, 1.0),
+            y: y.clamp(0.0, 1.0),
+            text: String::new(),
+            node_id,
+            anchor: None,
+            near: None,
+            tab: None,
+        };
+        let key = self.comments.pin(draft, cx);
+        self.comments.open = None;
+        comments::open_bubble(self, &key, window, cx);
+    }
+
+    /// Opens a pin's bubble (a draft's key, or `sent:<id>`).
+    pub fn open_pin(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        comments::open_bubble(self, key, window, cx);
     }
 
     pub fn arm_delete(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
@@ -467,6 +643,10 @@ impl DesignsView {
     pub fn delete(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.live {
             cx.emit(DesignsEvent::Delete(id.to_string()));
+        }
+        let gone: Vec<String> = self.comments.drafts.iter().filter(|d| d.target.id == id).map(|d| d.key.clone()).collect();
+        for key in gone {
+            self.comments.remove(&key);
         }
         self.pins.retain(|pin| pin.design != id);
         self.designs.retain(|d| d.id != id);
@@ -526,6 +706,22 @@ impl DesignsView {
         window.focus(&self.focus_handle, cx);
         let at = self.local(event.position);
         let design = self.body_at(at);
+        // A press elsewhere closes the open bubble (`useDismiss`), dropping a comment left empty.
+        if self.comments.open.is_some() {
+            comments::close_bubble(self, window, cx);
+        }
+        // In comment mode a press on a design pins a comment there instead.
+        if self.comments.commenting
+            && let Some(id) = design.clone()
+            && let Some(body) = self.board().frames.iter().find(|f| f.id == id).map(|f| f.body)
+        {
+            let view = self.view;
+            let (x, y) = ((at.x - view.x) / view.scale, (at.y - view.y) / view.scale);
+            self.pin_comment(&id, (x - body.x) / body.width, (y - body.y) / body.height, window, cx);
+            // The bubble's field keeps the focus: the canvas does not take it back as this press ends.
+            window.prevent_default();
+            return;
+        }
         // A press anywhere but on the design that has the mouse takes it back.
         if design.is_none() || design != self.active {
             self.set_active(None, cx);
@@ -583,8 +779,37 @@ impl DesignsView {
         self.zoom_at(1.0 + f64::from(event.delta), (at.x, at.y), cx);
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // The bubble's text field keeps its own keys.
+        if self.comments.typing(window, cx) {
+            return;
+        }
+        let keys = &event.keystroke;
+        let bare = !(keys.modifiers.platform || keys.modifiers.control || keys.modifiers.alt || keys.modifiers.shift);
+        if keys.key == comments::COMMENT_KEY && bare && self.editor.is_none() {
+            let on = !self.comments.commenting;
+            self.set_commenting(on, cx);
+            cx.stop_propagation();
+            return;
+        }
+        // ⌘Enter sends what waits, as Send does.
+        if keys.key == "enter" && (keys.modifiers.platform || keys.modifiers.control) && self.feedback() > 0 {
+            self.send(cx);
+            cx.stop_propagation();
+            return;
+        }
         if event.keystroke.key == "escape" {
+            // Escape closes a bubble, then leaves comment mode, before anything else.
+            if self.comments.open.is_some() {
+                comments::close_bubble(self, window, cx);
+                cx.stop_propagation();
+                return;
+            }
+            if self.comments.commenting {
+                self.set_commenting(false, cx);
+                cx.stop_propagation();
+                return;
+            }
             if self.deleting.is_some() {
                 self.arm_delete(None, cx);
             } else if self.active.is_some() {
@@ -697,7 +922,7 @@ impl Render for DesignsView {
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
-                    .cursor_grab()
+                    .map(|el| if self.comments.commenting { el.cursor_crosshair() } else { el.cursor_grab() })
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
                     .on_mouse_move(cx.listener(Self::on_mouse_move))
                     .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))

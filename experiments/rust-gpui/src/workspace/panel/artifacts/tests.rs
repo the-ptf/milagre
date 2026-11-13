@@ -265,7 +265,7 @@ fn commands_reach_the_helper_as_its_own_messages() {
     let pins = page.pins("overview", "#000000", "#ffffff", "#007e33", "#ffffff");
     assert_eq!(pins.len(), 2);
     assert_eq!((pins[1].number, pins[1].fill.as_str()), (2, "#007e33"), "the resolved pin is green");
-    assert!(messages::pins(&pins).contains("\"a\":\"h1:1@0.62,0.5\""));
+    assert!(messages::pins(&pins, None).contains("\"a\":\"h1:1@0.62,0.5\""));
     assert!(page.pins("regions", "", "", "", "").is_empty());
 }
 
@@ -317,9 +317,12 @@ fn the_page_fills_the_body_with_the_pills_floating_over_it(cx: &mut TestAppConte
     assert!(body.contains(&zoom.origin) && body.contains(&tabs.origin), "{zoom:?} and {tabs:?} over {body:?}");
     assert!(zoom.bottom() < body.bottom() && zoom.left() > body.left(), "the zoom at the bottom-left");
     assert!(tabs.top() > body.top() && tabs.bottom() < zoom.top(), "the page tabs at the top-left");
+    // The comment button floats at the top-right.
+    let tools = testing::bounds(cx, "artifact-tools");
+    assert!(tools.top() > body.top() && tools.right() < body.right() && tools.left() > tabs.right(), "{tools:?}");
     let cutouts = host.read_with(cx, |host, _| host.cutouts().to_vec());
     let holes: Vec<_> = cutouts.iter().filter(|c| c.see_through).map(|c| c.bounds).collect();
-    assert_eq!(holes, vec![tabs.dilate(px(1.0)), zoom.dilate(px(1.0))]);
+    assert_eq!(holes, vec![tabs.dilate(px(1.0)), zoom.dilate(px(1.0)), tools.dilate(px(1.0))]);
 }
 
 #[gpui::test]
@@ -412,14 +415,14 @@ fn the_zoom_steps_resets_and_fits(cx: &mut TestAppContext) {
     click(cx, "artifact-zoom");
     assert_eq!(view.read_with(cx, |view, _| view.scale()), 1.0, "the reading resets to 100%");
     // The page reports it is wider than the panel: Fit zooms out to its width.
-    view.update(cx, |view, cx| view.on_page(PageMessage::Size { scroll_width: 1100.0, client_width: 540.0 }, cx));
+    view.update_in(cx, |view, window, cx| view.on_page(PageMessage::Size { scroll_width: 1100.0, client_width: 540.0 }, window, cx));
     click(cx, "artifact-fit");
     let room = f64::from(f32::from(testing::bounds(cx, "artifact-page").size.width));
     assert!((view.read_with(cx, |view, _| view.scale()) - room / 1100.0).abs() < 1e-6);
     // Ctrl-wheel in the page zooms out from there, not below the minimum.
-    view.update(cx, |view, cx| view.on_page(PageMessage::Zoom { dy: 100_000.0, cx: 5.0, cy: 5.0 }, cx));
+    view.update_in(cx, |view, window, cx| view.on_page(PageMessage::Zoom { dy: 100_000.0, cx: 5.0, cy: 5.0 }, window, cx));
     assert_eq!(view.read_with(cx, |view, _| view.scale()), MIN_SCALE);
-    view.update(cx, |view, cx| view.on_page(PageMessage::Fit, cx));
+    view.update_in(cx, |view, window, cx| view.on_page(PageMessage::Fit, window, cx));
     assert!((view.read_with(cx, |view, _| view.scale()) - room / 1100.0).abs() < 1e-6, "a double-click fits again");
 }
 
@@ -437,7 +440,7 @@ fn an_html_reply_opens_its_page_in_the_tab(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("artifact-tab-overview").is_none());
     let host = view.read_with(cx, |view, _| view.host().cloned()).unwrap();
     let holes = host.read_with(cx, |host, _| host.cutouts().iter().filter(|c| c.see_through).count());
-    assert_eq!(holes, 1, "only the zoom's");
+    assert_eq!(holes, 1, "only the zoom's: a reply's page takes no comments");
 }
 
 #[gpui::test]
@@ -474,6 +477,7 @@ fn live_page(version: u32, comments: usize) -> fixture::HtmlArtifact {
                 anchor: None,
                 text: "Say more".into(),
                 resolved: false,
+                note: None,
             })
             .collect(),
     }
@@ -525,4 +529,136 @@ fn live_tabs_show_only_while_the_data_layer_says_the_chat_has_them(cx: &mut Test
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Artifact);
     panel.update(cx, |p, cx| p.set_live_canvas(key.clone(), true, false, cx));
     assert_eq!(panel.read_with(cx, |p, _| p.active()), PanelTab::Details, "a tab that goes falls back to Details");
+}
+
+// Comment mode on the page.
+
+/// `ArtifactPage`'s comments: the comment button arms comment mode (the page hears it); a press the page's helper
+/// reports pins a comment on the tab shown, with its anchor and nearby text, and opens its bubble at the pin, cut out of
+/// the page and focused; the bubble follows the pin as the page scrolls and hides off screen; Enter keeps it; a sent
+/// pin opens read back; Escape closes, then leaves comment mode; Send sends Electron's message and records the
+/// comment. The composer still types after it all.
+#[gpui::test]
+fn comment_mode_pins_on_the_page_and_send_sends_the_comments(cx: &mut TestAppContext) {
+    let (panel, view, cx) = mount(cx);
+    open_tab(&panel, cx);
+    view.update(cx, |v, cx| v.set_live_page(live_page(7, 1), cx));
+    redraw(cx);
+    let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let sink = events.clone();
+        cx.update(|_, cx| cx.subscribe(&view, move |_, event: &super::ArtifactsEvent, _| sink.borrow_mut().push(event.clone())).detach());
+    }
+    let at = testing::bounds(cx, "artifact-comment").center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(view.read_with(cx, |v, _| v.comments_state().commenting));
+
+    let press = PageMessage::Press { x: 0.4, y: 0.3, anchor: "h1:1@0.5,0.5".into(), near: "Status".into(), sx: 40.0, sy: 60.0 };
+    view.update_in(cx, |v, window, cx| v.on_page(press, window, cx));
+    redraw(cx);
+    let body = testing::bounds(cx, "artifact-page");
+    let bubble = testing::bounds(cx, "comment-bubble");
+    let scale = view.read_with(cx, |v, _| v.scale()) as f32;
+    assert!((bubble.origin.x - (body.origin.x + px(40.0 * scale))).abs() < px(1.0), "{bubble:?} in {body:?}");
+    assert!((bubble.origin.y - (body.origin.y + px(60.0 * scale))).abs() < px(1.0));
+    let host = view.read_with(cx, |v, _| v.host().cloned()).unwrap();
+    assert!(host.read_with(cx, |h, _| h.cutouts().iter().any(|c| c.see_through && c.bounds == bubble)), "the page lets the bubble show");
+    let draft = view.read_with(cx, |v, _| v.comments_state().drafts[0].clone());
+    assert_eq!((draft.anchor.as_deref(), draft.near.as_deref()), (Some("h1:1@0.5,0.5"), Some("Status")));
+    assert_eq!(draft.tab, Some(("status".into(), "Status".into())));
+    let pins = view.read_with(cx, |v, cx| v.pins(crate::theme::ActiveTheme::theme(cx)));
+    assert!(pins.iter().any(|p| p.key == draft.key && p.hide), "the page hides the open pin under its bubble: {pins:?}");
+
+    // The page scrolls: the bubble follows; scrolled out of view, it hides.
+    let key = draft.key.clone();
+    view.update_in(cx, |v, window, cx| v.on_page(PageMessage::Anchor { key: key.clone(), sx: 40.0, sy: 20.0, shown: true }, window, cx));
+    redraw(cx);
+    assert!((testing::bounds(cx, "comment-bubble").origin.y - (body.origin.y + px(20.0 * scale))).abs() < px(1.0));
+    view.update_in(cx, |v, window, cx| v.on_page(PageMessage::Anchor { key: key.clone(), sx: 40.0, sy: -300.0, shown: false }, window, cx));
+    redraw(cx);
+    assert!(cx.debug_bounds("comment-bubble").is_none());
+    view.update_in(cx, |v, window, cx| v.on_page(PageMessage::Anchor { key: key.clone(), sx: 40.0, sy: 60.0, shown: true }, window, cx));
+    redraw(cx);
+
+    cx.simulate_input("Which week?");
+    cx.simulate_keystrokes("enter");
+    redraw(cx);
+    assert!(cx.debug_bounds("comment-bubble").is_none(), "Enter keeps it");
+    assert_eq!(view.read_with(cx, |v, _| (v.feedback(), v.comments_state().drafts[0].text.clone())), (1, "Which week?".into()));
+
+    // A sent comment's pin opens it read back; Escape closes it, then leaves comment mode.
+    view.update_in(cx, |v, window, cx| v.on_page(PageMessage::Pin { key: "sent:c0".into(), sx: 10.0, sy: 10.0 }, window, cx));
+    redraw(cx);
+    testing::bounds(cx, "comment-bubble");
+    view.update_in(cx, |v, window, cx| v.escape(window, cx));
+    view.update_in(cx, |v, window, cx| v.escape(window, cx));
+    redraw(cx);
+    assert!(cx.debug_bounds("comment-bubble").is_none());
+    assert!(!view.read_with(cx, |v, _| v.comments_state().commenting));
+
+    let at = testing::bounds(cx, "artifact-send").center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    let sent = events.borrow().clone();
+    let [super::ArtifactsEvent::Send(message), super::ArtifactsEvent::AddComments(recorded)] = sent.as_slice() else { panic!("{sent:?}") };
+    assert_eq!(
+        message,
+        &format!(
+            "A comment on the artifact:\n\n1. (comment {key}) On the artifact \"Status\" (41251d23), 40% across and 30% down, on the tab status (\"Status\"), near \"Status\": Which week?\n\nRead the current page with artifact_read, then update it in place with artifact_show. Keep one Artifact page for this Chat. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id."
+        )
+    );
+    assert_eq!(
+        recorded,
+        &vec![serde_json::json!({"id": key, "design": {"id": "41251d23", "title": "Status", "version": 7, "format": "html"},
+            "x": 0.4, "y": 0.3, "text": "Which week?", "anchor": "h1:1@0.5,0.5", "near": "Status", "tab": {"id": "status", "title": "Status"}})]
+    );
+    assert_eq!(view.read_with(cx, |v, _| v.feedback()), 0);
+
+    // The composer still takes typing once the bubble is gone: a click in it, then keys.
+    let composer = cx.update(|window, cx| {
+        let workspace = window
+            .root::<gpui_component::Root>()
+            .flatten()
+            .unwrap()
+            .read(cx)
+            .view()
+            .clone()
+            .downcast::<crate::workspace::Workspace>()
+            .unwrap();
+        workspace.read(cx).chat.read(cx).composer.clone()
+    });
+    let before = composer.read_with(cx, |c, _| c.text().to_owned());
+    let at = testing::bounds(cx, "composer-input").center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.simulate_input("ok");
+    assert_eq!(composer.read_with(cx, |c, _| c.text().to_owned()), format!("{before}ok"));
+}
+
+#[test]
+fn page_comment_messages_read_and_the_mode_says_comment() {
+    let key = "\"milagre\":\"milagre:artifact-page\"";
+    assert_eq!(
+        messages::parse(&format!("{{{key},\"t\":\"press\",\"x\":1.4,\"y\":0.2,\"a\":\"p:1@0,0\",\"near\":\"Hi\",\"sx\":3,\"sy\":4}}")),
+        Some(PageMessage::Press { x: 1.0, y: 0.2, anchor: "p:1@0,0".into(), near: "Hi".into(), sx: 3.0, sy: 4.0 })
+    );
+    assert_eq!(
+        messages::parse(&format!("{{{key},\"t\":\"anchor\",\"k\":\"ab12cd34\",\"sx\":3,\"sy\":4,\"shown\":true}}")),
+        Some(PageMessage::Anchor { key: "ab12cd34".into(), sx: 3.0, sy: 4.0, shown: true })
+    );
+    let mode = messages::mode(true, "crosshair");
+    assert!(mode.contains("\"comment\":true") && mode.contains("\"cursor\":\"crosshair\""), "{mode}");
+    let pin = messages::PagePin {
+        key: "k".into(),
+        x: 0.1,
+        y: 0.2,
+        anchor: None,
+        number: 1,
+        fill: "#000".into(),
+        ink: "#fff".into(),
+        label: "Comment 1".into(),
+        hide: true,
+    };
+    let pins = messages::pins(&[pin], Some("k"));
+    assert!(pins.contains("\"hide\":true") && pins.contains("\"watch\":\"k\""), "{pins}");
 }

@@ -20,8 +20,11 @@ pub enum PageMessage {
     Fit,
     /// A pin was clicked: its key and where it sits on screen.
     Pin { key: String, sx: f64, sy: f64 },
-    /// In comment mode, a click pinned a spot (fractions of the page, its anchor and the text near it).
-    Press { x: f64, y: f64, anchor: String, near: String },
+    /// In comment mode, a click pinned a spot (fractions of the page, its anchor and the text near it), at a point of
+    /// the page's viewport.
+    Press { x: f64, y: f64, anchor: String, near: String, sx: f64, sy: f64 },
+    /// Where the watched pin is now in the viewport, and whether it is in view (the page scrolled or reflowed).
+    Anchor { key: String, sx: f64, sy: f64, shown: bool },
     /// C outside a field.
     Key,
 }
@@ -36,6 +39,11 @@ fn text(map: &Map<String, Value>, key: &str) -> Option<String> {
     map.get(key).and_then(Value::as_str).map(|s| s.chars().take(TEXT_CAP).collect())
 }
 
+/// A pin's key: a string, or a number as text.
+fn key(map: &Map<String, Value>) -> Option<String> {
+    map.get("k").and_then(|k| k.as_str().map(|s| s.chars().take(TEXT_CAP).collect()).or_else(|| k.as_f64().map(|n| n.to_string())))
+}
+
 /// Reads one message the bridge forwarded (JSON text). `None` for anything that is not a known, well-formed one.
 pub fn parse(raw: &str) -> Option<PageMessage> {
     let value: Value = serde_json::from_str(raw).ok()?;
@@ -48,16 +56,20 @@ pub fn parse(raw: &str) -> Option<PageMessage> {
         "size" => PageMessage::Size { scroll_width: number(map, "sw")?, client_width: number(map, "cw")? },
         "zoom" => PageMessage::Zoom { dy: number(map, "dy")?, cx: number(map, "cx")?, cy: number(map, "cy")? },
         "fit" => PageMessage::Fit,
-        "pin" => PageMessage::Pin {
-            key: map.get("k").and_then(|k| k.as_str().map(str::to_string).or_else(|| k.as_f64().map(|n| n.to_string())))?,
+        "pin" => PageMessage::Pin { key: key(map)?, sx: number(map, "sx")?, sy: number(map, "sy")? },
+        "anchor" => PageMessage::Anchor {
+            key: key(map)?,
             sx: number(map, "sx")?,
             sy: number(map, "sy")?,
+            shown: map.get("shown").and_then(Value::as_bool).unwrap_or(false),
         },
         "press" => PageMessage::Press {
-            x: number(map, "x")?,
-            y: number(map, "y")?,
+            x: number(map, "x")?.clamp(0.0, 1.0),
+            y: number(map, "y")?.clamp(0.0, 1.0),
             anchor: text(map, "a").unwrap_or_default(),
             near: text(map, "near").unwrap_or_default(),
+            sx: number(map, "sx").unwrap_or(0.0),
+            sy: number(map, "sy").unwrap_or(0.0),
         },
         "key" => PageMessage::Key,
         _ => return None,
@@ -75,6 +87,8 @@ pub struct PagePin {
     pub fill: String,
     pub ink: String,
     pub label: String,
+    /// The open one: its bubble stands in for it.
+    pub hide: bool,
 }
 
 /// A command for the page, as the JavaScript that delivers it: a `message` the helper reads (it takes messages from
@@ -86,9 +100,14 @@ pub fn command(mut body: Value) -> String {
     format!("window.postMessage({body},\"*\")")
 }
 
-/// `{t:"mode"}`: mouse input, comment mode off (pinning new comments is not ported).
-pub fn mode() -> String {
-    command(json!({ "t": "mode", "input": "mouse", "comment": false }))
+/// `{t:"mode"}`: mouse input, comment mode, and the cursor a click pins with.
+pub fn mode(comment: bool, cursor: &str) -> String {
+    command(json!({ "t": "mode", "input": "mouse", "comment": comment, "cursor": cursor }))
+}
+
+/// `{t:"reveal"}`: scrolls pin `key` into view.
+pub fn reveal(key: &str) -> String {
+    command(json!({ "t": "reveal", "k": key }))
 }
 
 /// `{t:"scale"}`: the viewer's zoom, so pins keep their size; with a point, the page keeps it in place.
@@ -99,8 +118,8 @@ pub fn scale(scale: f64, at: Option<(f64, f64)>) -> String {
     }
 }
 
-/// `{t:"pins"}`: the pins to draw.
-pub fn pins(pins: &[PagePin]) -> String {
+/// `{t:"pins"}`: the pins to draw, and the one whose place the page reports as it scrolls (`anchor`).
+pub fn pins(pins: &[PagePin], watch: Option<&str>) -> String {
     let list: Vec<Value> = pins
         .iter()
         .map(|pin| {
@@ -111,8 +130,11 @@ pub fn pins(pins: &[PagePin]) -> String {
             if let (Some(anchor), Some(map)) = (&pin.anchor, value.as_object_mut()) {
                 map.insert("a".into(), Value::String(anchor.clone()));
             }
+            if pin.hide {
+                value["hide"] = Value::Bool(true);
+            }
             value
         })
         .collect();
-    command(json!({ "t": "pins", "pins": list, "watch": Value::Null }))
+    command(json!({ "t": "pins", "pins": list, "watch": watch.map_or(Value::Null, |k| Value::String(k.into())) }))
 }

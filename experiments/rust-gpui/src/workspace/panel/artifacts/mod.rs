@@ -12,8 +12,13 @@
 //! - Zoom is WebKit's page zoom, which lays the page out at the width it then fits, as the desktop's scaled iframe
 //!   does. Ctrl-wheel or a pinch over the page zooms about the pointer, a double-click away from text fits, and the
 //!   fit is the page's own width when it is wider than the panel, else 100%.
-//! - Sent comments show as the page's pins (its helper draws them). Pinning new ones, the comment bubble, Send, Share
-//!   and Mermaid diagrams (Pele) are not ported.
+//! - Comments (`../comments.rs`): the comment button and Send float in a pill at the page's top-right; in comment mode
+//!   a click on the page pins a comment there (the helper finds the element and the text near it, `press`), written in
+//!   a GPUI bubble at the pin, which a cutout lets show over the page and which follows the pin as the page scrolls
+//!   (`anchor`). The page draws the pins (sent ones in ink, green once resolved; waiting ones in the accent). Send sends
+//!   Electron's message to the Chat and records the comments ([`ArtifactsEvent`]). C in the page toggles comment mode,
+//!   Escape leaves it. The bubble's field takes AppKit's keys back from the page as it opens. Share and Mermaid
+//!   diagrams (Pele) are not ported.
 //! - The fixture's page, or a data layer's ([`ArtifactsView::start_live`], [`ArtifactsView::set_live_page`]: the
 //!   Chat's page as Milagre's daemon keeps it, its tabs, files and sent comments), a skeleton while it is read.
 //!
@@ -38,9 +43,10 @@ use gpui::{
     Window, canvas, div, point, prelude::*, px, rgb,
 };
 
-use self::fixture::HtmlArtifact;
+use self::fixture::{HtmlArtifact, SentComment};
 use self::messages::PageMessage;
 use self::protocol::Previews;
+use super::comments::{self, Bubble, CommentHost, Comments, Draft, Target};
 use super::dock::HANDLE_REACH;
 use super::{Panel, PanelTab};
 use crate::platform::webview::{Cutout, HostRequest, WebEvent, WebHost, WebHostOptions};
@@ -58,6 +64,25 @@ const PAPER: u32 = 0xffffff;
 pub const MIN_SCALE: f64 = 0.25;
 pub const MAX_SCALE: f64 = 3.0;
 pub const ZOOM_STEP: f64 = 1.25;
+
+/// The floating pills' slots, each cut out of the page where it is drawn: the page tabs, the zoom bar, the comment
+/// button with Send, the open comment bubble.
+const SLOT_TABS: usize = 0;
+const SLOT_ZOOM: usize = 1;
+const SLOT_TOOLS: usize = 2;
+const SLOT_BUBBLE: usize = 3;
+const SLOTS: usize = 4;
+
+/// What the Artifact tab asks a data layer to do (live only; the fixture does them in place).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArtifactsEvent {
+    /// Send the comments to the Chat as this message (Electron's `designFeedbackMessage`).
+    Send(String),
+    /// Record the comments just sent (`artifact:add-comments [{chatId, comments}]`).
+    AddComments(Vec<serde_json::Value>),
+}
+
+impl gpui::EventEmitter<ArtifactsEvent> for ArtifactsView {}
 
 /// The page's scroll width must pass the viewport's by more than this to count as wider than the panel.
 const WIDE_SLACK: f64 = 1.0;
@@ -114,15 +139,41 @@ pub struct ArtifactsView {
     error: Option<String>,
     probe: Option<probe::Mode>,
     probe_scroll: ScrollHandle,
-    /// The pills drawn this frame (the page tabs, the zoom), which the host cuts out of the page.
-    pills: [Option<Bounds<Pixels>>; 2],
+    /// The pills drawn this frame (see the `SLOT_` names), which the host cuts out of the page.
+    pills: [Option<Bounds<Pixels>>; SLOTS],
     /// The page's left edge under the panel's resize handle, where the page lets the mouse through to it.
     edge: Option<Bounds<Pixels>>,
     renders: usize,
     /// A data layer feeds the page; `loading` until its first read for the Chat answers.
     live: bool,
     loading: bool,
+    comments: Comments,
+    /// Where the open bubble's pin is in the page's viewport (CSS pixels), and whether it is in view.
+    anchor: Option<(String, f64, f64, bool)>,
     _subscriptions: Vec<Subscription>,
+}
+
+impl CommentHost for ArtifactsView {
+    fn comments(&self) -> &Comments {
+        &self.comments
+    }
+
+    fn comments_mut(&mut self) -> &mut Comments {
+        &mut self.comments
+    }
+
+    fn send_feedback(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.send(cx);
+    }
+
+    /// The page draws the pins and the comment cursor: it hears of every change.
+    fn comments_changed(&mut self, cx: &mut Context<Self>) {
+        if self.comments.open.is_none() {
+            self.anchor = None;
+        }
+        self.push_page(cx);
+        cx.notify();
+    }
 }
 
 impl ArtifactsView {
@@ -154,11 +205,13 @@ impl ArtifactsView {
             error: None,
             probe: if cfg!(test) { None } else { probe::Mode::from_env() },
             probe_scroll: ScrollHandle::new(),
-            pills: [None; 2],
+            pills: [None; SLOTS],
             edge: None,
             renders: 0,
             live: false,
             loading: false,
+            comments: Comments::default(),
+            anchor: None,
             _subscriptions: vec![observe],
         };
         this.register(cx);
@@ -190,6 +243,8 @@ impl ArtifactsView {
             host.update(cx, |host, cx| host.set_shown(false, cx));
         }
         self.error = None;
+        self.comments.reset();
+        self.anchor = None;
         cx.notify();
     }
 
@@ -208,11 +263,14 @@ impl ArtifactsView {
         if same {
             self.page.comments = page.comments;
             self.page.title = page.title;
-            if let Some(host) = &self.host {
-                host.read(cx).run_script(&messages::pins(&self.pins(cx.theme())));
-            }
+            self.push_page(cx);
             cx.notify();
             return;
+        }
+        // Comments waiting on another page have nothing left to go to.
+        if page.id != self.page.id {
+            self.comments.reset();
+            self.anchor = None;
         }
         if self.tab.as_ref().is_some_and(|tab| !page.tabs.iter().any(|t| &t.id == tab)) {
             self.tab = None;
@@ -375,14 +433,12 @@ impl ArtifactsView {
     }
 
     /// A message from the page's helper.
-    pub fn on_page(&mut self, message: PageMessage, cx: &mut Context<Self>) {
+    pub fn on_page(&mut self, message: PageMessage, window: &mut Window, cx: &mut Context<Self>) {
         match message {
             PageMessage::Ready => {
+                self.push_page(cx);
                 if let Some(host) = &self.host {
-                    let host = host.read(cx);
-                    host.run_script(&messages::mode());
-                    host.run_script(&messages::pins(&self.pins(cx.theme())));
-                    host.run_script(&messages::scale(self.scale, None));
+                    host.read(cx).run_script(&messages::scale(self.scale, None));
                 }
                 if let Some(mode) = self.probe {
                     probe::start(mode, cx);
@@ -399,14 +455,158 @@ impl ArtifactsView {
             }
             PageMessage::Zoom { dy, cx: x, cy: y } => self.zoom_to(self.scale * (-dy * 0.01).exp(), Some((x, y)), cx),
             PageMessage::Fit => self.fit(cx),
-            // Comment mode and the bubble are not ported: a pin click and a press do nothing yet.
-            PageMessage::Pin { .. } | PageMessage::Press { .. } | PageMessage::Key => {}
+            PageMessage::Key => {
+                let on = !self.comments.commenting;
+                comments::set_commenting(self, on, cx);
+            }
+            PageMessage::Press { x, y, anchor, near, sx, sy } => self.pin_on_page((x, y), anchor, near, (sx, sy), window, cx),
+            PageMessage::Pin { key, sx, sy } => self.open_pin(&key, (sx, sy), window, cx),
+            PageMessage::Anchor { key, sx, sy, shown } => {
+                if self.comments.open.as_deref() == Some(key.as_str()) {
+                    self.anchor = Some((key, sx, sy, shown));
+                    cx.notify();
+                }
+            }
         }
     }
 
-    /// The sent comments on the tab shown, coloured from the theme as the desktop's pins are.
-    fn pins(&self, theme: &Theme) -> Vec<messages::PagePin> {
-        self.page.pins(&self.tab_id(), &css(theme.ink), &css(theme.surface), &css(theme.green_ink), &css(theme.on_green))
+    pub fn comments_state(&self) -> &Comments {
+        &self.comments
+    }
+
+    /// Why the page shows an error instead of itself.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Where the open bubble sits in the page's viewport, and whether it is in view.
+    pub fn bubble_anchor(&self) -> Option<(f64, f64, bool)> {
+        self.anchor.as_ref().map(|(_, sx, sy, shown)| (*sx, *sy, *shown))
+    }
+
+    /// How many comments Send sends.
+    pub fn feedback(&self) -> usize {
+        self.comments.written()
+    }
+
+    /// In comment mode, a click on the page pinned a comment at `spot` (fractions of the page) on the tab shown, on
+    /// the element `anchor` names, near `near`; its bubble opens at `at` in the viewport (`onPin` for a page).
+    pub fn pin_on_page(
+        &mut self,
+        (x, y): (f64, f64),
+        anchor: String,
+        near: String,
+        at: (f64, f64),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.comments.commenting {
+            return;
+        }
+        let tab = self.page.tab(self.tab.as_deref()).clone();
+        let draft = Draft {
+            key: comments::new_comment_id(),
+            target: Target { id: self.page.id.to_string(), title: self.page.title.to_string(), version: self.page.version, html: true },
+            x,
+            y,
+            text: String::new(),
+            node_id: None,
+            anchor: Some(anchor).filter(|a| !a.is_empty()),
+            near: Some(near).filter(|n| !n.is_empty()),
+            tab: self.page.has_tabs().then(|| (tab.id.to_string(), tab.title.to_string())),
+        };
+        let key = self.comments.pin(draft, cx);
+        self.comments.open = None;
+        self.anchor = Some((key.clone(), at.0, at.1, true));
+        comments::open_bubble(self, &key, window, cx);
+    }
+
+    /// A pin on the page was clicked: its bubble opens there.
+    pub fn open_pin(&mut self, key: &str, at: (f64, f64), window: &mut Window, cx: &mut Context<Self>) {
+        self.anchor = Some((key.to_string(), at.0, at.1, true));
+        comments::open_bubble(self, key, window, cx);
+    }
+
+    /// Escape in the page: the bubble closes first, then comment mode ends.
+    pub fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.comments.open.is_some() {
+            comments::close_bubble(self, window, cx);
+        } else if self.comments.commenting {
+            comments::set_commenting(self, false, cx);
+        }
+    }
+
+    /// Send: the comments waiting go to the Chat as one message and are recorded; comment mode ends. In the fixture
+    /// they become the page's sent comments.
+    pub fn send(&mut self, cx: &mut Context<Self>) {
+        let written = self.comments.take_written(cx);
+        if written.is_empty() {
+            return;
+        }
+        if self.live {
+            cx.emit(ArtifactsEvent::Send(comments::feedback_message(None, &written)));
+            cx.emit(ArtifactsEvent::AddComments(written.iter().map(comments::comment_value).collect()));
+        } else {
+            self.page.comments.extend(written.iter().map(|draft| SentComment {
+                id: draft.key.clone().into(),
+                tab: draft.tab.as_ref().map(|(id, _)| id.clone()).unwrap_or_default().into(),
+                x: draft.x,
+                y: draft.y,
+                anchor: draft.anchor.clone().map(Into::into),
+                text: draft.text.trim().to_string().into(),
+                resolved: false,
+                note: None,
+            }));
+        }
+        self.comments.commenting = false;
+        self.comments_changed(cx);
+    }
+
+    /// The page's pins on the tab shown: the sent comments (resolved ones only with "Show resolved comments" or while
+    /// open), coloured from the theme as the desktop's are, then the comments waiting; the open one hidden (its
+    /// bubble stands in for it) and watched.
+    pub fn pins(&self, theme: &Theme) -> Vec<messages::PagePin> {
+        let tab = self.tab_id();
+        let open = self.comments.open.as_deref();
+        let mut pins: Vec<messages::PagePin> = self
+            .page
+            .pins(&tab, &css(theme.ink), &css(theme.surface), &css(theme.green_ink), &css(theme.on_green))
+            .into_iter()
+            .filter(|pin| {
+                let resolved = self.page.comments.iter().any(|c| format!("sent:{}", c.id) == pin.key && c.resolved);
+                self.comments.show_resolved || !resolved || open == Some(pin.key.as_str())
+            })
+            .collect();
+        for (n, draft) in self.comments.drafts.iter().enumerate() {
+            if draft.target.id != self.page.id.as_ref() || !self.page.on_tab(draft.tab.as_ref().map_or("", |(id, _)| id.as_str()), &tab) {
+                continue;
+            }
+            let text = draft.text.trim();
+            pins.push(messages::PagePin {
+                key: draft.key.clone(),
+                x: draft.x,
+                y: draft.y,
+                anchor: draft.anchor.clone(),
+                number: n as u32 + 1,
+                fill: css(theme.accent_ink),
+                ink: css(theme.on_accent),
+                label: if text.is_empty() { format!("Comment {}", n + 1) } else { format!("Comment {}: {text}", n + 1) },
+                hide: false,
+            });
+        }
+        for pin in &mut pins {
+            pin.hide = open == Some(pin.key.as_str());
+        }
+        pins
+    }
+
+    /// Tells the page the mode (comment mode and its cursor) and the pins to draw.
+    fn push_page(&self, cx: &App) {
+        let Some(host) = &self.host else { return };
+        let theme = cx.theme();
+        let host = host.read(cx);
+        host.run_script(&messages::mode(self.comments.commenting, &comments::comment_cursor(&css(theme.accent), &css(theme.surface))));
+        host.run_script(&messages::pins(&self.pins(theme), self.comments.open.as_deref()));
     }
 
     fn ensure_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -425,10 +625,10 @@ impl ArtifactsView {
             dark: cx.theme().appearance == Appearance::Dark,
         };
         let host = cx.new(|cx| WebHost::new(options, window, cx));
-        let events = cx.subscribe(&host, |this, _, event: &WebEvent, cx| match event {
+        let events = cx.subscribe_in(&host, window, |this, _, event: &WebEvent, window, cx| match event {
             WebEvent::Message(raw) => {
                 if let Some(message) = messages::parse(raw) {
-                    this.on_page(message, cx);
+                    this.on_page(message, window, cx);
                 }
             }
             WebEvent::External(url) => {
@@ -436,7 +636,7 @@ impl ArtifactsView {
                     cx.open_url(url);
                 }
             }
-            WebEvent::Escape => {}
+            WebEvent::Escape => this.escape(window, cx),
         });
         self._subscriptions.push(events);
         if let Some(error) = host.read(cx).error() {
@@ -461,12 +661,16 @@ impl ArtifactsView {
     }
 
     fn send_cutouts(&mut self, cx: &mut Context<Self>) {
-        let pills = self
-            .pills
-            .iter()
-            .flatten()
-            // The glass's edge is a ring 1px outside the pill.
-            .map(|bounds| Cutout { bounds: bounds.dilate(px(1.0)), radius: px(f32::MAX), see_through: true });
+        let pills = self.pills.iter().enumerate().filter_map(|(slot, bounds)| {
+            let bounds = (*bounds)?;
+            Some(if slot == SLOT_BUBBLE {
+                // The bubble's own box (its corners are rounded inside it).
+                Cutout { bounds, radius: px(3.0), see_through: true }
+            } else {
+                // The glass's edge is a ring 1px outside the pill.
+                Cutout { bounds: bounds.dilate(px(1.0)), radius: px(f32::MAX), see_through: true }
+            })
+        });
         let edge = self.edge.map(|bounds| Cutout { bounds, radius: px(0.0), see_through: false });
         let cutouts = pills.chain(edge).collect();
         if let Some(host) = &self.host {
@@ -474,10 +678,10 @@ impl ArtifactsView {
         }
     }
 
-    /// A floating glass pill (the composer's jump pill): `content` in a capsule, reporting where it is drawn.
-    fn pill(&self, id: &'static str, slot: usize, theme: &Theme, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+    /// An element that reports where `slot` is drawn each frame (window coordinates), so the page cuts it out.
+    fn report(&self, slot: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let view = cx.entity().downgrade();
-        let report = canvas(
+        canvas(
             move |bounds, _, cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |view, cx| view.set_pill(slot, Some(bounds), cx));
@@ -488,14 +692,18 @@ impl ArtifactsView {
         .absolute()
         .top_0()
         .left_0()
-        .size_full();
+        .size_full()
+    }
+
+    /// A floating glass pill (the composer's jump pill): `content` in a capsule, reporting where it is drawn.
+    fn pill(&self, id: &'static str, slot: usize, theme: &Theme, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let report = self.report(slot, cx);
         let glass =
             Glass::new(GLASS_BLUR, gpui::Hsla::from(theme.surface).opacity(GLASS_PILL_FILL)).edge(theme.line).outset().radius(px(f32::MAX));
         div()
             .id(id)
             .debug_selector(move || id.to_string())
             .absolute()
-            .left(PILL_INSET)
             .flex()
             .items_center()
             .gap(px(2.0))
@@ -512,7 +720,7 @@ impl ArtifactsView {
         if !self.page.has_tabs() {
             return None;
         }
-        let pill = self.pill("artifact-tabs", 0, theme, cx);
+        let pill = self.pill("artifact-tabs", SLOT_TABS, theme, cx).left(PILL_INSET);
         let active = self.tab_id();
         let tabs = self.page.tabs.iter().map(|tab| {
             let id = tab.id.clone();
@@ -527,7 +735,7 @@ impl ArtifactsView {
     /// The page's zoom bar (`ZoomBar.tsx`), floating at its bottom-left: Hugeicons MinusSign, PlusSign and FitToScreen
     /// in 28px pill buttons, the reading between them.
     fn zoom_pill(&self, theme: &Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let pill = self.pill("artifact-zoom-bar", 1, theme, cx);
+        let pill = self.pill("artifact-zoom-bar", SLOT_ZOOM, theme, cx).left(PILL_INSET);
         let button = |id: &'static str, icon: IconName, on_click: fn(&mut Self, &mut Context<Self>)| {
             IconButton::new(id, icon)
                 .size(IconButtonSize::S28)
@@ -548,6 +756,73 @@ impl ArtifactsView {
             .child(div().mx(px(2.0)).h(px(16.0)).w(px(1.0)).bg(theme.line))
             .child(button("artifact-fit", IconName::FitToScreen, Self::fit))
             .into_any_element()
+    }
+}
+
+impl ArtifactsView {
+    /// The page's comment button and Send, in a pill at its top-right (the dock header's in Electron).
+    fn tools_pill(&self, theme: &Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let feedback = self.feedback();
+        let (ink, on_ink) = (theme.ink, theme.on_ink);
+        let send = (feedback > 0).then(|| {
+            div()
+                .id("artifact-send")
+                .debug_selector(|| "artifact-send".to_string())
+                .flex()
+                .items_center()
+                .gap_1()
+                .h(px(28.0))
+                .px_3()
+                .rounded_full()
+                .bg(ink)
+                .text_color(on_ink)
+                .text_step(TEXT_12)
+                .font_weight(FontWeight::MEDIUM)
+                .cursor_pointer()
+                .hover(|style| style.opacity(0.9))
+                .child("Send")
+                .child(div().px(px(6.0)).rounded_full().bg(Rgba { a: 0.2, ..on_ink }).child(feedback.to_string()))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send(cx)))
+        });
+        let mut pill = self.pill("artifact-tools", SLOT_TOOLS, theme, cx).top(PILL_INSET).right(PILL_INSET).items_start();
+        if self.comments.options {
+            // The options open under the button: the pill grows into a column.
+            pill = pill.rounded(px(18.0));
+        }
+        pill.children(send).child(comments::comment_button(self, "artifact", "Comment on the page", theme, cx)).into_any_element()
+    }
+
+    /// The open comment's bubble at its pin, in the page's pixels (`at.sx * scale`), kept inside the page's width;
+    /// none while its pin is scrolled out of view.
+    fn bubble_layer(&self, theme: &Theme, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let open = self.comments.open.clone()?;
+        let (key, sx, sy, shown) = self.anchor.clone()?;
+        if key != open || !shown {
+            return None;
+        }
+        let content = match open.strip_prefix("sent:") {
+            Some(id) => {
+                let comment = self.page.comments.iter().find(|c| c.id.as_ref() == id)?;
+                Bubble::Sent {
+                    text: comment.text.to_string(),
+                    resolved: comment.resolved.then(|| comment.note.as_ref().map(|n| n.to_string()).unwrap_or_default()),
+                }
+            }
+            None => {
+                let number = self.comments.drafts.iter().position(|d| d.key == open)? as u32 + 1;
+                Bubble::Draft { key: open.clone(), number }
+            }
+        };
+        let left = (sx * self.scale).min(self.room.0 - f64::from(comments::BUBBLE_WIDTH)).max(0.0);
+        let top = (sy * self.scale).max(0.0);
+        Some(
+            div()
+                .absolute()
+                .left(px(left as f32))
+                .top(px(top as f32))
+                .child(comments::bubble(self, content, theme, cx).relative().child(self.report(SLOT_BUBBLE, cx)))
+                .into_any_element(),
+        )
     }
 }
 
@@ -608,10 +883,16 @@ impl Render for ArtifactsView {
                 .into_any_element(),
         };
         // Pills drawn this frame report themselves in prepaint; one not drawn leaves no hole.
-        self.pills = [None; 2];
-        let (tabs, zoom) = match self.error {
-            None if !self.loading => (self.tabs_pill(&theme, cx), Some(self.zoom_pill(&theme, cx))),
-            _ => (None, None),
+        self.pills = [None; SLOTS];
+        let (tabs, zoom, tools, bubble) = match self.error {
+            None if !self.loading => (
+                self.tabs_pill(&theme, cx),
+                Some(self.zoom_pill(&theme, cx)),
+                // Comments are on the Chat's own page; an HTML reply's page (opened from its card) takes none.
+                (self.live || self.page.id.as_ref() != fixture::REPLY_PAGE).then(|| self.tools_pill(&theme, cx)),
+                self.bubble_layer(&theme, cx),
+            ),
+            _ => (None, None, None, None),
         };
         div()
             .id("artifact-panel")
@@ -632,7 +913,9 @@ impl Render for ArtifactsView {
                     .child(room)
                     .child(page)
                     .children(tabs)
-                    .children(zoom),
+                    .children(zoom)
+                    .children(tools)
+                    .children(bubble),
             )
     }
 }

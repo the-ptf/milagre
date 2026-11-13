@@ -14,9 +14,11 @@
 //! - The tabs show only when the list has a design (Designs) or a page (Artifact) for the Chat
 //!   (`Panel::set_live_canvas`); each is a skeleton until its first read answers.
 //! - Writes: Delete on a design (`artifact:delete [{chatId, id}]`, on a write connection; refused in read-only
-//!   mode). Send with a chosen version goes to the Chat as Electron's message ("I chose the design …"), through the
-//!   composer (`PanelEvent::FixInChat`). Placing new comments (`artifact:add-comments`) has no UI here yet, and
-//!   resolving a comment is the agent's tool (`artifact_resolve_comment`), not a window command: see CLIENT-GAPS.md.
+//!   mode). Send (Designs or Artifact) goes to the Chat as Electron's message (the choice, "I chose the design …",
+//!   and the comments, each with its id), through the composer (`PanelEvent::FixInChat`); the comments it carried
+//!   are then recorded with `artifact:add-comments [{chatId, comments}]` (Electron's `DesignComment`s, on a write
+//!   connection; refused in read-only mode) and the Chat is read again, so they show as sent pins. Resolving a
+//!   comment is the agent's tool (`artifact_resolve_comment`), not a window command.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use base64::Engine as _;
 use gpui::{Context, Entity, Subscription, Task};
 use milagre_gpui_spike::workspace::panel::Panel;
+use milagre_gpui_spike::workspace::panel::artifacts::ArtifactsEvent;
 use milagre_gpui_spike::workspace::panel::artifacts::fixture::{ArtifactTab, HtmlArtifact, SentComment};
 use milagre_gpui_spike::workspace::panel::artifacts::protocol::Asset;
 use milagre_gpui_spike::workspace::panel::designs::fixture::DesignArtifact;
@@ -163,6 +166,7 @@ pub async fn fetch(daemon: &Daemon, project: &str, key: &str, cache: &Mutex<Cach
                 number: *n,
                 text: text(c, "text"),
                 resolved: c["resolved"].is_object(),
+                note: c["resolved"]["note"].as_str().map(str::to_owned),
                 design,
             })
         })
@@ -225,6 +229,7 @@ pub async fn fetch(daemon: &Daemon, project: &str, key: &str, cache: &Mutex<Cach
                             anchor: c["anchor"].as_str().filter(|a| !a.is_empty()).map(|a| a.to_owned().into()),
                             text: text(c, "text").into(),
                             resolved: c["resolved"].is_object(),
+                            note: c["resolved"]["note"].as_str().map(|n| n.to_owned().into()),
                         })
                     })
                     .collect();
@@ -318,10 +323,18 @@ pub struct LiveCanvas {
 
 impl LiveCanvas {
     pub fn new(daemon: Arc<Daemon>, panel: Entity<Panel>, cx: &mut Context<Self>) -> Self {
-        let designs = panel.read(cx).designs().clone();
-        let events = cx.subscribe(&designs, |this, _, event: &DesignsEvent, cx| {
-            if let DesignsEvent::Delete(id) = event {
-                this.delete(id.clone(), cx);
+        let (designs, artifacts) = {
+            let panel = panel.read(cx);
+            (panel.designs().clone(), panel.artifacts().clone())
+        };
+        let events = cx.subscribe(&designs, |this, _, event: &DesignsEvent, cx| match event {
+            DesignsEvent::Delete(id) => this.delete(id.clone(), cx),
+            DesignsEvent::AddComments(comments) => this.add_comments(comments.clone(), cx),
+            DesignsEvent::Send(_) => {}
+        });
+        let page_events = cx.subscribe(&artifacts, |this, _, event: &ArtifactsEvent, cx| {
+            if let ArtifactsEvent::AddComments(comments) = event {
+                this.add_comments(comments.clone(), cx);
             }
         });
         Self {
@@ -338,7 +351,7 @@ impl LiveCanvas {
             errors: Vec::new(),
             reads: 0,
             seeded: None,
-            _subscriptions: vec![events],
+            _subscriptions: vec![events, page_events],
             _tasks: Vec::new(),
         }
     }
@@ -473,6 +486,41 @@ impl LiveCanvas {
                     Ok(Ok(_)) => {}
                     Ok(Err(error)) => this.errors.push(format!("artifact:delete {id}: {error:#}")),
                     Err(_) => this.errors.push(format!("artifact:delete {id}: the write thread ended")),
+                }
+                this.read(cx);
+            });
+        });
+        self._tasks.push(task);
+    }
+
+    /// Send's comments, recorded once its message went to the Chat (`artifact:add-comments [{chatId, comments}]` on a
+    /// write connection), then the Chat is read again so they show as sent pins.
+    fn add_comments(&mut self, comments: Vec<Value>, cx: &mut Context<Self>) {
+        let Some(shown) = self.shown.clone() else { return };
+        if comments.is_empty() {
+            return;
+        }
+        let args = json!([{"chatId": shown.key, "comments": comments}]);
+        if self.daemon.read_only() {
+            eprintln!("live: read-only, not sent: artifact:add-comments {args}");
+            self.refused.push(format!("artifact:add-comments {args}"));
+            return;
+        }
+        self.sent.push(("artifact:add-comments".to_owned(), args.clone()));
+        let daemon = self.daemon.clone();
+        let work = crate::usage::off_thread(move || {
+            futures::executor::block_on(async {
+                let writer = daemon.writer(&shown.project).await?;
+                writer.call("artifact:add-comments", args).await
+            })
+        });
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => this.errors.push(format!("artifact:add-comments: {error:#}")),
+                    Err(_) => this.errors.push("artifact:add-comments: the write thread ended".to_owned()),
                 }
                 this.read(cx);
             });

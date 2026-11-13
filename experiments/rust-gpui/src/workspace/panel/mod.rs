@@ -12,6 +12,7 @@
 pub mod artifacts;
 pub mod browser;
 pub mod changes;
+pub mod comments;
 pub mod designs;
 pub mod details;
 pub mod diff;
@@ -223,9 +224,16 @@ impl Panel {
             live_details: false,
             live_changes: None,
         };
-        // Send on the Designs tab (live): the choice goes to the Chat as a message, the way "Fix in Chat" does.
+        // Send on the Designs or Artifact tab (live): the feedback goes to the Chat as a message, the way "Fix in Chat"
+        // does.
         cx.subscribe(&panel.designs, |_, _, event: &designs::DesignsEvent, cx| {
             if let designs::DesignsEvent::Send(text) = event {
+                cx.emit(PanelEvent::FixInChat(text.clone()));
+            }
+        })
+        .detach();
+        cx.subscribe(&panel.artifacts, |_, _, event: &artifacts::ArtifactsEvent, cx| {
+            if let artifacts::ArtifactsEvent::Send(text) = event {
                 cx.emit(PanelEvent::FixInChat(text.clone()));
             }
         })
