@@ -350,9 +350,7 @@ Gaps (not wired, recorded):
 - **Resolve a comment**: there is no renderer command. Resolving is the agent's `artifact_resolve_comment` tool
   (`chat-artifacts.cjs` `resolveComment`), which Electron's window never sends either; the window only shows the
   resolved state it reads. A client/daemon method would be needed for a person to resolve one.
-- **Add a comment**: `artifact:add-comments [{chatId, comments}]` is reachable (and the fake daemon answers it), but
-  the base crate has no comment mode yet (pin placement, the bubble, the text field) on the board or the page, so
-  nothing sends it; Send carries the choice only.
+- **Add a comment**: wired since the comments round below.
 - **Edit / design editor Save** needs `artifact:apply [{chatId, id, expectedVersion, operations}]`; the base editor
   saves whole documents, not operations. The Preview offers no layer editor at all (Victor: viewing the canvas, its
   variants, versions and comments is enough): Edit is hidden and `open_editor` refuses.
@@ -372,3 +370,29 @@ The GPUI app bundles as `Milagre.app` (display name "Milagre"; bundle id `com.mi
 `milagre-gpui-preview` unchanged) and installs as `~/Applications/Milagre.app`. Re-pinned to `d97f452da` (`09a75bfc3`
 plus `DaemonLaunch::find_installed_app` accepting only Electron's bundle id `com.milagre.app`): another app named
 Milagre.app (ours) answers `APP_UNAVAILABLE`, so a Mac without Electron starts the bundled daemon. No API change.
+
+## Comments, PR avatars, next-message suggestion (2026-11-12)
+
+No client gap: everything below is a renderer command the daemon serves, or state it already sends.
+
+| What | How | Status |
+| --- | --- | --- |
+| Comment mode, Designs | The comment button (top-right of the canvas, C with the canvas focused) arms it; a click on a design pins a comment at that point of the version shown, naming the layer under it (`designNodeAt`); its bubble opens with the text field focused. Enter keeps it, ⌘Enter sends, Escape closes (then leaves comment mode), Delete removes; one closed empty is dropped. Pins draw over the frames (not clipped), accent while waiting, ink once sent, green once resolved (hidden unless "Show resolved comments", a right-click on the button). A sent pin opens its text read back ("Sent to the agent" or the agent's note). Canvas only: the layer editor stays off | works (fake daemon only) |
+| Comment mode, Artifact | The same button and Send in a glass pill at the page's top-right (a cutout). The page's helper (`ARTIFACT_PAGE_SCRIPT`) reports the press (`press`: fractions, anchor, nearby text, viewport point) and clicks on its pins (`pin`); the viewer sends `mode` (comment mode, Electron's pin cursor) and `pins` (sent and waiting, the open one hidden and watched), and the bubble follows `anchor` as the page scrolls, hidden off screen. The bubble is GPUI, cut out of the page; it focuses its field and takes AppKit's keys back from the page (`reclaim_keyboard`). C in the page toggles, Escape in the page closes then leaves. An HTML reply's page takes no comments | works (fake daemon only; the headless live window has no native page, so typing in the page's bubble is covered by the base crate's test) |
+| Send | The composer's `chat:send` with Electron's `designFeedbackMessage` (choice, then each comment with its id, position, layer or tab and nearby text, then the revise and resolve instructions); then `artifact:add-comments [{chatId, comments}]` with the `DesignComment`s on a write connection, and a read (they come back as sent pins). Refused in read-only mode | works (fake daemon only) |
+| PR avatars | `pr:detail` carries logins only; Electron's `<img src="https://github.com/<login>.png?size=40">` lands on `avatars.githubusercontent.com`. The Preview fetches `https://avatars.githubusercontent.com/<login>?s=40` directly with `/usr/bin/curl` (`images::fetch_avatar`: https only, that host only, 5 MiB, 5 s), off the UI thread, once per login per run (author, reviewers, thread and comment authors, reviewer candidates; never teams), and draws it in every `Avatar`; a login without a picture keeps its initials | works (fake daemon with a stand-in fetcher; tests never reach the network) |
+| Next-message suggestion | The Chat's `suggestion.text` in its state (the host folds `prompt-suggestion` into it and publishes the state), for a Claude Chat only (`App.tsx`); shown over an empty prompt for a Claude model, not while running or with a menu, quote or attachment open (`visibleSuggestion`). Tab takes it; typing hides it and clearing shows it again; the host drops it on the next message, turn or reset | works (fake daemon only) |
+
+Differences and gaps:
+
+- **Dismissing the suggestion**: Electron has no command for it either. `agent:dismiss-suggestion [{chatId, id}]` is
+  the Subchat suggestion *card*'s Dismiss (`SubchatMessages.tsx`), not this prediction, so the Preview sends nothing;
+  Escape does not dismiss it in Electron.
+- **Comments waiting across Chat switches**: Electron keeps unsent pins per Chat while the window runs (`unsent`);
+  the Preview drops them when another Chat shows.
+- **Sent design pins** come from `artifact:comments` (numbered per design) rather than from parsing the sent message
+  (Electron numbers them within their message and can open one from the transcript's feedback card, which the
+  Preview's transcript does not draw).
+- **⌘Enter** sends from the bubble, or from the Designs canvas with the focus; Electron also takes it anywhere in
+  the window while feedback waits.
+- **Avatars** need the network at the moment the PR is read; offline, initials stay until the next run.
