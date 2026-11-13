@@ -22,9 +22,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui::{
-    Animation, AnimationExt as _, Context, Hsla, SharedString, Task, Transformation, Window, div, percentage, prelude::*, px, size, svg,
-};
+use gpui::{Context, Hsla, SharedString, Task, Transformation, Window, div, percentage, prelude::*, px, size, svg};
 
 use crate::logic::marks::display_clock::format_elapsed;
 use crate::theme::{ActiveTheme, TEXT_12, TextStepExt};
@@ -134,13 +132,21 @@ pub struct RunningRow {
     shown: SharedString,
     renders: Rc<Cell<usize>>,
     tick: Option<Task<()>>,
+    /// With motion on: the shared clock's ticks ([`crate::ui::frame_clock`]) and the keyframe step last drawn.
+    clock: Option<crate::ui::frame_clock::ClockUse>,
+    sample: usize,
+}
+
+/// The mark's keyframe sample now (the CSS's 80 ms `step-end` samples) on the shared clock.
+fn sample(cx: &gpui::App) -> usize {
+    (crate::ui::frame_clock::phase(CYCLE, cx) * (CYCLE.as_millis() / 80) as f32) as usize
 }
 
 impl RunningRow {
     /// A row for a turn that started `ago` ago.
     pub fn new(ago: Duration) -> Self {
         let started = Instant::now().checked_sub(ago).unwrap_or_else(Instant::now);
-        Self { started, shown: label(started).into(), renders: Rc::new(Cell::new(0)), tick: None }
+        Self { started, shown: label(started).into(), renders: Rc::new(Cell::new(0)), tick: None, clock: None, sample: 0 }
     }
 
     /// How many times this row has rendered (each animation frame is one).
@@ -154,6 +160,23 @@ impl RunningRow {
     }
 
     fn ensure_tick(&mut self, cx: &mut Context<Self>) {
+        // Motion on: one tick of the shared clock moves the mark and the label together (a frame only when either
+        // changed), never a frame per vsync.
+        if crate::ui::motion_scale() > 0.0 {
+            self.tick = None;
+            if self.clock.is_none() {
+                self.clock = Some(crate::ui::frame_clock::observe(cx, |row: &mut RunningRow, cx| {
+                    let (now, at) = (label(row.started), sample(cx));
+                    if now != row.shown.as_ref() || at != row.sample {
+                        row.shown = now.into();
+                        row.sample = at;
+                        cx.notify();
+                    }
+                }));
+            }
+            return;
+        }
+        self.clock = None;
         if self.tick.is_some() {
             return;
         }
@@ -186,30 +209,19 @@ fn part(path: &'static str, color: Hsla, opacity: f32, lift: f32) -> gpui::Svg {
     svg().path(path).absolute().top(px(lift)).left(px(0.0)).size(px(MARK)).text_color(color.opacity(opacity))
 }
 
-fn running_mark(ink: Hsla, animated: bool) -> impl IntoElement {
-    let left = part("ui/running-leg-left.svg", ink, leg_opacity(0.0), 0.0);
-    let right = part("ui/running-leg-right.svg", ink, leg_opacity(0.0), 0.0);
-    let star = part("ui/running-star.svg", ink, star_state(0.0).0, STAR_LIFT);
-    let (left, right, star) = if animated {
-        (
-            left.with_animation("running-leg-left", Animation::new(CYCLE).repeat(), move |leg, delta| {
-                leg.text_color(ink.opacity(leg_opacity(delta)))
-            })
-            .into_any_element(),
-            right
-                .with_animation("running-leg-right", Animation::new(CYCLE).repeat(), move |leg, delta| {
-                    leg.text_color(ink.opacity(leg_opacity(delta - RIGHT_LEG_PHASE)))
-                })
-                .into_any_element(),
-            star.with_animation("running-star", Animation::new(CYCLE).repeat(), move |star, delta| {
-                let (opacity, scale, degrees) = star_state(delta);
-                star.text_color(ink.opacity(opacity))
-                    .with_transformation(Transformation::rotate(percentage(degrees / 360.0)).with_scaling(size(scale, scale)))
-            })
-            .into_any_element(),
-        )
+/// The mark at `phase` of its cycle (`None`: the CSS's dim resting frame, motion off).
+fn running_mark(ink: Hsla, phase: Option<f32>) -> impl IntoElement {
+    let (left, right, (star_opacity, scale, degrees)) = match phase {
+        Some(phase) => (leg_opacity(phase), leg_opacity(phase - RIGHT_LEG_PHASE), star_state(phase)),
+        None => (leg_opacity(0.0), leg_opacity(0.0), (star_state(0.0).0, 1.0, 0.0)),
+    };
+    let left = part("ui/running-leg-left.svg", ink, left, 0.0);
+    let right = part("ui/running-leg-right.svg", ink, right, 0.0);
+    let star = part("ui/running-star.svg", ink, star_opacity, STAR_LIFT);
+    let star = if (scale, degrees) == (1.0, 0.0) {
+        star
     } else {
-        (left.into_any_element(), right.into_any_element(), star.into_any_element())
+        star.with_transformation(Transformation::rotate(percentage(degrees / 360.0)).with_scaling(size(scale, scale)))
     };
     div().relative().flex_none().size(px(MARK)).debug_selector(|| "running-mark".into()).child(left).child(right).child(star)
 }
@@ -224,7 +236,7 @@ impl Render for RunningRow {
             self.shown = now.into();
         }
         let theme = cx.theme();
-        let animated = crate::ui::motion_scale() > 0.0;
+        let phase = (crate::ui::motion_scale() > 0.0).then(|| crate::ui::frame_clock::phase(CYCLE, cx));
         div()
             .debug_selector(|| "running-row".into())
             .flex()
@@ -232,7 +244,7 @@ impl Render for RunningRow {
             .gap_2()
             .px_1()
             .py_1()
-            .child(running_mark(theme.ink.into(), animated))
+            .child(running_mark(theme.ink.into(), phase))
             .child(div().text_step(TEXT_12).text_color(theme.ink3).child(self.shown.clone()))
     }
 }
@@ -250,23 +262,28 @@ mod tests {
         asked
     }
 
-    /// Ten animation frames render the running row ten times and rebuild no transcript item.
+    /// Ten ticks of the shared clock render the running row ten times and rebuild no transcript item.
     #[gpui::test]
     fn the_running_mark_animates_without_rebuilding_the_transcript(cx: &mut TestAppContext) {
         set_test_motion(true);
         let (workspace, cx) = testing::mount_workspace(cx);
         let chat = workspace.read_with(cx, |w, _| w.chat.clone());
         let (transcript, running) = chat.read_with(cx, |c, _| (c.transcript.clone(), c.running.clone().expect("a turn runs")));
+        let tick = |cx: &mut VisualTestContext| {
+            cx.executor().advance_clock(crate::ui::frame_clock::FRAME);
+            cx.run_until_parked();
+        };
+        tick(cx);
         frame(cx);
-        assert!(frame(cx) > 0, "the mark asks for frames");
+        assert_eq!(frame(cx), 0, "the mark asks for no frame per vsync: it moves on the shared clock");
         let before = (transcript.read_with(cx, |t, _| t.item_renders()), running.read_with(cx, |r, _| r.renders()));
-        const FRAMES: usize = 10;
-        for _ in 0..FRAMES {
-            frame(cx);
+        const TICKS: usize = 10;
+        for _ in 0..TICKS {
+            tick(cx);
         }
         let after = (transcript.read_with(cx, |t, _| t.item_renders()), running.read_with(cx, |r, _| r.renders()));
-        assert_eq!(after.0, before.0, "no transcript item rebuilt in {FRAMES} frames");
-        assert!(after.1 - before.1 >= FRAMES, "the row rendered every frame ({} renders)", after.1 - before.1);
+        assert_eq!(after.0, before.0, "no transcript item rebuilt in {TICKS} ticks");
+        assert_eq!(after.1 - before.1, TICKS, "the row rendered once a tick (each tick is a new keyframe sample)");
         set_test_motion(false);
     }
 

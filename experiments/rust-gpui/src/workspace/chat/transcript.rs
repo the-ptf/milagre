@@ -198,6 +198,8 @@ pub struct Transcript {
     /// Settings › Chat › Tool call display (default Compact) and Always expand reasoning (default off).
     display: ToolCallDisplay,
     expand_reasoning: bool,
+    /// The shared clock's ticks while a running step's title shimmers ([`crate::ui::frame_clock`]).
+    shimmer_clock: Option<crate::ui::frame_clock::ClockUse>,
     /// Images decoded for the cards (kept; `None` for one that could not be read).
     images: HashMap<PathBuf, Option<cards::images::Decoded>>,
     /// The image or brief open over the transcript.
@@ -290,6 +292,7 @@ impl Transcript {
             select_on_open: None,
             display: ToolCallDisplay::Compact,
             expand_reasoning: false,
+            shimmer_clock: None,
             images: HashMap::new(),
             viewer: None,
             inputs: HashMap::new(),
@@ -921,10 +924,34 @@ impl Transcript {
     }
 }
 
+impl Transcript {
+    /// A running step's title shimmers on the shared clock: while one is in the transcript, each tick draws it again
+    /// (12.5 a second, not every vsync); the rows read the pulse from [`step_row::set_shimmer_phase`].
+    fn follow_shimmer(&mut self, cx: &mut Context<Self>) {
+        let running = |step: &crate::data::ChatStep| step.status == crate::data::StepStatus::Running;
+        let shimmering = crate::ui::motion()
+            && self.items.iter().rev().any(|item| match item {
+                Item::Step(item) => running(&item.step),
+                Item::Activity(activity) => activity.steps().iter().any(|step| running(step)),
+                _ => false,
+            });
+        if !shimmering {
+            self.shimmer_clock = None;
+            step_row::set_shimmer_phase(None);
+            return;
+        }
+        if self.shimmer_clock.is_none() {
+            self.shimmer_clock = Some(crate::ui::frame_clock::observe(cx, |_: &mut Transcript, cx| cx.notify()));
+        }
+        step_row::set_shimmer_phase(Some(crate::ui::frame_clock::phase(step_row::SHIMMER, cx)));
+    }
+}
+
 impl Render for Transcript {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame = self.probe.as_mut().map(|probe| probe.frame(&self.item_renders));
         self.refresh_style(cx);
+        self.follow_shimmer(cx);
         self.select_for_snapshot(window, cx);
         if !self.tracker.borrow().is_dragging() {
             // A drag keeps every view it passed: no message is parsed again under the pointer.

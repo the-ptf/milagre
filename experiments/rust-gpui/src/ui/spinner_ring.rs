@@ -15,14 +15,17 @@ use gpui::{
 
 use crate::theme::ActiveTheme;
 
-const TURN: Duration = Duration::from_millis(1100);
-const STEPS: f32 = 24.0;
+/// One turn of the arc (`SpinnerRing.tsx`: 1.1 s, 24 steps).
+pub const TURN: Duration = Duration::from_millis(1100);
+pub const STEPS: f32 = 24.0;
 
 #[derive(IntoElement)]
 pub struct SpinnerRing {
     size: f32,
     color: Option<Hsla>,
     animation: Option<ElementId>,
+    /// A fixed turn (`0.0..1.0`) for a ring a view turns on the shared clock ([`super::frame_clock`]).
+    turned: f32,
 }
 
 impl Default for SpinnerRing {
@@ -34,7 +37,7 @@ impl Default for SpinnerRing {
 impl SpinnerRing {
     /// A 12px ring with a 2px stroke, the size Chat rows use.
     pub fn new() -> Self {
-        Self { size: 12.0, color: None, animation: None }
+        Self { size: 12.0, color: None, animation: None, turned: 0.0 }
     }
 
     pub fn size(mut self, size: f32) -> Self {
@@ -45,6 +48,12 @@ impl SpinnerRing {
     /// The arc's colour; `ink-3` by default.
     pub fn color(mut self, color: impl Into<Hsla>) -> Self {
         self.color = Some(color.into());
+        self
+    }
+
+    /// Drawn turned this far round (`0.0..1.0`), still: a view turns it on the shared clock (`Spinner`).
+    pub fn turned(mut self, turned: f32) -> Self {
+        self.turned = turned;
         self
     }
 
@@ -68,6 +77,7 @@ impl RenderOnce for SpinnerRing {
                     arc.with_transformation(Transformation::rotate(percentage(step)))
                 })
                 .into_any_element(),
+            None if self.turned > 0.0 => arc.with_transformation(Transformation::rotate(percentage(self.turned))).into_any_element(),
             None => arc.into_any_element(),
         };
         div().relative().flex_none().size(size).child(track).child(arc)
