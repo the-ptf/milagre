@@ -178,7 +178,7 @@ export function computerAlias(name: string): string {
     name
       .trim()
       .split(/[\s\-_.]+/)[0]!
-      .replace(/['’]s$/i, "") || name
+      .replace(/['\u2019]s$/i, "") || name
   );
 }
 
