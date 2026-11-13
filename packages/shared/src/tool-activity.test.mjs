@@ -96,8 +96,9 @@ test("a Link Chat's Worktree step and its setup say which Project they are for",
       { ...create, status: "done" },
       { kind: "shell", status: "running", title: "Ran `ls`" },
     ]),
-    "Running a command",
+    null,
   );
+  assert.equal(runStatusLabel([{ kind: "thinking", status: "running", title: "Thinking", detail: "**Reading the loader**\n" }]), null);
   assert.equal(runStatusLabel(), null);
   assert.equal(sendStatusLabel({ creatingWorktree: true }), "Creating Worktree");
   assert.equal(sendStatusLabel({ provider: "codex" }), "Sending");
@@ -134,8 +135,8 @@ test("command purpose leads while running, with the exact command retained for a
   assert.equal(stepDisplayTitle(step), "Ran `npm test`");
   assert.equal(stepSections(step).input, "npm test");
   assert.equal(stepDisplayTitle({ ...step, description: undefined }, true), "Running `npm test`");
-  assert.equal(runStatusLabel([{ ...step, status: "running" }]), "Check recorded swipe events");
-  assert.equal(runStatusLabel([{ ...step, description: undefined, status: "running" }]), "Running a command");
+  // The activity row already shows the purpose; the running mark beside the timer doesn't repeat it.
+  assert.equal(runStatusLabel([{ ...step, status: "running" }]), null);
 });
 
 test("parallel activity keeps a concrete tool visible, with approvals ahead of tools and thinking", () => {

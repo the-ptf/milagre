@@ -1501,7 +1501,8 @@ export function ChatComposer({
     [newChatChange, chatsDraft, noProjectGroup],
   );
   const workingModelName = runModelName ?? selectedModel.name;
-  // Live work stays beside the running mark and timer, including tool purposes and thinking summary headings.
+  // The send's progress, or Worktree creation and setup, beside the running mark and timer. Tool calls and thinking name
+  // themselves in the transcript's activity row, so the mark and timer stand alone for them.
   const phase = statusLabel ?? runStatusLabel(streamingSteps);
   // Set while the transcript is scrolled up: its "Go to bottom" sits at the right end of the chip row, never over text.
   // Kept with the transcript it belongs to, so a Chat opened next (or a parked one) never shows another's button.
