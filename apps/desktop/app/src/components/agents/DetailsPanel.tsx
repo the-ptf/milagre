@@ -15,13 +15,12 @@ import {
   Globe02Icon,
   Link04Icon,
   LinkSquare02Icon,
-  RamMemoryIcon,
   Redo03Icon,
   SourceCodeIcon,
 } from "@hugeicons/core-free-icons";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { directSubchats } from "@milagre/shared/subchat-states";
-import type { AgentPort, BackgroundTask, ContextUsage, Subagent } from "@milagre/shared/model";
+import type { AgentPort, BackgroundTask, Subagent } from "@milagre/shared/model";
 import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { chatSwitching } from "../../lib/chat-switch-timing";
 import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
@@ -46,7 +45,6 @@ import { openInEditor, useEditors } from "../../lib/editors";
  * fill sits as a block under the text rather than an edge-to-edge band. Sections:
  *
  * - Environment: the computer, the repo, the Worktree's branch and its path (a click copies it; Finder and editor).
- * - Context: tokens used of the window, opening to the numbers.
  * - Lineage (folds): the open Chat's parent, then its Subchats nested; a row opens that Chat, its muted → showing under
  *   the pointer before its state.
  * - Background tasks (folds): running commands, ports and subagents with their time.
@@ -89,7 +87,6 @@ export type DetailsData = {
   onOpenInEditor?: () => void;
   /** The editor "Open in" uses, for the button's tooltip. */
   editorName?: string;
-  context?: ContextUsage;
   /** The family's sessions and live runs, for Lineage. */
   family?: FamilyReads;
   onOpenChat: (key: string) => void;
@@ -155,10 +152,6 @@ function elapsed(since: number, now: number) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-function tokens(count: number) {
-  return count >= 1_000_000 ? `${(count / 1_000_000).toFixed(1)}M` : count >= 1000 ? `${Math.round(count / 1000)}k` : String(count);
-}
-
 /** A Lineage row: opens that Chat; a muted arrow shows before its state under the pointer. */
 function LineageRow({
   entry,
@@ -206,9 +199,7 @@ export function DetailsBody({ data }: { data: DetailsData }) {
     folds[name] = !folds[name];
     rerender((n) => n + 1);
   };
-  const [contextOpen, setContextOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  useEffect(() => setContextOpen(false), [data.chatKey]);
   useEffect(() => {
     if (!copied) return;
     const timer = window.setTimeout(() => setCopied(false), 1500);
@@ -228,11 +219,10 @@ export function DetailsBody({ data }: { data: DetailsData }) {
         return entry ? [{ entry, depth }] : [];
       })
     : [];
-  const percent = data.context && data.context.size > 0 ? Math.min(100, Math.round((data.context.used / data.context.size) * 100)) : null;
   const hasLinks = Boolean(data.pullRequest) || Boolean(data.links?.length);
 
   return (
-    <ScrollArea data-details-body className="flex min-h-0 flex-1 flex-col gap-3 pt-3 pb-3">
+    <ScrollArea data-details-body className="flex min-h-0 shrink flex-col gap-3 pt-3 pb-3">
       <Section name="environment">
         <Heading label="Environment" />
         {data.computer && (
@@ -290,34 +280,6 @@ export function DetailsBody({ data }: { data: DetailsData }) {
           </div>
         )}
       </Section>
-      {percent !== null && data.context && (
-        <Section name="context">
-          <button
-            type="button"
-            aria-expanded={contextOpen}
-            data-details-context
-            onClick={() => setContextOpen((value) => !value)}
-            className={`${ROW} ${CLICKABLE} w-[calc(100%-16px)]`}
-          >
-            <Glyph icon={RamMemoryIcon} />
-            <span className="min-w-0 flex-1 truncate">Context</span>
-            <Value>{percent}%</Value>
-            <span className="flex text-ink-3">
-              <Icon icon={contextOpen ? ArrowDown01Icon : ArrowRight01Icon} size={14} />
-            </span>
-          </button>
-          {contextOpen && (
-            <div className="flex flex-col gap-2 px-4 pt-1 pb-2">
-              <span className="text-12 text-ink-2">
-                {tokens(data.context.used)} of {tokens(data.context.size)} tokens
-              </span>
-              <span className="h-1 w-full overflow-hidden rounded-full bg-field">
-                <span className="block h-full rounded-full bg-ink-3" style={{ width: `${percent}%` }} />
-              </span>
-            </div>
-          )}
-        </Section>
-      )}
       {(parent || children.length > 0) && (
         <Section name="lineage">
           <Heading label="Lineage" open={!folds.lineage} onToggle={fold("lineage")} />
@@ -455,7 +417,8 @@ export function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
               data-details-panel
               role="complementary"
               aria-label="Details"
-              className="flex min-h-0 shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
+              // As tall as its sections, up to the window; it scrolls past that.
+              className="flex max-h-full min-h-0 shrink-0 flex-col self-start overflow-hidden rounded-window bg-surface shadow-card"
               style={{ width: resize.width }}
             >
               {data && <DetailsBody data={data} />}
@@ -474,7 +437,6 @@ export function DetailsPanelHost({
   worktree,
   remoteComputer,
   family,
-  contextUsage,
   backgroundTasks,
   ports,
   subagents,
@@ -490,7 +452,6 @@ export function DetailsPanelHost({
   /** Shows the Worktree in Finder (this Mac's Chats only). */
   onReveal?: () => void;
   family?: Omit<FamilyReads, "routines" | "now">;
-  contextUsage?: ContextUsage;
   backgroundTasks?: BackgroundTask[];
   ports?: AgentPort[];
   subagents?: Subagent[];
@@ -515,7 +476,6 @@ export function DetailsPanelHost({
         onReveal: local && worktree ? onReveal : undefined,
         onOpenInEditor: local && worktree ? () => void openInEditor(worktree.path) : undefined,
         editorName: editor?.name,
-        context: contextUsage,
         family: family ? { ...family, routines, now } : undefined,
         onOpenChat,
         backgroundTasks,

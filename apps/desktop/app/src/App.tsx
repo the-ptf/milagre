@@ -4397,7 +4397,7 @@ function App() {
                 }
               />
             </ChangesPanelSlot>
-            {/* The open Chat's Details (Environment, Context, Lineage, Background tasks, Links), from its corner toggle. */}
+            {/* The open Chat's Details (Environment, Lineage, Background tasks, Links), from its corner toggle. */}
             <DetailsPanelHost
               chatKey={
                 view === "chat" && !selectedLink && project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null
@@ -4406,7 +4406,6 @@ function App() {
               worktree={selectedWorktree ? { name: selectedWorktree.name, path: selectedWorktree.path } : undefined}
               remoteComputer={openComputer ? { name: openComputer.name, offline: isDimmed(openComputer) } : undefined}
               family={state ? { sessions: state.sessions, runs: agentRuns.runs, work: linkedWork } : undefined}
-              contextUsage={run?.contextUsage ?? selectedSession?.contextUsage}
               backgroundTasks={selectedSession?.backgroundTasks}
               ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
               subagents={subagents}
