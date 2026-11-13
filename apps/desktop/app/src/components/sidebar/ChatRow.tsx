@@ -617,7 +617,7 @@ function FamilyBadge({
         family.onToggle();
       }}
       style={{ backgroundImage: `linear-gradient(${fill}, ${fill})` }}
-      className={`sidebar-copy pointer-events-auto relative flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface px-1 text-10 font-semibold tabular-nums transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
+      className={`sidebar-copy pointer-events-auto ${className.includes("absolute") ? "" : "relative"} flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface px-1 text-10 font-semibold tabular-nums transition-colors before:absolute before:-inset-1 focus-visible:outline-2 ${
         family.asking ? "text-black" : family.folded ? "text-ink" : "text-accent-ink"
       } ${archiving ? "opacity-30" : ""} ${className}`}
     >

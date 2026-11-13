@@ -550,6 +550,10 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - The composer's model chip shows no permission shield; Full stays orange in the picker's footer.
 - A Subchat's breadcrumb parent is plain text flush with the Chat title: no box, arrow or dot.
 - ⇧⌘D shows or hides the Changes panel on the view it was left on.
+- The Details panel (from GPUI's Details tab) has its own corner toggle and no shortcut: Environment, Context, Lineage
+  (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, a muted → before the state under the pointer), Background
+  tasks and Links. Rows are 32 high, inset 8 from the panel edges so the `hover` fill is a rounded block; Lineage,
+  Background tasks and Links fold. Artifacts, Designs, Browser and Simulator keep their shortcuts.
 
 ### Routines page (2026-11-10)
 

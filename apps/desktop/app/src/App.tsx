@@ -168,6 +168,7 @@ import { besideParent, familySplit, swapTile } from "./lib/subchat-split";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { ChatIdentity } from "./components/agents/ChatIdentity";
 import { SubchatBookmark } from "./components/agents/SubchatBookmark";
+import { DetailsPanelHost } from "./components/agents/DetailsPanel";
 import { provideSubchatActions, SubchatWaitingNote, type SubchatActions } from "./components/agents/SubchatMessages";
 import { useStepApprovalScope } from "./components/agents/step-approval";
 import { pendingWaitingNote } from "./lib/subchat-transcript";
@@ -224,6 +225,13 @@ function latestSessionId(state: CoordinatorState) {
 // How long a scope's model lists and CLI status, and its branches, count as current: a switch back within it reads none again.
 const PROVIDERS_FRESH_MS = 60_000;
 const BRANCHES_FRESH_MS = 60_000;
+/** A PR's state in a word, for the Details panel's Links. */
+function prStateWord(pr: { state?: string; isDraft?: boolean } | undefined) {
+  if (pr?.state === "MERGED") return "Merged";
+  if (pr?.state === "CLOSED") return "Closed";
+  return pr?.isDraft ? "Draft" : "Open";
+}
+
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_BRANCHES: string[] = [];
 // Each Project's branches as last read, and when: opening it again shows them at once, and reads them again (git on its
@@ -4389,6 +4397,27 @@ function App() {
                 }
               />
             </ChangesPanelSlot>
+            {/* The open Chat's Details (Environment, Context, Lineage, Background tasks, Links), from its corner toggle. */}
+            <DetailsPanelHost
+              chatKey={
+                view === "chat" && !selectedLink && project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null
+              }
+              project={project ? { name: project.name, path: project.path } : undefined}
+              worktree={selectedWorktree ? { name: selectedWorktree.name, path: selectedWorktree.path } : undefined}
+              remoteComputer={openComputer ? { name: openComputer.name, offline: isDimmed(openComputer) } : undefined}
+              family={state ? { sessions: state.sessions, runs: agentRuns.runs, work: linkedWork } : undefined}
+              contextUsage={run?.contextUsage ?? selectedSession?.contextUsage}
+              backgroundTasks={selectedSession?.backgroundTasks}
+              ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
+              subagents={subagents}
+              pullRequest={
+                changesAvailable && prNumber
+                  ? { number: prNumber, state: prStateWord(selectedPullRequests.find((pr) => pr.number === prNumber)), onOpen: changes.showPullRequest }
+                  : undefined
+              }
+              onOpenChat={openAlone}
+              onReveal={() => selectedSession && revealChat(selectedSession.id)}
+            />
           </div>
           {linkDialog}
           {addComputerDialog}

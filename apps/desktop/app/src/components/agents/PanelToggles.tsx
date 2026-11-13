@@ -1,7 +1,16 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
-import { File01Icon, ComputerTerminal01Icon, Globe02Icon, PaintBoardIcon, SmartphoneIcon, GitPullRequestIcon, FileDiffIcon } from "@hugeicons/core-free-icons";
+import {
+  File01Icon,
+  ComputerTerminal01Icon,
+  Globe02Icon,
+  InformationCircleIcon,
+  PaintBoardIcon,
+  SmartphoneIcon,
+  GitPullRequestIcon,
+  FileDiffIcon,
+} from "@hugeicons/core-free-icons";
 import { IconButton } from "../primitives/Button";
 import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
@@ -9,7 +18,7 @@ import { useWindowChrome } from "../../lib/window-chrome";
 
 /** A side panel the open Chat can show: whether it is open, and what shows or hides it. */
 export type SidePanel = { open: boolean; toggle: () => void };
-type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator";
+type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator" | "details";
 
 // Panels register their availability and actions here; the toolbar shows every offered button inline at the top right.
 let panels: Partial<Record<PanelName, SidePanel>> = {};
@@ -52,13 +61,14 @@ export function useSidePanels() {
 }
 
 // Changes, the theme and the canvas are App's keys. The Terminals take ⌘J by default, as in VS Code; New Terminal is App's.
-// `title`, when the tooltip names the panel differently from its button's accessible name.
-const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command: KeybindingCommandId }[] = [
+// `title`, when the tooltip names the panel differently from its button's accessible name. Details has no shortcut.
+const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command?: KeybindingCommandId }[] = [
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
   { name: "artifacts", label: "artifacts", icon: File01Icon, command: "artifacts.toggle" },
   { name: "designs", label: "designs", icon: PaintBoardIcon, command: "designs.toggle" },
   { name: "browser", label: "browser", title: "Browser panel", icon: Globe02Icon, command: "browser.toggle" },
   { name: "simulator", label: "simulator", title: "Simulators", icon: SmartphoneIcon, command: "simulator.toggle" },
+  { name: "details", label: "details", title: "Details", icon: InformationCircleIcon },
 ];
 
 /**
@@ -100,7 +110,7 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
           <Tooltip
             key={name}
             label={panel.open ? `Hide ${title}` : `Show ${title}`}
-            shortcut={shortcutLabel(rules, command)}
+            shortcut={command && shortcutLabel(rules, command)}
             compactHint
             side="bottom"
             align="end"
