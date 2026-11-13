@@ -13,9 +13,12 @@
 //!
 //! See README.md for what is served and every known difference from Node.
 pub mod handler;
+pub mod image;
+pub mod keybindings;
 pub mod origin;
 pub mod policy;
 pub mod reconcile;
+pub mod settings;
 
 use handler::{DataLock, Profile};
 use milagre_owner_store::{
@@ -39,7 +42,7 @@ pub struct Options {
     pub cwd: Option<PathBuf>,
 }
 
-const USAGE: &str = "profile-owner serve --data-dir /absolute/path --app-version VERSION [--chats-home /absolute/path] [--worktree-root /absolute/path] [--cwd /absolute/path]\n\nServes an isolated Milagre data directory (one inside a MILAGRE-ISOLATED-COPY folder) at the Node daemon's socket, reads only. Stops on daemon:stop, end of stdin, SIGTERM or SIGINT.";
+const USAGE: &str = "profile-owner serve --data-dir /absolute/path --app-version VERSION [--chats-home /absolute/path] [--worktree-root /absolute/path] [--cwd /absolute/path]\n\nServes an isolated Milagre data directory (one inside a MILAGRE-ISOLATED-COPY folder) at the Node daemon's socket, reads and file-backed settings. Stops on daemon:stop, end of stdin, SIGTERM or SIGINT.";
 
 /// Parses `serve` arguments (`--name value` or `--name=value`). `Ok(None)` is `--help`.
 pub fn parse_args(args: &[String]) -> Result<Option<Options>, String> {
@@ -240,9 +243,17 @@ pub fn start(options: &Options) -> Result<Owner, String> {
     let started = (|| {
         let endpoint = DataDirEndpoint::claim(&options.data_dir, &token, &options.app_version)
             .map_err(|error| error.to_string())?;
-        let profile = Profile::new(isolation, data_dir.clone(), chats_home, data_lock.clone())?;
-        Server::bind_data_dir(endpoint, Arc::new(profile), Config::default())
-            .map_err(|error| error.to_string())
+        let profile = Arc::new(Profile::new(
+            isolation,
+            data_dir.clone(),
+            chats_home,
+            data_lock.clone(),
+            options.app_version.clone(),
+        )?);
+        let server = Server::bind_data_dir(endpoint, profile.clone(), Config::default())
+            .map_err(|error| error.to_string())?;
+        profile.watch_keybindings(server.events());
+        Ok::<_, String>(server)
     })();
     let server = match started {
         Ok(server) => Arc::new(server),

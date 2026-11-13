@@ -1,6 +1,6 @@
-# Rust profile owner (checkpoint 1: reads and lifecycle)
+# Rust profile owner (reads, lifecycle and file-backed settings)
 
-`profile-owner` owns one Milagre data directory the way the Node daemon does, behind the same socket and client API, for **isolated copies only**. It takes the data directory's `runtime.lock` in Node's format, binds the socket Node derives for it, and answers the reads a desktop needs to show Projects and Chats, in Node's shapes. A frontend adopts it with `InstalledOwner::adopt_profile(data_dir)` (`experiments/rust-daemon-client`, feature `installed-owner`) with no client or UI change. It sends nothing, runs no provider and saves nothing: Chat sends, providers, settings, Links and remote services are later checkpoints.
+`profile-owner` owns one Milagre data directory the way the Node daemon does, behind the same socket and client API, for **isolated copies only**. It takes the data directory's `runtime.lock` in Node's format, binds the socket Node derives for it, and answers the reads a desktop needs to show Projects and Chats, in Node's shapes. A frontend adopts it with `InstalledOwner::adopt_profile(data_dir)` (`experiments/rust-daemon-client`, feature `installed-owner`) with no client or UI change. It serves file-backed settings and their change events, plus local Project images. It sends no Chat messages and runs no provider. Chat writes, Links and remote services remain later checkpoints. GitHub avatar fallback is not implemented: image discovery uses saved icons and contained local files only, without ambient credentials or network access.
 
 ```sh
 profile-owner serve --data-dir D --app-version V [--chats-home H] [--worktree-root W] [--cwd C]
@@ -17,7 +17,7 @@ The arguments are `apps/daemon/src/cli.cjs serve`'s (`--name value` or `--name=v
 - **Socket.** `milagre-owner-wire`'s `DataDirEndpoint` + `Server::bind_data_dir`: `/tmp/milagre-<uid>/<sha256(fs.realpathSync(D))[..24]>.sock`, hashed over Node's `fs.realpathSync` spelling (`node_realpath`: links resolved, every other part kept as given; on a case-insensitive volume a path spelled in another case keeps that case, where `realpath(3)` and the Rust client's `canonicalize` give the case on disk, so, as with the Node daemon, the Rust client finds an owner only when D was passed in its on-disk case), the folder 0700 (made if missing, never chmodded), the socket 0600. A socket file left there is removed only while the lock proves D is ours and only when it is a socket owned by this user; anything else is refused and left.
 - **Never** connects to, stops or writes the installed Node daemon or the real profile, and never takes over a lock.
 
-What it writes and removes at stop: D's `runtime.lock`, each opened Project's `.milagre/runtime.lock`, each Git repository's `milagre-runtime.lock`, the socket. What it writes and leaves, as Node does: a Project's `.milagre/` folder (0700) when the Project had none, made for its lock (also when the open then fails), and `/tmp/milagre-<uid>` (0700) when it was missing. Opening a Project whose saved state still holds long inline step details writes the detail sidecars Node's `readProjectState` writes on its read (content-addressed files under `.milagre/details`); a state Node saved has none to write. No state, chats.db row, registry or setting is saved.
+What it writes and removes at stop: D's `runtime.lock`, each opened Project's `.milagre/runtime.lock`, each Git repository's `milagre-runtime.lock`, the socket. What it writes and leaves, as Node does: a Project's `.milagre/` folder (0700) when the Project had none, made for its lock (also when the open then fails), and `/tmp/milagre-<uid>` (0700) when it was missing. Opening a Project whose saved state still holds long inline step details writes the detail sidecars Node's `readProjectState` writes on its read (content-addressed files under `.milagre/details`); a state Node saved has none to write. No state, chats.db row or registry is saved. Settings commands save the Node-format files below; keybindings reads also seed/migrate their files as Node does.
 
 ## What it serves
 
@@ -38,12 +38,39 @@ What it writes and removes at stop: D's `runtime.lock`, each opened Project's `.
 
 Every state answered is the Project's saved state as Node holds it in memory: matched with the Worktrees found now (`reconcile.rs`, a port of `project-state.cjs` reconcileState, which Node's `ProjectStates.read` applies and saves only with a later change), Chat summaries current (`withChatSummaries`), every message included (`wholeState`), JSON written as `JSON.stringify` writes it, in Node's key order (checked on every state the test reads; a Chat saved without a summary gets it last, after the fields reconcile adds, as Node's order is). Worktrees are discovered with `milagre-registry`'s `identify` (Git's Worktree list for a Git Project, the folder itself outside Git) on every `project:read`, as `readProject` does. Anything else answers Node's unknown-command error (`{code: "COMMAND_FAILED", message: "Unknown command: <method>"}`) and is not listed.
 
+## File-backed settings and discovery (CP3)
+
+28 additional commands, 43 advertised methods in total:
+
+| Commands                                                                                        | Node-format files and effects                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `done:settings:read/save`, `context:settings:read/save`                                         | `done.json`, `context-settings.json`; normalization, patch merges and corresponding `done:settings` / `context:settings` events                                                |
+| `device-notes:read/save`, `linked:remote-enabled:read/save`                                     | `device-notes.json`, `remote-delegation.json`; cached booleans updated only after successful private-file writes; changed events                                               |
+| `app-update:auto:read/save`, `limits:auto-switch:read/save`, `limits:resume-at-reset:read/save` | `app-update.json`, `limit-switch.json`; preserved unknown fields and Node defaults; only auto-update emits an event                                                            |
+| `linear:enabled:read/save`, `linear:move-to-started:save`                                       | `linear/settings.json`; private directory/file modes, preserved unknown fields; only enabled save emits an event; no credential files read                                     |
+| `keybindings:read/set-command/reset-command/reset`                                              | `keybindings.json`, `keybindings.seen.json`; JSONC, validation, new-default migration, unbound commands, broken-file protection, Node formatting and changed events            |
+| `main-sync:read/save/default:read/default:save`, `project:set-hidden`                           | `project-settings.json`; unknown fields retained, Node pretty-printing and removal of empty Project entries; branch resolution uses the registry's bounded isolated Git reader |
+| `app:version`, `project:image`                                                                  | launch version; saved icon or first local image from Node's candidate order. **No GitHub avatar fallback.**                                                                    |
+
+Settings commands share the Profile command mutex. Publication takes the wire publication lock first, so snapshots
+and event watermarks cannot race settings changes. Each write stages a new same-directory file and renames it;
+failed writes publish no command event. The data-directory owner is rechecked before I/O and immediately before rename. Cached switch values change only after rename. Settings file access is
+relative to pinned directory descriptors, with no-follow opens and regular-file/4 MiB limits; symlinks and special
+files are refused on save. `project-settings.json` preserves Node's strict read-before-save behavior. These are
+atomic replacement writes, not a power-loss durability or multi-file transaction claim (keybindings and its seen
+sidecar are separate writes, as in Node).
+
+Keybinding external edits are detected by a 20 ms metadata poll with a 150 ms debounce. It reads no file at startup
+until a command or change requires it, deduplicates own-save events by Node's JSON serialization, and stops on
+owner shutdown. This has not been performance-qualified. Image discovery pins the isolation root and Project
+directories before file access, bounds images to 5 MiB and keeps symlink targets inside the Project.
+
 ## Known differences from Node
 
 - **No first-load side effects.** Node's first `readProject` also marks running subagents disconnected, asks again for unknown permission modes and migrates images (changes it saves), resumes Chats a quit stopped and continues queued messages (providers), names Chats with `titlePending`, sweeps Routine run Chats, recovers handoffs, closes stale suggestion cards and refreshes diff stats; `withWorktreeChats` brings back Chats saved in linked Worktrees. None of that happens here: the saved state is answered as reconciled in memory. At start Node also loads every recent Project with a pending turn (`resumeRecentProjects`); this owner loads nothing until a `project:read`. A data dir Node served last already holds the results of those saves.
-- **No events.** Nothing changes, so no `project:state` is published (Node publishes one on a scope's first `state:read` and on every change); only the wire's `daemon:stopping`. `version` is always 1 and `epoch` is a new random id per run; `eventSeq` stays 0.
+- **No Project state events.** No `project:state` is published (Node publishes one on a scope's first `state:read` and on every change). Settings events and the wire's `daemon:stopping` advance `eventSeq`. Project `version` is always 1 and `epoch` is a new random id per run.
 - **Registry without writes.** Node's `project:known` scans `~/Developer` and `~/.milagre/worktrees` for coordination files while the registry isn't marked `scanned`, and drops entries whose folder went away through a write that checks every entry with Git. Here: no scan, no write; an entry is listed only when its folder (and Git directory) resolves, links followed, to a real path inside the copy, so a gone entry and a link leading outside are both left out unread. Ordering compares `openedAt` by bytes (Node: `localeCompare`; the same for ISO timestamps). Saved paths outside the copy are left out of both lists.
-- **Not served yet:** the Chats home (`project:read` of an existing one answers `NOT_SUPPORTED`), Links (`state:read`, `chat:messages`, `chat:message` of a `milagre-link:` scope answer `NOT_SUPPORTED`; the snapshot's `links` is empty), every write, send, provider, setting, account, Routine, phone, computer, `desktop:*` and `project:open`. `project:current` answers only on a connection that read a Project with options (the wire routes it to `project:snapshot`), as Node's does with a view.
+- **Not served yet:** the Chats home (`project:read` of an existing one answers `NOT_SUPPORTED`), Links (`state:read`, `chat:messages`, `chat:message` of a `milagre-link:` scope answer `NOT_SUPPORTED`; the snapshot's `links` is empty), every Chat/state write, send, provider, account, Routine, phone, computer, `desktop:*` and `project:open`. `project:current` answers only on a connection that read a Project with options (the wire routes it to `project:snapshot`), as Node's does with a view.
 - **Git discovery** is `milagre-registry`'s hardened `identify` (`/usr/bin/git`, no global config, a 3 s limit per command): it refuses repositories Node would open (a symlink at the top of a Git directory or under `refs/`/`worktrees/`, config includes, `core.worktree`, more than 4,096 entries under `refs/` and `worktrees/`, implicit bare repositories, Git directories outside the copy); object counts and hard-linked objects (`git clone --local`) are fine. Origins (`Registry::origin_url`) are read only from a verified identity inside the copy, with the same locked-down Git (no global or system config, no hooks or fsmonitor, the copy as discovery ceiling); Node runs `git remote get-url origin` in its own environment, so a global `url.*.insteadOf` rewrite applies there and not here. `originId`'s URL parsing is ported for the forms Git reports (equal to Node's on 25 forms) without IDNA or percent-encoding of hosts and paths.
 - **Projects without a saved state** (opened in Node, never given a Chat: Node saves a state only after a change): read as runtime.cjs `readStoredState`'s `null`, reconciled into a fresh state (a Chat made for each Worktree); the Project is locked outside `ProjectStates`, its pages are empty and `chat:message` finds nothing, as in Node.
 - **Chats removed by reconcile:** `chat:messages` answers an empty page for a Chat whose Worktree went away, as Node's state does; `chat:message` still finds such a message in chats.db.
@@ -60,7 +87,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-- **Unit (8):** argument parsing; isolation lookup refuses a data dir outside any copy, a copy around a registered Project and the account home's Milagre folders; reconcile (read fields, idempotence, a Chat made for a Worktree without one, no saved state); `originId` forms.
+- **Original CP1 unit coverage (8):** argument parsing; isolation lookup refuses a data dir outside any copy, a copy around a registered Project and the account home's Milagre folders; reconcile (read fields, idempotence, a Chat made for a Worktree without one, no saved state); `originId` forms.
 - **`tests/refusals.rs` (8), the binary without Node:** the socket path is the Rust client's own derivation (0600 socket, 0700 folder), and for D spelled in another case it is Node's `paths.cjs` socket, not the client's; SIGHUP, SIGTERM and SIGINT each stop it with lock and socket gone; a registry entry linked to a repository outside the copy is left out of `project:known` and its origin never read, while a repository inside keeps its origin; `owner.json` is byte-for-byte `JSON.stringify(owner, null, 2)` with the keys in Node's order, 0700/0600; a second owner by path or by a symlinked alias is refused with the lock unchanged; stdin EOF releases lock and socket; a data dir outside a copy and the copy root are refused before any write; the installed profile and `~/.milagre` are refused with their lock untouched, and a chats home or Worktree root under `~/.milagre` too; a dead owner's lock is refused and left byte-identical; a regular file at the socket path is refused and left (and the lock released), a crashed owner's socket is replaced.
 - **`tests/origin_node.rs` (1):** `originId` against Node's own module on 25 remote forms.
 - **`tests/node_differential.rs` (1)** with `tests/node-differential.cjs`, everything in one new copy under the system temporary folder (HOME, data dir, chats home, Worktree root, Projects):
@@ -71,3 +98,15 @@ cargo fmt --check
   5. With Node serving D, the Rust owner refuses (D's lock) and leaves Node's socket; a Rust run stopped by stdin EOF leaves the copy byte-identical; Node then serves D again and answers the 42 reads as it did before the Rust runs.
 
 These are reads of throwaway data on macOS (arm64), not evidence about live profiles, sends, events or performance.
+
+CP3 checks also include `tests/settings_differential.rs` (production Node -> Rust -> Node on one marked throwaway
+profile, per-command results/error shapes, JSON key order, file bytes and relevant events), `tests/image_node.rs`
+(eight local-image cases against Node with explicit offline account/Git callbacks), and `tests/main_branch_node.rs`
+(plain folder, unborn repository, main, master and remote HEAD against Node resolveBase). Unit regressions cover
+failed-save memory retention, leaf/parent symlinks, replaced profile directories, strict unreadable Project settings,
+extensionless configured image paths and Project replacement after path validation. The CP1 adoption/read/rollback
+suite remains unchanged apart from the expanded advertised methods.
+
+Settings reads deliberately do not follow symlinks; keybinding malformed-JSON diagnostics mirror the tested V8
+forms but are not a general guarantee across Node/V8 versions. No live-profile takeover, provider/network avatar,
+permission-failure differential, crash/power-loss, or desktop/phone UI qualification is claimed.

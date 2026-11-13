@@ -118,18 +118,22 @@ struct Core {
     /// Common Git directory -> its `milagre-runtime.lock`, shared by the Projects of one repository.
     repositories: HashMap<PathBuf, OwnerGuard>,
     closed: bool,
+    settings: crate::settings::Settings,
+    keybindings: crate::keybindings::Keybindings,
 }
 
-/// The owner of one isolated data directory's reads.
+/// The owner of one isolated data directory's reads and file-backed settings.
 pub struct Profile {
     isolation: Isolation,
     chats_home: PathBuf,
     data_dir: PathBuf,
     registry: Registry,
     epoch: String,
+    app_version: String,
     data_lock: DataLock,
     core: Mutex<Core>,
     origins: crate::origin::Origins,
+    images: crate::image::Images,
     /// Drives the registry's bounded Git identity probes.
     runtime: tokio::runtime::Runtime,
 }
@@ -140,6 +144,7 @@ impl Profile {
         data_dir: PathBuf,
         chats_home: PathBuf,
         data_lock: DataLock,
+        app_version: String,
     ) -> Result<Self, String> {
         let active_lock = data_lock.clone();
         let active: milagre_registry::Active = Arc::new(move || {
@@ -157,7 +162,22 @@ impl Profile {
             .enable_all()
             .build()
             .map_err(|error| error.to_string())?;
+        let mut settings = crate::settings::Settings::new(&data_dir)?;
+        let settings_lock = data_lock.clone();
+        settings.files.set_owner_check(Arc::new(move || {
+            let guard = locked(&settings_lock);
+            guard
+                .as_ref()
+                .ok_or_else(|| {
+                    RpcError::new("OWNERSHIP_LOST", "The data directory's lock was released")
+                })?
+                .verify()
+                .map_err(store)
+        }));
+        let images = crate::image::Images::new(isolation.root())?;
         Ok(Self {
+            app_version,
+            images,
             origins: Default::default(),
             runtime,
             isolation,
@@ -172,6 +192,8 @@ impl Profile {
                 order: Vec::new(),
                 repositories: HashMap::new(),
                 closed: false,
+                settings,
+                keybindings: Default::default(),
             }),
         })
     }
@@ -639,30 +661,24 @@ impl Handler for Profile {
         jsjson::utf16_len(text)
     }
     fn methods(&self) -> Vec<String> {
-        METHODS.iter().map(|method| method.to_string()).collect()
+        METHODS
+            .iter()
+            .chain(crate::settings::METHODS)
+            .chain(crate::keybindings::METHODS)
+            .chain(&[
+                "app:version",
+                "project:set-hidden",
+                "main-sync:read",
+                "main-sync:save",
+                "project:image",
+            ])
+            .map(|method| method.to_string())
+            .collect()
     }
-    fn invoke(&self, method: &str, args: &[Value], _context: &ClientContext) -> RpcResult {
-        self.check_owned()?;
-        let mut core = locked(&self.core);
-        if core.closed {
-            return Err(RpcError::new("CLOSING", "The daemon is closing"));
-        }
-        core.states.advance(now_ms());
-        let core = &mut *core;
-        match method {
-            "project:known" => self.known(),
-            "project:recent" => self.recent_projects(),
-            "project:read" => self.project_read(core, args),
-            "project:snapshot" => {
-                let path = args.first().and_then(Value::as_str).unwrap_or_default();
-                Ok(self.stamp(self.project(core, path)?))
-            }
-            "state:read" => self.state_read(core, args),
-            "chat:messages" => self.chat_messages(core, args),
-            "chat:message" => self.chat_message(core, args),
-            "chat:runs" => Ok(json!({"runs": {}, "seq": 0})),
-            other => Err(failed(format!("Unknown command: {other}"))),
-        }
+    fn invoke(&self, method: &str, args: &[Value], context: &ClientContext) -> RpcResult {
+        context
+            .events
+            .transaction(|publication| self.command(method, args, publication))
     }
     /// runtime.snapshot(): the Projects open here with every message, no Links, runs or ports.
     fn snapshot(&self, _context: &ClientContext) -> RpcResult {
@@ -690,5 +706,155 @@ impl Handler for Profile {
     }
     fn shutdown(&self) -> RpcResult {
         self.close().map(|()| Value::Null)
+    }
+}
+
+impl Profile {
+    fn command(
+        &self,
+        method: &str,
+        args: &[Value],
+        publication: &milagre_owner_wire::Publication<'_>,
+    ) -> RpcResult {
+        self.check_owned()?;
+        let mut core = locked(&self.core);
+        if core.closed {
+            return Err(RpcError::new("CLOSING", "The daemon is closing"));
+        }
+        core.states.advance(now_ms());
+        let core = &mut *core;
+        if crate::keybindings::METHODS.contains(&method) {
+            let (value, event) = core.keybindings.call(&core.settings.files, method, args)?;
+            if let Some(event) = event {
+                publication.emit(event, value.clone())?;
+            }
+            return Ok(value);
+        }
+        if crate::settings::METHODS.contains(&method) {
+            let (value, event) = core.settings.call(method, args)?;
+            if let Some(event) = event {
+                publication.emit(event, value.clone())?;
+            }
+            return Ok(value);
+        }
+        match method {
+            "app:version" => Ok(json!(self.app_version)),
+            "project:set-hidden" | "main-sync:read" | "main-sync:save" | "project:image" => {
+                let path = args
+                    .first()
+                    .and_then(Value::as_str)
+                    .filter(|p| Path::new(p).is_absolute())
+                    .ok_or_else(|| failed("An absolute Project path is required"))?;
+                if !self.is_recent(path)? && !core.loaded.contains_key(Path::new(path)) {
+                    return Err(failed("Open this project in Milagre first."));
+                }
+                if method == "project:image" {
+                    let resolved = self
+                        .contained(Path::new(path))
+                        .ok_or_else(|| failed("The Project must stay inside the isolated copy."))?;
+                    let resolved = self.isolation.resolve(&resolved).map_err(store)?;
+                    let settings = core.settings.files.projects(false)?;
+                    return Ok(
+                        crate::image::valid_icon(&settings["projects"][path]["icon"])
+                            .or_else(|| self.images.local(&resolved))
+                            .map(Value::String)
+                            .unwrap_or(Value::Null),
+                    );
+                }
+                if method == "project:set-hidden" {
+                    core.settings.update_project(
+                        path,
+                        "hidden",
+                        (args.get(1) == Some(&Value::Bool(true))).then_some(json!(true)),
+                    )?;
+                    let hidden = self.hidden_paths();
+                    let list: Vec<Value> = self
+                        .recent()?
+                        .into_iter()
+                        .filter(|e| !self.is_chats_home(e["path"].as_str().unwrap_or_default()))
+                        .map(|mut e| {
+                            if hidden.contains(e["path"].as_str().unwrap_or_default()) {
+                                e["hidden"] = json!(true);
+                            }
+                            e
+                        })
+                        .collect();
+                    return Ok(json!(list));
+                }
+                if method == "main-sync:save" {
+                    core.settings.update_project(
+                        path,
+                        "syncMain",
+                        args.get(1).filter(|v| v.is_boolean()).cloned(),
+                    )?;
+                }
+                let branch = self
+                    .runtime
+                    .block_on(self.registry.main_branch(path))
+                    .map_err(failed)?;
+                core.settings.main_sync(path, &branch)
+            }
+            "project:known" => self.known(),
+            "project:recent" => self.recent_projects(),
+            "project:read" => self.project_read(core, args),
+            "project:snapshot" => {
+                let path = args.first().and_then(Value::as_str).unwrap_or_default();
+                Ok(self.stamp(self.project(core, path)?))
+            }
+            "state:read" => self.state_read(core, args),
+            "chat:messages" => self.chat_messages(core, args),
+            "chat:message" => self.chat_message(core, args),
+            "chat:runs" => Ok(json!({"runs": {}, "seq": 0})),
+            other => Err(failed(format!("Unknown command: {other}"))),
+        }
+    }
+}
+
+impl Profile {
+    /// Node watches keybindings.json with a 150 ms debounce. Poll metadata only until it changes:
+    /// startup must not seed an absent file or rewrite a file nobody read.
+    pub(crate) fn watch_keybindings(self: &Arc<Self>, events: milagre_owner_wire::EventSink) {
+        use std::os::unix::fs::MetadataExt;
+        use std::time::{Duration, Instant};
+        let path = self.data_dir.join("keybindings.json");
+        let stamp = |path: &Path| {
+            std::fs::symlink_metadata(path)
+                .ok()
+                .map(|m| (m.dev(), m.ino(), m.len(), m.mtime(), m.mtime_nsec()))
+        };
+        let mut previous = stamp(&path);
+        let owner = Arc::downgrade(self);
+        std::thread::spawn(move || {
+            let mut changed = None;
+            loop {
+                std::thread::sleep(Duration::from_millis(20));
+                let Some(owner) = owner.upgrade() else {
+                    break;
+                };
+                if locked(&owner.core).closed {
+                    break;
+                }
+                let next = stamp(&path);
+                if next != previous {
+                    previous = next;
+                    changed = Some(Instant::now());
+                }
+                if changed.is_some_and(|at| at.elapsed() >= Duration::from_millis(150)) {
+                    changed = None;
+                    let _ = events.transaction(|publication| {
+                        owner.check_owned()?;
+                        let mut core = locked(&owner.core);
+                        if core.closed {
+                            return Ok(());
+                        }
+                        let core = &mut *core;
+                        if let Some(value) = core.keybindings.poll(&core.settings.files)? {
+                            publication.emit("keybindings:changed", value)?;
+                        }
+                        Ok(())
+                    });
+                }
+            }
+        });
     }
 }

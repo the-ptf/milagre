@@ -434,6 +434,52 @@ impl Registry {
             .await
             .ok())
     }
+    /// Node resolveBase's branch name, using only a verified isolated Git checkout.
+    pub async fn main_branch(&self, path: impl AsRef<Path>) -> Result<String> {
+        let identity = self.identify(path).await?;
+        if identity.value["git"] != true {
+            return Ok("main".into());
+        }
+        let main = PathBuf::from(identity.value["path"].as_str().unwrap_or_default());
+        if let Ok(head) = identity::git(
+            self,
+            &main,
+            &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"],
+        )
+        .await
+        {
+            let head = head.trim();
+            if !head.is_empty() {
+                return Ok(head
+                    .strip_prefix("refs/remotes/origin/")
+                    .unwrap_or(head)
+                    .into());
+            }
+        }
+        for name in ["main", "master"] {
+            for reference in [
+                format!("refs/heads/{name}"),
+                format!("refs/remotes/origin/{name}"),
+            ] {
+                if identity::git(
+                    self,
+                    &main,
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        "--end-of-options",
+                        &format!("{reference}^{{commit}}"),
+                    ],
+                )
+                .await
+                .is_ok()
+                {
+                    return Ok(name.into());
+                }
+            }
+        }
+        Ok("main".into())
+    }
     pub async fn identify(&self, path: impl AsRef<Path>) -> Result<Identity> {
         let permit = self
             .probes
