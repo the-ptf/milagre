@@ -1860,9 +1860,12 @@ function LinkIssuePopover({ position, onPick, onClose }: { position: { x: number
   );
 }
 
+/** What Details' Lineage menu leaves out of the sidebar's: the bug report, unread, Finder, the editor, Commit and Pin. */
+const DETAILS_OMIT: ReadonlySet<string> = new Set(["report-bug", "read", "unread", "reveal", "editor", "commit", "pin", "unpin"]);
+
 /**
- * A Chat's right-click menu outside the sidebar (Details' Lineage): the same entries as its sidebar row, with "Link
- * issue…" opening the issue picker at the menu's place. Rename is the caller's, since the title sits in its row.
+ * A Chat's right-click menu outside the sidebar (Details' Lineage): the sidebar row's entries less DETAILS_OMIT, with
+ * "Link issue…" opening the issue picker at the menu's place. Rename is the caller's, since the title sits in its row.
  */
 export function ChatContextMenu({
   item,
@@ -1896,6 +1899,7 @@ export function ChatContextMenu({
           onLink={() => setLinking(at)}
           linked={false}
           actions={actions}
+          omit={DETAILS_OMIT}
         />
       )}
       {linking && (
@@ -1921,9 +1925,12 @@ function ChatMenu({
   onLink,
   linked,
   actions,
+  omit,
 }: {
   item: SidebarRecent;
   position: { x: number; y: number };
+  /** Entries left out by key (Details' Lineage keeps the menu short). */
+  omit?: ReadonlySet<string>;
   /** The ⋮ button toggles the menu itself, so a press on it isn't an outside press. */
   trigger: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
@@ -2174,7 +2181,7 @@ function ChatMenu({
       : []),
     "divider" as const,
     ...archiveItems,
-  ].filter((entry) => entry === "divider" || !actions.remote || (entry.key !== "reveal" && entry.key !== "editor"));
+  ].filter((entry) => entry === "divider" || (!omit?.has(entry.key) && (!actions.remote || (entry.key !== "reveal" && entry.key !== "editor"))));
 
   const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
