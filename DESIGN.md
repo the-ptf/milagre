@@ -552,6 +552,10 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - The composer's model chip shows no permission shield; Full stays orange in the picker's footer.
 - A Subchat's breadcrumb parent is plain text flush with the Chat title: no box, arrow or dot.
 - ⇧⌘D shows or hides the Changes panel on the view it was left on.
+- Film grain (Settings › Appearance › Film grain, on by default): faint static specks over the window background, the
+  Chat's top band and the side panels (sidebar, Changes) at half strength; never on the composer or the Details glass.
+- The sidebar has no dividers above Done, the usage block or its footer.
+- The transcript's message rail sits on a slight frosted pill (the surface at 52% over `backdrop-blur-chip`).
 - No Subchats pill above the composer on desktop: the Details panel's Lineage lists them. The phone keeps its pill (it
   has no Details panel). No "N waiting" chip in the top bar, nor the phone's Attention pill.
 - The Details overlay (from GPUI's Details tab) floats over the Chat under the corner's buttons, never pushing it aside:

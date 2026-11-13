@@ -37,7 +37,7 @@ export function DoneSection({ entries, retentionHours, collapsed }: { entries: D
     localStorage.setItem(OPEN_KEY, open ? "0" : "1");
   };
   return (
-    <section data-done-section aria-label="Done" className="mx-2 mt-2 shrink-0 border-t border-line pt-1.5">
+    <section data-done-section aria-label="Done" className="mx-2 mt-2 shrink-0 pt-1.5">
       <button
         type="button"
         data-done-toggle

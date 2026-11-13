@@ -758,6 +758,14 @@ a {
   display: none;
 }
 
+/* The transcript's message rail: a slight frosted pill behind its ticks, the composer pills' glass at a lower fill. */
+.rail-glass {
+  background: color-mix(in oklab, var(--surface) 52%, transparent);
+  backdrop-filter: blur(var(--blur-chip));
+  -webkit-backdrop-filter: blur(var(--blur-chip));
+  box-shadow: 0 0 0 1px var(--line);
+}
+
 /* The composer row's pills: frosted glass over the transcript, a tint of their tone, a hairline ring (a ring, not a
  * border, so a PillMorph panel inside the surface lines up with its edge) and a lit top edge. */
 .status-pill {
@@ -802,6 +810,33 @@ a {
   box-shadow:
     0 1px 2px oklch(0.24 0.008 258 / 0.045),
     0 3px 9px oklch(0.24 0.008 258 / 0.055);
+}
+
+/* Film grain (Settings › Appearance › Film grain, on while <html> has data-grain): a static speck texture over the
+ * window's background (.window-grain, its own layer) and the side panels (.panel-grain, over their surface), at half the
+ * strength there. Black specks on a light page, white on a dark one. Never on the composer or the Details glass. */
+:root {
+  --grain-window: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.16 0 0 0 -0.075'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --grain-panel: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0 0 0 -0.042'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+.dark {
+  --grain-window: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.13 0 0 0 -0.06'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --grain-panel: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.075 0 0 0 -0.035'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+html[data-grain] .window-grain {
+  background-image: var(--grain-window);
+  background-attachment: fixed;
+}
+/* The Chat's top band paints the page over the window; it carries the same specks, pinned to the window, so it blends. */
+html[data-grain] .chat-top-blur > :last-child {
+  background:
+    var(--grain-window) fixed,
+    linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+}
+html[data-grain] .panel-grain {
+  background-image: var(--grain-panel);
 }
 
 /* The Details overlay over the Chat: the composer's glass, a floating card rather than a panel, with its 1px ring and a

@@ -1514,6 +1514,9 @@ function AppearanceSettings() {
               }))}
             />
           </Row>
+          <Row label="Film grain" description="A faint grain over the window and the side panels.">
+            <SettingCheckbox label="Film grain" checked={appearance.grain !== "off"} onChange={(on) => change("ui", { grain: on ? "on" : "off" })} />
+          </Row>
           <Row label="Sidebar usage" description="One row per provider, or provider icons in one line." preview={preview.row("usage")}>
             <Select
               label="Sidebar usage"

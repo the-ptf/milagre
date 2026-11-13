@@ -1715,7 +1715,7 @@ export default memo(function SidebarNav({
       <aside
         data-sidebar-collapsed={collapsed}
         aria-label="Workspace navigation"
-        className="relative flex min-h-0 shrink-0 overflow-hidden rounded-window bg-surface shadow-card transition-[width]"
+        className="panel-grain relative flex min-h-0 shrink-0 overflow-hidden rounded-window bg-surface shadow-card transition-[width]"
         style={
           {
             width: collapsed ? SIDEBAR_MOTION.collapsedWidth : expandedWidth,
@@ -1879,10 +1879,10 @@ export default memo(function SidebarNav({
 
           <SidebarToast collapsed={collapsed} />
 
-          {usage && <div className={`mt-3 border-t border-line pt-1.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
+          {usage && <div className={`mt-3 pt-1.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
 
           <div
-            className={`flex border-t border-line py-1.5 ${usage ? "mt-1.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
+            className={`flex py-1.5 ${usage ? "mt-1.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
           >
             <div className={collapsed ? "flex flex-col-reverse items-center gap-1" : "flex items-center gap-1"}>
               <Tooltip label="Add Project" shortcut={keys.addProject}>

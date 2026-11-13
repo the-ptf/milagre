@@ -210,6 +210,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "One row per provider, or provider icons in one line.",
     keywords: "limits compact",
   },
+  {
+    page: "appearance",
+    title: "Film grain",
+    group: "Layout",
+    description: "A faint grain over the window and the side panels.",
+    keywords: "noise texture background",
+  },
 
   { page: "appearance", title: "Diffs" },
   {

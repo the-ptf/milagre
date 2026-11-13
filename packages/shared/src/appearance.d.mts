@@ -2,6 +2,7 @@ export type SizeStep = "small" | "default" | "medium" | "large" | "larger";
 export type ChatWidth = "comfortable" | "wide" | "full" | "custom";
 export type SidebarUsageMode = "expanded" | "compact";
 export type SidebarRowStyle = "classic" | "edge";
+export type GrainMode = "on" | "off";
 export type ProviderIconStyle = "original" | "simplified";
 export type DiffColors = "red-green" | "blue-orange" | "purple-yellow";
 export type MotionSpeed = "normal" | "fast" | "off";
@@ -16,6 +17,7 @@ export type Appearance = {
   chatWidthPx: number;
   sidebarUsage: SidebarUsageMode;
   sidebarRows: SidebarRowStyle;
+  grain: GrainMode;
   providerIcons: ProviderIconStyle;
   diffColors: DiffColors;
   motion: MotionSpeed;
@@ -32,6 +34,7 @@ export type DiffPair = {
 export const CHAT_WIDTH_IDS: readonly ChatWidth[];
 export const SIDEBAR_USAGE_IDS: readonly SidebarUsageMode[];
 export const SIDEBAR_ROW_IDS: readonly SidebarRowStyle[];
+export const GRAIN_IDS: readonly GrainMode[];
 export const PROVIDER_ICON_IDS: readonly ProviderIconStyle[];
 export const DIFF_COLOR_IDS: readonly DiffColors[];
 export const MOTION_IDS: readonly MotionSpeed[];
