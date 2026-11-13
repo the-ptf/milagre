@@ -401,6 +401,13 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 
 - Desktop rows are 32 high, two-line rows 48. Hover `bg-hover`, open or selected `bg-hover-2`, disabled 60%.
 - Unread is an 8px accent dot. Running is a quiet `ink-3` ring; needs you is orange.
+- The sidebar's One list Chat row is 54 high, 2 apart ("Alt A", design `gpui-sidebar-v-a`): the title first at 14 medium
+  (`ink`, `ink-2` once read with nothing going on) with the Chat's state on its right edge (the spinner, the question or
+  approval icon, a red alert, else the time: `ink-3`, `ink` medium while unread, then the unread dot). Line two at 12
+  `ink-3`: the Project's 14px tile and name, the computer (`ink-2` on the hovered or open row), and the PR on the right
+  edge in its state's `-ink` colour, "+n" for several, its tooltip the state glyph, `#number` in mono and the title.
+  The hover Done takes the state's place in `ink-2`, `ink` under the pointer. A folded family's parent row draws as
+  open while one of its Subchats is.
 
 ### Approvals
 
@@ -531,6 +538,14 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - Files / Commits and PR Summary / Files are segmented controls.
 - The question card's "Other…" is the last option row, with the mic and image buttons inside it.
 - Unread stays a blue accent dot, the one accent status. Settings stays an in-window dialog. Done is a product noun.
+
+### GPUI port to Electron (2026-11-13)
+
+- The sidebar's One list row follows design Alt A, "status on the edge, title first" (see Rows and lists). The phone
+  keeps its own list rows (kept 2026-11-10); only the unread time drops the accent there too.
+- The composer's model chip shows no permission shield; Full stays orange in the picker's footer.
+- A Subchat's breadcrumb parent is plain text flush with the Chat title: no box, arrow or dot.
+- ⇧⌘D shows or hides the Changes panel on the view it was left on.
 
 ### Routines page (2026-11-10)
 

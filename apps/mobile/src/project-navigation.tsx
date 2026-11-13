@@ -2897,9 +2897,10 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                         <Text
                           style={[
                             s.inboxTime,
+                            // Unread: the time brighter, not coloured; the dot after it is the one accent mark.
                             item.chat.unread && {
-                              color: unreadColor,
-                              fontWeight: "600",
+                              color: colors.ink,
+                              fontWeight: "500",
                             },
                           ]}
                         >

@@ -29,6 +29,7 @@ export const layerHost = (trigger: Element | null | undefined) => trigger?.close
 /** Shared tooltip presentation for ordinary triggers and text hit-tested under a native input. */
 export function TooltipBubble({
   label,
+  content,
   rect,
   align = "start",
   side = "top",
@@ -37,6 +38,8 @@ export function TooltipBubble({
   host,
 }: {
   label: string;
+  /** Drawn instead of `label`, which stays the trigger's accessible description. */
+  content?: ReactNode;
   rect: DOMRect;
   align?: "start" | "end";
   side?: "top" | "bottom";
@@ -56,7 +59,7 @@ export function TooltipBubble({
         animation: "fade-in var(--duration-fast) var(--ease-enter) both",
       }}
     >
-      {label}
+      {content ?? label}
       {hint && <ShortcutKeys shortcut={hint} plain className="text-ink-4" />}
     </span>,
     host ?? document.body,
@@ -65,6 +68,8 @@ export function TooltipBubble({
 
 export type TooltipOptions = {
   label: string;
+  /** Rich content shown in the bubble instead of `label` (a PR's state glyph, number and title); `label` is still what a screen reader hears. */
+  content?: ReactNode;
   shortcut?: string;
   /** A key pressed on its own, without ⌘ (the canvas's C): shown in the tooltip, not with the hints holding ⌘ shows. */
   keyHint?: string;
@@ -92,7 +97,10 @@ export function mergeRefs<T>(...refs: Array<Ref<T> | undefined>): RefCallback<T>
  * bubble, the shortcut hint). `enabled: false` keeps the hook order and does nothing. Escape hides an open tooltip
  * until the next pointer enter or focus (WCAG 1.4.13).
  */
-export function useTooltip({ label, shortcut, keyHint, align = "start", side = "top", wrap = false, compactHint = false }: TooltipOptions, enabled = true) {
+export function useTooltip(
+  { label, content, shortcut, keyHint, align = "start", side = "top", wrap = false, compactHint = false }: TooltipOptions,
+  enabled = true,
+) {
   const triggerRef = useRef<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -157,7 +165,7 @@ export function useTooltip({ label, shortcut, keyHint, align = "start", side = "
     },
     layers: enabled ? (
       <>
-        {rect && <TooltipBubble label={label} rect={rect} align={align} side={side} wrap={wrap} hint={hint} host={hostRef.current} />}
+        {rect && <TooltipBubble label={label} content={content} rect={rect} align={align} side={side} wrap={wrap} hint={hint} host={hostRef.current} />}
         {hintRect &&
           !rect &&
           createPortal(
