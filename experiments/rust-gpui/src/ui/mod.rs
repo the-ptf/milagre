@@ -25,6 +25,7 @@ pub mod ease;
 mod empty_state;
 mod field;
 mod focus;
+pub mod frame_clock;
 #[cfg(feature = "fitcheck")]
 pub mod gallery;
 pub mod glass;

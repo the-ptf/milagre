@@ -293,7 +293,7 @@ pub fn suggestion_of(chat: &milagre_gpui_spike::data::Chat) -> Option<gpui::Shar
 
 pub fn newest_chat(store: &LiveStore, project: Option<&str>) -> Option<String> {
     store.read(|reducer| {
-        let applied = reducer.state().ok()?;
+        let applied = reducer.shown().ok()?;
         applied
             .projects
             .iter()
@@ -417,6 +417,12 @@ pub struct LiveController {
     accounts: Option<Entity<crate::accounts::LiveAccounts>>,
     /// Ticks the running steps' durations in the live folds once a second while a turn runs.
     fold_clock: Option<Task<()>>,
+    /// The daemon the last sync reached ([`Self::synced`]).
+    synced_pid: Option<u32>,
+    /// A send to the open Chat whose run has not arrived yet ([`Self::pending_send`]).
+    pending_send: Option<(std::time::Instant, Option<usize>)>,
+    /// The store's shell key last drawn ([`Self::shell_key`]).
+    shell_key: Option<ShellKey>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -701,6 +707,11 @@ impl LiveController {
                     let _ = this.update(cx, |this, cx| this.finished(result, cx));
                 }
             });
+            // The daemon the session's first sync reached: a later sync to the same one is a light one.
+            let synced_pid = match &backend {
+                Backend::Daemon(daemon) => daemon.pid(),
+                _ => None,
+            };
             let mut this = Self {
                 workspace: workspace.clone(),
                 window: window.window_handle(),
@@ -712,6 +723,9 @@ impl LiveController {
                 sink,
                 open: None,
                 fold_clock: None,
+                shell_key: None,
+                pending_send: None,
+                synced_pid,
                 pending_open: None,
                 answered: HashSet::new(),
                 receipts: Vec::new(),
@@ -775,6 +789,17 @@ impl LiveController {
         self.syncs += 1;
         self.closed = None;
         self.set_unavailable(None, cx);
+        // The same daemon, its stream closed and opened again (another Project's oversized state closes it, often
+        // while any Chat there runs): the new snapshot is the store's, and nothing else is read again. Reading the
+        // transcript, accounts, computers, PRs and pictures on each of these made every such event a full reload
+        // (the CPU, the pills dropping, the transcript jumping). A new daemon (another pid) reads everything.
+        let same_daemon = self.synced_pid == Some(pid);
+        self.synced_pid = Some(pid);
+        if same_daemon {
+            self.on_store_changed(cx);
+            cx.notify();
+            return;
+        }
         let account: gpui::SharedString = format!("Milagre's daemon (pid {pid})").into();
         let model = cx.try_global::<PreviewMode>().map(|p| p.model.clone()).unwrap_or_default();
         cx.set_global(PreviewMode { account, model });
@@ -975,7 +1000,7 @@ impl LiveController {
     fn follow_unread(&mut self, cx: &mut Context<Self>) {
         let Some(notifier) = self.notifier.clone() else { return };
         let unread: HashSet<String> = self.store.read(|reducer| {
-            let Ok(applied) = reducer.state() else { return HashSet::new() };
+            let Ok(applied) = reducer.shown() else { return HashSet::new() };
             applied
                 .projects
                 .iter()
@@ -1086,7 +1111,7 @@ impl LiveController {
         }
         let loaded: Vec<String> = self.store.read(|reducer| {
             reducer
-                .state()
+                .shown()
                 .map(|applied| applied.projects.iter().filter(|o| !o.project.is_chats_home()).map(|o| o.project.path.to_string()).collect())
                 .unwrap_or_default()
         });
@@ -1311,7 +1336,7 @@ impl LiveController {
         let Backend::Daemon(daemon) = &self.backend else { return };
         let daemon = daemon.clone();
         let loaded: Vec<String> = self.store.read(|reducer| {
-            reducer.state().map(|applied| applied.projects.iter().map(|o| o.project.path.to_string()).collect()).unwrap_or_default()
+            reducer.shown().map(|applied| applied.projects.iter().map(|o| o.project.path.to_string()).collect()).unwrap_or_default()
         });
         self.loading.retain(|path| !loaded.contains(path));
         // A Project being loaded shows by name, "Loading…", until its Chats arrive (the window's loading state on a
@@ -1530,7 +1555,7 @@ impl LiveController {
         let (provider, last, mode) = self
             .store
             .read(|reducer| {
-                let applied = reducer.state().ok()?;
+                let applied = reducer.shown().ok()?;
                 let chat =
                     applied.projects.iter().find(|o| o.project.path.as_ref() == at.project)?.state.as_ref()?.sessions.get(&at.id)?.clone();
                 let provider = Provider::of_session(chat.provider_id.as_deref());
@@ -1646,7 +1671,7 @@ impl LiveController {
         let prs = self.prs.get(&project).unwrap_or(&empty);
         let dismissed = self.pr_dismissed.get(&key).cloned().unwrap_or_default();
         let action = self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             let (open, chat) = crate::panels::find(&applied.projects, &key)?;
             let worktree = open.state.as_ref()?.worktree_of(chat)?;
             let list = crate::panels::chat_pull_requests(prs, worktree.path.as_ref(), chat);
@@ -1758,7 +1783,7 @@ impl LiveController {
         let picked = self.pr_picks.get(&key).copied();
         // The PR the panel shows, in the Chat's Worktree folder.
         let shown_pr = self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             let (open, chat) = crate::panels::find(&applied.projects, &key)?;
             let folder = open.state.as_ref()?.worktree_of(chat)?.path.to_string();
             let number = crate::panels::panel_pull_request(&prs, &folder, chat, picked);
@@ -1769,7 +1794,7 @@ impl LiveController {
             (w.panel.clone(), w.chat.read(cx).pills.clone())
         };
         let built = self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             crate::panels::details(&applied.projects, &key, &self.ports, &prs, now)
         });
         let Some(details) = built else { return };
@@ -1811,7 +1836,7 @@ impl LiveController {
         let inputs =
             crate::panels::PillInputs { dismissed: self.pr_dismissed.get(&key).cloned().unwrap_or_default(), pr_shown, review_comments };
         let pills_data = self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             crate::panels::pills(&applied.projects, &key, &prs, now, &inputs)
         });
         if let Some(pills_data) = pills_data {
@@ -1868,7 +1893,7 @@ impl LiveController {
     /// A Chat's saved message count, from its summary.
     fn saved_count(&self, project: &str, id: u64) -> Option<usize> {
         self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             let open = applied.projects.iter().find(|o| o.project.path.as_ref() == project)?;
             Some(open.state.as_ref()?.sessions.get(&id)?.summary.as_ref()?.count)
         })
@@ -1884,7 +1909,7 @@ impl LiveController {
                 .is_some_and(|remote| remote.states.get(&at.project).is_some_and(|state| state.state.sessions.contains_key(&at.id)));
         }
         self.store.read(|reducer| {
-            reducer.state().ok().is_some_and(|applied| {
+            reducer.shown().ok().is_some_and(|applied| {
                 applied.projects.iter().any(|open| {
                     open.project.path.as_ref() == at.project && open.state.as_ref().is_some_and(|s| s.sessions.contains_key(&at.id))
                 })
@@ -1966,7 +1991,29 @@ impl LiveController {
         .detach();
     }
 
+    /// What the sidebar, the limit cards and the side panels draw from the store, as a cheap key: the snapshot, the
+    /// saved states replaced since, and each run's status (running, waiting on an approval or a question). A run's
+    /// streaming text and steps are not in it: they change the open Chat's tail only ([`Self::sync_tail`]).
+    fn shell_key(&self) -> ShellKey {
+        self.store.read(|reducer| {
+            let closed = reducer.state().is_err();
+            let Ok(applied) = reducer.shown() else { return (0, 0, closed, Vec::new()) };
+            let mut runs: Vec<(String, bool)> = applied.runs.runs.iter().map(|(key, run)| (key.clone(), run.waiting())).collect();
+            runs.sort();
+            (applied.event_seq, reducer.counts().state_replacements, closed, runs)
+        })
+    }
+
     fn on_store_changed(&mut self, cx: &mut Context<Self>) {
+        // A streamed delta (text, a step) changes only the open Chat's tail: the sidebar is not read again (each read
+        // copies every Project's Chats), nor the cards and panels. Anything else redraws them.
+        let key = self.shell_key();
+        if self.shell_key.as_ref() == Some(&key) && self.pending_open.is_none() {
+            self.follow_chat(cx);
+            self.sync_tail(cx);
+            return;
+        }
+        self.shell_key = Some(key);
         let sidebar = self.workspace.read(cx).sidebar.clone();
         sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
         self.sync_unloaded(cx);
@@ -2004,7 +2051,7 @@ impl LiveController {
         };
         let (key, project, id) = (open.key.clone(), open.project.clone(), open.id);
         let (run, queued, held, suggestion) = self.store.read(|reducer| {
-            let Ok(applied) = reducer.state() else { return (None, Vec::new(), false, None) };
+            let Ok(applied) = reducer.shown() else { return (None, Vec::new(), false, None) };
             let chat = applied
                 .projects
                 .iter()
@@ -2039,10 +2086,16 @@ impl LiveController {
                 self.read_changes(cx);
             }
             None => {
-                self.set_running(None, cx);
-                // Saved messages this window has not read: read them again.
+                if self.send_answered(self.saved_count(&project, id)) {
+                    self.pending_send = None;
+                }
+                if !self.send_pending() {
+                    self.set_running(None, cx);
+                }
+                // Saved messages this window has not read: read them again (not the message just sent, which shows
+                // already: its turn's end reads the Chat again).
                 let count = self.saved_count(&project, id);
-                if count.is_some() && self.open.as_ref().is_some_and(|open| open.count != count) {
+                if !self.send_pending() && count.is_some() && self.open.as_ref().is_some_and(|open| open.count != count) {
                     self.load(cx);
                 }
             }
@@ -2050,6 +2103,7 @@ impl LiveController {
     }
 
     fn show_run(&mut self, run: &AgentRun, cx: &mut Context<Self>) {
+        self.pending_send = None;
         let started = run.started_at.map(|at| Duration::from_millis((crate::transcript::now_ms() - at).max(0) as u64));
         self.set_running(Some(started.unwrap_or_default()), cx);
         let transcript = self.workspace.read(cx).chat.read(cx).transcript.clone();
@@ -2167,6 +2221,29 @@ impl LiveController {
         }
     }
 
+    /// A message just sent to the open Chat, not queued: the running mark shows at once, as Electron's pending send
+    /// (`pendingSend.startedAt`), and stays until the turn's run arrives (or the send fails).
+    fn pending_send(&mut self, chat: &ChatRef, queue: bool, cx: &mut Context<Self>) {
+        let open = self.open.as_ref().is_some_and(|open| open.key == chat.key());
+        if queue || !open || self.workspace.read(cx).chat.read(cx).running.is_some() {
+            return;
+        }
+        let count = self.saved_count(&chat.project, chat.id);
+        self.pending_send = Some((std::time::Instant::now(), count));
+        self.set_running(Some(Duration::ZERO), cx);
+    }
+
+    /// Whether a send's running mark is still waiting for its run (at most [`PENDING_SEND`]).
+    fn send_pending(&self) -> bool {
+        self.pending_send.is_some_and(|(at, _)| at.elapsed() < PENDING_SEND)
+    }
+
+    /// A pending send whose turn came and went before this window drew its run (a fast turn): the Chat saved the
+    /// message and a reply after it.
+    fn send_answered(&self, count: Option<usize>) -> bool {
+        self.pending_send.is_some_and(|(_, before)| matches!((before, count), (Some(before), Some(now)) if now >= before + 2))
+    }
+
     /// One tick of the live folds' clock: running steps count on. False (and the clock stops) once nothing runs.
     fn tick_folds(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(open) = self.open.as_ref().filter(|open| open.live && !open.folds.is_empty()) else {
@@ -2260,7 +2337,7 @@ impl LiveController {
             CardDecision::LimitResume { ix, cancel } => {
                 let Some(accounts) = self.accounts.clone() else { return };
                 let (source, send_id) = self.store.read(|reducer| {
-                    let applied = reducer.state().ok();
+                    let applied = reducer.shown().ok();
                     let chat = applied.as_ref().and_then(|a| crate::panels::find(&a.projects, &open.key)).map(|(_, c)| c.clone());
                     let resume = chat.as_ref().and_then(|c| c.limit_resume.clone());
                     (chat.and_then(|c| c.limit_turn), resume.map(|r| r.send_id.to_string()))
@@ -2289,7 +2366,7 @@ impl LiveController {
         let Some(open) = &self.open else { return Default::default() };
         let Some(accounts) = self.accounts.as_ref().map(|a| a.read(cx)) else { return Default::default() };
         let chat = self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             let running = applied.runs.get(&open.key).is_some();
             crate::panels::find(&applied.projects, &open.key).map(|(_, chat)| (chat.clone(), running))
         });
@@ -2345,7 +2422,7 @@ impl LiveController {
                 at.or_else(|| {
                     let name = sidebar.new_chat_project()?;
                     self.store.read(|reducer| {
-                        let applied = reducer.state().ok()?;
+                        let applied = reducer.shown().ok()?;
                         let mut projects = applied.projects.iter().filter(|o| !o.project.is_chats_home());
                         projects.find(|o| o.project.name.as_ref() == name).map(|o| o.project.path.to_string())
                     })
@@ -2355,7 +2432,7 @@ impl LiveController {
     }
 
     /// The action a command stands for, ready to run.
-    fn job(&mut self, command: Command, cx: &App) -> Option<Job> {
+    fn job(&mut self, command: Command, cx: &mut Context<Self>) -> Option<Job> {
         if self.backend.read_only() {
             self.refuse(format!("{command:?}"));
             return None;
@@ -2375,12 +2452,13 @@ impl LiveController {
             Command::Send { target: Target::Existing(chat), text, queue, mode, effort, model, attachments, .. }
                 if !attachments.is_empty() && !chat.project.contains('|') =>
             {
+                self.pending_send(&chat, queue, cx);
                 // Electron's `chat:send` with its images, files and prompt (the client's send takes text only).
                 let Backend::Daemon(daemon) = backend else { return None };
                 self.sent += 1;
                 let id = format!("gpui-{}-{}-{}", std::process::id(), crate::transcript::now_ms(), self.sent);
                 let worktree = self.store.read(|reducer| {
-                    let applied = reducer.state().ok()?;
+                    let applied = reducer.shown().ok()?;
                     let (_, session) = crate::panels::find(&applied.projects, &chat.key())?;
                     Some(session.worktree_id)
                 });
@@ -2422,6 +2500,9 @@ impl LiveController {
                 })
             }
             Command::Send { target, text, queue, mode, effort, model, .. } => {
+                if let Target::Existing(chat) = &target {
+                    self.pending_send(chat, queue, cx);
+                }
                 let (project, send_target) = match target {
                     Target::NewChat => match self.new_chat_project(cx) {
                         Some(project) => (project, SendTarget::NewProjectChat),
@@ -2500,6 +2581,10 @@ impl LiveController {
             }
             Ok(None) => {}
             Err(error) => {
+                // A send that failed has no run coming: its running mark goes.
+                if self.pending_send.take().is_some() {
+                    self.set_running(None, cx);
+                }
                 // A refused or lost write: the rows go back to what the runtime holds, and the sidebar says why.
                 let sidebar = self.workspace.read(cx).sidebar.clone();
                 sidebar.update(cx, |s, cx| {
@@ -2547,6 +2632,13 @@ pub fn shown_items(items: &[Item]) -> Vec<String> {
 
 /// The live stream's channels the controller follows besides the reducer: Details' ports, the PR poll and the
 /// accounts change (Electron's renderer listens to the same), and what the notifier needs.
+/// [`LiveController::shell_key`]: the snapshot's watermark, saved states replaced since, whether the stream is
+/// closed, and each run's key and whether it waits.
+type ShellKey = (u64, u64, bool, Vec<(String, bool)>);
+
+/// How long a send's running mark waits for its run before the window stops showing it.
+const PENDING_SEND: Duration = Duration::from_secs(15);
+
 pub const TAPPED: &[&str] = &[
     "agent:ports",
     "pull-requests:changed",
@@ -2594,7 +2686,7 @@ fn remote_chat_info(daemon: Option<&Daemon>, computer: &str, key: &str) -> crate
 fn chat_info(store: &LiveStore, key: &str, cx: &App) -> crate::notify::ChatInfo {
     let project = key.rsplit_once('#').map_or(key, |(path, _)| path).to_owned();
     let title = store.read(|reducer| {
-        let applied = reducer.state().ok()?;
+        let applied = reducer.shown().ok()?;
         let (open, chat) = crate::panels::find(&applied.projects, key)?;
         let title = chat
             .title
@@ -2611,7 +2703,7 @@ fn chat_info(store: &LiveStore, key: &str, cx: &App) -> crate::notify::ChatInfo 
 /// The newest Chat whose PR poll names a PR: its key, Worktree folder and the PR its panel shows.
 pub fn newest_with_pr(store: &LiveStore, prs: &HashMap<String, Value>) -> Option<(String, String, u32)> {
     store.read(|reducer| {
-        let applied = reducer.state().ok()?;
+        let applied = reducer.shown().ok()?;
         applied
             .projects
             .iter()

@@ -408,7 +408,7 @@ impl SidebarWrites {
     /// A Chat as the reducer holds it.
     fn chat<T>(&self, chat: &ChatRef, read: impl FnOnce(&Chat) -> T) -> Option<T> {
         self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             let open = applied.projects.iter().find(|open| open.project.path.as_ref() == chat.project)?;
             open.state.as_ref()?.sessions.get(&chat.id).map(read)
         })
@@ -418,7 +418,7 @@ impl SidebarWrites {
     /// (`worktreeShared`): then nothing would be removed.
     fn worktree(&self, chat: &ChatRef) -> Option<CleanupWorktree> {
         self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             let open = applied.projects.iter().find(|o| o.project.path.as_ref() == chat.project)?;
             let state = open.state.as_ref()?;
             let session = state.chat(chat.id)?;
@@ -430,7 +430,7 @@ impl SidebarWrites {
     }
 
     fn running(&self, chat: &ChatRef) -> bool {
-        self.store.read(|reducer| reducer.state().is_ok_and(|applied| applied.runs.get(&chat.key()).is_some()))
+        self.store.read(|reducer| reducer.shown().is_ok_and(|applied| applied.runs.get(&chat.key()).is_some()))
     }
 
     fn run(&mut self, write: Write, cx: &mut Context<Self>) {
@@ -621,7 +621,7 @@ impl SidebarWrites {
     fn send_target(&self, chat: &str) -> Option<AskTarget> {
         let at = chat_ref(None, chat)?;
         self.store.read(|reducer| {
-            let applied = reducer.state().ok()?;
+            let applied = reducer.shown().ok()?;
             let (_, session) = crate::panels::find(&applied.projects, chat)?;
             if session.archived {
                 return None;

@@ -63,11 +63,19 @@ impl RenderOnce for Spinner {
 pub struct SpinnerView {
     size: f32,
     color: Option<Hsla>,
+    /// The ring's step (of `STEPS`) as last drawn, and the clock's ticks while it turns.
+    step: usize,
+    clock: Option<super::frame_clock::ClockUse>,
+}
+
+/// The ring's step now on the shared clock.
+fn ring_step(cx: &App) -> usize {
+    (super::frame_clock::phase(super::spinner_ring::TURN, cx) * super::spinner_ring::STEPS) as usize
 }
 
 impl SpinnerView {
     fn new(size: f32, color: Option<Hsla>) -> Self {
-        Self { size, color }
+        Self { size, color, step: 0, clock: None }
     }
 
     /// How many times any spinner view has rendered on this thread (each animation frame is one per ring), for the
@@ -82,14 +90,25 @@ thread_local! {
 }
 
 impl Render for SpinnerView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         RENDERS.with(|renders| renders.set(renders.get() + 1));
+        // Turned on the shared clock: a tick notifies this view only when the ring's step moves.
+        if super::motion() && self.clock.is_none() {
+            self.clock = Some(super::frame_clock::observe(cx, |view: &mut SpinnerView, cx| {
+                let step = ring_step(cx);
+                if step != view.step {
+                    view.step = step;
+                    cx.notify();
+                }
+            }));
+        }
+        self.step = ring_step(cx);
         let ring = SpinnerRing::new().size(self.size);
         let ring = match self.color {
             Some(color) => ring.color(color),
             None => ring,
         };
-        let ring = if super::motion() { ring.animated("spin") } else { ring };
+        let ring = if super::motion() { ring.turned(self.step as f32 / super::spinner_ring::STEPS) } else { ring };
         div().size_full().debug_selector(|| "spinner-view".into()).child(ring)
     }
 }

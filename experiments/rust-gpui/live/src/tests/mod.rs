@@ -10,6 +10,7 @@ mod fake_daemon;
 mod fake_settings;
 mod git;
 mod owned;
+mod perf;
 mod polish;
 mod pr_accounts;
 mod remote_computers;

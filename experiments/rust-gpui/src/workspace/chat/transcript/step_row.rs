@@ -17,10 +17,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, ClickEvent, ElementId, FontWeight, Rgba, SharedString, Window, div, prelude::*, px,
-    relative,
-};
+use gpui::{AnyElement, App, ClickEvent, ElementId, FontWeight, Rgba, SharedString, Window, div, prelude::*, px, relative};
 
 use super::summary::{self, Source};
 use crate::data::{ChatStep, Millis, StepKind, StepStatus};
@@ -37,7 +34,18 @@ pub const DETAIL_INSET: f32 = 22.0;
 /// A console block shows this many lines until asked for all of them (`StepOutput`).
 pub const CLIP_LINES: usize = 40;
 /// A loop of the title shimmer (`step-shimmer 1.2s`).
-const SHIMMER: Duration = Duration::from_millis(1200);
+pub const SHIMMER: Duration = Duration::from_millis(1200);
+
+thread_local! {
+    /// Where the shimmer's pulse is for the frame being drawn (`0.0..=1.0`, `ink-3` to `ink`), set by the transcript
+    /// from the shared clock ([`crate::ui::frame_clock`]) before its rows draw; `None` draws the static tint.
+    static WAVE: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Sets the shimmer's pulse for the rows drawn next (the transcript, each render).
+pub fn set_shimmer_phase(phase: Option<f32>) {
+    WAVE.with(|wave| wave.set(phase.map(|t| if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 })));
+}
 
 /// The glyph of a kind (`ActivitySource.tsx` `ICONS`); an unknown kind is the wrench.
 pub fn kind_icon(kind: Option<StepKind>) -> IconName {
@@ -87,21 +95,15 @@ fn mix(from: Rgba, to: Rgba, t: f32) -> Rgba {
 
 /// A title piece in `color`, shimmering when `running`: the pulse runs `ink-3` to `ink` and back; with motion off
 /// (tests, reduced motion) it keeps the static `ink-3` tint.
-fn tinted(piece: gpui::Div, id: impl Into<ElementId>, color: Rgba, running: bool, theme: &Theme) -> AnyElement {
+fn tinted(piece: gpui::Div, _id: impl Into<ElementId>, color: Rgba, running: bool, theme: &Theme) -> AnyElement {
     if !running {
         return piece.text_color(color).into_any_element();
     }
     let (from, to) = (theme.ink3, theme.ink);
-    let piece = piece.text_color(from);
-    if !motion() {
-        return piece.into_any_element();
+    match WAVE.with(std::cell::Cell::get).filter(|_| motion()) {
+        Some(wave) => piece.text_color(mix(from, to, wave)).into_any_element(),
+        None => piece.text_color(from).into_any_element(),
     }
-    piece
-        .with_animation(id, Animation::new(SHIMMER).repeat(), move |piece, t| {
-            let wave = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
-            piece.text_color(mix(from, to, wave))
-        })
-        .into_any_element()
 }
 
 /// The title as spans: text, and code as a chip (`CODE_CHIP`).

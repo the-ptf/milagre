@@ -20,17 +20,25 @@ fn frame(cx: &mut VisualTestContext) -> usize {
     asked
 }
 
-/// Each frame of the sidebar's running rings renders the ring views and the rows holding them (their cached parents),
-/// never another row, the transcript's items or the panel.
+/// One tick of the shared clock ([`crate::ui::frame_clock::FRAME`]): what looping motion draws on.
+fn tick(cx: &mut VisualTestContext) {
+    cx.executor().advance_clock(crate::ui::frame_clock::FRAME);
+    cx.run_until_parked();
+}
+
+/// The sidebar's running rings turn on the shared clock: a tick renders the ring views and the rows holding them
+/// (their cached parents), never another row, the transcript's items or the panel; between ticks nothing asks for a
+/// frame (no frame per vsync), and with no ring left the clock stops.
 #[gpui::test]
 fn a_turning_spinner_rebuilds_only_its_row(cx: &mut TestAppContext) {
     set_test_motion(true);
     let (workspace, cx) = testing::mount_workspace(cx);
     let (sidebar, chat, panel) = workspace.read_with(cx, |w, _| (w.sidebar.clone(), w.chat.clone(), w.panel.clone()));
     let transcript = chat.read_with(cx, |c, _| c.transcript.clone());
-    // The rings turn: every frame asks for the next one.
+    tick(cx);
+    assert!(cx.update(|_, cx| crate::ui::frame_clock::ticking(cx)), "the rings hold the clock");
     frame(cx);
-    assert!(frame(cx) > 0, "the spinners ask for frames");
+    assert_eq!((0..5).map(|_| frame(cx)).sum::<usize>(), 0, "no ring asks for a frame per vsync");
 
     let spinning = sidebar.read_with(cx, |s, _| {
         (0..s.pinned_count()).chain(s.visible_range()).filter(|ix| s.row(*ix).is_some_and(|row| row.state() == RowState::Working)).count()
@@ -46,15 +54,15 @@ fn a_turning_spinner_rebuilds_only_its_row(cx: &mut TestAppContext) {
         )
     };
     let before = counts(cx);
-    const FRAMES: usize = 10;
-    for _ in 0..FRAMES {
-        frame(cx);
+    const TICKS: usize = 10;
+    for _ in 0..TICKS {
+        tick(cx);
     }
     let (items, rows, panel_renders, spinners) = counts(cx);
-    assert_eq!(items, before.0, "no transcript item rebuilt in {FRAMES} frames");
+    assert_eq!(items, before.0, "no transcript item rebuilt in {TICKS} ticks");
     assert_eq!(panel_renders, before.2, "the panel did not render");
-    assert_eq!(rows - before.1, spinning * FRAMES, "only the {spinning} spinning rows rendered, once a frame each");
-    assert!(spinners - before.3 >= spinning * FRAMES, "every ring turned every frame");
+    assert_eq!(rows - before.1, spinning * TICKS, "only the {spinning} spinning rows rendered, once a tick each");
+    assert!(spinners - before.3 >= spinning * TICKS, "every ring turned every tick");
     set_test_motion(false);
 }
 

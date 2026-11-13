@@ -1,7 +1,7 @@
 //! The polish batch on the fake Node daemon: a saved reply's steps fold as Electron's `ReplyContent` does, a live
 //! turn's tool calls show while they run, and attachments go out with `chat:send` and come back on the message.
 
-use gpui::TestAppContext;
+use gpui::{Focusable as _, TestAppContext};
 use milagre_gpui_spike::data::StepStatus;
 use milagre_gpui_spike::workspace::chat::transcript::Item;
 use serde_json::json;
@@ -268,6 +268,100 @@ fn a_split_run_leaves_no_empty_folds_and_the_card_sits_between(cx: &mut TestAppC
     fake.world().agent(&key, json!({"type":"step-completed","id":"cmd-2","status":"done","title":"Ran `gh pr view`","durationMs":300}));
     m.wait_for("the ended call", live_done);
     let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    m.vcx.update(|window, cx| composer.update(cx, |c, cx| c.press_send(window, cx)));
+    m.wait_for("the stopped turn", |m| !m.running() && fake.world().runs.is_empty());
+    drop(m);
+    fake.stop();
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// Victor's video: while a reply streamed into the open Chat (and the daemon's stream closed for another Project's
+/// oversized state, which makes the window sync again), the Tasks pill vanished, the transcript was read again and
+/// jumped, and the running mark came late. Now: the mark shows on send, before the daemon starts the turn; the pills,
+/// the composer's text and its focus hold through the stream and the re-sync; the transcript is not read again
+/// mid-turn; and streamed deltas do not read the sidebar again.
+#[gpui::test]
+fn a_streaming_reply_and_a_resync_keep_the_pills_the_composer_and_the_scroll(cx: &mut TestAppContext) {
+    const BETA: &str = "/fake-node/polish-beta";
+    cx.executor().allow_parking();
+    let data = data_folder("polish-stream");
+    let mut world = world();
+    let plan = json!({"source":"milagre","updatedAt":1,"tasks":[{"id":"1","title":"Port it","status":"completed"},{"id":"2","title":"Check it","status":"in_progress"}]});
+    world.projects.get_mut(ALPHA).unwrap().sessions.get_mut(&1).unwrap()["plan"] = plan;
+    let beta = World::with(vec![(BETA, "beta", true, vec![(1, "Other", vec![("user", "B"), ("assistant", "BA")])])]);
+    world.known.extend(beta.known);
+    world.projects.extend(beta.projects);
+    let fake = FakeDaemon::start(&data, world);
+    let session = DaemonSession::start(Daemon::new(Some(data.clone()), false));
+    let mut m = mount_daemon(cx, session);
+    let key = format!("{ALPHA}#1");
+    m.wait_for("the sidebar", |m| m.items().len() >= 2);
+    m.workspace.update(m.vcx, |w, cx| w.open_chat_key(&key, cx));
+    m.wait_for("the open Chat", |m| m.open_key().as_deref() == Some(key.as_str()) && m.items().len() >= 4);
+    let pills = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).pills.clone());
+    m.wait_for("the Tasks pill", |m| m.vcx.debug_bounds("slot-pill-tasks").is_some());
+    pills.update(m.vcx, |p, _| p.record_draws());
+
+    // Send: the running mark shows before the daemon starts the turn.
+    m.type_and_send("[silent] go on");
+    m.vcx.run_until_parked();
+    assert!(m.running(), "the running mark shows on send");
+    m.wait_for("the saved message", |_m| fake.world().projects[ALPHA].messages[&1].len() == 3);
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        m.vcx.run_until_parked();
+    }
+    assert!(m.running(), "it stays while the turn has not started");
+    let reads = |fake: &FakeDaemon| fake.methods().iter().filter(|method| *method == "chat:messages").count();
+    let (reads_before, syncs_before) = (reads(&fake), fake.methods().iter().filter(|m| *m == "daemon:snapshot").count());
+
+    // The person types the next message while the reply streams.
+    let composer = m.workspace.read_with(m.vcx, |w, cx| w.chat.read(cx).composer.clone());
+    m.vcx.update(|window, cx| {
+        composer.update(cx, |c, cx| c.set_text("also the next thing", window, cx));
+        let focus = composer.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+    });
+    let reloads_before = milagre_gpui_spike::workspace::sidebar::Sidebar::reloads();
+    {
+        let mut world = fake.world();
+        world.runs.insert(key.clone(), json!({"text":"","model":"gpt-5.5","startedAt":crate::transcript::now_ms(),"steps":[],"approvals":[],"questions":[],"answered":{}}));
+        world.agent(&key, json!({"type":"turn-started","turnId":"t-stream"}));
+        world.pending_hold(&key);
+    }
+    for n in 0..12 {
+        {
+            let mut world = fake.world();
+            world.agent(&key, json!({"type":"text-delta","text":format!("Word {n}. ")}));
+            if n == 5 {
+                // Another Project's oversized state: this window's stream closes and it syncs again.
+                world.emit("agent:event", json!({"chatId":format!("{BETA}#1"),"stateTooLarge":true,"event":{"type":"step-started","step":{"id":"x","kind":"shell","title":"Ran `x`"}}}));
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        m.vcx.run_until_parked();
+    }
+    m.wait_for("the streamed text", |m| {
+        // The stream shows in batches timed on the executor's clock.
+        m.vcx.executor().advance_clock(std::time::Duration::from_millis(100));
+        m.items().last().is_some_and(|item| item.contains("Word 11."))
+    });
+    m.wait_for("the sync after the close", |_m| fake.methods().iter().filter(|m| *m == "daemon:snapshot").count() > syncs_before);
+    m.vcx.run_until_parked();
+    assert!(m.running(), "the turn still shows");
+    assert_eq!(reads(&fake), reads_before, "the transcript was not read again mid-turn");
+    let reloads = milagre_gpui_spike::workspace::sidebar::Sidebar::reloads() - reloads_before;
+    assert!(reloads <= 4, "streamed deltas do not read the sidebar again ({reloads} reads for 12 deltas and a sync)");
+    let (text, focused) = m.vcx.update(|window, cx| {
+        let c = composer.read(cx);
+        (c.text().to_owned(), c.focus_handle(cx).is_focused(window))
+    });
+    assert_eq!(text, "also the next thing", "the composer keeps its text");
+    assert!(focused, "and its focus");
+    let drawn = pills.read_with(m.vcx, |p, _| p.drawn().to_vec());
+    assert!(!drawn.is_empty() && drawn.iter().all(|(tasks, _, _)| *tasks), "the Tasks pill never went away: {drawn:?}");
+
+    m.vcx.update(|window, cx| composer.update(cx, |c, cx| c.set_text("", window, cx)));
     m.vcx.update(|window, cx| composer.update(cx, |c, cx| c.press_send(window, cx)));
     m.wait_for("the stopped turn", |m| !m.running() && fake.world().runs.is_empty());
     drop(m);

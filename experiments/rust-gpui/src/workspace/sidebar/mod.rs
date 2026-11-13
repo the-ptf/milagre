@@ -84,6 +84,10 @@ const CHAT_ORDER: ChatOrder = ChatOrder::Created;
 /// From the header's bottom to the first row's box.
 const LIST_TOP: f32 = 8.0;
 
+thread_local! {
+    static RELOADS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub struct Sidebar {
     data: SidebarData,
     /// The Pinned rows, then the All Chats rows.
@@ -262,7 +266,13 @@ impl Sidebar {
     /// Reads the app's [`Data`] again and rebuilds the rows from it, keeping the Chat on screen: a live data layer
     /// calls it when its state changed (a new Chat, an unread mark, a turn starting or ending). The fixture never
     /// does. A source that answers at once is applied in this call; any other when its read finishes.
+    /// How many times any sidebar on this thread read its data again ([`Self::reload`]), for the tests that count it.
+    pub fn reloads() -> usize {
+        RELOADS.with(std::cell::Cell::get)
+    }
+
     pub fn reload(&mut self, cx: &mut Context<Self>) {
+        RELOADS.with(|reloads| reloads.set(reloads.get() + 1));
         let Some(source) = cx.try_global::<Data>().map(|data| data.0.clone()) else { return };
         match poll_once(SidebarData::load(source)) {
             Polled::Ready(Ok(data)) => {
