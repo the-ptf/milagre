@@ -923,6 +923,10 @@ impl Render for Composer {
             .debug_selector(|| "composer".into())
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
+            // The composer floats over the transcript: a press anywhere in it is the composer's (its text area takes
+            // the focus) and never reaches the transcript under it, which takes the focus on a press. The wheel
+            // still scrolls the transcript.
+            .block_mouse_except_scroll()
             .capture_action(cx.listener(Self::on_enter))
             .capture_action(cx.listener(Self::on_tab))
             .capture_action(cx.listener(Self::on_shift_tab))

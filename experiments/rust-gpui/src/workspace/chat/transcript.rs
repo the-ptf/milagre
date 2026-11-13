@@ -940,7 +940,9 @@ impl Render for Transcript {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                    if !this.focus.contains_focused(window, cx) {
+                    // Not when an element over it already took the press's focus (the composer floats over the
+                    // transcript: a click in it focused its text area, which this used to take straight back).
+                    if !window.default_prevented() && !this.focus.contains_focused(window, cx) {
                         window.focus(&this.focus, cx);
                     }
                 }),

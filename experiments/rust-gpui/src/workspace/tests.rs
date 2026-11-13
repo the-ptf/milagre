@@ -206,3 +206,45 @@ fn a_dirty_cached_view_rebuilds_the_cached_views_inside_it(cx: &mut TestAppConte
         assert_eq!(rebuilt, usize::from(cache_outer), "outer cached: {cache_outer}; the cached leaf rebuilt {rebuilt} times");
     }
 }
+
+/// Switching the side panel through every tab (a click on each tab and in its body: the Designs board takes the focus
+/// on a press), then a click on the composer: typing reaches it. (The Preview typed nothing after a tab switch.)
+#[gpui::test]
+fn the_composer_types_after_every_panel_tab(cx: &mut TestAppContext) {
+    let (workspace, cx) = testing::mount_workspace(cx);
+    let (chat, panel) = workspace.read_with(cx, |w, _| (w.chat.clone(), w.panel.clone()));
+    let composer = chat.read_with(cx, |c, _| c.composer.clone());
+    let text = |cx: &mut gpui::VisualTestContext| composer.read_with(cx, |c, _| c.text().to_owned());
+    let start = text(cx);
+    let tabs = panel.read_with(cx, |p, _| p.visible_tabs());
+    assert!(tabs.contains(&PanelTab::Designs) && tabs.contains(&PanelTab::Artifact), "{tabs:?}");
+    let mut typed = start.clone();
+    for (round, letter) in ["x", "y"].into_iter().enumerate() {
+        for tab in &tabs {
+            // The tab list scrolls at the panel's width: a tab scrolled out of it is activated as its click would.
+            let width = cx.update(|window, _| window.viewport_size().width);
+            let left = width - gpui::px(crate::workspace::panel::PANEL_WIDTH);
+            if let Some(bounds) =
+                cx.debug_bounds(format!("panel-tab-{}", tab.label()).leak()).filter(|b| b.right() <= width && b.left() >= left)
+            {
+                cx.simulate_click(bounds.center(), Modifiers::none());
+            }
+            cx.run_until_parked();
+            if panel.read_with(cx, |p, _| p.active()) != *tab {
+                panel.update(cx, |p, cx| p.activate(*tab, cx));
+                cx.run_until_parked();
+            }
+            assert_eq!(panel.read_with(cx, |p, _| p.active()), *tab);
+            let first = cx.debug_bounds(format!("panel-tab-{}", tabs[0].label()).leak()).expect("the first tab");
+            let body = gpui::point(first.origin.x + gpui::px(120.0), first.origin.y + gpui::px(300.0));
+            cx.simulate_click(body, Modifiers::none());
+            cx.run_until_parked();
+        }
+        let input = cx.debug_bounds("composer-input").expect("the composer's text area is drawn");
+        cx.simulate_click(input.center(), Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_input(letter);
+        typed.push_str(letter);
+        assert_eq!(text(cx), typed, "round {round}: typing after every tab reaches the composer");
+    }
+}

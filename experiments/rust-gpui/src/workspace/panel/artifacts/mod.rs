@@ -948,6 +948,51 @@ mod probe {
                 let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
                 let now = cx.update_window(window, |_, w, cx| text(w, cx)).unwrap_or_default();
                 ok &= step(&format!("typed 'c' into the composer ({now:?})"), now == format!("{start}abc"));
+
+                // 4. Every panel tab in turn, twice (the Artifact page shown and hidden again, the Designs board
+                // given the focus as a press on it does), then the composer focused as its click does (a press in a
+                // window that is not active hovers nothing, so the click itself is the headless test's:
+                // `the_composer_types_after_every_panel_tab`) and typing: AppKit's keys must still be GPUI's.
+                let tabs = cx.update(|cx| panel.read(cx).visible_tabs());
+                eprintln!("probe keys tabs: {tabs:?}");
+                let designs = cx.update(|cx| panel.read(cx).designs().clone());
+                let mut typed = format!("{start}abc");
+                for (round, letter) in ["d", "e"].into_iter().enumerate() {
+                    for tab in tabs.iter().copied() {
+                        cx.update(|cx| panel.update(cx, |p, cx| p.activate(tab, cx)));
+                        wait(500).await;
+                        let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                        if tab == PanelTab::Designs {
+                            let _ = cx.update_window(window, |_, w, cx| w.focus(&designs.read(cx).focus_handle(cx), cx));
+                        }
+                        if tab == PanelTab::Artifact {
+                            // The page takes the keys while shown (a click in it, or its own focus()).
+                            cx.update(|cx| host.read(cx).probe_focus_page());
+                        }
+                        wait(200).await;
+                        let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                    }
+                    let _ = cx.update_window(window, |_, w, cx| {
+                        crate::platform::webview::reclaim_keyboard(w);
+                        if let Some(c) = composer(w, cx) {
+                            w.focus(&c.read(cx).focus_handle(cx), cx);
+                        }
+                    });
+                    wait(200).await;
+                    let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                    ok &= step(
+                        &format!("round {round}: after every tab GPUI holds the keys"),
+                        cx.update_window(window, |_, w, _| native::gpui_holds_keys(w)).ok().flatten() == Some(true),
+                    );
+                    if let Ok(Some(ns_window)) = cx.update_window(window, |_, w, _| native::ns_window(w)) {
+                        native::probe_type(&ns_window, letter);
+                    }
+                    wait(200).await;
+                    let _ = cx.update_window(window, |_, w, cx| frame(w, cx));
+                    typed.push_str(letter);
+                    let now = cx.update_window(window, |_, w, cx| text(w, cx)).unwrap_or_default();
+                    ok &= step(&format!("round {round}: after every tab, typed '{letter}' ({now:?})"), now == typed);
+                }
                 eprintln!("probe keys: {}", if ok { "PASS" } else { "FAIL" });
                 cx.update(|cx| cx.quit());
             })

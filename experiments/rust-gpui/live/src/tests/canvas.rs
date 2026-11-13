@@ -246,6 +246,24 @@ fn the_composer_takes_typing_beside_the_canvas_tabs(cx: &mut TestAppContext) {
     m.vcx.simulate_input("!");
     assert_eq!(text(&mut m), "hello there!", "the Artifact tab closed again");
 
+    // Every tab in turn (a press in each body: the Designs board takes the focus on one), then a click in the
+    // composer: the click focuses its text area (not the transcript under it) and typing reaches it.
+    for (round, letter) in ["?", "."].into_iter().enumerate() {
+        for tab in panel.read_with(m.vcx, |p, _| p.visible_tabs()) {
+            panel.update(m.vcx, |p, cx| p.activate(tab, cx));
+            m.vcx.run_until_parked();
+            let first = m.vcx.debug_bounds("panel-tab-Details").expect("the Details tab");
+            m.vcx.simulate_click(gpui::point(first.origin.x + gpui::px(120.0), first.origin.y + gpui::px(300.0)), gpui::Modifiers::none());
+            m.vcx.run_until_parked();
+        }
+        let before = text(&mut m);
+        let input = m.vcx.debug_bounds("composer-input").expect("the composer's text area");
+        m.vcx.simulate_click(input.center(), gpui::Modifiers::none());
+        m.vcx.run_until_parked();
+        m.vcx.simulate_input(letter);
+        assert_eq!(text(&mut m), format!("{before}{letter}"), "round {round}: after every tab and a click in the composer");
+    }
+
     // The Preview's Designs tab is for viewing: no layer editor, by its button or otherwise.
     let designs = panel.read_with(m.vcx, |p, _| p.designs().clone());
     assert!(!designs.read_with(m.vcx, |d, cx| d.can_edit(cx)), "no Edit in the Preview");
