@@ -1335,6 +1335,77 @@ const STRIPES = {
   backgroundImage: "repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px)",
   backgroundAttachment: "fixed",
 } as const;
+// Once the rows scroll under it, the pinned preview shrinks to this height so most of the page stays readable.
+const PINNED_PREVIEW_HEIGHT = 180;
+const PIN_TRANSITION = "var(--duration-base) var(--ease-enter)";
+
+/** The scrolling element that holds `node`. */
+function scrollParent(node: HTMLElement | null): HTMLElement | null {
+  for (let current = node?.parentElement ?? null; current; current = current.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(current).overflowY)) return current;
+  }
+  return null;
+}
+
+/**
+ * The Appearance preview, sticky over the rows below it. At the top of the page it shows at full size; once the rows
+ * start scrolling under it, it shrinks from its top edge and its strip is clipped to match, so the rows come back into
+ * view. Only paint changes: the strip keeps its height in the layout, so nothing below it moves. A striped fade at the
+ * strip's edge lets the rows pass under it instead of being cut.
+ */
+function PinnedPreview({ highlight, playMotion }: { highlight: PreviewArea | null; playMotion: number }) {
+  const sentinel = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const [pinned, setPinned] = useState(false);
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const viewport = scrollParent(sentinel.current);
+    if (!viewport) return;
+    const update = () => {
+      const top = sentinel.current?.getBoundingClientRect().top ?? 0;
+      setPinned(top < viewport.getBoundingClientRect().top);
+    };
+    update();
+    viewport.addEventListener("scroll", update, { passive: true });
+    return () => viewport.removeEventListener("scroll", update);
+  }, []);
+  useEffect(() => {
+    const node = card.current;
+    if (!node) return;
+    const observer = new ResizeObserver(() => setHeight(node.offsetHeight));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const factor = pinned && height > PINNED_PREVIEW_HEIGHT ? PINNED_PREVIEW_HEIGHT / height : 1;
+  const hidden = height * (1 - factor);
+  return (
+    <>
+      <div ref={sentinel} aria-hidden />
+      <div
+        data-slot="appearance-preview-strip"
+        data-pinned={pinned || undefined}
+        className="sticky top-0 z-20 -mx-6 px-6 pt-6 pb-3"
+        style={{ ...STRIPES, clipPath: `inset(0 0 ${hidden}px 0)`, transition: `clip-path ${PIN_TRANSITION}` }}
+      >
+        <div ref={card} style={{ transform: `scale(${factor})`, transformOrigin: "50% 0", transition: `transform ${PIN_TRANSITION}` }}>
+          <AppearanceWindowPreview highlight={highlight} playMotion={playMotion} />
+        </div>
+        <div
+          aria-hidden
+          data-slot="appearance-preview-fade"
+          className="pointer-events-none absolute inset-x-0 top-full h-6"
+          style={{
+            ...STRIPES,
+            maskImage: "linear-gradient(to bottom, black, transparent)",
+            transform: `translateY(${-hidden}px)`,
+            transition: `transform ${PIN_TRANSITION}`,
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
 // A change keeps its area highlighted this long after the menu closes.
 const PREVIEW_HOLD_MS = 1500;
 
@@ -1415,10 +1486,7 @@ function AppearanceSettings() {
         {settings.customThemeEnabled && <CustomThemeEditor />}
       </Group>
       <div>
-        {/* Sticky over the rows below it; the strip above the card repaints the window's stripes so rows vanish under it. */}
-        <div className="sticky top-0 z-20 -mx-6 px-6 pt-7" style={STRIPES}>
-          <AppearanceWindowPreview highlight={preview.highlight} playMotion={playMotion} />
-        </div>
+        <PinnedPreview highlight={preview.highlight} playMotion={playMotion} />
         <Group title="Typography">
           <Row label="Interface font" description="Used across the app." preview={preview.row("ui")}>
             <Select
