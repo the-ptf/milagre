@@ -1,6 +1,7 @@
 export type SizeStep = "small" | "default" | "medium" | "large" | "larger";
 export type ChatWidth = "comfortable" | "wide" | "full" | "custom";
 export type SidebarUsageMode = "expanded" | "compact";
+export type SidebarRowStyle = "classic" | "edge";
 export type ProviderIconStyle = "original" | "simplified";
 export type DiffColors = "red-green" | "blue-orange" | "purple-yellow";
 export type MotionSpeed = "normal" | "fast" | "off";
@@ -14,6 +15,7 @@ export type Appearance = {
   chatWidth: ChatWidth;
   chatWidthPx: number;
   sidebarUsage: SidebarUsageMode;
+  sidebarRows: SidebarRowStyle;
   providerIcons: ProviderIconStyle;
   diffColors: DiffColors;
   motion: MotionSpeed;
@@ -29,6 +31,7 @@ export type DiffPair = {
 
 export const CHAT_WIDTH_IDS: readonly ChatWidth[];
 export const SIDEBAR_USAGE_IDS: readonly SidebarUsageMode[];
+export const SIDEBAR_ROW_IDS: readonly SidebarRowStyle[];
 export const PROVIDER_ICON_IDS: readonly ProviderIconStyle[];
 export const DIFF_COLOR_IDS: readonly DiffColors[];
 export const MOTION_IDS: readonly MotionSpeed[];
@@ -38,6 +41,7 @@ export const CHAT_SIZES: readonly { id: SizeStep; label: string; px: number }[];
 export const CODE_SIZES: readonly { id: SizeStep; label: string; px: number }[];
 export const CHAT_WIDTHS: readonly { id: ChatWidth; label: string; px: number | null }[];
 export const SIDEBAR_USAGE_MODES: readonly { id: SidebarUsageMode; label: string }[];
+export const SIDEBAR_ROW_STYLES: readonly { id: SidebarRowStyle; label: string }[];
 export const PROVIDER_ICON_STYLES: readonly { id: ProviderIconStyle; label: string }[];
 export const DIFF_PAIRS: readonly DiffPair[];
 export const MOTION_SPEEDS: readonly { id: MotionSpeed; label: string; scale: number }[];

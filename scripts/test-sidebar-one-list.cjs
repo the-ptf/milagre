@@ -15,6 +15,7 @@ import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
 import { SettingsPanel } from "/src/components/Settings";
 import { updateSettings } from "/src/lib/settings";
+import { DEFAULT_APPEARANCE } from "@milagre/shared/appearance";
 import { DESKTOP_CHAT_ROW_SHOW } from "@milagre/shared/chat-row";
 import "/src/styles.css";
 const minutes = (count) => Date.now() - count * 60000;
@@ -54,6 +55,10 @@ localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre-settings");
 // Branch on: the One list's rows still never show it.
 updateSettings({ chatRowShow: { ...DESKTOP_CHAT_ROW_SHOW, branch: true, lastActivity: true } });
+// Appearance › Sidebar rows: Title first (design Alt A) for most of the checks; Classic is checked at the end.
+updateSettings({ appearance: { ...DEFAULT_APPEARANCE, sidebarRows: "edge" } });
+window.updateSettings = updateSettings;
+window.DEFAULT_APPEARANCE = DEFAULT_APPEARANCE;
 function Fixture() {
   return (
     <div style={{ display: "flex", gap: 12, height: "100vh", padding: "60px 12px 12px" }}>
@@ -298,6 +303,13 @@ async function browserChecks() {
     await choose("One list");
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0);
+    // Classic rows (the default): the Project's icon leads the row, 50 high, the PR as #number.
+    await evaluate(`window.updateSettings({ appearance: { ...window.DEFAULT_APPEARANCE, sidebarRows: "classic" } })`);
+    await waitFor(`!!${row(1)}.querySelector("[data-row] [data-chat-project-icon]")`);
+    assert.equal(await evaluate(`Math.round(${row(1)}.querySelector("[data-row]").getBoundingClientRect().height)`), 50);
+    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-pr]").textContent`), "#980");
+    assert.match(await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className`), /text-accent/);
+    await screenshot("one-list-classic");
     assert.equal(JSON.parse(await evaluate(`localStorage.getItem("milagre-settings")`)).chatList, "list");
 
     assert.deepEqual(errors, []);

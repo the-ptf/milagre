@@ -119,6 +119,7 @@ import {
   MOTION_SPEEDS,
   SIDEBAR_SIZES,
   SIDEBAR_USAGE_MODES,
+  SIDEBAR_ROW_STYLES,
   PROVIDER_ICON_STYLES,
   UI_FONTS,
   type FontOption,
@@ -1524,6 +1525,23 @@ function AppearanceSettings() {
               options={SIDEBAR_USAGE_MODES.map((mode) => ({
                 value: mode.id,
                 label: mode.label,
+              }))}
+            />
+          </Row>
+          <Row
+            label="Sidebar rows"
+            description="Classic leads with the Project's icon. Title first puts each Chat's state at the row's edge."
+            preview={preview.row("usage")}
+          >
+            <Select
+              label="Sidebar rows"
+              width={200}
+              value={appearance.sidebarRows}
+              onChange={(sidebarRows) => change("usage", { sidebarRows })}
+              onOpenChange={preview.menu("usage")}
+              options={SIDEBAR_ROW_STYLES.map((style) => ({
+                value: style.id,
+                label: style.label,
               }))}
             />
           </Row>

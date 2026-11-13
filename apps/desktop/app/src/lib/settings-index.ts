@@ -203,6 +203,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "One row per provider, or provider icons in one line.",
     keywords: "limits compact",
   },
+  {
+    page: "appearance",
+    title: "Sidebar rows",
+    group: "Layout",
+    description: "Classic leads with the Project's icon. Title first puts each Chat's state at the row's edge.",
+    keywords: "chat list row status edge alt title first classic",
+  },
   { page: "appearance", title: "Diffs" },
   {
     page: "appearance",
