@@ -22,6 +22,8 @@
     "packages/shared/src/design-font-data.mjs",
     "packages/shared/src/design-font-catalog.mjs",
     "packages/shared/src/design-catalog-fonts/**",
-    "packages/shared/src/design-icons.mjs"
+    "packages/shared/src/design-icons.mjs",
+    "experiments/rust-owner/fixtures/.projects/**",
+    "experiments/rust-owner/fixtures/expected/**"
   ]
 }

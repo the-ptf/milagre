@@ -1,0 +1,1075 @@
+{
+  "preparations": [
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": null,
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "# comment\nmodel = \"x\"\n",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\n# comment\nmodel = \"x\"\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "cli_auth_credentials_store = \"keyring\"\n[model]\ncli_auth_credentials_store = \"table\"\n",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\n[model]\ncli_auth_credentials_store = \"table\"\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "# keep\n\nsqlite_home = \"custom\"\ncli_auth_credentials_store=\"auto\"\n[mcp_servers.a]\ncommand=\"fake\"\n",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "cli_auth_credentials_store = \"file\"\n# keep\n\nsqlite_home = \"custom\"\n\n[mcp_servers.a]\ncommand=\"fake\"\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "milagre-inherited-mcp.json": {
+          "text": "{\"names\":[\"a\"]}\n"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "before=1\rcli_auth_credentials_store=\"a\"\r[foo]\rx=1",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\nbefore=1\r\r[foo]\rx=1"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "before=1 cli_auth_credentials_store=\"a\" [foo]\nx=1",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\nbefore=1  [foo]\nx=1"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "﻿cli_auth_credentials_store=\"auto\"\n\n# hi\n[unknown]\nx=2\n",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\n\n# hi\n[unknown]\nx=2\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "cli_auth_credentials_store=\"a\"\ncli_auth_credentials_store = \"b\"\n",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "[mcp_servers.\"quoted.name\"] # comment\ncommand=\"synthetic\"\n[mcp_servers.\"quoted.name\".env]\nX=\"v\"\n[unknown]\nkeep=1\n",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "sqlite_home = \"@ROOT@/home/.codex\"\ncli_auth_credentials_store = \"file\"\n[unknown]\nkeep=1\n\n[mcp_servers.\"quoted.name\"] # comment\ncommand=\"synthetic\"\n\n[mcp_servers.\"quoted.name\".env]\nX=\"v\"\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "milagre-inherited-mcp.json": {
+          "text": "{\"names\":[\"quoted.name\"]}\n"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "codex",
+      "sources": {
+        "codex_config": "sqlite_home=\"old\"\r\ncli_auth_credentials_store=\"a\"\r\n[other]\r\nx=1\r\n",
+        "codex_instructions": "# synthetic instructions\n"
+      },
+      "profile": {
+        "AGENTS.md": {
+          "text": "# synthetic instructions\n"
+        },
+        "archived_sessions": {
+          "link": "@ROOT@/home/.codex/archived_sessions"
+        },
+        "config.toml": {
+          "text": "cli_auth_credentials_store = \"file\"\nsqlite_home=\"old\"\r\r\n[other]\r\nx=1\r\n"
+        },
+        "generated_images": {
+          "link": "@ROOT@/home/.codex/generated_images"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.codex/plugins"
+        },
+        "rules": {
+          "link": "@ROOT@/home/.codex/rules"
+        },
+        "sessions": {
+          "link": "@ROOT@/home/.codex/sessions"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.codex/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": null,
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "profile": {
+        "CLAUDE.md": {
+          "text": "synthetic Claude instructions\n"
+        },
+        "agents": {
+          "link": "@ROOT@/home/.claude/agents"
+        },
+        "commands": {
+          "link": "@ROOT@/home/.claude/commands"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.claude/plugins"
+        },
+        "projects": {
+          "link": "@ROOT@/home/.claude/projects"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.claude/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": "{\"apiKeyHelper\":\"synthetic\",\"theme\":\"dark\",\"nested\":{\"apiKeyHelper\":\"keep\"}}",
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "profile": {
+        "CLAUDE.md": {
+          "text": "synthetic Claude instructions\n"
+        },
+        "agents": {
+          "link": "@ROOT@/home/.claude/agents"
+        },
+        "commands": {
+          "link": "@ROOT@/home/.claude/commands"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.claude/plugins"
+        },
+        "projects": {
+          "link": "@ROOT@/home/.claude/projects"
+        },
+        "settings.json": {
+          "text": "{\"theme\":\"dark\",\"nested\":{\"apiKeyHelper\":\"keep\"}}"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.claude/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": "{ \"unknown\": true, \"2\":\"two\",\"1\":\"one\", \"n\":1e-7, \"large\":9007199254740993 }",
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "profile": {
+        "CLAUDE.md": {
+          "text": "synthetic Claude instructions\n"
+        },
+        "agents": {
+          "link": "@ROOT@/home/.claude/agents"
+        },
+        "commands": {
+          "link": "@ROOT@/home/.claude/commands"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.claude/plugins"
+        },
+        "projects": {
+          "link": "@ROOT@/home/.claude/projects"
+        },
+        "settings.json": {
+          "text": "{\"1\":\"one\",\"2\":\"two\",\"unknown\":true,\"n\":1e-7,\"large\":9007199254740992}"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.claude/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": "[\"unchanged\",2]",
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "profile": {
+        "CLAUDE.md": {
+          "text": "synthetic Claude instructions\n"
+        },
+        "agents": {
+          "link": "@ROOT@/home/.claude/agents"
+        },
+        "commands": {
+          "link": "@ROOT@/home/.claude/commands"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.claude/plugins"
+        },
+        "projects": {
+          "link": "@ROOT@/home/.claude/projects"
+        },
+        "settings.json": {
+          "text": "[\"unchanged\",2]"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.claude/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": "\"scalar\"",
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "profile": {
+        "CLAUDE.md": {
+          "text": "synthetic Claude instructions\n"
+        },
+        "agents": {
+          "link": "@ROOT@/home/.claude/agents"
+        },
+        "commands": {
+          "link": "@ROOT@/home/.claude/commands"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.claude/plugins"
+        },
+        "projects": {
+          "link": "@ROOT@/home/.claude/projects"
+        },
+        "settings.json": {
+          "text": "\"scalar\""
+        },
+        "skills": {
+          "link": "@ROOT@/home/.claude/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": "null",
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "error": "Cannot convert undefined or null to object"
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": "{ // invalid JSON comment\n\"x\":1}",
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "error": "Claude settings could not be read. Fix settings.json before adding an account."
+    },
+    {
+      "provider": "claude",
+      "sources": {
+        "claude_settings": "{\"__proto__\":{\"safe\":\"unknown\"},\"apiKeyHelper\":null}",
+        "claude_instructions": "synthetic Claude instructions\n",
+        "claude_mcp": "{\"mcpServers\":{\"test\":{\"command\":\"never-run\"}},\"identity\":\"must-not-copy\"}"
+      },
+      "profile": {
+        "CLAUDE.md": {
+          "text": "synthetic Claude instructions\n"
+        },
+        "agents": {
+          "link": "@ROOT@/home/.claude/agents"
+        },
+        "commands": {
+          "link": "@ROOT@/home/.claude/commands"
+        },
+        "plugins": {
+          "link": "@ROOT@/home/.claude/plugins"
+        },
+        "projects": {
+          "link": "@ROOT@/home/.claude/projects"
+        },
+        "settings.json": {
+          "text": "{\"__proto__\":{\"safe\":\"unknown\"}}"
+        },
+        "skills": {
+          "link": "@ROOT@/home/.claude/skills"
+        }
+      },
+      "default": {}
+    },
+    {
+      "provider": "antigravity",
+      "sources": {
+        "gemini_config_skills": false,
+        "gemini_cli_skills": false
+      },
+      "profile": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/brain"
+            },
+            "conversations": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/conversations"
+            }
+          }
+        }
+      },
+      "default": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "directory": {}
+            },
+            "conversations": {
+              "directory": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "provider": "antigravity",
+      "sources": {
+        "gemini_config_skills": false,
+        "gemini_cli_skills": true
+      },
+      "profile": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/brain"
+            },
+            "conversations": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/conversations"
+            }
+          }
+        },
+        "antigravity-cli": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/antigravity-cli/skills"
+            }
+          }
+        }
+      },
+      "default": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "directory": {}
+            },
+            "conversations": {
+              "directory": {}
+            }
+          }
+        },
+        "antigravity-cli": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/antigravity-cli/skills"
+            }
+          }
+        }
+      }
+    },
+    {
+      "provider": "antigravity",
+      "sources": {
+        "gemini_config_skills": true,
+        "gemini_cli_skills": false
+      },
+      "profile": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/brain"
+            },
+            "conversations": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/conversations"
+            }
+          }
+        },
+        "config": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/config/skills"
+            }
+          }
+        }
+      },
+      "default": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "directory": {}
+            },
+            "conversations": {
+              "directory": {}
+            }
+          }
+        },
+        "config": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/config/skills"
+            }
+          }
+        }
+      }
+    },
+    {
+      "provider": "antigravity",
+      "sources": {
+        "gemini_config_skills": true,
+        "gemini_cli_skills": true
+      },
+      "profile": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/brain"
+            },
+            "conversations": {
+              "link": "@ROOT@/accounts/antigravity-default/antigravity-acp/conversations"
+            }
+          }
+        },
+        "antigravity-cli": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/antigravity-cli/skills"
+            }
+          }
+        },
+        "config": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/config/skills"
+            }
+          }
+        }
+      },
+      "default": {
+        "antigravity-acp": {
+          "directory": {
+            "brain": {
+              "directory": {}
+            },
+            "conversations": {
+              "directory": {}
+            }
+          }
+        },
+        "antigravity-cli": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/antigravity-cli/skills"
+            }
+          }
+        },
+        "config": {
+          "directory": {
+            "skills": {
+              "link": "@ROOT@/home/.gemini/config/skills"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "mcp": [
+    {
+      "provider": "codex",
+      "source": null,
+      "target": "x=1",
+      "previous": null,
+      "next": "x=1",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.a]\ncommand=\"one\"\n",
+      "target": null,
+      "previous": null,
+      "next": null,
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "codex",
+      "source": "# empty\n",
+      "target": "# unchanged\n",
+      "previous": null,
+      "next": "# unchanged\n",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.a]\ncommand=\"one\"\n",
+      "target": "mine=1\n[mcp_servers.a]\ncommand=\"old\"\n[mcp_servers.keep]\nx=2\n",
+      "previous": null,
+      "next": "mine=1\n[mcp_servers.keep]\nx=2\n\n[mcp_servers.a]\ncommand=\"one\"\n",
+      "record": "{\"names\":[\"a\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.\"a.b\"] # comment\ncommand=\"x\"\n[mcp_servers.\"a.b\".env]\nK=\"v\"\n",
+      "target": "[mcp_servers.keep]\nk=1\n",
+      "previous": null,
+      "next": "\n[mcp_servers.keep]\nk=1\n\n[mcp_servers.\"a.b\"] # comment\ncommand=\"x\"\n\n[mcp_servers.\"a.b\".env]\nK=\"v\"\n",
+      "record": "{\"names\":[\"a.b\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.a]\nx=1\n",
+      "target": "[mcp_servers.removed]\nx=2\n[mcp_servers.removed.env]\nA=\"b\"\n[mcp_servers.mine]\nx=3\n",
+      "previous": "{\"names\":[\"removed\"]}",
+      "next": "\n[mcp_servers.mine]\nx=3\n\n[mcp_servers.a]\nx=1\n",
+      "record": "{\"names\":[\"a\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "# removed all\n",
+      "target": "[mcp_servers.removed]\nx=2\n[mcp_servers.mine]\nx=3\n",
+      "previous": "{\"names\":[\"removed\"]}",
+      "next": "\n[mcp_servers.mine]\nx=3\n",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers]\ninline={command=\"x\"}\n",
+      "target": "same",
+      "previous": null,
+      "next": "same",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.\"q\\\"uote\"]\nx=1\n[mcp_servers.2]\nx=2\n[mcp_servers.10]\nx=3\n[mcp_servers.😀]\nx=4\n",
+      "target": "# unchanged\r\n",
+      "previous": null,
+      "next": "# unchanged\r\n\n[mcp_servers.\"q\\\"uote\"]\nx=1\n\n[mcp_servers.2]\nx=2\n\n[mcp_servers.10]\nx=3\n",
+      "record": "{\"names\":[\"10\",\"2\",\"q\\\\\\\"uote\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.a]\r\nx=1\r\n",
+      "target": "[mcp_servers.a]\r\nx=2\r\n",
+      "previous": "bad-json",
+      "next": "\n\n[mcp_servers.a]\r\nx=1\r\n",
+      "record": "{\"names\":[\"a\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.a]\nx=1\n",
+      "target": "\n[mcp_servers.a]\nx=1\n",
+      "previous": "{\"names\":[\"a\"]}\n",
+      "next": "\n\n[mcp_servers.a]\nx=1\n",
+      "record": "{\"names\":[\"a\"]}\n",
+      "targetChanged": true,
+      "recordChanged": false
+    },
+    {
+      "provider": "codex",
+      "source": "# source",
+      "target": "# root\n[mcp_servers.keep]\nx=1\n[unknown]\nx=2\n",
+      "previous": "{\"names\":[null,7,true,{}]}",
+      "next": "[mcp_servers.keep]\nx=1\n",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.\"'quoted'\"]\nx=1\n",
+      "target": "",
+      "previous": null,
+      "next": "\n\n[mcp_servers.\"'quoted'\"]\nx=1\n",
+      "record": "{\"names\":[\"'quoted'\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "# source",
+      "target": "# root",
+      "previous": "{\"names\":[7]}",
+      "next": "# root\n",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "codex",
+      "source": "[mcp_servers.\"\"]\nx=1\n",
+      "target": "keep",
+      "previous": null,
+      "next": "keep",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "claude",
+      "source": null,
+      "target": "{\"identity\":\"target\"}",
+      "previous": null,
+      "next": "{\"identity\":\"target\"}",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "claude",
+      "source": "{}",
+      "target": null,
+      "previous": null,
+      "next": null,
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "claude",
+      "source": "[]",
+      "target": "{}",
+      "previous": null,
+      "next": "{}",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "claude",
+      "source": "{}",
+      "target": "null",
+      "previous": null,
+      "next": "null",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "claude",
+      "source": "{bad",
+      "target": "{}",
+      "previous": null,
+      "error": true,
+      "next": "{}",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "claude",
+      "source": "{}",
+      "target": "{bad",
+      "previous": null,
+      "error": true,
+      "next": "{bad",
+      "record": null,
+      "targetChanged": false,
+      "recordChanged": false
+    },
+    {
+      "provider": "claude",
+      "source": "{\"mcpServers\":{\"a\":{\"command\":\"new\"}},\"identity\":\"source\"}",
+      "target": "{\"identity\":\"target\",\"mcpServers\":{\"a\":{\"command\":\"old\"},\"mine\":{}},\"other\":5}",
+      "previous": null,
+      "next": "{\n  \"identity\": \"target\",\n  \"mcpServers\": {\n    \"a\": {\n      \"command\": \"new\"\n    },\n    \"mine\": {}\n  },\n  \"other\": 5\n}",
+      "record": "{\"names\":[\"a\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{\"mcpServers\":{}}",
+      "target": "{ \"mcpServers\":{\"old\":{},\"mine\":{}}, \"keep\":1 }",
+      "previous": "{\"names\":[\"old\"]}",
+      "next": "{\n  \"mcpServers\": {\n    \"mine\": {}\n  },\n  \"keep\": 1\n}",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{\"projects\":{\"/synthetic\":{\"mcpServers\":{\"a\":{\"command\":\"new\"}}}}}",
+      "target": "{\"projects\":{\"/synthetic\":{\"trust\":true,\"mcpServers\":{\"mine\":{}}},\"/other\":{\"x\":1}},\"mcpServers\":{\"keep\":{}}}",
+      "previous": null,
+      "next": "{\n  \"projects\": {\n    \"/synthetic\": {\n      \"trust\": true,\n      \"mcpServers\": {\n        \"mine\": {},\n        \"a\": {\n          \"command\": \"new\"\n        }\n      }\n    },\n    \"/other\": {\n      \"x\": 1\n    }\n  },\n  \"mcpServers\": {\n    \"keep\": {}\n  }\n}",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{}",
+      "target": "{ \"identity\":\"unchanged\", \"n\":1e-7 }",
+      "previous": null,
+      "next": "{ \"identity\":\"unchanged\", \"n\":1e-7 }",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": false,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{\"mcpServers\":{\"2\":{},\"1\":{},\"😀\":{},\"￿\":{},\"__proto__\":{\"x\":1}},\"projects\":{\"__proto__\":{\"mcpServers\":{\"a\":{}}}}}",
+      "target": "{\"projects\":{},\"identity\":\"keep\"}",
+      "previous": null,
+      "next": "{\n  \"projects\": {},\n  \"identity\": \"keep\",\n  \"mcpServers\": {\n    \"1\": {},\n    \"2\": {},\n    \"😀\": {},\n    \"￿\": {},\n    \"__proto__\": {\n      \"x\": 1\n    }\n  }\n}",
+      "record": "{\"names\":[\"1\",\"2\",\"__proto__\",\"😀\",\"￿\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{\"projects\":{\"/x\":{\"mcpServers\":{\"z\":{}}}},\"mcpServers\":{\"a\":{}}}",
+      "target": "{\"projects\":[1],\"mcpServers\":3,\"2\":2,\"1\":1,\"big\":9007199254740993}",
+      "previous": null,
+      "next": "{\n  \"1\": 1,\n  \"2\": 2,\n  \"projects\": {\n    \"/x\": {\n      \"mcpServers\": {\n        \"z\": {}\n      }\n    }\n  },\n  \"mcpServers\": {\n    \"a\": {}\n  },\n  \"big\": 9007199254740992\n}",
+      "record": "{\"names\":[\"a\"]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{}",
+      "target": "{\"projects\":{\"/x\":{\"mcpServers\":{\"old\":{}}}}}",
+      "previous": "{\"names\":[\"old\",7,null]}",
+      "next": "{\"projects\":{\"/x\":{\"mcpServers\":{\"old\":{}}}}}",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": false,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{}",
+      "target": "{\"mcpServers\":{\"7\":{},\"null\":{},\"true\":{},\"[object Object]\":{},\"a,b\":{},\"keep\":{}}}",
+      "previous": "{\"names\":[7,null,true,{},[\"a\",\"b\"]]}",
+      "next": "{\n  \"mcpServers\": {\n    \"keep\": {}\n  }\n}",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    },
+    {
+      "provider": "claude",
+      "source": "{\"projects\":{\"__proto__\":{\"mcpServers\":{\"a\":{}}}}}",
+      "target": "{\"projects\":{\"__proto__\":{\"mcpServers\":{\"mine\":{}},\"unknown\":1}},\"zero\":-0}",
+      "previous": null,
+      "next": "{\n  \"projects\": {\n    \"__proto__\": {\n      \"mcpServers\": {\n        \"mine\": {},\n        \"a\": {}\n      },\n      \"unknown\": 1\n    }\n  },\n  \"zero\": 0\n}",
+      "record": "{\"names\":[]}\n",
+      "targetChanged": true,
+      "recordChanged": true
+    }
+  ]
+}

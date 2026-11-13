@@ -1,0 +1,4581 @@
+{
+  "sources": [
+    {
+      "name": "acp-rpc.cjs",
+      "sha256": "702769b847ea03a30c557204eea1c9730da3c0635d825bf666808465ce0e04cf"
+    },
+    {
+      "name": "acp-session.cjs",
+      "sha256": "363bed1ff5ef78dc999ace20664199d81fe130a471aea05864b1508d1c966418"
+    },
+    {
+      "name": "kiro-acp.cjs",
+      "sha256": "60893df163ad88dae5c136cc847bd93747f75c9d80cdf2707743e20a15de59b1"
+    },
+    {
+      "name": "antigravity-acp.cjs",
+      "sha256": "10eb083717552850f2553a97eb48bf66fd5e47de5f71ec3585ab058411d46077"
+    },
+    {
+      "name": "antigravity-install.cjs",
+      "sha256": "6c3d109326c210be3af7f67d409abfa6aef73944053c5b21b223f8db46ddf595"
+    },
+    {
+      "name": "fixtures/fake-acp-agent.cjs",
+      "sha256": "cbcc552f1b622e664ca6c208c6c4f21ac187c7fc7c35c5b93acc4b2ed3464882"
+    }
+  ],
+  "frames": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+        "protocolVersion": 1,
+        "clientCapabilities": {
+          "fs": {
+            "readTextFile": false,
+            "writeTextFile": false
+          },
+          "terminal": false
+        },
+        "clientInfo": {
+          "name": "milagre",
+          "title": "Milagre",
+          "version": "test"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "authenticate",
+      "params": {
+        "methodId": "oauth-personal"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "session/new",
+      "params": {
+        "cwd": "/workspace",
+        "mcpServers": [
+          {
+            "type": "http",
+            "name": "milagre",
+            "url": "http://127.0.0.1:1/mcp",
+            "headers": []
+          }
+        ]
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "session/resume",
+      "params": {
+        "sessionId": "saved",
+        "cwd": "/workspace",
+        "mcpServers": []
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "session/load",
+      "params": {
+        "sessionId": "saved",
+        "cwd": "/workspace",
+        "mcpServers": []
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "session/prompt",
+      "params": {
+        "sessionId": "saved",
+        "prompt": [
+          {
+            "type": "text",
+            "text": "hi"
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "data": "iVBORw0KGgo="
+          }
+        ]
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/cancel",
+      "params": {
+        "sessionId": "saved"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "no-params"
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": "permission-id",
+      "result": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 0,
+      "result": null
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "error": {
+        "code": -32601,
+        "message": "unsupported"
+      }
+    }
+  ],
+  "envelopes": [
+    {
+      "message": null,
+      "events": [
+        {
+          "type": "line",
+          "stream": "stdout",
+          "line": "null"
+        }
+      ]
+    },
+    {
+      "message": 17,
+      "events": [
+        {
+          "type": "line",
+          "stream": "stdout",
+          "line": "17"
+        }
+      ]
+    },
+    {
+      "message": "text",
+      "events": [
+        {
+          "type": "line",
+          "stream": "stdout",
+          "line": "\"text\""
+        }
+      ]
+    },
+    {
+      "message": [],
+      "events": []
+    },
+    {
+      "message": {},
+      "events": []
+    },
+    {
+      "message": {
+        "method": "",
+        "id": 0,
+        "params": null
+      },
+      "events": [
+        {
+          "type": "request",
+          "id": 0,
+          "method": "",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "message": {
+        "method": "session/update",
+        "id": null,
+        "params": {
+          "sessionId": "s",
+          "update": {
+            "sessionUpdate": "future_type",
+            "opaque": [1]
+          }
+        }
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "s",
+            "update": {
+              "sessionUpdate": "future_type",
+              "opaque": [1]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "message": {
+        "method": "session/request_permission",
+        "id": "7",
+        "params": {
+          "toolCall": {
+            "kind": "execute"
+          },
+          "options": [
+            {
+              "optionId": "allow",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "always",
+              "kind": "allow_always"
+            },
+            {
+              "optionId": "deny",
+              "kind": "reject_once"
+            },
+            {
+              "optionId": "never",
+              "kind": "reject_always"
+            }
+          ]
+        }
+      },
+      "events": [
+        {
+          "type": "request",
+          "id": "7",
+          "method": "session/request_permission",
+          "params": {
+            "toolCall": {
+              "kind": "execute"
+            },
+            "options": [
+              {
+                "optionId": "allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "always",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "deny",
+                "kind": "reject_once"
+              },
+              {
+                "optionId": "never",
+                "kind": "reject_always"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "message": {
+        "id": 1,
+        "result": null
+      },
+      "events": [
+        {
+          "type": "response",
+          "result": {}
+        }
+      ]
+    },
+    {
+      "message": {
+        "id": 1,
+        "result": false
+      },
+      "events": [
+        {
+          "type": "response",
+          "result": false
+        }
+      ]
+    },
+    {
+      "message": {
+        "id": 1,
+        "error": {
+          "code": -32000,
+          "message": "Authentication required",
+          "data": {
+            "vendor": "opaque"
+          }
+        }
+      },
+      "events": [
+        {
+          "type": "error",
+          "error": {
+            "code": -32000,
+            "message": "Authentication required",
+            "data": {
+              "vendor": "opaque"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "message": {
+        "id": "1",
+        "result": {
+          "wrong": true
+        }
+      },
+      "events": []
+    }
+  ],
+  "permissions": [
+    {
+      "options": [],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "never"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "always"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "allow-for-chat",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "allow"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "deny",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "deny"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": false,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    },
+    {
+      "options": [
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "deny",
+          "kind": "reject_once"
+        },
+        {
+          "optionId": "never",
+          "kind": "reject_always"
+        }
+      ],
+      "decision": "cancelled",
+      "once": true,
+      "expected": {
+        "outcome": {
+          "outcome": "cancelled"
+        }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "reply",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Hel"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "lo"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "thinking",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_thought_chunk",
+              "content": {
+                "type": "text",
+                "text": "Pondering"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_thought_chunk",
+              "content": {
+                "type": "text",
+                "text": " more"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Done"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "command",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "cmd-1",
+              "title": "ls",
+              "kind": "execute",
+              "status": "pending",
+              "rawInput": {
+                "CommandLine": "ls",
+                "Cwd": "/w"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call_update",
+              "toolCallId": "cmd-1",
+              "kind": "execute",
+              "status": "in_progress",
+              "title": "ls",
+              "rawInput": {
+                "command_line": "ls",
+                "working_dir": "/w"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "used": 1200,
+              "size": 1048576
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call_update",
+              "toolCallId": "cmd-1",
+              "status": "completed",
+              "rawOutput": {
+                "commandLine": "ls",
+                "exitCode": 0,
+                "exit_code": 0,
+                "combinedOutput": "a.txt\r\nb.txt\r\n"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Two files."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "failing-command",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "cmd-1",
+              "title": "ls",
+              "kind": "execute",
+              "status": "pending",
+              "rawInput": {
+                "CommandLine": "ls",
+                "Cwd": "/w"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call_update",
+              "toolCallId": "cmd-1",
+              "kind": "execute",
+              "status": "in_progress",
+              "title": "ls",
+              "rawInput": {
+                "command_line": "ls",
+                "working_dir": "/w"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "usage_update",
+              "used": 1200,
+              "size": 1048576
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call_update",
+              "toolCallId": "cmd-1",
+              "status": "completed",
+              "rawOutput": {
+                "commandLine": "ls",
+                "exitCode": 2,
+                "exit_code": 2,
+                "combinedOutput": "a.txt\r\nb.txt\r\n"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Two files."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "permission",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "cmd-1",
+              "title": "rm -rf build",
+              "kind": "execute",
+              "status": "pending",
+              "rawInput": {
+                "CommandLine": "rm -rf build",
+                "Cwd": "/w"
+              }
+            }
+          }
+        },
+        {
+          "type": "request",
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "cmd-1",
+              "title": "rm -rf build",
+              "kind": "execute",
+              "status": "pending",
+              "rawInput": {
+                "CommandLine": "rm -rf build",
+                "Cwd": "/w"
+              }
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "picked:deny"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "edit",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "ask-1",
+              "title": "Run create_file?",
+              "kind": "edit",
+              "status": "pending",
+              "content": [
+                {
+                  "type": "diff",
+                  "path": "/fixture/notes.txt",
+                  "oldText": "a\nb\n",
+                  "newText": "a\nc\n",
+                  "_meta": {
+                    "kind": "modify"
+                  }
+                }
+              ],
+              "locations": [
+                {
+                  "path": "/fixture/notes.txt"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "request",
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "ask-1",
+              "title": "Run create_file?",
+              "kind": "edit",
+              "status": "pending",
+              "content": [
+                {
+                  "type": "diff",
+                  "path": "/fixture/notes.txt",
+                  "oldText": "a\nb\n",
+                  "newText": "a\nc\n",
+                  "_meta": {
+                    "kind": "modify"
+                  }
+                }
+              ],
+              "locations": [
+                {
+                  "path": "/fixture/notes.txt"
+                }
+              ]
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "picked:deny"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call_update",
+              "toolCallId": "ask-1",
+              "status": "failed",
+              "rawOutput": "Tool call was approved but never executed."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "question",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "request",
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "interaction_7",
+              "title": "Which color?",
+              "kind": "other",
+              "status": "pending"
+            },
+            "options": [
+              {
+                "optionId": "red",
+                "name": "Red",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "green",
+                "name": "Green",
+                "kind": "allow_once"
+              }
+            ]
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "picked:cancelled"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "plan",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "plan",
+              "entries": [
+                {
+                  "content": "Read",
+                  "status": "completed",
+                  "priority": "high"
+                },
+                {
+                  "content": "Write",
+                  "status": "in_progress",
+                  "priority": "medium"
+                },
+                {
+                  "content": "Test",
+                  "status": "pending",
+                  "priority": "low"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Planned"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "kiro-tools",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {},
+            "resume": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "vibe",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "mode",
+            "name": "Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "vibe",
+            "options": [
+              {
+                "value": "vibe",
+                "name": "vibe"
+              },
+              {
+                "value": "spec",
+                "name": "spec"
+              }
+            ]
+          },
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "auto",
+            "options": [
+              {
+                "value": "auto",
+                "name": "Auto",
+                "description": "Models chosen by task",
+                "_meta": {
+                  "kiro": {
+                    "rateMultiplier": 1,
+                    "rateUnit": "Credit"
+                  }
+                }
+              },
+              {
+                "value": "claude-opus-5.5",
+                "name": "Claude Opus 5.5",
+                "description": "Claude Opus 5.5 model with 1M context window",
+                "_meta": {
+                  "kiro": {
+                    "rateMultiplier": 2,
+                    "rateUnit": "Credit",
+                    "effortLevels": ["low", "medium", "high", "xhigh", "max"],
+                    "defaultEffortLevel": "medium"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "autopilot",
+            "name": "Autopilot",
+            "type": "select",
+            "currentValue": "off",
+            "options": [
+              {
+                "value": "on",
+                "name": "on"
+              },
+              {
+                "value": "off",
+                "name": "off"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "edit-1",
+              "title": "Edit notes.txt",
+              "kind": "edit",
+              "status": "pending",
+              "content": [
+                {
+                  "type": "diff",
+                  "path": "/fixture/notes.txt",
+                  "oldText": null,
+                  "newText": "hello\n"
+                }
+              ],
+              "locations": [
+                {
+                  "path": "/fixture/notes.txt"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "request",
+          "id": 0,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "edit-1",
+              "title": "Edit notes.txt"
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "run-1",
+              "title": "Run Command",
+              "kind": "execute",
+              "status": "pending",
+              "rawInput": {
+                "command": "git status --short",
+                "cwd": "/fixture"
+              }
+            }
+          }
+        },
+        {
+          "type": "request",
+          "id": 1,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "run-1",
+              "title": "git status --short"
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "run-2",
+              "title": "Run Command",
+              "kind": "execute",
+              "status": "pending",
+              "rawInput": {
+                "command": "git push origin main",
+                "cwd": "/fixture"
+              }
+            }
+          }
+        },
+        {
+          "type": "request",
+          "id": 2,
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "sess-1",
+            "toolCall": {
+              "toolCallId": "run-2",
+              "title": "git push origin main"
+            },
+            "options": [
+              {
+                "optionId": "allow_always",
+                "name": "Allow Always (risky)",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "allow",
+                "name": "Allow",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "deny",
+                "name": "Deny",
+                "kind": "reject_once"
+              }
+            ]
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "picked:deny,deny,deny"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "no-resume",
+      "init": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "sessionCapabilities": {
+            "list": {}
+          }
+        },
+        "authMethods": [
+          {
+            "id": "oauth-personal",
+            "name": "Log in with Google"
+          }
+        ],
+        "agentInfo": {
+          "name": "antigravity-acp",
+          "version": "1.3.0"
+        }
+      },
+      "session": {
+        "sessionId": "sess-1",
+        "modes": {
+          "currentModeId": "default",
+          "availableModes": [
+            {
+              "id": "default"
+            },
+            {
+              "id": "auto_edit"
+            },
+            {
+              "id": "yolo"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gemini-3.8-flash-high",
+            "options": [
+              {
+                "value": "gemini-3.8-flash-high",
+                "name": "Gemini 3.8 Flash (High)",
+                "description": "gemini-3.8-flash-high"
+              },
+              {
+                "value": "flash-lite-agent",
+                "name": "Gemini 3.8 Flash (Low)",
+                "description": "flash-lite-agent"
+              },
+              {
+                "value": "gemini-pro-agent",
+                "name": "Gemini 3.1 Pro (High)",
+                "description": "gemini-pro-agent"
+              }
+            ]
+          },
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "default"
+              },
+              {
+                "value": "auto_edit",
+                "name": "auto_edit"
+              },
+              {
+                "value": "yolo",
+                "name": "yolo"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "stopReason": "end_turn"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "old question"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "old answer"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Hel"
+              }
+            }
+          }
+        },
+        {
+          "type": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "sess-1",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "lo"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "launches": [
+    {
+      "platform": "darwin",
+      "env": {
+        "KEEP": "kept",
+        "GEMINI_HOME": "/private/profile",
+        "GEMINI_API_KEY": "ambient",
+        "GOOGLE_API_KEY": "ambient",
+        "GOOGLE_APPLICATION_CREDENTIALS": "ambient",
+        "GOOGLE_CLOUD_PROJECT": "ambient",
+        "GOOGLE_CLOUD_LOCATION": "ambient",
+        "GOOGLE_CLOUD_QUOTA_PROJECT": "ambient",
+        "GOOGLE_GENAI_USE_VERTEXAI": "ambient",
+        "GCLOUD_PROJECT": "ambient",
+        "CLOUDSDK_CORE_PROJECT": "ambient",
+        "AGY_ACP_CCPA_PROJECT": "ambient",
+        "AGY_ACP_ENABLE_OAUTH": "ambient",
+        "AGY_ACP_FORCE_FILE_STORAGE": "ambient",
+        "ANTIGRAVITY_HARNESS_PATH": "ambient",
+        "BROWSER": "ambient",
+        "PYTHONUNBUFFERED": "ambient",
+        "ELECTRON_RUN_AS_NODE": "ambient"
+      },
+      "harness": "/private/harness",
+      "tmpdir": "/private/tmp",
+      "expected": {
+        "KEEP": "kept",
+        "GEMINI_HOME": "/private/profile",
+        "AGY_ACP_FORCE_FILE_STORAGE": "1",
+        "PYTHONUNBUFFERED": "1",
+        "TMPDIR": "/private/tmp",
+        "ANTIGRAVITY_HARNESS_PATH": "/private/harness"
+      }
+    },
+    {
+      "platform": "linux",
+      "env": {
+        "KEEP": "kept",
+        "GEMINI_HOME": "/private/profile",
+        "GEMINI_API_KEY": "ambient",
+        "GOOGLE_API_KEY": "ambient",
+        "GOOGLE_APPLICATION_CREDENTIALS": "ambient",
+        "GOOGLE_CLOUD_PROJECT": "ambient",
+        "GOOGLE_CLOUD_LOCATION": "ambient",
+        "GOOGLE_CLOUD_QUOTA_PROJECT": "ambient",
+        "GOOGLE_GENAI_USE_VERTEXAI": "ambient",
+        "GCLOUD_PROJECT": "ambient",
+        "CLOUDSDK_CORE_PROJECT": "ambient",
+        "AGY_ACP_CCPA_PROJECT": "ambient",
+        "AGY_ACP_ENABLE_OAUTH": "ambient",
+        "AGY_ACP_FORCE_FILE_STORAGE": "ambient",
+        "ANTIGRAVITY_HARNESS_PATH": "ambient",
+        "BROWSER": "ambient",
+        "PYTHONUNBUFFERED": "ambient",
+        "ELECTRON_RUN_AS_NODE": "ambient"
+      },
+      "harness": "/private/harness",
+      "tmpdir": "/private/tmp",
+      "expected": {
+        "KEEP": "kept",
+        "GEMINI_HOME": "/private/profile",
+        "AGY_ACP_FORCE_FILE_STORAGE": "1",
+        "PYTHONUNBUFFERED": "1",
+        "TMPDIR": "/private/tmp",
+        "ANTIGRAVITY_HARNESS_PATH": "/private/harness"
+      }
+    },
+    {
+      "platform": "win32",
+      "env": {
+        "KEEP": "kept",
+        "GEMINI_HOME": "/private/profile",
+        "GEMINI_API_KEY": "ambient",
+        "GOOGLE_API_KEY": "ambient",
+        "GOOGLE_APPLICATION_CREDENTIALS": "ambient",
+        "GOOGLE_CLOUD_PROJECT": "ambient",
+        "GOOGLE_CLOUD_LOCATION": "ambient",
+        "GOOGLE_CLOUD_QUOTA_PROJECT": "ambient",
+        "GOOGLE_GENAI_USE_VERTEXAI": "ambient",
+        "GCLOUD_PROJECT": "ambient",
+        "CLOUDSDK_CORE_PROJECT": "ambient",
+        "AGY_ACP_CCPA_PROJECT": "ambient",
+        "AGY_ACP_ENABLE_OAUTH": "ambient",
+        "AGY_ACP_FORCE_FILE_STORAGE": "ambient",
+        "ANTIGRAVITY_HARNESS_PATH": "ambient",
+        "BROWSER": "ambient",
+        "PYTHONUNBUFFERED": "ambient",
+        "ELECTRON_RUN_AS_NODE": "ambient"
+      },
+      "harness": "/private/harness",
+      "tmpdir": "/private/tmp",
+      "expected": {
+        "KEEP": "kept",
+        "GEMINI_HOME": "/private/profile",
+        "AGY_ACP_FORCE_FILE_STORAGE": "1",
+        "PYTHONUNBUFFERED": "1",
+        "TMPDIR": "/private/tmp",
+        "TEMP": "/private/tmp",
+        "TMP": "/private/tmp",
+        "ANTIGRAVITY_HARNESS_PATH": "/private/harness"
+      }
+    }
+  ]
+}

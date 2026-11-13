@@ -1,0 +1,48 @@
+{
+  "weakKeyCase": {
+    "hostId": "zgwmXsyC3YzublbORORdrw",
+    "nonce": "0000000000000000000000000000000000000000000000000000000000000000",
+    "proof": "{\"t\":\"proof\",\"key\":\"AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"sig\":\"AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+    "nodeAccepted": true
+  },
+  "tweetnaclVersion": "1.0.3",
+  "sourceSha256": {
+    "relayCrypto": "e2784a03de90fd159f3a1c7372d65d3dc712bb9965404220b43b725138188797",
+    "relayHost": "2fabf90362d2c5255c78e1748e95b14adfbed7160688781611f410a6285c50dc",
+    "room": "2da49da76a72ff152944f7ffb4c44151a0b72faa11ab665bd04c0e53a4a7041e"
+  },
+  "cases": [
+    {
+      "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "nonce": "00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9",
+      "publicKey": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "hostId": "7UJC6tSsaUhuu6FpSWi1kg",
+      "challenge": "{\"t\":\"challenge\",\"nonce\":\"AAcOFRwjKjE4P0ZNVFtiaXB3foWMk5qhqK-2vcTL0tk\"}",
+      "proof": "{\"t\":\"proof\",\"key\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"PGfrk7uzgeWWrBtOprzPv-YNHa3Nhcs56WN6tFi7BZ-liI8Up2TZFsJn31YyiKm2rOkQA4TdJRff2G235Qx9Cw\"}"
+    },
+    {
+      "seed": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "nonce": "01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3da",
+      "publicKey": "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
+      "hostId": "e2oUBeR74ISGT8dOuHa-tw",
+      "challenge": "{\"t\":\"challenge\",\"nonce\":\"AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09o\"}",
+      "proof": "{\"t\":\"proof\",\"key\":\"ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ\",\"sig\":\"-OPQdVL1UC6F_AQra1ljQ1gJ4q-zoO5WYm_bVlH4x291X3KdkHUKiVB3-Rh70wBnKkT4fhPZiIYeIErtl6n-AA\"}"
+    },
+    {
+      "seed": "7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e",
+      "nonce": "7f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a5158",
+      "publicKey": "33a199bcf0bbbc77104f57b7bfea9e61c929fdf1aa07007ef5777d97bc94057c",
+      "hostId": "VrfsQWNt3XXCGjhM9bZIRA",
+      "challenge": "{\"t\":\"challenge\",\"nonce\":\"f4aNlJuiqbC3vsXM09rh6O_2_QQLEhkgJy41PENKUVg\"}",
+      "proof": "{\"t\":\"proof\",\"key\":\"M6GZvPC7vHcQT1e3v-qeYckp_fGqBwB-9Xd9l7yUBXw\",\"sig\":\"g0DvfVFsDrSyZ8qNyxtOszNd74Id7zDgkB9W_QACjmLVCJpMKGKiYnEjj27P3LGVZp_Gsmj0ppuV4m3dgFj6BQ\"}"
+    },
+    {
+      "seed": "ff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+      "nonce": "ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8",
+      "publicKey": "1d82c3c7343151a824cc0c85e178a7fc56c3090faa5c8301d70c3891c15e853e",
+      "hostId": "-kQ-xf4fa_ncF5ahk_9oOw",
+      "challenge": "{\"t\":\"challenge\",\"nonce\":\"_wYNFBsiKTA3PkVMU1phaG92fYSLkpmgp661vMPK0dg\"}",
+      "proof": "{\"t\":\"proof\",\"key\":\"HYLDxzQxUagkzAyF4Xin_FbDCQ-qXIMB1ww4kcFehT4\",\"sig\":\"bnNoFntraUzxn96onOAmock_EcXMqpl4uaAHmAqHBG7DH9Ks20sBunTHz5bRkqiM6Ex0QM0ReyEC7rzDzG__Cw\"}"
+    }
+  ]
+}

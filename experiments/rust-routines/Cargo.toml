@@ -1,0 +1,26 @@
+[package]
+name = "milagre-routines"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Pure cron helpers and a private schedule-store state fixture, without execution or timers"
+
+[features]
+default = []
+durable-store = ["dep:libc", "dep:uuid"]
+
+[workspace]
+
+[dependencies]
+libc = { version = "=0.2.191", optional = true }
+uuid = { version = "=1.29.2", features = ["v4"], optional = true }
+jiff = { version = "=0.2.42", default-features = false, features = ["std"] }
+jiff-tzdb = "=0.1.4"
+ryu-js = "=1.0.3"
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+
+[dev-dependencies]
+sha2 = "=0.10.9"
+libc = "=0.2.191"
+uuid = { version = "=1.29.2", features = ["v4"] }

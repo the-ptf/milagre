@@ -1,0 +1,22 @@
+[package]
+name = "milagre-remote"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Isolated peer/phone wire and NaCl compatibility foundation; no network or profile access"
+
+[dependencies]
+ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zeroize"] }
+base64 = "0.22"
+indexmap = { version = "2", features = ["serde"] }
+crypto_box = { version = "0.9.1", default-features = false, features = ["alloc", "salsa20", "std", "rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+subtle = "2.6"
+thiserror = "2"
+
+sha2 = "0.10"
+rustix = { version = "=1.1.6", features = ["fs", "process"] }
+
+[workspace]

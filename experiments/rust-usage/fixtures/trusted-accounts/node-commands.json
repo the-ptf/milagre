@@ -1,0 +1,898 @@
+{
+  "initial": {
+    "scopes": ["milagre-link:22345678-1234-1234-1234-123456789abc"],
+    "selection": {
+      "claude": "default",
+      "codex": "default",
+      "antigravity": "default"
+    },
+    "identities": {
+      "providers": [
+        {
+          "provider": "codex",
+          "selectedId": "default",
+          "accounts": [
+            {
+              "provider": "codex",
+              "id": "default",
+              "label": "Connected CLI account",
+              "state": "ready"
+            }
+          ]
+        },
+        {
+          "provider": "claude",
+          "selectedId": "default",
+          "accounts": [
+            {
+              "provider": "claude",
+              "id": "default",
+              "label": "Connected CLI account",
+              "state": "ready"
+            },
+            {
+              "provider": "claude",
+              "id": "12345678-1234-1234-1234-123456789abc",
+              "label": "Saved",
+              "state": "ready"
+            }
+          ]
+        },
+        {
+          "provider": "antigravity",
+          "selectedId": "default",
+          "accounts": [
+            {
+              "provider": "antigravity",
+              "id": "default",
+              "label": "Default account",
+              "state": "ready"
+            }
+          ]
+        },
+        {
+          "provider": "kiro",
+          "selectedId": "default",
+          "accounts": [
+            {
+              "provider": "kiro",
+              "id": "default",
+              "label": "Connected CLI account",
+              "state": "ready"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "traces": [
+    {
+      "input": {
+        "command": "usage:cached",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "providers": [],
+          "accountKey": "default-default"
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:00.000Z",
+          "accountKey": "all:antigravity:default:ready,claude:12345678-1234-1234-1234-123456789abc:ready,claude:default:ready,codex:default:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "codex",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "12345678-1234-1234-1234-123456789abc",
+                "label": "Saved",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "Default account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Default account"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            }
+          ],
+          "accountKey": "default-default"
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "default"],
+          ["claude", "default"],
+          ["codex", "default"],
+          ["kiro", "default"]
+        ],
+        "events": [["usage:changed", {}]]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:cached",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Default account"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            }
+          ],
+          "accountKey": "default-default"
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:00.000Z",
+          "accountKey": "all:antigravity:default:ready,claude:12345678-1234-1234-1234-123456789abc:ready,claude:default:ready,codex:default:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "unavailable",
+              "windows": [],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "message": "Refresh to check usage.",
+              "account": {
+                "id": "12345678-1234-1234-1234-123456789abc",
+                "label": "Saved",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Default account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:read",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:00.000Z",
+          "accountKey": "all:antigravity:default:ready,claude:12345678-1234-1234-1234-123456789abc:ready,claude:default:ready,codex:default:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "12345678-1234-1234-1234-123456789abc",
+                "label": "Saved",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Default account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "default"],
+          ["claude", "12345678-1234-1234-1234-123456789abc"],
+          ["claude", "default"],
+          ["codex", "default"],
+          ["kiro", "default"]
+        ],
+        "events": [["usage:changed", {}]]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:accounts:cached",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "generatedAt": "2026-10-30T12:00:00.000Z",
+          "accountKey": "all:antigravity:default:ready,claude:12345678-1234-1234-1234-123456789abc:ready,claude:default:ready,codex:default:ready,kiro:default:ready",
+          "providers": [
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 22,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "12345678-1234-1234-1234-123456789abc",
+                "label": "Saved",
+                "state": "ready"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Default account",
+                "state": "ready",
+                "default": true
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "checkedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account",
+                "state": "ready",
+                "default": true
+              }
+            }
+          ]
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    },
+    {
+      "input": {
+        "command": "usage:read",
+        "scope": "milagre-link:22345678-1234-1234-1234-123456789abc",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Default account"
+              }
+            },
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            }
+          ],
+          "accountKey": "default-default"
+        },
+        "error": null,
+        "reads": [
+          ["antigravity", "default"],
+          ["claude", "default"],
+          ["codex", "default"],
+          ["kiro", "default"]
+        ],
+        "events": [
+          [
+            "usage:changed",
+            {
+              "scopeKey": "milagre-link:22345678-1234-1234-1234-123456789abc"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "input": {
+        "command": "usage:cached",
+        "scope": "milagre-link:22345678-1234-1234-1234-123456789abc",
+        "now": 1793361600000
+      },
+      "expected": {
+        "result": {
+          "providers": [
+            {
+              "provider": "kiro",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "antigravity",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Default account"
+              }
+            },
+            {
+              "provider": "claude",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            },
+            {
+              "provider": "codex",
+              "status": "ok",
+              "windows": [
+                {
+                  "id": "session",
+                  "label": "Session",
+                  "shortLabel": "5h",
+                  "usedPercent": 11,
+                  "resetsAt": null
+                }
+              ],
+              "updatedAt": "2026-10-30T12:00:00.000Z",
+              "account": {
+                "id": "default",
+                "label": "Connected CLI account"
+              }
+            }
+          ],
+          "accountKey": "default-default"
+        },
+        "error": null,
+        "reads": [],
+        "events": []
+      }
+    }
+  ]
+}

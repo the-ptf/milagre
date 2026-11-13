@@ -1,0 +1,18 @@
+[package]
+name = "milagre-tools"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[dependencies]
+milagre-content-store = { path = "../rust-content-store" }
+milagre-owner-store = { path = "../rust-owner" }
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
+[dev-dependencies]
+base64 = "0.22"
+png = "0.17"
+tempfile = "3"
+sha2 = "0.10"
+hex = "0.4"
+[workspace]

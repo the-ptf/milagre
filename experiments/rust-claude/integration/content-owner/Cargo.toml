@@ -1,0 +1,14 @@
+[package]
+name = "claude-content-owner-conformance"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[workspace]
+[dependencies]
+milagre-claude = { path = "../.." }
+milagre-tools = { path = "../../../rust-tools" }
+milagre-content-store = { path = "../../../rust-content-store" }
+milagre-owner-store = { path = "../../../rust-owner" }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
+tempfile = "3"

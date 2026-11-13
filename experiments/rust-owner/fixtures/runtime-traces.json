@@ -1,0 +1,1520 @@
+[
+  {
+    "name": "lazy-lifecycle",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 12,
+      "sessions": {
+        "1": {
+          "id": 1,
+          "title": "One",
+          "summary": {
+            "lastAt": 1767225599000,
+            "lastOutcome": "failed"
+          },
+          "unread": true
+        },
+        "2": {
+          "id": 2,
+          "title": "Two",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "subagents": [
+            {
+              "id": "helper",
+              "title": "helper",
+              "transcript": [
+                {
+                  "id": "e1",
+                  "kind": "message",
+                  "text": "hello"
+                },
+                {
+                  "id": "e2",
+                  "kind": "tool",
+                  "text": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+                }
+              ]
+            }
+          ]
+        },
+        "3": {
+          "id": 3,
+          "title": "Three",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "unread": true,
+          "queued": [
+            {
+              "clientMessageId": "queued-3",
+              "body": "later"
+            }
+          ]
+        },
+        "4": {
+          "id": 4,
+          "title": "Four",
+          "archived": true,
+          "summary": {
+            "lastAt": 1767214800000
+          }
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "Fix the parser please",
+          "clientMessageId": "cm-1"
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Parsing works now; the parser handles na\u00efve caf\u00e9 input.",
+          "outcome": "completed"
+        },
+        {
+          "id": 3,
+          "session_id": 2,
+          "role": "user",
+          "body": "Look at \u0130stanbul and \u65e5\u672c\u8a9e text \ud83d\ude00 here",
+          "clientMessageId": "cm-3"
+        },
+        {
+          "id": 4,
+          "session_id": 2,
+          "role": "assistant",
+          "body": "Ran the checks.",
+          "outcome": "completed",
+          "steps": [
+            {
+              "id": "s1",
+              "kind": "shell",
+              "title": "grep",
+              "detail": "grep:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "status": "done"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "session_id": 1,
+          "role": "user",
+          "body": "Another parser question",
+          "clientMessageId": "cm-5"
+        },
+        {
+          "id": 6,
+          "session_id": 3,
+          "role": "user",
+          "body": "Third chat asks about the paser typo",
+          "clientMessageId": "cm-6"
+        },
+        {
+          "id": 7,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "Third chat answer about parsers",
+          "outcome": "completed"
+        },
+        {
+          "id": 8,
+          "session_id": 2,
+          "role": "user",
+          "body": "Second chat follow up on the parser",
+          "clientMessageId": "cm-8"
+        },
+        {
+          "id": 9,
+          "session_id": 4,
+          "role": "user",
+          "body": "Archived chat mentions parser too",
+          "clientMessageId": "cm-9"
+        },
+        {
+          "id": 10,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "A longer reply word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+          "outcome": "completed"
+        },
+        {
+          "id": 11,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "First chat reply",
+          "outcome": "failed"
+        },
+        {
+          "id": 15,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "cut emoji \ud83d in half",
+          "outcome": "completed"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 12,
+              "session_id": 1,
+              "role": "user",
+              "body": "New question about parsing",
+              "clientMessageId": "cm-12"
+            }
+          ]
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "update",
+        "chats": [2],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 13,
+              "session_id": 2,
+              "role": "assistant",
+              "body": "Second chat new reply",
+              "outcome": "completed"
+            }
+          ]
+        }
+      },
+      {
+        "op": "update",
+        "change": {
+          "kind": "edit",
+          "id": 6,
+          "patch": {
+            "body": "Third chat edited about the parser"
+          }
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "search",
+        "query": "the parser"
+      },
+      {
+        "op": "search",
+        "query": "  PARSER\t works  "
+      },
+      {
+        "op": "search",
+        "query": "a"
+      },
+      {
+        "op": "search",
+        "query": "\ud83d\ude00"
+      },
+      {
+        "op": "search",
+        "query": "text here"
+      },
+      {
+        "op": "search",
+        "query": "cut emoji"
+      },
+      {
+        "op": "search",
+        "query": "third parser",
+        "limit": 1
+      },
+      {
+        "op": "search",
+        "query": "parser"
+      },
+      {
+        "op": "search",
+        "query": "pars"
+      },
+      {
+        "op": "search",
+        "query": "parsre"
+      },
+      {
+        "op": "search",
+        "query": "naive cafe"
+      },
+      {
+        "op": "search",
+        "query": "istanbul"
+      },
+      {
+        "op": "search",
+        "query": "\u65e5\u672c\u8a9e"
+      },
+      {
+        "op": "search",
+        "query": "third chat parser",
+        "limit": 2
+      },
+      {
+        "op": "search",
+        "query": "x"
+      },
+      {
+        "op": "search",
+        "query": "word word"
+      },
+      {
+        "op": "chatMessages",
+        "chat": 3,
+        "options": {
+          "turns": 1
+        }
+      },
+      {
+        "op": "chatMessages",
+        "chat": 2
+      },
+      {
+        "op": "chatMessage",
+        "id": 4
+      },
+      {
+        "op": "chatMessage",
+        "id": 99
+      },
+      {
+        "op": "allMessages",
+        "marks": true
+      },
+      {
+        "op": "allMessages",
+        "withState": true
+      },
+      {
+        "op": "allMessages"
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-8"
+      },
+      {
+        "op": "sendStatus",
+        "id": "queued-3"
+      },
+      {
+        "op": "sendStatus",
+        "id": "nope"
+      },
+      {
+        "op": "subagent",
+        "chat": 2,
+        "agent": "helper"
+      },
+      {
+        "op": "subagent",
+        "chat": 2,
+        "agent": "gone"
+      },
+      {
+        "op": "inboxValue"
+      },
+      {
+        "op": "whole"
+      },
+      {
+        "op": "advance",
+        "ms": 660000
+      },
+      {
+        "op": "busy",
+        "chat": 1,
+        "value": true
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 14,
+              "session_id": 1,
+              "role": "user",
+              "body": "Keep chat one busy",
+              "clientMessageId": "cm-14"
+            }
+          ]
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 660000
+      },
+      {
+        "op": "inboxValue"
+      },
+      {
+        "op": "search",
+        "query": "parser"
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-6"
+      },
+      {
+        "op": "snapshot"
+      },
+      {
+        "op": "crash"
+      },
+      {
+        "op": "open"
+      },
+      {
+        "op": "search",
+        "query": "parser"
+      },
+      {
+        "op": "allMessages",
+        "marks": true
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
+    "name": "inbox-malformed-bodies",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 20,
+      "sessions": {
+        "1": {
+          "id": 1,
+          "title": "List",
+          "unread": true
+        },
+        "2": {
+          "id": 2,
+          "title": "None",
+          "unread": true
+        },
+        "3": {
+          "id": 3,
+          "title": "Object",
+          "unread": true
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "List body",
+          "clientMessageId": "ib-1"
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+            39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
+            76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109,
+            110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
+            139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167,
+            168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196,
+            197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225,
+            226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254,
+            255, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283,
+            284, 285, 286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299
+          ],
+          "outcome": "completed"
+        },
+        {
+          "id": 3,
+          "session_id": 2,
+          "role": "user",
+          "body": "No body",
+          "clientMessageId": "ib-3"
+        },
+        {
+          "id": 4,
+          "session_id": 2,
+          "role": "assistant",
+          "outcome": "failed"
+        },
+        {
+          "id": 5,
+          "session_id": 3,
+          "role": "user",
+          "body": "Object body",
+          "clientMessageId": "ib-5"
+        },
+        {
+          "id": 6,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "fine so far",
+          "outcome": "completed"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "update",
+        "chats": [1, 2, 3],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 7,
+              "session_id": 1,
+              "role": "user",
+              "body": "touch",
+              "clientMessageId": "ib-7"
+            }
+          ]
+        }
+      },
+      {
+        "op": "inboxValue"
+      },
+      {
+        "op": "update",
+        "chats": [3],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 8,
+              "session_id": 3,
+              "role": "assistant",
+              "body": {
+                "structured": true,
+                "n": 1
+              },
+              "outcome": "completed"
+            }
+          ]
+        }
+      },
+      {
+        "op": "inboxValue"
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "advance",
+        "ms": 660000
+      },
+      {
+        "op": "inboxValue"
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
+    "name": "failures-and-retry",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 12,
+      "sessions": {
+        "1": {
+          "id": 1,
+          "title": "One",
+          "summary": {
+            "lastAt": 1767225599000,
+            "lastOutcome": "failed"
+          },
+          "unread": true
+        },
+        "2": {
+          "id": 2,
+          "title": "Two",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "subagents": [
+            {
+              "id": "helper",
+              "title": "helper",
+              "transcript": [
+                {
+                  "id": "e1",
+                  "kind": "message",
+                  "text": "hello"
+                },
+                {
+                  "id": "e2",
+                  "kind": "tool",
+                  "text": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+                }
+              ]
+            }
+          ]
+        },
+        "3": {
+          "id": 3,
+          "title": "Three",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "unread": true,
+          "queued": [
+            {
+              "clientMessageId": "queued-3",
+              "body": "later"
+            }
+          ]
+        },
+        "4": {
+          "id": 4,
+          "title": "Four",
+          "archived": true,
+          "summary": {
+            "lastAt": 1767214800000
+          }
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "Fix the parser please",
+          "clientMessageId": "cm-1"
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Parsing works now; the parser handles na\u00efve caf\u00e9 input.",
+          "outcome": "completed"
+        },
+        {
+          "id": 3,
+          "session_id": 2,
+          "role": "user",
+          "body": "Look at \u0130stanbul and \u65e5\u672c\u8a9e text \ud83d\ude00 here",
+          "clientMessageId": "cm-3"
+        },
+        {
+          "id": 4,
+          "session_id": 2,
+          "role": "assistant",
+          "body": "Ran the checks.",
+          "outcome": "completed",
+          "steps": [
+            {
+              "id": "s1",
+              "kind": "shell",
+              "title": "grep",
+              "detail": "grep:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "status": "done"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "session_id": 1,
+          "role": "user",
+          "body": "Another parser question",
+          "clientMessageId": "cm-5"
+        },
+        {
+          "id": 6,
+          "session_id": 3,
+          "role": "user",
+          "body": "Third chat asks about the paser typo",
+          "clientMessageId": "cm-6"
+        },
+        {
+          "id": 7,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "Third chat answer about parsers",
+          "outcome": "completed"
+        },
+        {
+          "id": 8,
+          "session_id": 2,
+          "role": "user",
+          "body": "Second chat follow up on the parser",
+          "clientMessageId": "cm-8"
+        },
+        {
+          "id": 9,
+          "session_id": 4,
+          "role": "user",
+          "body": "Archived chat mentions parser too",
+          "clientMessageId": "cm-9"
+        },
+        {
+          "id": 10,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "A longer reply word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+          "outcome": "completed"
+        },
+        {
+          "id": 11,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "First chat reply",
+          "outcome": "failed"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 12,
+              "session_id": 1,
+              "role": "user",
+              "body": "Will fail to save",
+              "clientMessageId": "cm-12"
+            }
+          ]
+        }
+      },
+      {
+        "op": "block"
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "persist": false,
+        "change": {
+          "kind": "edit",
+          "id": 12,
+          "patch": {
+            "body": "Transient edit"
+          }
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "flush"
+      },
+      {
+        "op": "unblock"
+      },
+      {
+        "op": "retry"
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "persist": false,
+        "change": {
+          "kind": "field",
+          "key": "next_id",
+          "value": 13
+        }
+      },
+      {
+        "op": "close"
+      },
+      {
+        "op": "open"
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-12"
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
+    "name": "debounce-and-crash",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 12,
+      "sessions": {
+        "1": {
+          "id": 1,
+          "title": "One",
+          "summary": {
+            "lastAt": 1767225599000,
+            "lastOutcome": "failed"
+          },
+          "unread": true
+        },
+        "2": {
+          "id": 2,
+          "title": "Two",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "subagents": [
+            {
+              "id": "helper",
+              "title": "helper",
+              "transcript": [
+                {
+                  "id": "e1",
+                  "kind": "message",
+                  "text": "hello"
+                },
+                {
+                  "id": "e2",
+                  "kind": "tool",
+                  "text": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+                }
+              ]
+            }
+          ]
+        },
+        "3": {
+          "id": 3,
+          "title": "Three",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "unread": true,
+          "queued": [
+            {
+              "clientMessageId": "queued-3",
+              "body": "later"
+            }
+          ]
+        },
+        "4": {
+          "id": 4,
+          "title": "Four",
+          "archived": true,
+          "summary": {
+            "lastAt": 1767214800000
+          }
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "Fix the parser please",
+          "clientMessageId": "cm-1"
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Parsing works now; the parser handles na\u00efve caf\u00e9 input.",
+          "outcome": "completed"
+        },
+        {
+          "id": 3,
+          "session_id": 2,
+          "role": "user",
+          "body": "Look at \u0130stanbul and \u65e5\u672c\u8a9e text \ud83d\ude00 here",
+          "clientMessageId": "cm-3"
+        },
+        {
+          "id": 4,
+          "session_id": 2,
+          "role": "assistant",
+          "body": "Ran the checks.",
+          "outcome": "completed",
+          "steps": [
+            {
+              "id": "s1",
+              "kind": "shell",
+              "title": "grep",
+              "detail": "grep:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "status": "done"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "session_id": 1,
+          "role": "user",
+          "body": "Another parser question",
+          "clientMessageId": "cm-5"
+        },
+        {
+          "id": 6,
+          "session_id": 3,
+          "role": "user",
+          "body": "Third chat asks about the paser typo",
+          "clientMessageId": "cm-6"
+        },
+        {
+          "id": 7,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "Third chat answer about parsers",
+          "outcome": "completed"
+        },
+        {
+          "id": 8,
+          "session_id": 2,
+          "role": "user",
+          "body": "Second chat follow up on the parser",
+          "clientMessageId": "cm-8"
+        },
+        {
+          "id": 9,
+          "session_id": 4,
+          "role": "user",
+          "body": "Archived chat mentions parser too",
+          "clientMessageId": "cm-9"
+        },
+        {
+          "id": 10,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "A longer reply word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+          "outcome": "completed"
+        },
+        {
+          "id": 11,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "First chat reply",
+          "outcome": "failed"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 12,
+              "session_id": 1,
+              "role": "user",
+              "body": "one",
+              "clientMessageId": "cm-a"
+            }
+          ]
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 100
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 13,
+              "session_id": 1,
+              "role": "user",
+              "body": "two",
+              "clientMessageId": "cm-b"
+            }
+          ]
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 200
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 14,
+              "session_id": 1,
+              "role": "user",
+              "body": "three",
+              "clientMessageId": "cm-c"
+            }
+          ]
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 100
+      },
+      {
+        "op": "advance",
+        "ms": 200
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 15,
+              "session_id": 1,
+              "role": "user",
+              "body": "lost in the crash",
+              "clientMessageId": "cm-d"
+            }
+          ]
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 100
+      },
+      {
+        "op": "crash"
+      },
+      {
+        "op": "open"
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-c"
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-d"
+      },
+      {
+        "op": "snapshot"
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 15,
+              "session_id": 1,
+              "role": "user",
+              "body": "sent again",
+              "clientMessageId": "cm-d"
+            }
+          ]
+        }
+      },
+      {
+        "op": "flush"
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-d"
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
+    "name": "failed-close-then-retry",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 12,
+      "sessions": {
+        "1": {
+          "id": 1,
+          "title": "One",
+          "summary": {
+            "lastAt": 1767225599000,
+            "lastOutcome": "failed"
+          },
+          "unread": true
+        },
+        "2": {
+          "id": 2,
+          "title": "Two",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "subagents": [
+            {
+              "id": "helper",
+              "title": "helper",
+              "transcript": [
+                {
+                  "id": "e1",
+                  "kind": "message",
+                  "text": "hello"
+                },
+                {
+                  "id": "e2",
+                  "kind": "tool",
+                  "text": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+                }
+              ]
+            }
+          ]
+        },
+        "3": {
+          "id": 3,
+          "title": "Three",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "unread": true,
+          "queued": [
+            {
+              "clientMessageId": "queued-3",
+              "body": "later"
+            }
+          ]
+        },
+        "4": {
+          "id": 4,
+          "title": "Four",
+          "archived": true,
+          "summary": {
+            "lastAt": 1767214800000
+          }
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "Fix the parser please",
+          "clientMessageId": "cm-1"
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Parsing works now; the parser handles na\u00efve caf\u00e9 input.",
+          "outcome": "completed"
+        },
+        {
+          "id": 3,
+          "session_id": 2,
+          "role": "user",
+          "body": "Look at \u0130stanbul and \u65e5\u672c\u8a9e text \ud83d\ude00 here",
+          "clientMessageId": "cm-3"
+        },
+        {
+          "id": 4,
+          "session_id": 2,
+          "role": "assistant",
+          "body": "Ran the checks.",
+          "outcome": "completed",
+          "steps": [
+            {
+              "id": "s1",
+              "kind": "shell",
+              "title": "grep",
+              "detail": "grep:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "status": "done"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "session_id": 1,
+          "role": "user",
+          "body": "Another parser question",
+          "clientMessageId": "cm-5"
+        },
+        {
+          "id": 6,
+          "session_id": 3,
+          "role": "user",
+          "body": "Third chat asks about the paser typo",
+          "clientMessageId": "cm-6"
+        },
+        {
+          "id": 7,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "Third chat answer about parsers",
+          "outcome": "completed"
+        },
+        {
+          "id": 8,
+          "session_id": 2,
+          "role": "user",
+          "body": "Second chat follow up on the parser",
+          "clientMessageId": "cm-8"
+        },
+        {
+          "id": 9,
+          "session_id": 4,
+          "role": "user",
+          "body": "Archived chat mentions parser too",
+          "clientMessageId": "cm-9"
+        },
+        {
+          "id": 10,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "A longer reply word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+          "outcome": "completed"
+        },
+        {
+          "id": 11,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "First chat reply",
+          "outcome": "failed"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "open"
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "append",
+          "messages": [
+            {
+              "id": 12,
+              "session_id": 1,
+              "role": "user",
+              "body": "Saved only by the second close",
+              "clientMessageId": "cm-close"
+            }
+          ]
+        }
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "persist": false,
+        "change": {
+          "kind": "field",
+          "key": "next_id",
+          "value": 13
+        }
+      },
+      {
+        "op": "block"
+      },
+      {
+        "op": "close"
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "edit",
+          "id": 12,
+          "patch": {
+            "body": "refused: closed"
+          }
+        }
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-close"
+      },
+      {
+        "op": "unblock"
+      },
+      {
+        "op": "retry"
+      },
+      {
+        "op": "close"
+      },
+      {
+        "op": "open"
+      },
+      {
+        "op": "sendStatus",
+        "id": "cm-close"
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  },
+  {
+    "name": "unload-rules",
+    "start": 1767225600000,
+    "seed": {
+      "next_id": 12,
+      "sessions": {
+        "1": {
+          "id": 1,
+          "title": "One",
+          "summary": {
+            "lastAt": 1767225599000,
+            "lastOutcome": "failed"
+          },
+          "unread": true
+        },
+        "2": {
+          "id": 2,
+          "title": "Two",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "subagents": [
+            {
+              "id": "helper",
+              "title": "helper",
+              "transcript": [
+                {
+                  "id": "e1",
+                  "kind": "message",
+                  "text": "hello"
+                },
+                {
+                  "id": "e2",
+                  "kind": "tool",
+                  "text": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+                }
+              ]
+            }
+          ]
+        },
+        "3": {
+          "id": 3,
+          "title": "Three",
+          "summary": {
+            "lastAt": 1767218400000,
+            "lastOutcome": "completed"
+          },
+          "unread": true,
+          "queued": [
+            {
+              "clientMessageId": "queued-3",
+              "body": "later"
+            }
+          ]
+        },
+        "4": {
+          "id": 4,
+          "title": "Four",
+          "archived": true,
+          "summary": {
+            "lastAt": 1767214800000
+          }
+        }
+      },
+      "messages": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "role": "user",
+          "body": "Fix the parser please",
+          "clientMessageId": "cm-1"
+        },
+        {
+          "id": 2,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "Parsing works now; the parser handles na\u00efve caf\u00e9 input.",
+          "outcome": "completed"
+        },
+        {
+          "id": 3,
+          "session_id": 2,
+          "role": "user",
+          "body": "Look at \u0130stanbul and \u65e5\u672c\u8a9e text \ud83d\ude00 here",
+          "clientMessageId": "cm-3"
+        },
+        {
+          "id": 4,
+          "session_id": 2,
+          "role": "assistant",
+          "body": "Ran the checks.",
+          "outcome": "completed",
+          "steps": [
+            {
+              "id": "s1",
+              "kind": "shell",
+              "title": "grep",
+              "detail": "grep:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "status": "done"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "session_id": 1,
+          "role": "user",
+          "body": "Another parser question",
+          "clientMessageId": "cm-5"
+        },
+        {
+          "id": 6,
+          "session_id": 3,
+          "role": "user",
+          "body": "Third chat asks about the paser typo",
+          "clientMessageId": "cm-6"
+        },
+        {
+          "id": 7,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "Third chat answer about parsers",
+          "outcome": "completed"
+        },
+        {
+          "id": 8,
+          "session_id": 2,
+          "role": "user",
+          "body": "Second chat follow up on the parser",
+          "clientMessageId": "cm-8"
+        },
+        {
+          "id": 9,
+          "session_id": 4,
+          "role": "user",
+          "body": "Archived chat mentions parser too",
+          "clientMessageId": "cm-9"
+        },
+        {
+          "id": 10,
+          "session_id": 3,
+          "role": "assistant",
+          "body": "A longer reply word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+          "outcome": "completed"
+        },
+        {
+          "id": 11,
+          "session_id": 1,
+          "role": "assistant",
+          "body": "First chat reply",
+          "outcome": "failed"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "op": "load",
+        "chats": [3]
+      },
+      {
+        "op": "update",
+        "chats": [],
+        "change": {
+          "kind": "edit",
+          "id": 3,
+          "patch": {
+            "body": "Edited in an unloaded chat"
+          }
+        }
+      },
+      {
+        "op": "update",
+        "chats": [],
+        "change": {
+          "kind": "remove",
+          "ids": [8]
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "update",
+        "chats": [],
+        "change": {
+          "kind": "session",
+          "id": "4",
+          "value": null
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "whole"
+      },
+      {
+        "op": "allMessages",
+        "marks": true
+      },
+      {
+        "op": "update",
+        "chats": [1],
+        "change": {
+          "kind": "none"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 660000
+      },
+      {
+        "op": "update",
+        "change": {
+          "kind": "edit",
+          "id": 1,
+          "patch": {
+            "body": "Everything loaded again"
+          }
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 300
+      },
+      {
+        "op": "whole"
+      },
+      {
+        "op": "snapshot"
+      }
+    ]
+  }
+]

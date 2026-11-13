@@ -1,0 +1,4 @@
+{
+ "readProjectState": "{\"error\":\"ENOENT: no such file or directory, open '<project>/.milagre/coordination.json'\"}",
+ "readProjectStateUncompacted": "{\"error\":\"ENOENT: no such file or directory, open '<project>/.milagre/coordination.json'\"}"
+}

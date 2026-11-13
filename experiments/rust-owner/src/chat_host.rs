@@ -1,0 +1,6275 @@
+//! Sending messages and folding turns: the core of `packages/core/src/agents/chat-host.cjs` ChatHost, over
+//! [`ProjectStates`] in an isolated copy, with agents behind a nonblocking, `Send` [`Provider`] trait.
+//!
+//! Ported as Node does it:
+//!
+//! - **Receipts and idempotency.** A send with a `clientMessageId` already saved (or waiting in a queue) answers
+//!   `{ sessionId, duplicate }` and starts nothing, checked before the save and again inside it.
+//! - **Save, flush, start.** The user message is saved and flushed to disk before the turn starts; a failed flush
+//!   takes the message back out. The `message-sent` event opens the run; the provider is asked to start without the
+//!   host waiting, and a start that fails ends the run with `turn-failed`.
+//! - **Queue.** A message for a running turn whose provider can't steer, or sent with `delivery: "queue"`, waits in
+//!   `session.queued` (saved before it is answered). A completed turn starts the oldest; a cancelled or failed one
+//!   holds the queue. Send now (`chat:queue-send`) and Remove (`chat:queue-remove`).
+//! - **Events.** `session-started`, `session-reset`, `turn-started`, `text-delta`, `context-usage`,
+//!   permission/question requests and resolutions, `subagents-waiting`, tool steps (stamped and summarized as
+//!   ChatHost.fold does), subagent updates (in memory until another change saves), background tasks, plans, native
+//!   task lists, prompt suggestions, `answers-sent` and the three turn ends, which save the reply, mark the Chat unread
+//!   unless it is the open one, archive finished subagents and move the queue on.
+//! - **Answers.** `agent:respond-permission` and `agent:answer-question` through the provider, settled asynchronously.
+//! - **Cancel.** `agent:interrupt` asks the provider to stop the running turn; its `turn-cancelled` ends it.
+//!
+//! Safer than Node where Node can lose a turn: every provider event names the [`TurnId`] whose session sent it, and
+//! one of another turn, an older session or a closed Project is dropped; Projects must be named by their states key;
+//! runs change only with a kept fold, a failed turn end is kept and retried, interrupts that never end are forced by
+//! [`ChatHost::tick`], and failures of the host's own work come back as [`Notice::Failed`].
+//!
+//! Explicit gates (refused with [`gate`] errors, never approximated): steering a running turn (admission and save are
+//! ported behind [`SteeringMode`], whose `Recorded` mode is for conformance and calls no provider), provider handoffs,
+//! compaction, usage-limit continuations and account routing, Routines' messages, wake turns, `canStart`, images
+//! outside the explicit bounded adapter capability,
+//! handover briefs, Send now that would steer, answers that need unported policy (secrets, bug reports, setup reviews,
+//! images, Subchat cards), a turn the agent started by itself, quitting or closing a Project with turns running unless
+//! forced, and the agent events listed in [`crate::agent_runs::UNSUPPORTED`] (compaction progress).
+//!
+//! Answers settle asynchronously ([`AnswerTicket`], [`ProviderEvent::AnswerSettled`]); see PROVIDER-CONTRACT.md.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use serde_json::{json, Map, Value};
+
+use crate::agent_runs::{self, chat_key, is_turn_end, session_of_key, Runs};
+use crate::brief::{inbound_reply, BriefEvent, BriefId, BriefModel, BriefRequest, MAX_BRIEFS};
+use crate::chat_db::LookupField;
+use crate::error::{Result, StoreError};
+use crate::handover;
+pub use crate::images::ImageInput;
+use crate::jsjson::{self, RawJson};
+use crate::message_store::{Msg, MsgRef, ProjectState};
+use crate::states::ProjectStates;
+use crate::transcripts::{
+    JobId, JobOutcome, StagedTranscript, TranscriptJob, TranscriptJobs, TranscriptSource,
+};
+
+#[cfg(feature = "routine-execution-fixture")]
+mod routine_fixture;
+#[cfg(feature = "routine-execution-fixture")]
+pub use routine_fixture::{
+    quiet_summary as routine_quiet_summary, routine_reply_text, RoutineFixtureError,
+};
+enum SendAdmission {
+    Ordinary,
+    #[cfg(feature = "routine-execution-fixture")]
+    RoutineFixture,
+}
+
+/// What each provider can do (shared/provider-capabilities.mjs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Capabilities {
+    pub steer: bool,
+    pub compact: bool,
+}
+
+pub fn provider_capabilities(provider: Option<&str>) -> Capabilities {
+    match provider {
+        Some("claude") => Capabilities {
+            steer: true,
+            compact: true,
+        },
+        Some("codex") => Capabilities {
+            steer: true,
+            compact: false,
+        },
+        _ => Capabilities::default(),
+    }
+}
+
+/// The host's name for one turn it asked a provider to start. Every event a provider sends about that turn carries
+/// it, so a late event of an earlier turn (a `turn-cancelled` after Send now started the next one) is told apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TurnId(pub u64);
+
+/// Why a provider couldn't do what it was asked. `message` is shown in the Chat (as Node's `Agent error: …`) and must
+/// never carry a credential.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderError {
+    pub kind: ProviderErrorKind,
+    pub message: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderErrorKind {
+    /// The CLI or its session is missing (not installed, signed out, session gone).
+    Unavailable,
+    /// The provider refused the request as given.
+    Refused,
+    /// The provider took too long.
+    Timeout,
+    /// The provider's process ended.
+    Exited,
+    Other,
+}
+
+impl ProviderError {
+    pub fn new(kind: ProviderErrorKind, message: impl Into<String>) -> Self {
+        ProviderError {
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+/// A handoff being prepared in a Chat (restore only; see HANDOFF-PROPOSAL.md).
+#[derive(Debug)]
+struct Preparing {
+    /// The turn reserved when the handoff was staged: its generation. Nothing of another turn touches it.
+    turn: TurnId,
+    project: PathBuf,
+    /// The transcript once committed, and what the brief's model is asked (`None`: the minimal brief).
+    transcript: Option<PathBuf>,
+    brief_prompt: Option<handover::BriefRequest>,
+    /// The provider handed over from (encoded), whether the brief catches up, and the last request (for the minimal
+    /// brief).
+    provider: String,
+    catch_up: bool,
+    last_user_message: Option<Value>,
+    /// The brief asked, and the brief once written (the model's, or the minimal one).
+    brief_id: Option<BriefId>,
+    brief: Option<String>,
+    /// A staged restore: the divider's id, the Chat's session, the turn as stored and the start request (prompt
+    /// without the brief yet). `None` for a transcript prepared by a test alone.
+    divider: Option<i64>,
+    session: i64,
+    turn_fields: Map<String, Value>,
+    start: Map<String, Value>,
+    /// The divider is marked done in memory and waits for a save before the turn starts (retried on `tick`).
+    saving: bool,
+    /// A failed save of the done divider was told (once per handoff).
+    told_saving: bool,
+    /// The changed files the transcript job found (for the minimal brief).
+    changed_files: Vec<String>,
+    /// Settled while its Project wasn't ready (applied once it is ready again, never before): the brief's reply
+    /// (`Some(None)`: failed or late), or why the handoff can't go on.
+    held_brief: Option<Option<String>>,
+    held_failure: Option<String>,
+}
+
+/// A transcript job out: whose it is, whether its handoff was cancelled (its result is then only cleaned up), and a
+/// temporary file still to remove.
+struct JobSlot {
+    project: PathBuf,
+    chat: String,
+    turn: TurnId,
+    cancelled: bool,
+    cleanup: Option<StagedTranscript>,
+    /// A staged transcript that came back while its Project wasn't ready: committed once it is (if still current),
+    /// only cleaned up if the handoff stopped meanwhile.
+    held: Option<HeldStaged>,
+    /// A cleanup failure was told (once per job).
+    told: bool,
+}
+
+struct HeldStaged {
+    staged: StagedTranscript,
+    brief_prompt: Option<handover::BriefRequest>,
+    changed_files: Vec<String>,
+}
+
+/// The most provider events kept for Projects that are loaded but not ready, and their estimated heap bytes (see
+/// `event_bytes`), all such Projects together. Past either, the Project whose event didn't fit fails closed (its kept
+/// events dropped, its running turns ended once it opens again); other Projects keep theirs.
+pub const MAX_PARKED_EVENTS: usize = 4096;
+pub const MAX_PARKED_BYTES: usize = 16 << 20;
+/// The most refusals of released events kept for the next `pump` (opens can release again and again between pumps);
+/// past it they are counted and returned as one summary error.
+pub const MAX_RELEASED_ERRORS: usize = 256;
+
+/// One not-ready Project's provider events, in arrival order, each with its counted size.
+#[derive(Default)]
+struct Parked {
+    events: std::collections::VecDeque<(ProviderEvent, usize)>,
+    bytes: usize,
+    /// Overflowed: the turns that ran then (their sessions closed at once, ended once the Project is ready); nothing
+    /// more is kept for it.
+    lost: Option<BTreeMap<String, TurnId>>,
+}
+
+/// What one provider event costs to keep: a conservative estimate of the heap it holds, not its serialized size. A
+/// JSON value is counted node by node (each `Value` slot, twice over for a list's or map's spare capacity, each map
+/// entry's key, hash and index, each string's bytes plus an allocation's minimum), plus the event itself, its chat key
+/// and its messages. `[0,0,…]` costs about 2 bytes a node as JSON but about 2 × `size_of::<Value>()` here.
+fn event_bytes(event: &ProviderEvent) -> usize {
+    const ALLOCATION: usize = 16;
+    let slot = std::mem::size_of::<Value>();
+    let entry = slot + std::mem::size_of::<String>() + std::mem::size_of::<usize>();
+    let heap = |value: &Value| {
+        let mut total = 0usize;
+        let mut stack = vec![value];
+        while let Some(value) = stack.pop() {
+            match value {
+                Value::String(text) => total += text.len() + ALLOCATION,
+                Value::Array(items) => {
+                    total += 2 * slot * items.len() + ALLOCATION;
+                    stack.extend(items.iter());
+                }
+                Value::Object(map) => {
+                    // Entries (with spare capacity) and the index table.
+                    total +=
+                        map.len() * (2 * entry + 2 * std::mem::size_of::<usize>()) + 2 * ALLOCATION;
+                    for (key, value) in map {
+                        total += key.len() + ALLOCATION;
+                        stack.push(value);
+                    }
+                }
+                _ => {}
+            }
+        }
+        total + slot
+    };
+    let message = |error: &ProviderError| error.message.len() + ALLOCATION;
+    let body = match event {
+        ProviderEvent::Started { result, .. } => heap(&result.0),
+        ProviderEvent::Agent { event, .. } => heap(&event.0),
+        ProviderEvent::StartFailed { error, .. } | ProviderEvent::Exited { error, .. } => {
+            message(error)
+        }
+        ProviderEvent::AnswerSettled { outcome, .. } => match outcome {
+            AnswerOutcome::Failed(error) | AnswerOutcome::Uncertain(error) => message(error),
+            _ => 0,
+        },
+        ProviderEvent::ModeSettled { outcome, .. } => match outcome {
+            ModeOutcome::Applied => 0,
+            ModeOutcome::Failed(error) | ModeOutcome::Uncertain(error) => message(error),
+        },
+    };
+    let chat = match event {
+        ProviderEvent::Started { chat, .. }
+        | ProviderEvent::StartFailed { chat, .. }
+        | ProviderEvent::Agent { chat, .. }
+        | ProviderEvent::Exited { chat, .. }
+        | ProviderEvent::AnswerSettled { chat, .. }
+        | ProviderEvent::ModeSettled { chat, .. } => chat.len() + ALLOCATION,
+    };
+    std::mem::size_of::<(ProviderEvent, usize)>() + chat + body
+}
+
+/// Where a quit stands (see [`ChatHost::shutdown`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuitState {
+    /// No quit began, or it was refused.
+    Running,
+    /// The quit waits on transcript jobs still out or on temporary files still to remove: every lock is held.
+    JobsPending { jobs: usize, cleanups: usize },
+    /// The providers are shut down and every job is done, but the final save and close failed: call `shutdown` again.
+    ClosePending,
+    /// The quit finished: jobs and cleanups done, states saved and closed, locks released.
+    Done,
+}
+
+/// What a provider tells the host, taken with [`Provider::take_events`] or handed to [`ChatHost::deliver`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProviderEvent {
+    /// The turn started: what SessionManager.startTurn resolves with (`{ turnId, steered }`).
+    Started {
+        chat: String,
+        turn: TurnId,
+        result: RawJson,
+    },
+    /// The turn couldn't start (startTurn rejected); the host ends it with `turn-failed`.
+    StartFailed {
+        chat: String,
+        turn: TurnId,
+        error: ProviderError,
+    },
+    /// One Node agent event (`{ type, … }`). `turn` is the host turn whose session sent it: the turn running for
+    /// anything inside a turn (and its end); for Chat-level events between turns (`session-started`, `session-reset`,
+    /// `context-usage`, …) the last turn that session ran, which stands for the session's generation. An event of
+    /// another turn or an older session is dropped.
+    Agent {
+        chat: String,
+        turn: TurnId,
+        event: RawJson,
+    },
+    /// The provider's process for this Chat ended, after running `turn` (the last turn it ran). Fails that turn if
+    /// it still runs; otherwise closes that session, so its late events are dropped. Never touches a newer turn.
+    Exited {
+        chat: String,
+        turn: TurnId,
+        error: ProviderError,
+    },
+    /// How an answer the host handed over (`respond_permission`, `answer_question`) settled. Exactly one per answer;
+    /// one the host already settled (deadline, closed session) or never issued is dropped.
+    AnswerSettled {
+        chat: String,
+        answer: AnswerId,
+        outcome: AnswerOutcome,
+    },
+    /// The session accepted its permission-mode update, or the update failed. Enqueueing alone isn't acceptance.
+    ModeSettled {
+        chat: String,
+        change: ModeChangeId,
+        outcome: ModeOutcome,
+    },
+}
+
+/// One generation-bound permission-mode update handed to an adapter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModeChangeId(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModeTicket {
+    Settled,
+    Pending(ModeChangeId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModeResult {
+    Applied,
+    Failed(String),
+    /// No receipt yet. The pending authority remains held until a receipt or session close.
+    Uncertain(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModeOutcome {
+    Applied,
+    /// The update operation ended with an error; local policy may already have changed, as in Node.
+    Failed(ProviderError),
+    /// The adapter cannot prove the update ended. Retain authority until a definitive receipt or session close.
+    Uncertain(ProviderError),
+}
+
+pub const MODE_DELIVERY_UNKNOWN: &str = "MODE_DELIVERY_UNKNOWN";
+pub const MODE_CAPACITY: usize = 256;
+pub const MODE_GRACE_MS: i64 = 30_000;
+
+struct PendingMode {
+    chat: String,
+    turn: TurnId,
+    mode: String,
+    due: i64,
+    told: bool,
+    /// Forget/quit revoked this operation's right to note preferences. Keep its admission until actual cleanup.
+    revoked: bool,
+}
+
+/// The host's name for one answer it handed to a provider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AnswerId(pub u64);
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AnswerOutcome {
+    /// The adapter confirmed the session's transport accepted it (Codex: the reply frame was written; Claude: the
+    /// callback resolved). Says nothing about what the agent then does.
+    Accepted,
+    /// Proven that nothing waited on that request (answered already, withdrawn, or another session).
+    NotWaiting,
+    /// Proven not delivered: it never reached the session (refused before writing, dropped from the queue unwritten).
+    Failed(ProviderError),
+    /// It may have reached the session (written, then the pipe broke or the process died before a confirmation).
+    /// The answers stay shown, and the same request can't be answered again in that session generation until a later
+    /// definitive settlement or the session closes.
+    Uncertain(ProviderError),
+}
+
+/// What an answer came to, as told in [`Notice::AnswerSettled`] (and [`Notice::AnswerResolved`] later).
+#[derive(Clone, Debug, PartialEq)]
+pub enum AnswerResult {
+    /// Node's `true`: the adapter confirmed the session's transport accepted it (Codex: the reply frame was written;
+    /// Claude: the callback resolved). Not that a tool ran.
+    Accepted,
+    /// Node's `false`: nothing waited; the answers message was taken back.
+    NotWaiting,
+    /// Proven not delivered: the command rejects with the message; the answers message was taken back.
+    Failed(String),
+    /// Delivery unknown: the command rejects with code `ANSWER_DELIVERY_UNKNOWN`; the answers message stays.
+    Uncertain(String),
+}
+
+/// The error code a command rejects with for [`AnswerResult::Uncertain`] and for a retry it blocks
+/// ([`StoreError::code`] of `AnswerDeliveryUnknown`).
+pub const ANSWER_DELIVERY_UNKNOWN: &str = "ANSWER_DELIVERY_UNKNOWN";
+
+/// What answering returned at once: settled already (`false` when no session could take it), or waiting for its
+/// [`Notice::AnswerSettled`]. A wire server keeps the client's reply until then (Node's command awaits the same).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnswerTicket {
+    Settled(bool),
+    Pending(AnswerId),
+}
+
+/// An answer handed over and not settled yet.
+#[derive(Clone, Debug)]
+struct PendingAnswer {
+    chat: String,
+    turn: TurnId,
+    request: String,
+    /// The answers message to take back unless the session takes them.
+    message: Option<f64>,
+    due: i64,
+}
+
+/// An agent provider adapter: SessionManager for one provider. Every method returns at once (an adapter does its work on
+/// its own tasks and reports back through events); none may block the host. `Send`, so the host can live behind a
+/// shared lock or move between threads.
+///
+/// - `start_turn(turn, request)`: begin a turn for `request.chatId` (`{ provider, model, permissionMode, effort,
+///   ultracode, fastMode, replies, tldrEnabled, prompt, chatId, cwd, images, resumeId }`, undefined fields left out).
+///   `Err` only for a refusal known at once; otherwise `Started` or `StartFailed` follows, then the turn's events.
+/// - `interrupt(chat, turn)`: ask that turn to stop; its `turn-cancelled` follows.
+/// - `respond_permission` / `answer_question`: hand the user's answer to the session of `turn` (the Chat's latest
+///   turn), named `answer` by the host. Enqueue only: `Err` for a refusal known at once (that session is gone), and
+///   otherwise exactly one `AnswerSettled { answer }` follows: `Accepted` once the session took it, `NotWaiting` when
+///   nothing waited on that request (Node's `false`), `Failed` when handing it over failed after it was queued.
+///   Decision is one of `allow`, `allow-for-chat`, `deny`; answers are null or question id -> strings, validated.
+/// - `close_chat(chat, turn)`: end the Chat's session of that generation (the one that ran `turn`), and only that one:
+///   a newer session started since (Send now) stays. `shutdown()`: end every session.
+pub trait Provider: Send {
+    fn name(&self) -> &str;
+    /// Explicit adapter grant, never a caller-supplied setting. Other adapters keep image sends refused.
+    fn supports_image_inputs(&self) -> bool {
+        false
+    }
+    /// Pure, bounded validation before the owner writes any image or message. Check the exact prompt, settings,
+    /// expanded image blocks and complete native frame budget without creating or changing a provider session.
+    fn validate_image_turn(
+        &self,
+        _request: &RawJson,
+        images: &[ImageInput],
+    ) -> std::result::Result<(), ProviderError> {
+        if images.is_empty() {
+            Ok(())
+        } else {
+            Err(ProviderError::new(
+                ProviderErrorKind::Refused,
+                "Sending images isn't supported by this provider adapter yet.",
+            ))
+        }
+    }
+    /// Only owner-validated bytes cross this boundary; request.images is empty. Recheck native frame limits before
+    /// mutating the session. The default preserves every existing text adapter and refuses nonempty images.
+    fn start_turn_with_images(
+        &mut self,
+        turn: TurnId,
+        request: &RawJson,
+        images: &[ImageInput],
+    ) -> std::result::Result<(), ProviderError> {
+        if images.is_empty() {
+            self.start_turn(turn, request)
+        } else {
+            Err(ProviderError::new(
+                ProviderErrorKind::Refused,
+                "Sending images isn't supported by this provider adapter yet.",
+            ))
+        }
+    }
+    fn start_turn(
+        &mut self,
+        turn: TurnId,
+        request: &RawJson,
+    ) -> std::result::Result<(), ProviderError>;
+    fn interrupt(&mut self, chat: &str, turn: TurnId) -> std::result::Result<(), ProviderError>;
+    fn respond_permission(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        decision: &str,
+    ) -> std::result::Result<(), ProviderError>;
+    fn answer_question(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        answers: &RawJson,
+    ) -> std::result::Result<(), ProviderError>;
+    /// Queue an update for exactly this generation, including an idle retained session. Settle only after the
+    /// adapter took the update; an old queued task must never discover and mutate a newer session by Chat alone.
+    fn set_mode(
+        &mut self,
+        _chat: &str,
+        _turn: TurnId,
+        _change: ModeChangeId,
+        _mode: &str,
+    ) -> std::result::Result<(), ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorKind::Refused,
+            "Changing permission mode isn't supported by this provider adapter yet.",
+        ))
+    }
+    fn close_chat(&mut self, chat: &str, turn: TurnId) -> std::result::Result<(), ProviderError>;
+    fn shutdown(&mut self);
+    fn take_events(&mut self) -> Vec<ProviderEvent>;
+}
+
+/// A refused feature: what isn't ported, said as such.
+pub fn gate(what: &str) -> StoreError {
+    StoreError::Invalid(format!("{what} isn't supported by the Rust owner yet."))
+}
+
+/// A scripted provider for tests and conformance: records what it was asked, answers what it is told. Starts are
+/// answered with events, as a real adapter's would be.
+#[derive(Default)]
+pub struct MockState {
+    pub turns: Vec<Value>,
+    pub interrupts: Vec<String>,
+    pub events: Vec<ProviderEvent>,
+    pub fail_next_start: Option<String>,
+    pub fail_next_interrupt: Option<String>,
+    pub next_turn: u64,
+    /// The last turn started per Chat: what [`MockProvider::emit`] tags events with.
+    pub current: HashMap<String, TurnId>,
+    pub closed: Vec<String>,
+    pub shut_down: bool,
+    pub shutdowns: usize,
+    /// Answers handed over (`{ chat, requestId, decision }` or `{ chat, requestId, answers }`), in order.
+    pub answers: Vec<Value>,
+    /// Answers settle `Accepted` unless this is set (then `NotWaiting`).
+    pub refuse_answers: bool,
+    /// Answers are queued but not settled (for deadline tests).
+    pub hold_answers: bool,
+    /// The next answer handed over fails after queueing, proven undelivered.
+    pub fail_next_answer: Option<String>,
+    /// The next answer handed over ends with its delivery unknown.
+    pub uncertain_next_answer: Option<String>,
+    /// The next start is refused at once (`Err` from `start_turn`).
+    pub refuse_next_start: Option<String>,
+    pub modes: Vec<Value>,
+    pub hold_modes: bool,
+    pub fail_next_mode: Option<String>,
+    pub fail_next_close: Option<String>,
+}
+
+impl MockState {
+    fn settle(&mut self, chat: &str, answer: AnswerId) {
+        if self.hold_answers {
+            return;
+        }
+        if let Some(message) = self.uncertain_next_answer.take() {
+            let outcome =
+                AnswerOutcome::Uncertain(ProviderError::new(ProviderErrorKind::Exited, message));
+            self.events.push(ProviderEvent::AnswerSettled {
+                chat: chat.into(),
+                answer,
+                outcome,
+            });
+            return;
+        }
+        let outcome = match self.fail_next_answer.take() {
+            Some(message) => {
+                AnswerOutcome::Failed(ProviderError::new(ProviderErrorKind::Exited, message))
+            }
+            None if self.refuse_answers => AnswerOutcome::NotWaiting,
+            None => AnswerOutcome::Accepted,
+        };
+        self.events.push(ProviderEvent::AnswerSettled {
+            chat: chat.into(),
+            answer,
+            outcome,
+        });
+    }
+}
+
+#[derive(Clone)]
+pub struct MockProvider {
+    name: String,
+    pub state: Arc<Mutex<MockState>>,
+}
+
+impl MockProvider {
+    pub fn new(name: &str) -> Self {
+        MockProvider {
+            name: name.into(),
+            state: Arc::new(Mutex::new(MockState::default())),
+        }
+    }
+
+    /// Another provider name over the same script and records (turn ids keep counting across both).
+    pub fn sharing(name: &str, other: &MockProvider) -> Self {
+        MockProvider {
+            name: name.into(),
+            state: other.state.clone(),
+        }
+    }
+
+    /// An agent event of the Chat's latest turn (`TurnId(0)`, which no host turn has, before any).
+    pub fn emit(&self, chat: &str, event: Value) {
+        let mut state = self.state.lock().unwrap();
+        let turn = state.current.get(chat).copied().unwrap_or(TurnId(0));
+        state.events.push(ProviderEvent::Agent {
+            chat: chat.into(),
+            turn,
+            event: RawJson(event),
+        });
+    }
+
+    /// An agent event tagged with a given turn, such as a late one.
+    pub fn emit_for(&self, chat: &str, turn: TurnId, event: Value) {
+        self.state
+            .lock()
+            .unwrap()
+            .events
+            .push(ProviderEvent::Agent {
+                chat: chat.into(),
+                turn,
+                event: RawJson(event),
+            });
+    }
+
+    /// The last turn started for a Chat.
+    pub fn current(&self, chat: &str) -> Option<TurnId> {
+        self.state.lock().unwrap().current.get(chat).copied()
+    }
+
+    pub fn push(&self, event: ProviderEvent) {
+        self.state.lock().unwrap().events.push(event);
+    }
+}
+
+impl Provider for MockProvider {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn start_turn(
+        &mut self,
+        turn: TurnId,
+        request: &RawJson,
+    ) -> std::result::Result<(), ProviderError> {
+        let request = &request.0;
+        let mut state = self.state.lock().unwrap();
+        state.turns.push(request.clone());
+        if let Some(message) = state.refuse_next_start.take() {
+            return Err(ProviderError::new(ProviderErrorKind::Refused, message));
+        }
+        let chat = request
+            .get("chatId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        state.current.insert(chat.clone(), turn);
+        let event = match state.fail_next_start.take() {
+            Some(message) => ProviderEvent::StartFailed {
+                chat,
+                turn,
+                error: ProviderError::new(ProviderErrorKind::Unavailable, message),
+            },
+            None => {
+                state.next_turn += 1;
+                let result =
+                    json!({ "turnId": format!("turn-{}", state.next_turn), "steered": false });
+                ProviderEvent::Started {
+                    chat,
+                    turn,
+                    result: RawJson(result),
+                }
+            }
+        };
+        state.events.push(event);
+        Ok(())
+    }
+    fn interrupt(&mut self, chat: &str, _turn: TurnId) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(message) = state.fail_next_interrupt.take() {
+            return Err(ProviderError::new(ProviderErrorKind::Other, message));
+        }
+        state.interrupts.push(chat.into());
+        Ok(())
+    }
+    fn respond_permission(
+        &mut self,
+        chat: &str,
+        _turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        decision: &str,
+    ) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .answers
+            .push(json!({ "chat": chat, "requestId": request_id, "decision": decision }));
+        state.settle(chat, answer);
+        Ok(())
+    }
+    fn answer_question(
+        &mut self,
+        chat: &str,
+        _turn: TurnId,
+        answer: AnswerId,
+        request_id: &str,
+        answers: &RawJson,
+    ) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .answers
+            .push(json!({ "chat": chat, "requestId": request_id, "answers": answers.0 }));
+        state.settle(chat, answer);
+        Ok(())
+    }
+    fn set_mode(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        change: ModeChangeId,
+        mode: &str,
+    ) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .modes
+            .push(json!({ "chat": chat, "turn": turn.0, "change": change.0, "mode": mode }));
+        if !state.hold_modes {
+            let outcome = state
+                .fail_next_mode
+                .take()
+                .map_or(ModeOutcome::Applied, |message| {
+                    ModeOutcome::Failed(ProviderError::new(ProviderErrorKind::Refused, message))
+                });
+            state.events.push(ProviderEvent::ModeSettled {
+                chat: chat.into(),
+                change,
+                outcome,
+            });
+        }
+        Ok(())
+    }
+    fn close_chat(&mut self, chat: &str, _turn: TurnId) -> std::result::Result<(), ProviderError> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(message) = state.fail_next_close.take() {
+            return Err(ProviderError::new(ProviderErrorKind::Other, message));
+        }
+        state.closed.push(chat.into());
+        Ok(())
+    }
+    fn shutdown(&mut self) {
+        let mut state = self.state.lock().unwrap();
+        state.shut_down = true;
+        state.shutdowns += 1;
+    }
+    fn take_events(&mut self) -> Vec<ProviderEvent> {
+        std::mem::take(&mut self.state.lock().unwrap().events)
+    }
+}
+
+/// What the host told its clients, in order (Node's `publish`, `broadcast`, `nameChat` and queue callbacks).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Notice {
+    Event {
+        chat: String,
+        event: Value,
+        seq: Option<u64>,
+        with_state: bool,
+    },
+    Broadcast {
+        project: PathBuf,
+    },
+    NameChat {
+        project: PathBuf,
+        session: i64,
+    },
+    QueueStarted {
+        id: String,
+        result: Value,
+    },
+    QueueStartedWithoutSender {
+        chat: String,
+        id: String,
+    },
+    QueueRemovedWithoutSender {
+        chat: String,
+        id: String,
+    },
+    /// A reply whose images Node would copy into the Project (chat-images.cjs): not ported, said so.
+    Gap {
+        chat: String,
+        what: String,
+    },
+    /// An answer settled: `Ok(true)` taken, `Ok(false)` nothing waited (its message taken back), `Err` it failed
+    /// (taken back too). What Node's `agent:respond-permission` / `agent:answer-question` resolve or reject with.
+    AnswerSettled {
+        chat: String,
+        answer: AnswerId,
+        result: AnswerResult,
+    },
+    ModeSettled {
+        chat: String,
+        change: ModeChangeId,
+        result: ModeResult,
+    },
+    /// A definitive receipt after an unknown result. Informational only: never answer the command twice.
+    ModeResolved {
+        chat: String,
+        change: ModeChangeId,
+        result: ModeResult,
+    },
+    /// An answer released from an ended turn dropped from the bounded history (the oldest first): a late settlement of
+    /// it is no longer taken; its answers message stays as shown. Its delivery stays unknown.
+    AnswerForgotten {
+        chat: String,
+        answer: AnswerId,
+    },
+    /// A Project's lock was left on disk when the Project was dropped: its root no longer held (moved, replaced, a link
+    /// on or above it), so nothing was removed there. An operator removes it. Paths are jsjson-encoded; never a token.
+    LockStranded {
+        lock: String,
+        why: String,
+    },
+    /// `open_project` finished: the Project is ready (told once per transition to ready). Until then nothing of it
+    /// is published.
+    ProjectReady {
+        project: PathBuf,
+    },
+    /// A later definitive settlement of an answer told `Uncertain` before: `Accepted` (it stays), or `NotWaiting` /
+    /// `Failed` (its answers message was taken back). The command was answered already; this is for the Chat.
+    AnswerResolved {
+        chat: String,
+        answer: AnswerId,
+        result: AnswerResult,
+    },
+    /// A steering message was admitted and saved: what Node would hand SessionManager.startTurn for the running
+    /// `turn` ([`SteeringMode::Recorded`] only; no provider is called).
+    SteerRequested {
+        chat: String,
+        turn: TurnId,
+        request: Value,
+    },
+    /// A turn's start resolved: what Node's `sent.started` resolves with.
+    Started {
+        chat: String,
+        turn: TurnId,
+        result: Value,
+    },
+    /// Work the host did on its own (a queued start, a turn's end, a failed start's `turn-failed`) failed. Node logs
+    /// these; here they are told, never dropped. `error` never carries a token.
+    Failed {
+        chat: String,
+        what: String,
+        error: String,
+    },
+}
+
+/// What starting one queued message came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QueuedStart {
+    Started,
+    NotStarted,
+    /// Its `clientMessageId` was already in the Chat: it left the queue without a turn.
+    AlreadySaved,
+}
+
+/// Whether a message for a running turn whose provider can steer is refused or staged. No provider is ever asked to
+/// steer yet: the Provider call is a proposal (STEERING-HANDOFF.md) awaiting agreement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SteeringMode {
+    /// Refused with the "Steering a running turn" gate (production).
+    #[default]
+    Gated,
+    /// Conformance only: admitted and saved as Node does (the running turn's provider and model, the reply so far
+    /// split above the message, the run marked steered), then told as `Notice::SteerRequested` with the request Node
+    /// hands SessionManager.startTurn. Nothing reaches a provider and nothing settles it.
+    Recorded,
+}
+
+/// Whether a send that hands a Chat over is refused or prepared. Switching providers is always refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HandoffMode {
+    /// Refused with the "handoff restore" gate (production, until traces and the runtime adapter are verified).
+    #[default]
+    Gated,
+    /// Conformance and isolated tests only: a restore (same provider, a completed reply, no native session) is staged
+    /// and prepared as Node does: divider and message in one save, the transcript job, the brief, the divider marked
+    /// done and saved, then the turn started with the framed brief.
+    Restore,
+}
+
+/// What a send answered.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sent {
+    pub session_id: Value,
+    pub duplicate: bool,
+    pub queued: bool,
+    /// The message steers the running turn `turn` (only with [`SteeringMode::Recorded`]).
+    pub steering: bool,
+    /// The turn the provider was asked to start; None when nothing started (a duplicate, a queued message that
+    /// waits, or a provider that refused at once, whose `turn-failed` is already folded). Its start resolves later
+    /// as [`Notice::Started`], or fails as `turn-failed`.
+    pub turn: Option<TurnId>,
+}
+
+const FORMER_WORKTREE: &str = "This Run's Worktree was removed because the Run left nothing in it. Start a new Chat to continue.";
+const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full"];
+/// Longest answers summary (UTF-16 code units) shown as the user's message: 20 questions of 10,000 plus labels.
+pub const MAX_ANSWER_SUMMARY: usize = 210_000;
+/// Answers released from ended turns kept for a late definitive settlement (no slot); past this the oldest go.
+pub const MAX_HISTORICAL_ANSWERS: usize = 1_024;
+/// Default slots for answers on their way plus answers with an unknown delivery (`ChatHost::answer_capacity`).
+pub const ANSWER_CAPACITY: usize = 256;
+/// The error code a command rejects with when every answer slot is taken ([`StoreError::code`] of `AnswersAtCapacity`).
+pub const ANSWERS_AT_CAPACITY: &str = "ANSWERS_AT_CAPACITY";
+/// How long a handed-over answer may wait for its settlement before the host fails it.
+pub const ANSWER_GRACE_MS: i64 = 30_000;
+/// How long an interrupted turn gets to end by itself before the host forces it.
+pub const INTERRUPT_GRACE_MS: i64 = 15_000;
+/// Notices kept for a client that doesn't take them; past this the oldest are dropped (and counted).
+pub const MAX_NOTICES: usize = 10_000;
+/// Rounds of events one pump handles before leaving the rest for the next.
+pub const MAX_PUMP_ROUNDS: usize = 1_000;
+/// permissions.cjs USER_DECISIONS: the only decisions a user's answer may carry.
+const USER_DECISIONS: [&str; 3] = ["allow", "allow-for-chat", "deny"];
+
+/// questions.cjs validAnswers: null, or at most 10 question ids each mapped to at most 20 strings of 10,000 code units.
+fn valid_answers(answers: Option<&Value>) -> bool {
+    match answers {
+        Some(Value::Null) => true,
+        Some(Value::Object(map)) => {
+            map.len() <= 10
+                && map.values().all(|values| match values {
+                    Value::Array(values) => {
+                        values.len() <= 20
+                            && values.iter().all(|value| {
+                                value
+                                    .as_str()
+                                    .is_some_and(|text| jsjson::utf16_len(text) <= 10_000)
+                            })
+                    }
+                    _ => false,
+                })
+        }
+        _ => false,
+    }
+}
+
+fn field<'a>(request: &'a Value, key: &str) -> Option<&'a Value> {
+    request.get(key).filter(|value| !value.is_null())
+}
+
+fn present(request: &Value, key: &str) -> bool {
+    request.get(key).is_some()
+}
+
+/// withoutQueued: the session without one queued message; the hold goes with the last one.
+fn without_queued(session: &Map<String, Value>, id: &str) -> Map<String, Value> {
+    let mut rest = session.clone();
+    let queued = rest.shift_remove("queued");
+    let held = rest.shift_remove("queueHeld");
+    let left: Vec<Value> = queued
+        .as_ref()
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("id").and_then(Value::as_str) != Some(id))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    if left.is_empty() {
+        return rest;
+    }
+    rest.insert("queued".into(), Value::Array(left));
+    if jsjson::truthy(held.as_ref()) {
+        rest.insert("queueHeld".into(), json!(true));
+    }
+    rest
+}
+
+fn session_value(state: &ProjectState, session: &Value) -> Option<Map<String, Value>> {
+    state
+        .sessions()?
+        .get(&jsjson::property_key(Some(session)))?
+        .as_object()
+        .cloned()
+}
+
+fn session_messages<'a>(
+    state: &'a ProjectState,
+    session: &'a Value,
+) -> impl Iterator<Item = &'a MsgRef> {
+    state.message_list().iter().filter(move |message| {
+        message
+            .get("session_id")
+            .is_some_and(|id| jsjson::strict_equals(id, session))
+    })
+}
+
+/// The ChatHost of one isolated copy's Projects.
+pub struct ChatHost {
+    pub states: ProjectStates,
+    providers: BTreeMap<String, Box<dyn Provider>>,
+    runs: Runs,
+    /// The turn running per Chat and its provider: what interrupts and stale-event checks go by.
+    active: HashMap<String, (TurnId, String)>,
+    next_turn: u64,
+    /// Steering: gated unless a conformance run records it (see [`SteeringMode`]).
+    pub steering: SteeringMode,
+    /// Restore handoffs: gated; only `enable_restore_for_tests` (test-fixtures) turns them on (see [`HandoffMode`]).
+    handoff: HandoffMode,
+    /// A send was attempted (rejected ones too): Restore can no longer be turned on.
+    send_attempted: bool,
+    /// The time zone a transcript's Routine runs are written in (Node: the computer's).
+    pub handoff_zone: handover::Zone,
+    /// The worktrees Git may run in for a handoff's changed files (none until the runtime admits them).
+    git: crate::changed_files::GitGrants,
+    /// The providers were shut down by `shutdown`: a later call only retries closing the states.
+    providers_shut_down: bool,
+    /// The quit's final save and close succeeded.
+    closed: bool,
+    /// Completed turns whose queue waited on a quit or close, replayed if the quit is refused.
+    deferred: Vec<(String, Value)>,
+    /// Set from the start of `shutdown`: no queued message starts and no send is taken.
+    quitting: bool,
+    /// Projects a `forget` is closing: no queued message starts in them and no send to them is taken.
+    closing: HashSet<PathBuf>,
+    /// Turn ends whose fold failed (the save or load behind it): kept and tried again, so the run doesn't stay open.
+    stuck: BTreeMap<String, (TurnId, Value)>,
+    /// Each Chat's latest turn: its session's generation. Chat-level events must name it.
+    latest: HashMap<String, TurnId>,
+    /// Interrupted turns and when they are forced to end if they haven't (see `tick`).
+    deadlines: HashMap<String, (TurnId, i64)>,
+    /// How long an interrupted turn may take to end before `tick` forces it (ms of the states clock).
+    pub interrupt_grace_ms: i64,
+    /// Events a bounded pump left for the next one.
+    held_events: Vec<ProviderEvent>,
+    /// Projects `open_project` made ready (the only ready transition), and Projects opened but not ready (an open
+    /// failed after loading, or a repeat open's checks failed): their locks and state are kept, new work refused.
+    ready: HashSet<PathBuf>,
+    not_ready: HashSet<PathBuf>,
+    /// Provider events for Projects loaded here but not ready (see `park`), and their totals and budget.
+    parked: BTreeMap<PathBuf, Parked>,
+    parked_events: usize,
+    parked_bytes: usize,
+    parked_budget: (usize, usize),
+    /// What releasing parked events refused or failed (at most `MAX_RELEASED_ERRORS`, the rest counted): returned by
+    /// the next `pump`.
+    released_errors: Vec<StoreError>,
+    released_uncounted: usize,
+    /// Projects whose recovery changed state an open couldn't publish (its save failed): published once one succeeds.
+    unpublished: HashSet<PathBuf>,
+    /// Handoffs being prepared, by Chat: the turn reserved for each (its generation) and what is ready so far.
+    preparing: HashMap<String, Preparing>,
+    /// The transcript jobs (opened on first use) and the ones not yet taken by the runtime.
+    transcripts: Option<TranscriptJobs>,
+    ready_jobs: std::collections::VecDeque<TranscriptJob>,
+    /// Every job out, from its reservation until its outcome is handled and anything it left is gone.
+    job_slots: BTreeMap<JobId, JobSlot>,
+    /// The brief's model (none: every brief is the minimal one), and the briefs out: Chat, turn, deadline.
+    brief_model: Option<Box<dyn BriefModel>>,
+    briefs: BTreeMap<BriefId, (String, TurnId, i64)>,
+    next_brief: u64,
+    /// How long a brief may take before it counts as failed (ms of the states clock).
+    pub brief_grace_ms: i64,
+    /// Notices dropped because nobody took them (the oldest go first past `MAX_NOTICES`).
+    dropped_notices: u64,
+    next_answer: u64,
+    pending_answers: BTreeMap<AnswerId, PendingAnswer>,
+    next_mode: u64,
+    pending_modes: BTreeMap<ModeChangeId, PendingMode>,
+    pub mode_capacity: usize,
+    pub mode_grace_ms: i64,
+    /// Answers told `Uncertain`, kept until a definitive settlement or their session generation closes; each blocks a
+    /// retry of its request in that generation and holds a slot of `answer_capacity`.
+    uncertain_answers: BTreeMap<AnswerId, PendingAnswer>,
+    /// Answers whose turn ended or session closed while their delivery was unknown: no slot, no retry block, kept
+    /// (bounded by `answer_history`, oldest dropped and told as `Notice::AnswerForgotten`) only so a late definitive
+    /// settlement can resolve them.
+    historical_answers: BTreeMap<AnswerId, PendingAnswer>,
+    /// How many released answers are kept for a late settlement (default `MAX_HISTORICAL_ANSWERS`), across Chats.
+    pub answer_history: usize,
+    /// Slots for answers on their way plus answers with an unknown delivery (default `ANSWER_CAPACITY`); at capacity a
+    /// new answer is refused before anything is shown or handed over.
+    pub answer_capacity: usize,
+    /// How long a handed-over answer may wait for its settlement before `tick` settles it `Uncertain` (ms of the states
+    /// clock).
+    pub answer_grace_ms: i64,
+    /// Queued messages whose start is still in flight, by turn: told as `QueueStarted` once it resolves.
+    queue_turns: HashMap<TurnId, (String, String)>,
+    seq: u64,
+    starting: HashMap<String, String>,
+    send_next: HashMap<String, String>,
+    #[cfg(feature = "routine-execution-fixture")]
+    routine_unread: HashMap<String, routine_fixture::UnreadReceipt>,
+    /// Chats whose restore Stop just cancelled: Node's cancelHandoff runs afterTurn a second time, which holds the
+    /// queue (any queued message left waits for Send now) before the pick it already took starts.
+    hold_on_cancel: HashSet<String>,
+    queue_waiters: HashSet<String>,
+    turns: HashMap<String, Value>,
+    /// The Chat shown in a focused window (Node's openChat with isFocused): a turn ending there isn't unread.
+    pub open_chat: Option<String>,
+    notices: std::collections::VecDeque<Notice>,
+    ids: Box<dyn FnMut() -> String + Send>,
+    /// Chats the states were told are busy (Node's ProjectStates asks ChatHost.isBusy before unloading a Chat).
+    busy: HashSet<String>,
+}
+
+impl ChatHost {
+    pub fn new(states: ProjectStates) -> Self {
+        let git = crate::changed_files::GitGrants::new(states.isolation().root());
+        ChatHost {
+            git,
+            states,
+            providers: BTreeMap::new(),
+            runs: Runs::new(),
+            active: HashMap::new(),
+            next_turn: 0,
+            steering: SteeringMode::Gated,
+            handoff: HandoffMode::Gated,
+            send_attempted: false,
+            handoff_zone: handover::Zone::Local,
+            deferred: Vec::new(),
+            providers_shut_down: false,
+            closed: false,
+            quitting: false,
+            closing: HashSet::new(),
+            stuck: BTreeMap::new(),
+            latest: HashMap::new(),
+            deadlines: HashMap::new(),
+            interrupt_grace_ms: INTERRUPT_GRACE_MS,
+            held_events: Vec::new(),
+            ready: HashSet::new(),
+            not_ready: HashSet::new(),
+            parked: BTreeMap::new(),
+            parked_events: 0,
+            parked_bytes: 0,
+            parked_budget: (MAX_PARKED_EVENTS, MAX_PARKED_BYTES),
+            released_errors: Vec::new(),
+            released_uncounted: 0,
+            unpublished: HashSet::new(),
+            preparing: HashMap::new(),
+            transcripts: None,
+            ready_jobs: std::collections::VecDeque::new(),
+            job_slots: BTreeMap::new(),
+            brief_model: None,
+            briefs: BTreeMap::new(),
+            next_brief: 0,
+            brief_grace_ms: handover::BRIEF_TIMEOUT_MS as i64,
+            dropped_notices: 0,
+            next_answer: 0,
+            pending_answers: BTreeMap::new(),
+            next_mode: 0,
+            pending_modes: BTreeMap::new(),
+            mode_capacity: MODE_CAPACITY,
+            mode_grace_ms: MODE_GRACE_MS,
+            uncertain_answers: BTreeMap::new(),
+            historical_answers: BTreeMap::new(),
+            answer_history: MAX_HISTORICAL_ANSWERS,
+            answer_capacity: ANSWER_CAPACITY,
+            answer_grace_ms: ANSWER_GRACE_MS,
+            queue_turns: HashMap::new(),
+            seq: 0,
+            starting: HashMap::new(),
+            send_next: HashMap::new(),
+            #[cfg(feature = "routine-execution-fixture")]
+            routine_unread: HashMap::new(),
+            hold_on_cancel: HashSet::new(),
+            queue_waiters: HashSet::new(),
+            turns: HashMap::new(),
+            open_chat: None,
+            notices: std::collections::VecDeque::new(),
+            ids: Box::new(crate::ownership::random_uuid),
+            busy: HashSet::new(),
+        }
+    }
+
+    /// Queued messages' ids (crypto.randomUUID in Node); tests make them deterministic.
+    pub fn set_ids(&mut self, ids: impl FnMut() -> String + Send + 'static) {
+        self.ids = Box::new(ids);
+    }
+
+    pub fn register(&mut self, provider: Box<dyn Provider>) {
+        self.providers.insert(provider.name().to_string(), provider);
+    }
+
+    pub fn runs(&self) -> &Runs {
+        &self.runs
+    }
+
+    /// What the clients would hear since the last take. Notices past `MAX_NOTICES` drop the oldest, and the take
+    /// ends with a `Failed` notice that counts them.
+    pub fn take_notices(&mut self) -> Vec<Notice> {
+        self.tell_stranded();
+        let mut notices: Vec<Notice> = std::mem::take(&mut self.notices).into();
+        if self.dropped_notices > 0 {
+            notices.push(Notice::Failed {
+                chat: String::new(),
+                what: "telling clients (nobody took the oldest notices)".into(),
+                error: format!("{} notices were dropped", self.dropped_notices),
+            });
+            self.dropped_notices = 0;
+        }
+        notices
+    }
+
+    /// Moves the locks left on disk by dropped Projects into the notices (and a count of those past the bound).
+    fn tell_stranded(&mut self) {
+        let stranded = self.states.take_stranded();
+        for lock in stranded.locks {
+            self.notice(Notice::LockStranded {
+                lock: jsjson::js_string(&lock.lock.to_string_lossy()),
+                why: jsjson::js_string(&lock.why),
+            });
+        }
+        if stranded.dropped > 0 {
+            self.notice(Notice::Failed {
+                chat: String::new(),
+                what: "releasing Project locks".into(),
+                error: format!(
+                    "{} more locks were left on disk and not listed",
+                    stranded.dropped
+                ),
+            });
+        }
+    }
+
+    fn notice(&mut self, notice: Notice) {
+        if self.notices.len() >= MAX_NOTICES {
+            self.notices.pop_front();
+            self.dropped_notices += 1;
+        }
+        self.notices.push_back(notice);
+    }
+
+    /// Whether a Chat's turn runs or is about to start.
+    pub fn is_busy(&self, chat: &str) -> bool {
+        self.runs.contains_key(chat) || self.starting.contains_key(chat)
+    }
+
+    fn project_path(project: &str) -> PathBuf {
+        PathBuf::from(project)
+    }
+
+    /// The Project of a path a request names, refused unless it is spelled as the states key it: Chat keys, runs and
+    /// busy marks are keyed by the text, so `/p/` or `/x/../p` beside `/p` would make one Chat two.
+    fn canonical_project(&self, text: &str) -> Result<PathBuf> {
+        let key = self.states.canonical(Path::new(text))?;
+        if key.to_str() != Some(text) {
+            return Err(StoreError::Invalid(format!(
+                "{text} isn't how this Project is named; use {}.",
+                key.display()
+            )));
+        }
+        Ok(key)
+    }
+
+    /// A Chat key's Project and session, refused unless the Project part is canonical (see `canonical_project`).
+    fn canonical_chat(&self, chat: &str) -> Result<(PathBuf, i64)> {
+        let session = session_of_key(chat)
+            .ok_or_else(|| StoreError::Invalid(format!("{chat} isn't a Chat.")))?;
+        Ok((
+            self.canonical_project(agent_runs::project_of_key(chat))?,
+            session,
+        ))
+    }
+
+    /// Whether a quit has begun and wasn't refused: sends and starts are refused. Stays true after a failed close (see
+    /// `shutdown`).
+    pub fn is_quitting(&self) -> bool {
+        self.quitting
+    }
+
+    /// Whether a quit got past the providers but its final save and close failed: the quit isn't finished, and
+    /// `shutdown` must be called again (it retries only the save and close). Never drop a host while this is true.
+    pub fn close_pending(&self) -> bool {
+        self.providers_shut_down && !self.closed
+    }
+
+    /// The turn running in a Chat, if any.
+    pub fn active_turn(&self, chat: &str) -> Option<TurnId> {
+        self.active.get(chat).map(|(turn, _)| *turn)
+    }
+
+    /// Node's turnSettings: settings of the latest turn, without its prompt or private guard.
+    pub fn turn_settings(&self, chat: &str) -> Option<Value> {
+        let mut settings = self.turns.get(chat)?.clone();
+        if let Some(fields) = settings.as_object_mut() {
+            fields.remove("prompt");
+            fields.remove("guard");
+        }
+        Some(settings)
+    }
+
+    /// Keeps the states' busy Chats (never unloaded by a sweep) equal to Node's isBusy: a run, or a turn starting.
+    fn sync_busy(&mut self) {
+        let now: HashSet<String> = self
+            .runs
+            .keys()
+            .chain(self.starting.keys())
+            .chain(self.stuck.keys())
+            .chain(self.preparing.keys())
+            .chain(self.job_slots.values().map(|slot| &slot.chat))
+            .cloned()
+            .collect();
+        for chat in now.symmetric_difference(&self.busy) {
+            if let Some(session) = session_of_key(chat) {
+                let project = Self::project_path(agent_runs::project_of_key(chat));
+                let _ = self.states.set_busy(&project, session, now.contains(chat));
+            }
+        }
+        self.busy = now;
+    }
+
+    fn broadcast(&mut self, project: &Path) {
+        // Nothing of a Project that isn't ready is published: `ProjectReady` says when it is.
+        if !self.ready.contains(project) {
+            return;
+        }
+        self.notice(Notice::Broadcast {
+            project: project.to_path_buf(),
+        });
+    }
+
+    // ---- sending -------------------------------------------------------------------------------------------
+
+    /// The requests this checkpoint refuses rather than approximates.
+    fn gates(request: &Value, admission: SendAdmission) -> Result<()> {
+        let context_kind = field(request, "context")
+            .and_then(|context| context.get("kind"))
+            .and_then(Value::as_str);
+        if context_kind == Some("compaction") {
+            return Err(gate("Compacting a Chat"));
+        }
+        if (matches!(context_kind, Some("routine-run"))
+            || field(request, "context")
+                .and_then(|c| c.get("routine"))
+                .is_some_and(Value::is_object))
+            && matches!(admission, SendAdmission::Ordinary)
+        {
+            return Err(gate("A Routine's message"));
+        }
+        for key in [
+            "limitResumeId",
+            "limitSwitchToken",
+            "queueReleaseToken",
+            "expectedAccountId",
+            "canStart",
+        ] {
+            if present(request, key) {
+                return Err(gate("Usage-limit continuations and account routing"));
+            }
+        }
+        if present(request, "idleOnly") || present(request, "guard") {
+            return Err(gate("A wake's guarded turn"));
+        }
+        if field(request, "delivery").and_then(Value::as_str) == Some("now") {
+            return Err(gate("Sending now (delivery \"now\")"));
+        }
+        match field(request, "provider") {
+            Some(Value::String(_)) => Ok(()),
+            _ => Err(StoreError::Invalid(
+                "Choose a provider for the message.".into(),
+            )),
+        }
+    }
+
+    /// Image admission is complete before any content or state write. This bounded slice resolves only an existing
+    /// Chat, with no image steering or handoff. Queue entries are validated again against their eventual start.
+    fn prepare_send_images(&mut self, project: &Path, request: &Value) -> Result<Value> {
+        let empty = json!([]);
+        let images = request.get("images").unwrap_or(&empty);
+        let list = images
+            .as_array()
+            .ok_or_else(|| StoreError::Invalid("Images must be an array.".into()))?;
+        if list.is_empty() {
+            return Ok(empty);
+        }
+        let provider = request["provider"]
+            .as_str()
+            .expect("gates checked provider");
+        if !self
+            .providers
+            .get(provider)
+            .is_some_and(|adapter| adapter.supports_image_inputs())
+        {
+            return Err(gate("Sending images"));
+        }
+        let decoded = ImageInput::decode_all(images)?;
+        let session_id = request
+            .get("sessionId")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| gate("Creating a Chat with images"))?;
+        let latest = self.states.load(project, &[session_id])?;
+        let session = session_value(&latest, &json!(session_id))
+            .ok_or_else(|| StoreError::Invalid("That chat is no longer in the project.".into()))?;
+        if jsjson::truthy(session.get("formerWorktree")) {
+            return Err(StoreError::Invalid(FORMER_WORKTREE.into()));
+        }
+        if jsjson::truthy(session.get("workspacePath")) {
+            return Err(gate("A Link's shared Chat"));
+        }
+        if session.get("handoverDraft").is_some() {
+            return Err(gate("A handed-over Chat's image message"));
+        }
+        let worktree = latest
+            .get("worktrees")
+            .and_then(Value::as_object)
+            .and_then(|worktrees| worktrees.get(&jsjson::property_key(session.get("worktree_id"))))
+            .ok_or_else(|| {
+                StoreError::Invalid("That worktree is no longer in the project.".into())
+            })?;
+        if jsjson::truthy(worktree.get("sharedChat")) {
+            return Err(gate("A Link's shared Chat"));
+        }
+        let chat = chat_key(project.to_str().unwrap_or(""), &json!(session_id));
+        if let Some(id) = request.get("fromQueue").and_then(Value::as_str) {
+            if !session
+                .get("queued")
+                .and_then(Value::as_array)
+                .is_some_and(|queue| {
+                    queue
+                        .iter()
+                        .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id))
+                })
+            {
+                return Err(StoreError::Invalid(
+                    "That queued message was already sent or removed.".into(),
+                ));
+            }
+            if self.is_busy(&chat) {
+                return Err(StoreError::Invalid("The chat is busy.".into()));
+            }
+        }
+        let running_provider = self
+            .starting
+            .get(&chat)
+            .map(String::as_str)
+            .or_else(|| session.get("provider").and_then(Value::as_str));
+        if self.is_busy(&chat)
+            && request.get("delivery").and_then(Value::as_str) != Some("queue")
+            && provider_capabilities(running_provider).steer
+        {
+            return Err(gate("Steering a running turn with images"));
+        }
+        let session_value = json!(session_id);
+        let messages: Vec<_> = session_messages(&latest, &session_value).collect();
+        if !messages.is_empty() {
+            let last = messages
+                .iter()
+                .rev()
+                .find(|message| {
+                    message
+                        .get("context")
+                        .and_then(|c| c.get("kind"))
+                        .and_then(Value::as_str)
+                        == Some("handoff")
+                        && message
+                            .get("context")
+                            .and_then(|c| c.get("status"))
+                            .and_then(Value::as_str)
+                            != Some("failed")
+                })
+                .and_then(|message| {
+                    message
+                        .get("context")
+                        .and_then(|c| c.get("to"))
+                        .and_then(|to| to.get("provider"))
+                })
+                .or_else(|| session.get("provider"));
+            if last
+                .and_then(Value::as_str)
+                .is_some_and(|last| last != provider)
+            {
+                return Err(gate("Switching a Chat to another provider with images"));
+            }
+            if messages.iter().any(|message| {
+                message.get("role").and_then(Value::as_str) == Some("assistant")
+                    && message.get("outcome").and_then(Value::as_str) == Some("completed")
+            }) && !jsjson::truthy(session.get("native_session_id"))
+            {
+                return Err(gate("Restoring a Chat with images"));
+            }
+        }
+        let mut start = Map::new();
+        start.insert("provider".into(), json!(provider));
+        start.insert(
+            "model".into(),
+            request.get("model").cloned().unwrap_or(Value::Null),
+        );
+        for key in [
+            "permissionMode",
+            "effort",
+            "ultracode",
+            "fastMode",
+            "replies",
+            "tldrEnabled",
+        ] {
+            if let Some(value) = request.get(key) {
+                start.insert(key.into(), value.clone());
+            }
+        }
+        start.insert("prompt".into(), send_prompt(request));
+        start.insert("chatId".into(), json!(chat));
+        start.insert(
+            "cwd".into(),
+            worktree.get("path").cloned().unwrap_or(Value::Null),
+        );
+        start.insert("images".into(), json!([]));
+        if let Some(resume) = session.get("native_session_id") {
+            start.insert("resumeId".into(), resume.clone());
+        }
+        let raw = outbound_request(&Value::Object(start)).map_err(StoreError::Invalid)?;
+        self.providers
+            .get(provider)
+            .expect("checked above")
+            .validate_image_turn(&raw, &decoded)
+            .map_err(|error| StoreError::Invalid(error.message))?;
+        let stored = self.states.store_send_images(project, images, &decoded)?;
+        self.states.assert_owned(project)?;
+        Ok(stored)
+    }
+
+    /// ChatHost.send / sendMessage.
+    pub fn send(&mut self, request: &Value) -> Result<Sent> {
+        self.send_admitted(request, SendAdmission::Ordinary)
+    }
+    fn send_admitted(&mut self, request: &Value, admission: SendAdmission) -> Result<Sent> {
+        self.send_attempted = true;
+        if let Some(delivery) = request.get("delivery").filter(|value| !value.is_null()) {
+            if !matches!(delivery.as_str(), Some("queue" | "now")) {
+                return Err(StoreError::Invalid("Invalid message delivery.".into()));
+            }
+        }
+        Self::gates(request, admission)?;
+        let project_text = request
+            .get("projectPath")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let project = self.canonical_project(&project_text)?;
+        if self.quitting {
+            return Err(StoreError::Invalid(
+                "Milagre is quitting; the message wasn't sent.".into(),
+            ));
+        }
+        if self.closing.contains(&project) {
+            return Err(StoreError::Invalid(
+                "This Project is closing; the message wasn't sent.".into(),
+            ));
+        }
+        self.require_ready(&project)?;
+        // A Project already open here must still be ours before anything is staged in memory.
+        if self.states.has(&project) {
+            self.states.assert_owned(&project)?;
+        }
+        let client_id = request
+            .get("clientMessageId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string);
+        if let Some(id) = &client_id {
+            if let Some(earlier) =
+                self.states
+                    .find_message(&project, LookupField::ClientMessageId, &json!(id))?
+            {
+                return Ok(Sent {
+                    session_id: earlier.get("session_id").cloned().unwrap_or(Value::Null),
+                    duplicate: true,
+                    queued: false,
+                    steering: false,
+                    turn: None,
+                });
+            }
+            if request.get("fromQueue").and_then(Value::as_str).is_none() {
+                let state = self.states.get(&project)?;
+                if let Some(twin) = state.sessions().and_then(|sessions| {
+                    jsjson::js_entries(sessions)
+                        .into_iter()
+                        .map(|(_, session)| session)
+                        .find(|session| {
+                            session
+                                .get("queued")
+                                .and_then(Value::as_array)
+                                .is_some_and(|queue| {
+                                    queue.iter().any(|entry| {
+                                        entry.get("clientMessageId").and_then(Value::as_str)
+                                            == Some(id)
+                                    })
+                                })
+                        })
+                }) {
+                    return Ok(Sent {
+                        session_id: twin.get("id").cloned().unwrap_or(Value::Null),
+                        duplicate: true,
+                        queued: false,
+                        steering: false,
+                        turn: None,
+                    });
+                }
+            }
+        }
+        let stored_images = self.prepare_send_images(&project, request)?;
+        let provider = request["provider"].as_str().unwrap().to_string();
+        let body = request.get("body").cloned().unwrap_or(Value::Null);
+        let model = request.get("model").cloned();
+        let from_queue = request
+            .get("fromQueue")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let request_session = field(request, "sessionId").cloned();
+        let chats: Vec<i64> = request_session
+            .as_ref()
+            .and_then(Value::as_i64)
+            .into_iter()
+            .collect();
+        let now = self.states.now();
+        // A restore may only be staged with the handover store leased and a job reservation free: known before the
+        // change, refused inside it before anything is staged.
+        let restore_mode = self.handoff == HandoffMode::Restore;
+        // The handover store is opened (lease, sweep) only once a restore is decided: a send that decides one before
+        // it is open stops with nothing staged, opens it, and is sent again.
+        let store_open = self.transcripts.is_some();
+        let mut needs_store = false;
+        let mut restore_refused = if restore_mode && store_open {
+            self.transcript_capacity().err()
+        } else {
+            None
+        };
+        let restore_budget = self
+            .transcripts
+            .as_ref()
+            .map_or(crate::transcripts::MAX_TRANSCRIPT_BUDGET_BYTES, |jobs| {
+                jobs.budget_left()
+            });
+        let mut restore: Option<(i64, Value)> = None; // divider id, the model handed from
+
+        // What the change decides, read after it.
+        let mut duplicate: Option<Value> = None;
+        let mut queued_entry: Option<Value> = None;
+        let mut target: Option<(String, i64, Value, Option<Value>)> = None; // chat, session, cwd, resumeId
+        let mut pending: Option<MsgRef> = None;
+        let mut original: Option<Map<String, Value>> = None;
+        let mut staged: Option<Map<String, Value>> = None;
+        let mut run_model = model.clone().unwrap_or(Value::Null);
+        let runs = self.runs.clone();
+        let starting = self.starting.clone();
+        let steering_mode = self.steering;
+        let running_turns: HashSet<String> = self.active.keys().cloned().collect();
+        let mut steering = false;
+        let mut run_provider = provider.clone();
+        let ids = &mut self.ids;
+        let project_key = project_text.clone();
+
+        let saving = self
+            .states
+            .try_update(&project, Some(&chats), true, |latest| {
+                if let Some(id) = &client_id {
+                    if let Some(twin) = latest
+                        .message_list()
+                        .iter()
+                        .find(|m| m.get("clientMessageId").and_then(Value::as_str) == Some(id))
+                    {
+                        duplicate = Some(twin.get("session_id").cloned().unwrap_or(Value::Null));
+                        return Ok(None);
+                    }
+                    if from_queue.is_none() {
+                        let queued_twin = latest.sessions().and_then(|sessions| {
+                            jsjson::js_entries(sessions)
+                                .into_iter()
+                                .map(|(_, s)| s)
+                                .find(|s| {
+                                    s.get("queued").and_then(Value::as_array).is_some_and(|q| {
+                                        q.iter().any(|e| {
+                                            e.get("clientMessageId").and_then(Value::as_str)
+                                                == Some(id)
+                                        })
+                                    })
+                                })
+                        });
+                        if let Some(twin) = queued_twin {
+                            duplicate = Some(twin.get("id").cloned().unwrap_or(Value::Null));
+                            return Ok(None);
+                        }
+                    }
+                }
+                let mut session = request_session
+                    .as_ref()
+                    .and_then(|id| session_value(latest, id));
+                if request_session.is_some() && session.is_none() {
+                    return Err(StoreError::Invalid(
+                        "That chat is no longer in the project.".into(),
+                    ));
+                }
+                if session
+                    .as_ref()
+                    .is_some_and(|s| jsjson::truthy(s.get("formerWorktree")))
+                {
+                    return Err(StoreError::Invalid(FORMER_WORKTREE.into()));
+                }
+                if session.as_ref().is_some_and(|s| {
+                    s.contains_key("workspacePath") && jsjson::truthy(s.get("workspacePath"))
+                }) {
+                    return Err(gate("A Link's shared Chat"));
+                }
+                let worktree_id = session
+                    .as_ref()
+                    .and_then(|s| s.get("worktree_id").cloned())
+                    .or_else(|| request.get("worktreeId").cloned());
+                let worktree = latest
+                    .get("worktrees")
+                    .and_then(Value::as_object)
+                    .and_then(|worktrees| {
+                        worktrees.get(&jsjson::property_key(worktree_id.as_ref()))
+                    })
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .ok_or_else(|| {
+                        StoreError::Invalid("That worktree is no longer in the project.".into())
+                    })?;
+                if jsjson::truthy(worktree.get("sharedChat")) {
+                    return Err(StoreError::Invalid(
+                        "This Worktree belongs to a shared Link Chat. Open its Link instead."
+                            .into(),
+                    ));
+                }
+                let mut with_session = latest.clone();
+                if session.is_none() {
+                    // starterChat: the Worktree's Chat with no messages yet, else a new one.
+                    let existing = latest.sessions().and_then(|sessions| {
+                        jsjson::js_entries(sessions)
+                            .into_iter()
+                            .map(|(_, s)| s)
+                            .find(|item| {
+                                item.get("worktree_id").is_some_and(|id| {
+                                    worktree
+                                        .get("id")
+                                        .is_some_and(|wid| jsjson::strict_equals(id, wid))
+                                }) && !jsjson::truthy(item.get("handoverPending"))
+                                    && item.get("handoverDraft").is_none()
+                                    && !jsjson::truthy(item.get("routine"))
+                                    && !(item
+                                        .get("summary")
+                                        .and_then(|s| s.get("count"))
+                                        .and_then(Value::as_f64)
+                                        .unwrap_or(0.0)
+                                        > 0.0
+                                        || session_messages(
+                                            latest,
+                                            item.get("id").unwrap_or(&Value::Null),
+                                        )
+                                        .next()
+                                        .is_some())
+                            })
+                    });
+                    session = match existing {
+                        Some(existing) => existing.as_object().cloned(),
+                        None => {
+                            let next_id = latest.get("next_id").cloned().unwrap_or(Value::Null);
+                            let mut created = Map::new();
+                            created.insert("id".into(), next_id.clone());
+                            created.insert(
+                                "worktree_id".into(),
+                                worktree.get("id").cloned().unwrap_or(Value::Null),
+                            );
+                            if let Some(name) = worktree.get("name") {
+                                created.insert("agent_name".into(), name.clone());
+                            }
+                            created.insert("status".into(), json!("Created"));
+                            with_session = agent_runs::with_session(
+                                latest,
+                                next_id.as_i64().unwrap_or(0),
+                                created.clone(),
+                            )
+                            .with_field(
+                                "next_id",
+                                jsjson::number(next_id.as_f64().unwrap_or(f64::NAN) + 1.0),
+                            );
+                            Some(created)
+                        }
+                    };
+                }
+                let mut session = session.expect("found or made");
+                let session_id_value = session.get("id").cloned().unwrap_or(Value::Null);
+                let session_id = session_id_value
+                    .as_i64()
+                    .ok_or_else(|| StoreError::Invalid("That chat has no id.".into()))?;
+                let first_message = session_messages(latest, &session_id_value).next().is_none();
+                if first_message && session.get("handoverDraft").is_some() {
+                    return Err(gate("A handed-over Chat's first message (its brief)"));
+                }
+                let chat = chat_key(&project_key, &session_id_value);
+                let before_queue = session.clone();
+                if let Some(id) = &from_queue {
+                    let has = session
+                        .get("queued")
+                        .and_then(Value::as_array)
+                        .is_some_and(|q| {
+                            q.iter()
+                                .any(|e| e.get("id").and_then(Value::as_str) == Some(id))
+                        });
+                    if !has {
+                        return Err(StoreError::Invalid(
+                            "That queued message was already sent or removed.".into(),
+                        ));
+                    }
+                    if runs.contains_key(&chat) || starting.contains_key(&chat) {
+                        return Err(StoreError::Invalid("The chat is busy.".into()));
+                    }
+                    let mut rest = without_queued(&session, id);
+                    rest.shift_remove("queueHeld");
+                    session = rest;
+                }
+                let running_provider = if runs.contains_key(&chat) {
+                    Some(
+                        session
+                            .get("provider")
+                            .and_then(Value::as_str)
+                            .unwrap_or(&provider)
+                            .to_string(),
+                    )
+                } else {
+                    starting.get(&chat).cloned()
+                };
+                let last_user = session_messages(latest, &session_id_value)
+                    .filter(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+                    .last();
+                let compacting = (runs.contains_key(&chat) || starting.contains_key(&chat))
+                    && last_user.is_some_and(|m| {
+                        m.get("context")
+                            .and_then(|c| c.get("kind"))
+                            .and_then(Value::as_str)
+                            == Some("compaction")
+                    });
+                if let Some(running) = &running_provider {
+                    if from_queue.is_none() {
+                        let queue = request.get("delivery").and_then(Value::as_str)
+                            == Some("queue")
+                            || compacting
+                            || !provider_capabilities(Some(running)).steer;
+                        if queue {
+                            let mut entry = Map::new();
+                            entry.insert("id".into(), Value::String(ids()));
+                            entry.insert("body".into(), body.clone());
+                            if stored_images.as_array().is_some_and(|images| !images.is_empty()) {
+                                entry.insert("images".into(), stored_images.clone());
+                            }
+                            if let Some(files) = field(request, "files")
+                                .and_then(Value::as_array)
+                                .filter(|files| !files.is_empty())
+                            {
+                                entry.insert("files".into(), Value::Array(files.clone()));
+                            }
+                            if let Some(context) = field(request, "context")
+                                .filter(|context| jsjson::truthy(Some(context)))
+                            {
+                                entry.insert("context".into(), context.clone());
+                            }
+                            if let Some(model) = &model {
+                                entry.insert("model".into(), model.clone());
+                            }
+                            entry.insert("provider".into(), json!(provider));
+                            entry.insert("queuedAt".into(), json!(now));
+                            if let Some(Value::String(id)) = request.get("clientMessageId") {
+                                entry.insert("clientMessageId".into(), json!(id));
+                            }
+                            if let Some(operation) = field(request, "operationId")
+                                .filter(|value| jsjson::truthy(Some(value)))
+                            {
+                                entry.insert("operationId".into(), operation.clone());
+                            }
+                            if let Some(prompt) = request.get("prompt") {
+                                if !jsjson::strict_equals(prompt, &body) {
+                                    entry.insert("prompt".into(), prompt.clone());
+                                }
+                            }
+                            let mut turn = Map::new();
+                            for key in [
+                                "permissionMode",
+                                "effort",
+                                "ultracode",
+                                "fastMode",
+                                "replies",
+                                "tldrEnabled",
+                            ] {
+                                if let Some(value) = request.get(key) {
+                                    turn.insert(key.into(), value.clone());
+                                }
+                            }
+                            entry.insert("turn".into(), Value::Object(turn));
+                            let mut items = session
+                                .get("queued")
+                                .and_then(Value::as_array)
+                                .cloned()
+                                .unwrap_or_default();
+                            items.push(Value::Object(entry.clone()));
+                            session.insert("queued".into(), Value::Array(items));
+                            queued_entry = Some(Value::Object(entry));
+                            target = Some((chat, session_id, Value::Null, None));
+                            return Ok(Some(agent_runs::with_session(
+                                &with_session,
+                                session_id,
+                                session,
+                            )));
+                        }
+                    }
+                }
+                if runs.contains_key(&chat) {
+                    // Admitted only into the turn running here (its generation), never while gated.
+                    if steering_mode == SteeringMode::Gated || !running_turns.contains(&chat) {
+                        return Err(gate(
+                            "Steering a running turn (send with delivery \"queue\" to queue it)",
+                        ));
+                    }
+                    steering = true;
+                    // A message that steers keeps the running turn's provider and model, whatever was asked for.
+                    run_provider = session
+                        .get("provider")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&provider)
+                        .to_string();
+                    let run_model_now = runs
+                        .get(&chat)
+                        .and_then(|run| run.get("model"))
+                        .filter(|model| jsjson::truthy(Some(model)))
+                        .cloned();
+                    let last_model = agent_runs::last_user_model(&with_session, session_id);
+                    run_model = run_model_now
+                        .or_else(|| jsjson::truthy(Some(&last_model)).then_some(last_model))
+                        .or_else(|| model.clone())
+                        .unwrap_or(Value::Null);
+                }
+                // handoffKind: the provider of the chat's last turn, and whether a restore is due. A steer never
+                // hands off.
+                let messages: Vec<&MsgRef> =
+                    session_messages(&with_session, &session_id_value).collect();
+                if !messages.is_empty() && !steering {
+                    let divider = messages.iter().rev().find(|m| {
+                        m.get("context")
+                            .and_then(|c| c.get("kind"))
+                            .and_then(Value::as_str)
+                            == Some("handoff")
+                            && m.get("context")
+                                .and_then(|c| c.get("status"))
+                                .and_then(Value::as_str)
+                                != Some("failed")
+                    });
+                    let last = match divider {
+                        Some(divider) => divider
+                            .get("context")
+                            .and_then(|c| c.get("to"))
+                            .and_then(|t| t.get("provider"))
+                            .cloned(),
+                        None => session.get("provider").cloned(),
+                    };
+                    let last = last.and_then(|value| value.as_str().map(str::to_string));
+                    if let Some(last) = last {
+                        if last != provider {
+                            return Err(gate("Switching a Chat to another provider (handoff)"));
+                        }
+                        let replied = messages.iter().any(|m| {
+                            m.get("role").and_then(Value::as_str) == Some("assistant")
+                                && m.get("outcome").and_then(Value::as_str) == Some("completed")
+                        });
+                        if replied && !jsjson::truthy(session.get("native_session_id")) {
+                            if !restore_mode {
+                                return Err(gate(
+                                    "Restoring a Chat whose provider session is gone (handoff restore)",
+                                ));
+                            }
+                            if !store_open {
+                                needs_store = true;
+                                return Err(StoreError::Invalid(
+                                    "The handover store isn't open yet.".into(),
+                                ));
+                            }
+                            if let Some(refused) = restore_refused.take() {
+                                return Err(refused);
+                            }
+                            // Measured before anything is staged: a Chat too large to hand over (or over what the
+                            // jobs out leave of the budget) is refused with nothing saved, never failed after.
+                            crate::transcripts::measure(
+                                &TranscriptSource {
+                                    state: (&with_session).into(),
+                                    session: u64::try_from(session_id).unwrap_or(0),
+                                    before: None,
+                                    provider: Some(&provider),
+                                    catch_up_after: None,
+                                    clock: handover::Clock {
+                                        zone: handover::Zone::Utc,
+                                        now_ms: 0.0,
+                                    },
+                                    changed: None,
+                                },
+                                restore_budget,
+                            )?;
+                            restore = Some((
+                                0,
+                                agent_runs::last_user_model(&with_session, session_id),
+                            ));
+                        }
+                    }
+                }
+                original = Some(before_queue);
+                if !steering {
+                    run_model = model.clone().unwrap_or(Value::Null);
+                }
+                let mut next_id = with_session
+                    .get("next_id")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(f64::NAN);
+                // A restore's divider takes the next id, just before the message (Node's dividerId). The ids must be
+                // whole numbers JavaScript holds exactly, or the divider couldn't be found again by its id.
+                if restore.is_some()
+                    && !(next_id.is_finite()
+                        && next_id.fract() == 0.0
+                        && (0.0..=9_007_199_254_740_989.0).contains(&next_id))
+                {
+                    return Err(StoreError::Invalid(
+                        "This Chat's next message id isn't a whole number, so it can't be handed over.".into(),
+                    ));
+                }
+                let divider = restore.as_mut().map(|(divider_id, from_model)| {
+                    *divider_id = next_id as i64;
+                    let mut from = Map::new();
+                    from.insert("provider".into(), json!(provider));
+                    if jsjson::truthy(Some(from_model)) {
+                        from.insert("model".into(), from_model.clone());
+                    }
+                    let mut to = Map::new();
+                    to.insert("provider".into(), json!(provider));
+                    to.insert("model".into(), model.clone().unwrap_or_else(jsjson::undefined));
+                    let divider = json!({
+                        "id": jsjson::number(next_id),
+                        "session_id": session_id_value.clone(),
+                        "body": "",
+                        "role": "assistant",
+                        "context": {
+                            "kind": "handoff",
+                            "from": Value::Object(from),
+                            "to": Value::Object(to),
+                            "status": "preparing",
+                        },
+                    });
+                    next_id += 1.0;
+                    Msg::new(divider)
+                });
+                let mut message = Map::new();
+                message.insert("id".into(), jsjson::number(next_id));
+                message.insert("session_id".into(), session_id_value.clone());
+                message.insert("body".into(), body.clone());
+                message.insert("images".into(), stored_images.clone());
+                if let Some(files) = field(request, "files")
+                    .and_then(Value::as_array)
+                    .filter(|files| !files.is_empty())
+                {
+                    message.insert("files".into(), Value::Array(files.clone()));
+                }
+                message.insert(
+                    "context".into(),
+                    field(request, "context").cloned().unwrap_or(Value::Null),
+                );
+                if let Some(operation) =
+                    field(request, "operationId").filter(|value| jsjson::truthy(Some(value)))
+                {
+                    message.insert("operationId".into(), operation.clone());
+                }
+                message.insert("role".into(), json!("user"));
+                message.insert("model".into(), run_model.clone());
+                if let Some(Value::String(id)) = request.get("clientMessageId") {
+                    message.insert("clientMessageId".into(), json!(id));
+                }
+                let mut next_session = session.clone();
+                for key in [
+                    "handoverDraft",
+                    "resumeTurn",
+                    "limitResume",
+                    "limitTurn",
+                    "suggestion",
+                    "suggestionTurnId",
+                ] {
+                    next_session.shift_remove(key);
+                }
+                next_session.insert("provider".into(), json!(run_provider));
+                if let Some(mode) = request
+                    .get("permissionMode")
+                    .and_then(Value::as_str)
+                    .filter(|mode| PERMISSION_MODES.contains(mode))
+                {
+                    next_session.insert("permissionMode".into(), json!(mode));
+                }
+                let body_text = body.as_str().map(str::trim).unwrap_or("");
+                if first_message
+                    && !body_text.is_empty()
+                    && !jsjson::truthy(session.get("title"))
+                    && !jsjson::truthy(session.get("generatedTitle"))
+                {
+                    next_session.insert("titlePending".into(), json!(true));
+                }
+                target = Some((
+                    chat.clone(),
+                    session_id,
+                    worktree.get("path").cloned().unwrap_or(Value::Null),
+                    next_session.get("native_session_id").cloned(),
+                ));
+                staged = Some(next_session.clone());
+                let msg = Msg::new(Value::Object(message));
+                pending = Some(msg.clone());
+                let mut list = with_session.message_list().to_vec();
+                list.extend(divider);
+                list.push(msg);
+                let next = agent_runs::with_session(&with_session, session_id, next_session)
+                    .with_field("next_id", jsjson::number(next_id + 1.0))
+                    .with_messages(list);
+                Ok(Some(next))
+            });
+        if let Some((chat, ..)) = &target {
+            if staged.is_some() && saving.is_ok() && !steering {
+                self.starting.insert(chat.clone(), provider.clone());
+            }
+        }
+        if needs_store {
+            // Nothing was staged: open the store, then send again (it is open now, so this happens once).
+            self.open_transcripts()?;
+            return self.send(request);
+        }
+        saving?;
+        if let Some(session) = duplicate {
+            return Ok(Sent {
+                session_id: session,
+                duplicate: true,
+                queued: false,
+                steering: false,
+                turn: None,
+            });
+        }
+        let (chat, session_id, cwd, resume_id) = target.expect("a send that saved names its Chat");
+        if let Some(entry) = queued_entry {
+            return self.queue_saved(&project, &chat, session_id, &entry);
+        }
+        let pending = pending.expect("message saved");
+        // Persist the message before its turn starts; a failed flush takes it back out.
+        if let Err(error) = self.states.flush(Some(&project)) {
+            self.starting.remove(&chat);
+            let original = original.unwrap_or_default();
+            let staged = staged.unwrap_or_default();
+            let pending_id = pending.get("id").cloned();
+            let rolled = self
+                .states
+                .update(&project, Some(&[session_id]), true, |latest| {
+                    let mut session = agent_runs_session(latest, session_id)?;
+                    for key in [
+                        "provider",
+                        "titlePending",
+                        "handoverDraft",
+                        "resumeTurn",
+                        "limitResume",
+                        "limitTurn",
+                        "native_session_id",
+                        "native_sessions",
+                        "queued",
+                        "queueHeld",
+                    ] {
+                        if session.get(key) != staged.get(key) {
+                            continue;
+                        }
+                        match original.get(key) {
+                            Some(value) => {
+                                session.insert(key.into(), value.clone());
+                            }
+                            None => {
+                                session.shift_remove(key);
+                            }
+                        }
+                    }
+                    let messages = latest
+                        .message_list()
+                        .iter()
+                        .filter(|m| m.get("id") != pending_id.as_ref())
+                        .cloned()
+                        .collect();
+                    Some(
+                        agent_runs::with_session(latest, session_id, session)
+                            .with_messages(messages),
+                    )
+                });
+            if rolled.is_ok() {
+                self.broadcast(&project);
+            }
+            return Err(error);
+        }
+        // message-sent: the run opens, the message stays where it was saved.
+        let mut runs = self.runs.clone();
+        let mut seq = self.seq;
+        let event = {
+            let mut event = Map::new();
+            event.insert("type".into(), json!("message-sent"));
+            event.insert("model".into(), run_model.clone());
+            if let Some(mode) = request.get("permissionMode") {
+                event.insert("permissionMode".into(), mode.clone());
+            }
+            Value::Object(event)
+        };
+        // By id, as Node does: a save or a lazy load may hand back another copy of the message than `pending`.
+        let pending_id = pending.get("id").cloned().unwrap_or(Value::Null);
+        let same_id = |m: &MsgRef| {
+            m.get("id")
+                .is_some_and(|id| jsjson::strict_equals(id, &pending_id))
+        };
+        let folded = self
+            .states
+            .try_update(&project, Some(&[session_id]), true, |latest| {
+                let saved = latest.message_list().iter().find(|m| same_id(m)).cloned();
+                let without: Vec<MsgRef> = latest
+                    .message_list()
+                    .iter()
+                    .filter(|m| !same_id(m))
+                    .cloned()
+                    .collect();
+                let base = latest.with_messages(without);
+                let (sent, next_runs, _) =
+                    agent_runs::apply_agent_event(&base, &runs, &project_key, &chat, &event, now)
+                        .map_err(|unsupported| gate(&unsupported.0))?;
+                runs = next_runs;
+                seq += 1;
+                let mut list = sent.message_list().to_vec();
+                list.extend(saved);
+                Ok(Some(sent.with_messages(list)))
+            });
+        self.starting.remove(&chat);
+        // The run opens only if its fold was kept: a failed save or load leaves the host as it was.
+        if folded.is_ok() {
+            self.runs = runs;
+            self.seq = seq;
+        }
+        self.sync_busy();
+        let (state, _) = folded?;
+        self.notice(Notice::Event {
+            chat: chat.clone(),
+            event: event.clone(),
+            seq: Some(self.seq),
+            with_state: true,
+        });
+        if session_value(&state, &json!(session_id))
+            .is_some_and(|s| jsjson::truthy(s.get("titlePending")))
+        {
+            self.notice(Notice::NameChat {
+                project: project.clone(),
+                session: session_id,
+            });
+        }
+        let mut turn = Map::new();
+        turn.insert("provider".into(), json!(run_provider));
+        turn.insert("model".into(), run_model.clone());
+        for key in [
+            "permissionMode",
+            "effort",
+            "ultracode",
+            "fastMode",
+            "replies",
+            "tldrEnabled",
+        ] {
+            if let Some(value) = request.get(key) {
+                turn.insert(key.into(), value.clone());
+            }
+        }
+        let prompt = send_prompt(request);
+        turn.insert("prompt".into(), prompt);
+        self.turns.insert(chat.clone(), Value::Object(turn.clone()));
+        let mut start = turn;
+        start.insert("chatId".into(), json!(chat));
+        start.insert("cwd".into(), cwd);
+        start.insert(
+            "images".into(),
+            request.get("images").cloned().unwrap_or(json!([])),
+        );
+        if let Some(resume) = resume_id {
+            start.insert("resumeId".into(), resume);
+        }
+        if steering {
+            // Recorded only: what Node hands SessionManager.startTurn. The running turn goes on; nothing settles this.
+            let running = self
+                .active_turn(&chat)
+                .expect("admitted into the running turn");
+            self.notice(Notice::SteerRequested {
+                chat: chat.clone(),
+                turn: running,
+                request: Value::Object(start),
+            });
+            return Ok(Sent {
+                session_id: json!(session_id),
+                duplicate: false,
+                queued: false,
+                steering: true,
+                turn: Some(running),
+            });
+        }
+        if let Some((divider, _)) = restore {
+            let turn_fields = match self.turns.get(&chat) {
+                Some(Value::Object(fields)) => fields.clone(),
+                _ => Map::new(),
+            };
+            let turn = self.stage_restore(
+                &project,
+                &chat,
+                session_id,
+                &provider,
+                divider,
+                turn_fields,
+                start,
+            );
+            return Ok(Sent {
+                session_id: json!(session_id),
+                duplicate: false,
+                queued: false,
+                steering: false,
+                turn: Some(turn),
+            });
+        }
+        let turn = self.start_turn(&chat, &provider, &Value::Object(start));
+        Ok(Sent {
+            session_id: json!(session_id),
+            duplicate: false,
+            queued: false,
+            steering: false,
+            turn,
+        })
+    }
+
+    /// Asks the provider to start the turn, without waiting for it. A refusal known at once ends it in the Chat as
+    /// Node's `.catch` does (and so does a later `StartFailed`); if even that fold fails, the end is kept and retried.
+    fn start_turn(&mut self, chat: &str, provider: &str, request: &Value) -> Option<TurnId> {
+        let turn = self.reserve_turn(chat, provider);
+        self.launch_turn(chat, provider, request, turn)
+    }
+
+    /// A new turn for `chat`, running from now on (its generation): what a start or a staged handoff takes.
+    fn reserve_turn(&mut self, chat: &str, provider: &str) -> TurnId {
+        self.next_turn += 1;
+        let turn = TurnId(self.next_turn);
+        self.active
+            .insert(chat.to_string(), (turn, provider.to_string()));
+        self.latest.insert(chat.to_string(), turn);
+        turn
+    }
+
+    /// Asks the provider to start the reserved `turn`.
+    fn launch_turn(
+        &mut self,
+        chat: &str,
+        provider: &str,
+        request: &Value,
+        turn: TurnId,
+    ) -> Option<TurnId> {
+        // Nothing starts in a Project that isn't ready: the turn ends unstarted (its end kept until it is ready).
+        if self.require_ready_chat(chat).is_err() {
+            self.fail_turn(
+                chat,
+                turn,
+                "Its Project isn't ready here, so the turn didn't start.",
+                "a turn that couldn't start",
+            );
+            return None;
+        }
+        let outcome = match self.providers.get_mut(provider) {
+            Some(adapter) => match outbound_image_request(request) {
+                Ok((request, images)) => adapter.start_turn_with_images(turn, &request, &images),
+                Err(why) => Err(ProviderError::new(ProviderErrorKind::Refused, why)),
+            },
+            None => Err(ProviderError::new(
+                ProviderErrorKind::Unavailable,
+                format!("No {provider} provider adapter is registered with the Rust owner."),
+            )),
+        };
+        match outcome {
+            Ok(()) => Some(turn),
+            Err(error) => {
+                self.fail_turn(
+                    chat,
+                    turn,
+                    &jsjson::js_string(&error.message),
+                    "a turn that couldn't start",
+                );
+                None
+            }
+        }
+    }
+
+    /// Ends a turn with `turn-failed` (a start that failed, a provider that exited); a fold that fails is kept.
+    fn fail_turn(&mut self, chat: &str, turn: TurnId, message: &str, what: &str) {
+        let event = json!({ "type": "turn-failed", "message": message });
+        if let Err(error) = self.receive(chat, turn, &event) {
+            self.notice(Notice::Failed {
+                chat: chat.into(),
+                what: format!("ending {what}"),
+                error: error.to_string(),
+            });
+        }
+    }
+
+    /// queueSaved: the queued message is on disk before anyone hears of it.
+    fn queue_saved(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        session_id: i64,
+        entry: &Value,
+    ) -> Result<Sent> {
+        let id = entry["id"].as_str().unwrap_or("").to_string();
+        if let Err(error) = self.states.flush(Some(project)) {
+            let _ = self.states.update(project, Some(&[]), true, |latest| {
+                let session = agent_runs_session(latest, session_id)?;
+                Some(agent_runs::with_session(
+                    latest,
+                    session_id,
+                    without_queued(&session, &id),
+                ))
+            });
+            self.broadcast(project);
+            return Err(error);
+        }
+        self.broadcast(project);
+        self.queue_waiters.insert(id);
+        if !self.is_busy(chat) {
+            if let Err(error) = self.after_turn(chat, &json!({ "type": "turn-completed" })) {
+                self.notice(Notice::Failed {
+                    chat: chat.into(),
+                    what: "starting the queued message".into(),
+                    error: error.to_string(),
+                });
+            }
+        }
+        Ok(Sent {
+            session_id: json!(session_id),
+            duplicate: false,
+            queued: true,
+            steering: false,
+            turn: None,
+        })
+    }
+
+    // ---- turns ---------------------------------------------------------------------------------------------
+
+    /// Tries kept turn ends again, then takes every provider's events, in order, and handles them, until none are left
+    /// (a turn end can start a queued message, whose start answers with more events). Returns what was refused or
+    /// failed; each is also left as it was (a refused event folds nothing).
+    pub fn pump(&mut self) -> Vec<StoreError> {
+        let mut errors = std::mem::take(&mut self.released_errors);
+        let uncounted = std::mem::take(&mut self.released_uncounted);
+        if uncounted > 0 {
+            errors.push(StoreError::Invalid(format!(
+                "{uncounted} more agent events released after an open were refused (not listed one by one)."
+            )));
+        }
+        self.drive_jobs(false);
+        self.drive_briefs(None);
+        errors.extend(self.retry_stuck());
+        // Events waiting behind a kept end that now folded go next, before anything newer.
+        let held: Vec<PathBuf> = self.parked.keys().cloned().collect();
+        for project in held {
+            self.release_held(&project);
+        }
+        errors.append(&mut self.released_errors);
+        for round in 0.. {
+            // What a bounded pump left comes first, whether or not a provider sent more since.
+            let mut events: Vec<ProviderEvent> = std::mem::take(&mut self.held_events);
+            for provider in self.providers.values_mut() {
+                events.extend(provider.take_events());
+            }
+            if events.is_empty() {
+                break;
+            }
+            if round == MAX_PUMP_ROUNDS {
+                // Events keep coming (an adapter looping on its own output): stop here, keep them for the next pump.
+                self.held_events.extend(events);
+                errors.push(StoreError::Invalid(format!(
+                    "Providers kept sending events for {MAX_PUMP_ROUNDS} rounds; the rest wait for the next pump."
+                )));
+                break;
+            }
+            for event in events {
+                if let Err(error) = self.deliver(event) {
+                    errors.push(error);
+                }
+            }
+        }
+        errors
+    }
+
+    /// The runtime's tick, from the one task that owns the host: the clock moves (debounced saves, sweeps), interrupts
+    /// past their grace are forced, kept turn ends are tried again, and providers' events are handled. Events are
+    /// handled before anything is forced, so an end that came within the grace counts.
+    pub fn tick(&mut self, now: i64) -> Vec<StoreError> {
+        if now > self.states.now() {
+            self.states.advance(now);
+        }
+        let mut errors = self.pump();
+        // Job outcomes and temporary files still to remove: handled while a quit or a forget waits on them too.
+        self.drive_jobs(true);
+        self.drive_briefs(Some(now));
+        let saving: Vec<String> = self
+            .preparing
+            .iter()
+            .filter(|(_, p)| p.saving)
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in saving {
+            self.start_prepared(&chat);
+        }
+        // A Project that isn't ready folds nothing: its deadlines and answers wait until it is ready again. A Chat whose
+        // turn end is kept already ended its turn: forcing it would replace that end (or, with saves still failing,
+        // drop it); the kept end folds on a later pump and clears the deadline.
+        let overdue: Vec<(String, TurnId)> = self
+            .deadlines
+            .iter()
+            .filter(|(chat, (_, at))| {
+                *at <= now
+                    && self.require_ready_chat(chat).is_ok()
+                    && !self.stuck.contains_key(*chat)
+            })
+            .map(|(chat, (turn, _))| (chat.clone(), *turn))
+            .collect();
+        for (chat, turn) in overdue {
+            self.deadlines.remove(&chat);
+            if self.active_turn(&chat) == Some(turn) {
+                self.force_end(
+                    &chat,
+                    turn,
+                    "The agent didn't stop in time, so Milagre ended its turn.",
+                );
+            }
+        }
+        errors.extend(self.pump());
+        let late: Vec<(AnswerId, String)> = self
+            .pending_answers
+            .iter()
+            .filter(|(_, pending)| {
+                pending.due <= now && self.require_ready_chat(&pending.chat).is_ok()
+            })
+            .map(|(answer, pending)| (*answer, pending.chat.clone()))
+            .collect();
+        for (answer, chat) in late {
+            // A deadline proves nothing about delivery: the answer stays, its delivery unknown.
+            let error = ProviderError::new(
+                ProviderErrorKind::Timeout,
+                "The agent hasn't confirmed the answer.",
+            );
+            let _ = self.settle_answer(&chat, answer, AnswerOutcome::Uncertain(error));
+        }
+        let late: Vec<ModeChangeId> = self
+            .pending_modes
+            .iter()
+            .filter(|(_, pending)| {
+                !pending.told
+                    && pending.due <= now
+                    && self.require_ready_chat(&pending.chat).is_ok()
+            })
+            .map(|(change, _)| *change)
+            .collect();
+        for change in late {
+            let pending = self.pending_modes.get_mut(&change).expect("present");
+            pending.told = true;
+            let chat = pending.chat.clone();
+            self.notice(Notice::ModeSettled {
+                chat,
+                change,
+                result: ModeResult::Uncertain(
+                    "The agent hasn't confirmed the permission mode.".into(),
+                ),
+            });
+        }
+        errors
+    }
+
+    /// Folds the turn ends kept after a failed fold again; one that fails again stays kept while its turn runs.
+    /// Ends kept for a Project that isn't ready stay kept, untried, until it is ready again.
+    pub fn retry_stuck(&mut self) -> Vec<StoreError> {
+        let (stuck, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.stuck)
+            .into_iter()
+            .partition(|(chat, _)| self.require_ready_chat(chat).is_ok());
+        self.stuck.extend(waiting);
+        let mut errors = Vec::new();
+        for (chat, (turn, event)) in stuck {
+            if let Err(error) = self.receive(&chat, turn, &event) {
+                errors.push(error);
+            }
+        }
+        errors
+    }
+
+    /// Turn ends kept because their fold failed, by Chat.
+    pub fn stuck_ends(&self) -> Vec<String> {
+        self.stuck.keys().cloned().collect()
+    }
+
+    /// Handles one provider event (pushed by an adapter, or taken by `pump`).
+    pub fn deliver(&mut self, event: ProviderEvent) -> Result<()> {
+        // Chat keys come back as the adapter got them (raw): into the owner's encoding too.
+        let event = match event {
+            ProviderEvent::Started { chat, turn, result } => ProviderEvent::Started {
+                chat: jsjson::js_string(&chat),
+                turn,
+                result,
+            },
+            ProviderEvent::StartFailed { chat, turn, error } => ProviderEvent::StartFailed {
+                chat: jsjson::js_string(&chat),
+                turn,
+                error,
+            },
+            ProviderEvent::Agent { chat, turn, event } => ProviderEvent::Agent {
+                chat: jsjson::js_string(&chat),
+                turn,
+                event,
+            },
+            ProviderEvent::Exited { chat, turn, error } => ProviderEvent::Exited {
+                chat: jsjson::js_string(&chat),
+                turn,
+                error,
+            },
+            ProviderEvent::AnswerSettled {
+                chat,
+                answer,
+                outcome,
+            } => ProviderEvent::AnswerSettled {
+                chat: jsjson::js_string(&chat),
+                answer,
+                outcome,
+            },
+            ProviderEvent::ModeSettled {
+                chat,
+                change,
+                outcome,
+            } => ProviderEvent::ModeSettled {
+                chat: jsjson::js_string(&chat),
+                change,
+                outcome,
+            },
+        };
+        let chat = match &event {
+            ProviderEvent::Started { chat, .. }
+            | ProviderEvent::StartFailed { chat, .. }
+            | ProviderEvent::Agent { chat, .. }
+            | ProviderEvent::Exited { chat, .. }
+            | ProviderEvent::AnswerSettled { chat, .. }
+            | ProviderEvent::ModeSettled { chat, .. } => chat.clone(),
+        };
+        let project = PathBuf::from(agent_runs::project_of_key(&chat));
+        // Forget/quit can revoke a Project before an adapter finishes closing. These exact captured receipts may
+        // release retained admission without touching the Project, even after it was forgotten. They never replay
+        // a preference into a reopened Project or acquire a new lock.
+        match &event {
+            ProviderEvent::ModeSettled {
+                change, outcome, ..
+            } if self
+                .pending_modes
+                .get(change)
+                .is_some_and(|pending| pending.chat == chat && pending.revoked) =>
+            {
+                if !matches!(outcome, ModeOutcome::Uncertain(_)) {
+                    self.pending_modes.remove(change);
+                }
+                return Ok(());
+            }
+            ProviderEvent::Exited { turn, .. } => {
+                let before = self.pending_modes.len();
+                self.pending_modes.retain(|_, pending| {
+                    !(pending.revoked && pending.chat == chat && pending.turn == *turn)
+                });
+                if self.pending_modes.len() != before && !self.ready.contains(&project) {
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+        if !self.ready.contains(&project) {
+            // Loaded here but not ready: kept, in order, until an explicit open makes it ready. Never opened, or
+            // forgotten: refused and dropped, never loading or reopening it.
+            if self.not_ready.contains(&project) && self.states.has(&project) {
+                return self.park(project, event);
+            }
+            return self.require_ready(&project);
+        }
+        // A Chat whose turn end is kept (its fold failed), or with events already waiting behind one: this one waits
+        // too, in order, so nothing the provider sent after that end is handled before it.
+        if self.stuck.contains_key(&chat) || self.held_for(&project, &chat) {
+            return self.hold_behind(project, event);
+        }
+        self.handle(event)
+    }
+
+    /// The Chat of a provider event.
+    fn event_chat(event: &ProviderEvent) -> &str {
+        match event {
+            ProviderEvent::Started { chat, .. }
+            | ProviderEvent::StartFailed { chat, .. }
+            | ProviderEvent::Agent { chat, .. }
+            | ProviderEvent::Exited { chat, .. }
+            | ProviderEvent::AnswerSettled { chat, .. }
+            | ProviderEvent::ModeSettled { chat, .. } => chat,
+        }
+    }
+
+    /// Whether events of `chat` wait behind its kept turn end in a ready Project.
+    fn held_for(&self, project: &Path, chat: &str) -> bool {
+        self.parked.get(project).is_some_and(|parked| {
+            parked
+                .events
+                .iter()
+                .any(|(event, _)| Self::event_chat(event) == chat)
+        })
+    }
+
+    /// Keeps an event of a ready Project behind its Chat's kept turn end, within the parked budget. Past it the event
+    /// is dropped and refused (the Project stays ready; the kept end still ends the turn when it folds).
+    fn hold_behind(&mut self, project: PathBuf, event: ProviderEvent) -> Result<()> {
+        let size = event_bytes(&event);
+        let (max_events, max_bytes) = self.parked_budget;
+        if self.parked_events >= max_events || self.parked_bytes + size > max_bytes {
+            self.discard_mode_cleanup(&event);
+            return Err(StoreError::Invalid(format!(
+                "An agent event for {} was dropped: too many wait behind turn ends whose save keeps failing.",
+                Self::event_chat(&event)
+            )));
+        }
+        let parked = self.parked.entry(project).or_default();
+        parked.events.push_back((event, size));
+        parked.bytes += size;
+        self.parked_events += 1;
+        self.parked_bytes += size;
+        Ok(())
+    }
+
+    /// Keeps a refusal of a released event for the next `pump` (bounded, the rest counted).
+    fn released_error(&mut self, error: StoreError) {
+        if self.released_errors.len() < MAX_RELEASED_ERRORS {
+            self.released_errors.push(error);
+        } else {
+            self.released_uncounted += 1;
+        }
+    }
+
+    /// The kept turn ends of `project`'s Chats, folded again (a failure keeps them; refusals go to `released_errors`).
+    fn retry_stuck_in(&mut self, project: &Path) {
+        let chats: Vec<String> = self
+            .stuck
+            .keys()
+            .filter(|chat| Path::new(agent_runs::project_of_key(chat)) == project)
+            .cloned()
+            .collect();
+        for chat in chats {
+            if let Some((turn, event)) = self.stuck.remove(&chat) {
+                if let Err(error) = self.receive(&chat, turn, &event) {
+                    self.released_error(error);
+                }
+            }
+        }
+    }
+
+    /// Handles a ready Project's waiting events in order, except a Chat's whose turn end is still kept (they keep
+    /// waiting, in order, behind it). Called after an open and on every `pump`.
+    fn release_held(&mut self, project: &Path) {
+        if !self.ready.contains(project) {
+            return;
+        }
+        let Some(parked) = self.parked.get_mut(project) else {
+            return;
+        };
+        let events = std::mem::take(&mut parked.events);
+        let bytes = std::mem::take(&mut parked.bytes);
+        self.parked_events -= events.len();
+        self.parked_bytes -= bytes;
+        let mut waiting = std::collections::VecDeque::new();
+        let mut waiting_bytes = 0;
+        for (event, size) in events {
+            let chat = Self::event_chat(&event).to_string();
+            if self.stuck.contains_key(&chat) {
+                waiting.push_back((event, size));
+                waiting_bytes += size;
+                continue;
+            }
+            if let Err(error) = self.handle(event) {
+                self.released_error(error);
+            }
+        }
+        self.parked_events += waiting.len();
+        self.parked_bytes += waiting_bytes;
+        let parked = self.parked.entry(project.to_path_buf()).or_default();
+        parked.events.extend(waiting);
+        parked.bytes += waiting_bytes;
+        if parked.events.is_empty() && parked.lost.is_none() {
+            self.parked.remove(project);
+        }
+    }
+
+    /// Keeps a provider event of a Project loaded here but not ready, within the budget (`MAX_PARKED_EVENTS` events and
+    /// `MAX_PARKED_BYTES` bytes, all such Projects together). Past it the Project fails closed: everything kept for it
+    /// is dropped, the sessions of the turns running in it are closed at once (nothing they did is replayed), nothing
+    /// more is kept for it, and once it opens again those turns end `turn-failed` and their answers settle as an ended
+    /// turn's do (`Uncertain`, their messages kept). Nothing is folded or saved until then.
+    fn park(&mut self, project: PathBuf, event: ProviderEvent) -> Result<()> {
+        let size = event_bytes(&event);
+        let (max_events, max_bytes) = self.parked_budget;
+        let fits = self.parked_events < max_events && self.parked_bytes + size <= max_bytes;
+        let parked = self.parked.entry(project.clone()).or_default();
+        if parked.lost.is_some() {
+            self.discard_mode_cleanup(&event);
+            return Err(StoreError::ProjectNotReady(format!(
+                "An agent event for {} was dropped: its events since it stopped being ready were already lost.",
+                project.display()
+            )));
+        }
+        if fits {
+            parked.events.push_back((event, size));
+            parked.bytes += size;
+            self.parked_events += 1;
+            self.parked_bytes += size;
+            return Ok(());
+        }
+        let (dropped, bytes) = (
+            std::mem::take(&mut parked.events),
+            std::mem::take(&mut parked.bytes),
+        );
+        self.parked_events -= dropped.len();
+        self.parked_bytes -= bytes;
+        for (discarded, _) in dropped {
+            self.discard_mode_cleanup(&discarded);
+        }
+        self.discard_mode_cleanup(&event);
+        let lost: BTreeMap<String, TurnId> = self
+            .active
+            .iter()
+            .filter(|(chat, _)| Path::new(agent_runs::project_of_key(chat)) == project)
+            .map(|(chat, (turn, _))| (chat.clone(), *turn))
+            .collect();
+        for chat in lost.keys() {
+            self.close_session(chat);
+        }
+        self.parked.entry(project.clone()).or_default().lost = Some(lost);
+        Err(StoreError::ProjectNotReady(format!(
+            "Milagre couldn't keep more agent events for {} while it isn't ready: its running turns end once it opens again.",
+            project.display()
+        )))
+    }
+
+    /// After an explicit open made `project` ready: its kept events are handled in the order they came (each once),
+    /// then the turns an overflow lost are ended. What they refused or failed is returned by the next `pump`.
+    fn release_parked(&mut self, project: &Path) {
+        // Turn ends kept before readiness was lost come first: they arrived before anything parked.
+        self.retry_stuck_in(project);
+        self.release_held(project);
+        let lost = self
+            .parked
+            .get_mut(project)
+            .and_then(|parked| parked.lost.take())
+            .unwrap_or_default();
+        if self
+            .parked
+            .get(project)
+            .is_some_and(|parked| parked.events.is_empty())
+        {
+            self.parked.remove(project);
+        }
+        for (chat, turn) in lost {
+            // A real end kept after a failed fold is folded by `retry_stuck` instead.
+            let kept = self
+                .stuck
+                .get(&chat)
+                .is_some_and(|(stuck, _)| *stuck == turn);
+            if !kept && self.active_turn(&chat) == Some(turn) {
+                self.end_closed(
+                    &chat,
+                    turn,
+                    "Milagre couldn't keep this turn's agent events while its Project wasn't ready, so it ended the turn.",
+                );
+            }
+        }
+    }
+
+    /// Disposing an event must not lose definitive per-operation cleanup proof already drained from the adapter.
+    /// These events' chat keys are already encoded. Never call deliver, note a preference, or replay state here.
+    fn discard_mode_cleanup(&mut self, event: &ProviderEvent) {
+        let (chat, changes, failure) = match event {
+            ProviderEvent::ModeSettled {
+                chat,
+                change,
+                outcome,
+            } => {
+                if matches!(outcome, ModeOutcome::Uncertain(_)) {
+                    return;
+                }
+                if !self
+                    .pending_modes
+                    .get(change)
+                    .is_some_and(|pending| pending.chat == *chat)
+                {
+                    return;
+                }
+                let failure = match outcome {
+                    ModeOutcome::Failed(error) => jsjson::js_string(&format!(
+                        "{} The permission-mode preference wasn't saved because its receipt was discarded.", error.message)),
+                    _ => "The permission-mode preference wasn't saved because its receipt was discarded.".into(),
+                };
+                (chat, vec![*change], failure)
+            }
+            ProviderEvent::Exited { chat, turn, .. } => {
+                let changes = self
+                    .pending_modes
+                    .iter()
+                    .filter(|(_, pending)| pending.chat == *chat && pending.turn == *turn)
+                    .map(|(change, _)| *change)
+                    .collect();
+                (
+                    chat,
+                    changes,
+                    "The permission-mode preference wasn't saved before its session exited.".into(),
+                )
+            }
+            _ => return,
+        };
+        for change in changes {
+            let pending = self
+                .pending_modes
+                .remove(&change)
+                .expect("matched captured operation");
+            if !pending.told {
+                self.notice(Notice::ModeSettled {
+                    chat: chat.clone(),
+                    change,
+                    result: ModeResult::Failed(failure.clone()),
+                });
+            }
+        }
+    }
+
+    /// Drops what is kept for `project` (forgotten or closed). Only exact terminal mode cleanup is consumed.
+    fn drop_parked(&mut self, project: Option<&Path>) {
+        let keys: Vec<PathBuf> = match project {
+            Some(project) => vec![project.to_path_buf()],
+            None => self.parked.keys().cloned().collect(),
+        };
+        for key in keys {
+            if let Some(parked) = self.parked.remove(&key) {
+                self.parked_events -= parked.events.len();
+                self.parked_bytes -= parked.bytes;
+                for (event, _) in parked.events {
+                    self.discard_mode_cleanup(&event);
+                }
+            }
+        }
+    }
+
+    /// The parked events' budget (events, bytes), for tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn set_parked_budget_for_tests(&mut self, events: usize, bytes: usize) {
+        self.parked_budget = (events, bytes);
+    }
+
+    /// The events and bytes kept for not-ready Projects, for tests.
+    #[cfg(feature = "test-fixtures")]
+    pub fn parked_for_tests(&self) -> (usize, usize) {
+        (self.parked_events, self.parked_bytes)
+    }
+
+    /// Handles one provider event of a ready Project.
+    fn handle(&mut self, event: ProviderEvent) -> Result<()> {
+        match event {
+            ProviderEvent::Started { chat, turn, result } => {
+                if self.active_turn(&chat) != Some(turn) {
+                    return Err(StoreError::Invalid(format!(
+                        "A late start of turn {} was dropped: it no longer runs in {chat}.",
+                        turn.0
+                    )));
+                }
+                let result = result.encode();
+                self.notice(Notice::Started {
+                    chat,
+                    turn,
+                    result: result.clone(),
+                });
+                self.queue_started(turn, result);
+                Ok(())
+            }
+            ProviderEvent::StartFailed { chat, turn, error } => {
+                self.queue_started(turn, Value::Null);
+                let event =
+                    json!({ "type": "turn-failed", "message": jsjson::js_string(&error.message) });
+                self.receive(&chat, turn, &event)
+            }
+            // The one place provider JSON enters the owner's encoding (see jsjson::RawJson).
+            ProviderEvent::Agent { chat, turn, event } => {
+                self.receive(&chat, turn, &event.into_encoded())
+            }
+            ProviderEvent::AnswerSettled {
+                chat,
+                answer,
+                outcome,
+            } => self.settle_answer(&chat, answer, outcome),
+            ProviderEvent::ModeSettled {
+                chat,
+                change,
+                outcome,
+            } => self.settle_mode(&chat, change, outcome),
+            ProviderEvent::Exited { chat, turn, error } => {
+                // That session is gone (whether it ran a turn or idled): its answers first (with its reason), then its
+                // turn; a newer turn is untouched.
+                self.fail_answers(&chat, Some(turn), &error.message);
+                self.close_modes(&chat, Some(turn), &error.message);
+                let message = jsjson::js_string(&error.message);
+                let mut result = Ok(());
+                if self.active_turn(&chat) == Some(turn) {
+                    let event = json!({ "type": "turn-failed", "message": message });
+                    result = self.receive(&chat, turn, &event);
+                }
+                if self.latest.get(&chat) == Some(&turn) {
+                    self.latest.remove(&chat);
+                }
+                result
+            }
+        }
+    }
+
+    /// A queued message's start resolved (`null` when it failed or its turn ended first): its sender hears it, or its
+    /// Chat does.
+    fn queue_started(&mut self, turn: TurnId, result: Value) {
+        if let Some((id, chat)) = self.queue_turns.remove(&turn) {
+            self.tell_queue_started(&chat, &id, result);
+        }
+    }
+
+    fn tell_queue_started(&mut self, chat: &str, id: &str, result: Value) {
+        if self.queue_waiters.remove(id) {
+            self.notice(Notice::QueueStarted {
+                id: id.into(),
+                result,
+            });
+        } else {
+            self.notice(Notice::QueueStartedWithoutSender {
+                chat: chat.into(),
+                id: id.into(),
+            });
+        }
+    }
+
+    /// Events Node folds outside a turn too: they must come from the Chat's latest session (its latest turn).
+    const CHAT_LEVEL: [&'static str; 8] = [
+        "session-started",
+        "session-reset",
+        "context-usage",
+        "subagent-update",
+        "background-tasks",
+        "plan-updated",
+        "tasks-updated",
+        "prompt-suggestion",
+    ];
+
+    /// receive: folds one agent event into its Chat's Project, then tells the clients. Refused, folding nothing:
+    /// - an event type this checkpoint doesn't fold;
+    /// - a Chat key that doesn't spell its Project canonically, or a Project that isn't open here (a late event must
+    ///   not open, and lock, a Project that was closed);
+    /// - a turn event (and a turn end) of any turn but the one running, including when nothing runs (a duplicate
+    ///   `turn-cancelled` after `turn-completed` must not hold the queue);
+    /// - a Chat-level event of an older session than the Chat's latest turn;
+    /// - a turn the agent started by itself.
+    ///
+    /// A turn end of the running turn whose fold fails is kept and folded again (`pump`, `tick`, `retry_stuck`), so
+    /// its run never stays open for good; the queue moves on only when a turn end actually ended a run.
+    pub fn receive(&mut self, chat: &str, turn: TurnId, event: &Value) -> Result<()> {
+        let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
+        let terminal = is_turn_end(event);
+        let running = self.active_turn(chat);
+        // A Project that isn't ready folds nothing (a refused turn end of the running turn is kept, below).
+        let checked = self
+            .require_ready_chat(chat)
+            .and_then(|()| self.admit(chat, turn, kind, running));
+        let folded = checked.and_then(|_| {
+            let had_run = self.runs.contains_key(chat);
+            self.fold(chat, event)
+                .map(|_| had_run && !self.runs.contains_key(chat))
+        });
+        match &folded {
+            Ok(_) if terminal => {
+                self.stuck.remove(chat);
+                self.active.remove(chat);
+                self.deadlines.remove(chat);
+                self.queue_started(turn, Value::Null);
+                // Its requests ended with it: their answers stop holding slots.
+                self.fail_answers(
+                    chat,
+                    Some(turn),
+                    "The turn ended before the agent confirmed the answer.",
+                );
+            }
+            // Kept only while it is still the running turn's end: a stale one is dropped for good.
+            Err(_) if terminal && running == Some(turn) => {
+                self.stuck.insert(chat.to_string(), (turn, event.clone()));
+            }
+            _ => {}
+        }
+        self.sync_busy();
+        let ended = folded?;
+        if terminal && ended {
+            if let Err(error) = self.after_turn(chat, event) {
+                self.notice(Notice::Failed {
+                    chat: chat.into(),
+                    what: "starting the next queued message".into(),
+                    error: error.to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// receive's checks, before anything is folded.
+    fn admit(&self, chat: &str, turn: TurnId, kind: &str, running: Option<TurnId>) -> Result<()> {
+        if agent_runs::UNSUPPORTED.contains(&kind) {
+            return Err(gate(&format!("The agent event \"{kind}\"")));
+        }
+        let (project, _) = self.canonical_chat(chat)?;
+        if !self.states.has(&project) {
+            return Err(StoreError::Invalid(format!(
+                "A \"{kind}\" for {chat} was dropped: its Project isn't open here."
+            )));
+        }
+        if Self::CHAT_LEVEL.contains(&kind) {
+            if self.latest.get(chat) != Some(&turn) {
+                return Err(StoreError::Invalid(format!(
+                    "A late \"{kind}\" of an older session (turn {}) was dropped for {chat}.",
+                    turn.0
+                )));
+            }
+            return Ok(());
+        }
+        match running {
+            Some(running) if running == turn => Ok(()),
+            Some(running) => Err(StoreError::Invalid(format!(
+                "A late \"{kind}\" of an earlier turn ({}) was dropped: turn {} runs in {chat}.",
+                turn.0, running.0
+            ))),
+            None if kind == "turn-started" && self.latest.get(chat) == Some(&turn) => {
+                Err(gate("A turn the agent started by itself"))
+            }
+            None => Err(StoreError::Invalid(format!(
+                "A late \"{kind}\" of turn {} was dropped: nothing runs in {chat}.",
+                turn.0
+            ))),
+        }
+    }
+
+    /// Ends a turn whose provider won't (an interrupt past its grace, a forced quit or close): its session is closed
+    /// (nonblocking), its turn fails with `message`, and anything that session still sends is dropped. If even the
+    /// fold fails, the run is let go in memory (the user message stays saved) and that is told.
+    fn force_end(&mut self, chat: &str, turn: TurnId, message: &str) {
+        self.close_session(chat);
+        self.end_closed(chat, turn, message);
+    }
+
+    /// Closes the running turn's provider session (nonblocking); a failure is told.
+    fn close_session(&mut self, chat: &str) {
+        if let Some((turn, provider)) = self.active.get(chat).cloned() {
+            if let Some(adapter) = self.providers.get_mut(&provider) {
+                let closed = outbound_identity(chat).map_err(|error| {
+                    ProviderError::new(ProviderErrorKind::Refused, error.to_string())
+                });
+                if let Err(error) = closed.and_then(|wire| adapter.close_chat(&wire, turn)) {
+                    self.notice(Notice::Failed {
+                        chat: chat.into(),
+                        what: "closing the agent's session".into(),
+                        error: jsjson::js_string(&error.message),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Ends a turn whose session is closed: `turn-failed` with `message`; if even that fold fails the run is let go
+    /// in memory and that is told. Its answers settle as a closed session's.
+    fn end_closed(&mut self, chat: &str, turn: TurnId, message: &str) {
+        self.uncertain_modes(
+            chat,
+            Some(turn),
+            "The agent's session closed before confirming the permission mode.",
+            false,
+        );
+        let event = json!({ "type": "turn-failed", "message": message, "notice": true });
+        if let Err(error) = self.receive(chat, turn, &event) {
+            self.stuck.remove(chat);
+            self.active.remove(chat);
+            self.deadlines.remove(chat);
+            self.runs.shift_remove(chat);
+            self.queue_started(turn, Value::Null);
+            self.notice(Notice::Failed {
+                chat: chat.into(),
+                what: "saving the end of a turn Milagre stopped".into(),
+                error: error.to_string(),
+            });
+        }
+        // Only that session's generation: a turn Send now started meanwhile keeps its own.
+        if self.latest.get(chat) == Some(&turn) {
+            self.latest.remove(chat);
+        }
+        self.fail_answers(
+            chat,
+            Some(turn),
+            "The agent's session was closed before it took the answer.",
+        );
+        self.sync_busy();
+    }
+
+    /// The fold of `receive`: the state and runs change together, or not at all.
+    fn fold(&mut self, chat: &str, event: &Value) -> Result<()> {
+        let project_text = agent_runs::project_of_key(chat).to_string();
+        let project = Self::project_path(&project_text);
+        let session_id = session_of_key(chat)
+            .ok_or_else(|| StoreError::Invalid(format!("{chat} isn't a Chat.")))?;
+        let now = self.states.now();
+        let mut seq = self.seq;
+        let mut event = event.clone();
+        // ChatHost.fold's stamps read the run as it stands, before the event changes it.
+        enrich_step_event(&mut event, &self.runs, chat, now);
+        // The fold changes the Chat's run in place. Only an event that can change the state and the run together can
+        // fail after the run changed (a save or load behind a changed state): for those, that one run is copied first
+        // and put back, in its place, if the change can't be kept.
+        let backup = agent_runs::may_change_run_and_state(&event, &self.runs, chat).then(|| {
+            (
+                self.runs.keys().position(|key| key == chat),
+                self.runs.get(chat).cloned(),
+            )
+        });
+        let runs = &mut self.runs;
+        let mut added: Vec<MsgRef> = Vec::new();
+        let open = self.open_chat.clone();
+        let turn = self.turns.get(chat).cloned();
+        let mut limit_gap = false;
+        let kind = event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        // A subagent's progress stays in memory until something else saves (Node's `persist: false`).
+        let persist = kind != "subagent-update";
+        #[cfg(feature = "routine-execution-fixture")]
+        let mut marked_unread = false;
+        let folded = self
+            .states
+            .try_update(&project, Some(&[session_id]), persist, |state| {
+                let session_value_id = json!(session_id);
+                let last = session_messages(state, &session_value_id)
+                    .filter(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+                    .last();
+                let quiet_compaction = last.is_some_and(|m| {
+                    m.get("context")
+                        .and_then(|c| c.get("kind"))
+                        .and_then(Value::as_str)
+                        == Some("compaction")
+                        && jsjson::truthy(m.get("context").and_then(|c| c.get("quiet")))
+                });
+                if is_turn_end(&event) && quiet_compaction {
+                    event["quiet"] = json!(true);
+                }
+                let (next, changed) = agent_runs::apply_agent_event_mut(
+                    state,
+                    runs,
+                    &project_text,
+                    chat,
+                    &event,
+                    now,
+                )
+                .map_err(|unsupported| gate(&unsupported.0))?;
+                seq += 1;
+                if !changed {
+                    return Ok(None);
+                }
+                let visible = open.as_deref() == Some(chat);
+                let archived = next
+                    .sessions()
+                    .and_then(|sessions| sessions.get(&session_id.to_string()))
+                    .is_some_and(|s| jsjson::truthy(s.get("archived")));
+                let unread = is_turn_end(&event)
+                    && !jsjson::truthy(event.get("quiet"))
+                    && !visible
+                    && !archived;
+                #[cfg(feature = "routine-execution-fixture")]
+                {
+                    marked_unread = unread
+                        && state
+                            .sessions()
+                            .and_then(|ss| ss.get(&session_id.to_string()))
+                            .is_none_or(|s| s.get("unread") != Some(&Value::Bool(true)));
+                }
+                let next = if unread {
+                    agent_runs::patch_unread(&next, session_id)
+                } else {
+                    next
+                };
+                let recorded = if is_turn_end(&event) {
+                    agent_runs::archive_finished_subagents(&next, session_id)
+                } else {
+                    next
+                };
+                if event.get("type").and_then(Value::as_str) == Some("turn-failed")
+                    && event
+                        .get("limit")
+                        .and_then(|limit| limit.get("accountId"))
+                        .is_some()
+                    && turn.is_some()
+                {
+                    limit_gap = true;
+                }
+                let before: HashSet<String> =
+                    state.message_list().iter().map(|m| m.key()).collect();
+                added = recorded
+                    .message_list()
+                    .iter()
+                    .filter(|m| {
+                        !before.contains(&m.key())
+                            && m.get("role").and_then(Value::as_str) == Some("assistant")
+                    })
+                    .cloned()
+                    .collect();
+                Ok(Some(recorded))
+            });
+        if folded.is_err() {
+            if let Some((position, run)) = backup {
+                match run {
+                    Some(run) => match self.runs.get_mut(chat) {
+                        Some(current) => *current = run,
+                        None => {
+                            let at = position.unwrap_or(self.runs.len()).min(self.runs.len());
+                            self.runs.shift_insert(at, chat.to_string(), run);
+                        }
+                    },
+                    None => {
+                        self.runs.shift_remove(chat);
+                    }
+                }
+            }
+        }
+        let (state, changed) = folded?;
+        #[cfg(feature = "routine-execution-fixture")]
+        if is_turn_end(&event) {
+            if let Some(receipt) = self.routine_unread.get_mut(chat) {
+                if self
+                    .active
+                    .get(chat)
+                    .is_some_and(|(turn, _)| *turn == receipt.turn)
+                {
+                    receipt.marked = marked_unread.then(|| std::sync::Arc::downgrade(&state.rest));
+                }
+            }
+        }
+        // Node observes the folded terminal before broadcasting it. Keep the
+        // fold/unread mutation intact; only this exact trusted routine turn may
+        // annotate its completed event. Durable finishing stays in the scheduler.
+        #[cfg(feature = "routine-execution-fixture")]
+        if kind == "turn-completed" {
+            if let Some(receipt) = self.routine_unread.get(chat).filter(|receipt| {
+                self.active
+                    .get(chat)
+                    .is_some_and(|(turn, _)| *turn == receipt.turn)
+            }) {
+                let session = json!(session_id);
+                let own_message = session_messages(&state, &session)
+                    .filter(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+                    .last()
+                    .is_some_and(|m| {
+                        m.value()["context"]["kind"] == "routine-run"
+                            && m.value()["context"]["runId"] == receipt.run_id
+                    });
+                if own_message {
+                    match routine_fixture::routine_reply_text(state.message_list().iter().map(|m| m.value()), &session, &receipt.run_id)
+                        .and_then(|body| routine_fixture::quiet_summary(&body)) {
+                        Ok(Some(_)) => event["quiet"] = json!(true),
+                        Ok(None) => {},
+                        Err(_) => self.notice(Notice::Gap {
+                            chat: chat.into(),
+                            what: "routine quiet classification needs a valid reply and lossless UTF-16 storage boundary".into(),
+                        }),
+                    }
+                }
+            }
+        }
+        self.seq = seq;
+        // A subagent update goes out with the merged agent, and without the state.
+        let published = if kind == "subagent-update" && changed {
+            let mut merged = event.clone();
+            let agent = state
+                .sessions()
+                .and_then(|sessions| sessions.get(&session_id.to_string()))
+                .and_then(|session| session.get("subagents").and_then(Value::as_array))
+                .and_then(|agents| {
+                    agents.iter().find(|agent| {
+                        match (
+                            agent.get("id"),
+                            event.get("agent").and_then(|a| a.get("id")),
+                        ) {
+                            (Some(a), Some(b)) => jsjson::strict_equals(a, b),
+                            (None, None) => true,
+                            _ => false,
+                        }
+                    })
+                });
+            merged["agent"] = agent.cloned().unwrap_or_else(jsjson::undefined);
+            merged
+        } else {
+            event.clone()
+        };
+        self.notice(Notice::Event {
+            chat: chat.into(),
+            event: jsjson::strip_undefined(&published),
+            seq: Some(self.seq),
+            with_state: changed && kind != "subagent-update",
+        });
+        if limit_gap {
+            self.notice(Notice::Gap {
+                chat: chat.into(),
+                what: "usage-limit continuation (limitTurn)".into(),
+            });
+        }
+        for message in &added {
+            if message
+                .get("body")
+                .and_then(Value::as_str)
+                .is_some_and(|body| body.contains("!["))
+            {
+                self.notice(Notice::Gap {
+                    chat: chat.into(),
+                    what: "reply image capture".into(),
+                });
+            }
+        }
+        let _ = state;
+        Ok(())
+    }
+
+    /// afterTurn: a completed turn starts the next queued message (Send now's pick first); Stop and failures hold
+    /// the queue. Automatic compaction is off (Node's default) and can't be turned on here. A queued message whose
+    /// `clientMessageId` is already in the Chat leaves the queue and the next one is tried (Node would retry it on
+    /// every turn end).
+    fn after_turn(&mut self, chat: &str, event: &Value) -> Result<()> {
+        if self.hold_on_cancel.remove(chat) {
+            self.hold_queue(chat)?;
+        }
+        let project = Self::project_path(agent_runs::project_of_key(chat));
+        // Nothing starts under a quit or a closing Project. A completed turn's queue waits, and moves on if the quit is
+        // refused; a stopped or failed one holds as it would otherwise, so it doesn't send on its own once reopened.
+        if self.quitting || self.closing.contains(&project) {
+            self.send_next.remove(chat);
+            if event.get("type").and_then(Value::as_str) == Some("turn-completed") {
+                self.deferred.push((chat.to_string(), event.clone()));
+                return Ok(());
+            }
+            return self.hold_queue(chat);
+        }
+        let session_id = session_of_key(chat).unwrap_or(-1);
+        let mut next = self.send_next.remove(chat);
+        loop {
+            if self.is_busy(chat) {
+                return Ok(());
+            }
+            let state = self.states.get(&project)?;
+            let session = session_value(&state, &json!(session_id));
+            let queued: Vec<Value> = session
+                .as_ref()
+                .and_then(|s| s.get("queued"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if queued.is_empty() {
+                return Ok(());
+            }
+            let picked = next.take().filter(|next| {
+                queued
+                    .iter()
+                    .any(|item| item.get("id").and_then(Value::as_str) == Some(next))
+            });
+            let id = match picked {
+                Some(id) => id,
+                None if session
+                    .as_ref()
+                    .is_some_and(|s| jsjson::truthy(s.get("queueHeld"))) =>
+                {
+                    return Ok(())
+                }
+                None if event.get("type").and_then(Value::as_str) == Some("turn-completed") => {
+                    queued[0]
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string()
+                }
+                None => return self.hold_queue(chat),
+            };
+            match self.start_queued(chat, &id) {
+                Ok(QueuedStart::AlreadySaved) => continue,
+                Ok(_) => return Ok(()),
+                Err(error) => {
+                    self.hold_queue(chat)?;
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    /// holdQueue.
+    fn hold_queue(&mut self, chat: &str) -> Result<()> {
+        let project = Self::project_path(agent_runs::project_of_key(chat));
+        let session_id = session_of_key(chat).unwrap_or(-1);
+        let (_, changed) = self.states.update(&project, Some(&[]), true, |latest| {
+            let mut session = agent_runs_session(latest, session_id)?;
+            let has = session
+                .get("queued")
+                .and_then(Value::as_array)
+                .is_some_and(|q| !q.is_empty());
+            if !has || jsjson::truthy(session.get("queueHeld")) {
+                return None;
+            }
+            session.insert("queueHeld".into(), json!(true));
+            Some(agent_runs::with_session(latest, session_id, session))
+        })?;
+        if changed {
+            self.broadcast(&project);
+        }
+        Ok(())
+    }
+
+    /// startQueued: one queued message as the Chat's next turn, through send (which takes it out of the queue in the
+    /// same save that adds it to the Chat). False when it is gone or the Chat is busy.
+    fn start_queued(&mut self, chat: &str, id: &str) -> Result<QueuedStart> {
+        if self.is_busy(chat) {
+            return Ok(QueuedStart::NotStarted);
+        }
+        let project_text = agent_runs::project_of_key(chat).to_string();
+        let project = Self::project_path(&project_text);
+        self.require_ready(&project)?;
+        self.states.assert_owned(&project)?;
+        let session_id = session_of_key(chat).unwrap_or(-1);
+        let state = self.states.get(&Self::project_path(&project_text))?;
+        let Some(entry) = session_value(&state, &json!(session_id))
+            .and_then(|s| s.get("queued").and_then(Value::as_array).cloned())
+            .and_then(|q| {
+                q.into_iter()
+                    .find(|e| e.get("id").and_then(Value::as_str) == Some(id))
+            })
+        else {
+            return Ok(QueuedStart::NotStarted);
+        };
+        let mut request = entry
+            .get("turn")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        for key in ["provider", "model"] {
+            if let Some(value) = entry.get(key) {
+                request.insert(key.into(), value.clone());
+            }
+        }
+        request.insert("projectPath".into(), json!(project_text));
+        request.insert("sessionId".into(), json!(session_id));
+        request.insert(
+            "body".into(),
+            entry.get("body").cloned().unwrap_or(Value::Null),
+        );
+        request.insert(
+            "files".into(),
+            entry.get("files").cloned().unwrap_or(json!([])),
+        );
+        if let Some(context) = entry.get("context").filter(|c| !c.is_null()) {
+            request.insert("context".into(), context.clone());
+        }
+        for key in ["prompt", "clientMessageId", "operationId"] {
+            if let Some(value) = entry
+                .get(key)
+                .filter(|value| key == "prompt" || jsjson::truthy(Some(value)))
+            {
+                request.insert(key.into(), value.clone());
+            }
+        }
+        if let Some(images) = entry.get("images") {
+            // A previously saved duplicate needs no bytes at all. Public fromQueue never grants this read;
+            // `entry` was selected from the owner's own Chat queue above.
+            let saved = match entry
+                .get("clientMessageId")
+                .filter(|id| id.as_str().is_some_and(|id| !id.is_empty()))
+            {
+                Some(id) => self
+                    .states
+                    .find_message(&project, LookupField::ClientMessageId, id)?
+                    .is_some(),
+                None => false,
+            };
+            if !saved {
+                request.insert(
+                    "images".into(),
+                    self.states.hydrate_queued_images(&project, images)?,
+                );
+            }
+        }
+        request.insert("fromQueue".into(), json!(id));
+        let sent = match self.send(&Value::Object(request)) {
+            Ok(sent) => sent,
+            Err(StoreError::Invalid(message)) if message == "The chat is busy." => {
+                return Ok(QueuedStart::NotStarted)
+            }
+            Err(error) => return Err(error),
+        };
+        if sent.duplicate {
+            self.drop_queued(chat, id)?;
+            self.tell_queue_started(
+                chat,
+                id,
+                json!({ "turnId": null, "steered": false, "duplicate": true }),
+            );
+            return Ok(QueuedStart::AlreadySaved);
+        }
+        match sent.turn {
+            Some(turn) => {
+                self.queue_turns.insert(turn, (id.into(), chat.into()));
+            }
+            None => self.tell_queue_started(chat, id, Value::Null),
+        }
+        Ok(QueuedStart::Started)
+    }
+
+    /// Takes a queued message out of the queue (it is already in the Chat) and saves that.
+    fn drop_queued(&mut self, chat: &str, id: &str) -> Result<()> {
+        let project = Self::project_path(agent_runs::project_of_key(chat));
+        let session_id = session_of_key(chat).unwrap_or(-1);
+        let (_, changed) = self.states.update(&project, Some(&[]), true, |latest| {
+            let session = agent_runs_session(latest, session_id)?;
+            Some(agent_runs::with_session(
+                latest,
+                session_id,
+                without_queued(&session, id),
+            ))
+        })?;
+        if changed {
+            self.states.flush(Some(&project))?;
+            self.broadcast(&project);
+        }
+        Ok(())
+    }
+
+    /// chat:queue-send: Send now. A running turn that can't take it is stopped, and it starts once that turn ends.
+    pub fn send_queued_now(&mut self, chat: &str, id: &str) -> Result<()> {
+        let (project, _) = self.canonical_chat(chat)?;
+        self.require_ready(&project)?;
+        let session_id = session_of_key(chat).unwrap_or(-1);
+        let state = self.states.get(&project)?;
+        let session = session_value(&state, &json!(session_id));
+        let has = session
+            .as_ref()
+            .and_then(|s| s.get("queued"))
+            .and_then(Value::as_array)
+            .is_some_and(|q| {
+                q.iter()
+                    .any(|e| e.get("id").and_then(Value::as_str) == Some(id))
+            });
+        if !has {
+            return Err(StoreError::Invalid(
+                "That queued message was already sent or removed.".into(),
+            ));
+        }
+        let provider = session
+            .as_ref()
+            .and_then(|s| s.get("provider"))
+            .and_then(Value::as_str);
+        // Node's canSteerQueued: never while a handoff is prepared (that turn has no agent to steer into).
+        if self.runs.contains_key(chat)
+            && !self.preparing.contains_key(chat)
+            && provider_capabilities(provider).steer
+        {
+            return Err(gate(
+                "Sending a queued message into a running turn that can steer",
+            ));
+        }
+        if self.is_busy(chat) {
+            if !self.active.contains_key(chat) {
+                return Err(StoreError::Invalid(
+                    "This Chat's turn has nothing to stop yet. Try again once it ends.".into(),
+                ));
+            }
+            // The pick goes in before the stop (Node sets sendNext, then stops): a Stop that ends the turn at once (a
+            // restore being prepared is cancelled synchronously) starts it. A failed interrupt takes it back out, so
+            // it never waits for whichever turn ends next.
+            let previous = self.send_next.insert(chat.into(), id.into());
+            if let Err(error) = self.interrupt(chat) {
+                match previous {
+                    Some(previous) => {
+                        self.send_next.insert(chat.into(), previous);
+                    }
+                    None => {
+                        self.send_next.remove(chat);
+                    }
+                }
+                return Err(error);
+            }
+            return Ok(());
+        }
+        match self.start_queued(chat, id) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                self.hold_queue(chat)?;
+                Err(error)
+            }
+        }
+    }
+
+    /// chat:queue-remove: takes a message out of the queue without sending it. False when it was already gone.
+    pub fn remove_queued(&mut self, chat: &str, id: &str) -> Result<bool> {
+        let (project, _) = self.canonical_chat(chat)?;
+        self.require_ready(&project)?;
+        let session_id = session_of_key(chat).unwrap_or(-1);
+        let (_, changed) = self.states.update(&project, Some(&[]), true, |latest| {
+            let session = agent_runs_session(latest, session_id)?;
+            let present = session
+                .get("queued")
+                .and_then(Value::as_array)
+                .is_some_and(|q| {
+                    q.iter()
+                        .any(|e| e.get("id").and_then(Value::as_str) == Some(id))
+                });
+            present
+                .then(|| agent_runs::with_session(latest, session_id, without_queued(&session, id)))
+        })?;
+        if !changed {
+            return Ok(false);
+        }
+        self.states.flush(Some(&project))?;
+        self.broadcast(&project);
+        if self.send_next.get(chat).map(String::as_str) == Some(id) {
+            self.send_next.remove(chat);
+        }
+        if self.queue_waiters.remove(id) {
+            self.notice(Notice::QueueStarted { id: id.into(), result: json!({ "turnId": null, "steered": false, "cancelled": true, "removed": true }) });
+        } else {
+            self.notice(Notice::QueueRemovedWithoutSender {
+                chat: chat.into(),
+                id: id.into(),
+            });
+        }
+        Ok(true)
+    }
+
+    /// agent:interrupt: asks the running turn's provider to stop; its `turn-cancelled` ends the turn. Nothing runs:
+    /// nothing to do (SessionManager.interrupt without a session).
+    pub fn interrupt(&mut self, chat: &str) -> Result<()> {
+        self.canonical_chat(chat)?;
+        // Cancelling a handoff writes its divider: not while its Project isn't ready.
+        if self.preparing.contains_key(chat) {
+            self.require_ready_chat(chat)?;
+        }
+        if self.cancel_handoff(chat) {
+            return Ok(());
+        }
+        let Some((turn, provider)) = self.active.get(chat).cloned() else {
+            return Ok(());
+        };
+        match self.providers.get_mut(&provider) {
+            Some(adapter) => adapter
+                .interrupt(&outbound_identity(chat)?, turn)
+                .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))?,
+            None => {
+                return Err(StoreError::Invalid(format!(
+                    "No {provider} provider adapter is registered with the Rust owner."
+                )))
+            }
+        }
+        // The turn has `interrupt_grace_ms` to end; `tick` forces it past that.
+        let due = self.states.now() + self.interrupt_grace_ms;
+        self.deadlines
+            .entry(chat.to_string())
+            .or_insert((turn, due));
+        Ok(())
+    }
+
+    /// Ends the provider sessions of a Project's Chats (nonblocking), forgetting their generations so whatever they
+    /// still send is dropped.
+    fn close_sessions(&mut self, key: &Path) {
+        let chats: Vec<String> = self
+            .latest
+            .keys()
+            .chain(self.turns.keys())
+            .filter(|chat| Path::new(agent_runs::project_of_key(chat)) == key)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        for chat in chats {
+            self.uncertain_modes(
+                &chat,
+                None,
+                "The agent's session closed before confirming the permission mode.",
+                true,
+            );
+            let provider = self
+                .turns
+                .get(&chat)
+                .and_then(|turn| turn.get("provider"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let generation = self.latest.get(&chat).copied();
+            let adapter = provider.and_then(|name| self.providers.get_mut(&name));
+            if let (Some(adapter), Some(generation)) = (adapter, generation) {
+                let closed = outbound_identity(&chat).map_err(|error| {
+                    ProviderError::new(ProviderErrorKind::Refused, error.to_string())
+                });
+                if let Err(error) = closed.and_then(|wire| adapter.close_chat(&wire, generation)) {
+                    self.notice(Notice::Failed {
+                        chat: chat.clone(),
+                        what: "closing the agent's session".into(),
+                        error: jsjson::js_string(&error.message),
+                    });
+                }
+            }
+            self.latest.remove(&chat);
+            self.turns.remove(&chat);
+            self.send_next.remove(&chat);
+            self.fail_answers(
+                &chat,
+                None,
+                "The agent's session was closed before it took the answer.",
+            );
+        }
+    }
+
+    /// Closes one Project here: its Chats' provider sessions are closed first, so a late event can't open it (and take
+    /// its lock) again. Refused while a turn runs or starts in it, or a turn end waits to be folded again, unless
+    /// `force`, which ends those turns as failed first (see `tick` for the same path after an interrupt).
+    pub fn forget(&mut self, project: &Path, force: bool) -> Result<()> {
+        let key = self.canonical_project(&project.display().to_string())?;
+        let in_project = |chat: &String| Path::new(agent_runs::project_of_key(chat)) == key;
+        let busy: Vec<String> = self
+            .runs
+            .keys()
+            .chain(self.starting.keys())
+            .chain(self.stuck.keys())
+            .chain(self.active.keys())
+            .chain(self.preparing.keys())
+            .filter(|chat| in_project(chat))
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if let Some(chat) = busy.first() {
+            if !force {
+                return Err(StoreError::Invalid(format!(
+                    "{chat} has a turn running; stop it before closing its Project."
+                )));
+            }
+        }
+        // While it closes, nothing starts in it: a forced end must not start a Send-now pick or the queue.
+        self.closing.insert(key.clone());
+        self.send_next.retain(|chat, _| !in_project(chat));
+        self.cancel_preparations(Some(&key));
+        // A turn end kept after a failed fold is the turn's real end: folded (with what waits behind it) before
+        // anything is forced, so a close never replaces it. Only one whose save still fails is forced below.
+        if self.ready.contains(&key) {
+            self.retry_stuck_in(&key);
+            self.release_held(&key);
+        }
+        for chat in &busy {
+            if let Some(turn) = self.active_turn(chat) {
+                self.force_end(
+                    chat,
+                    turn,
+                    "Milagre closed this Project before the turn ended.",
+                );
+            }
+            self.stuck.remove(chat);
+            self.runs.shift_remove(chat);
+        }
+        self.cancel_preparations(Some(&key));
+        self.drive_jobs(true);
+        self.sync_busy();
+        self.close_sessions(&key);
+        self.release_waiters(Some(&key));
+        if self.jobs_out(Some(&key)) > 0 {
+            // The Project stays open, locked and closing (no send taken) until its jobs report back and their files
+            // are gone; `forget` again then finishes.
+            return Err(self.quit_pending("Closing this Project"));
+        }
+        let closed = self.states.forget(&key);
+        if closed.is_ok() {
+            #[cfg(feature = "routine-execution-fixture")]
+            self.routine_unread.retain(|chat, _| !in_project(chat));
+            // Forgotten: only an explicit open_project makes it ready again.
+            self.ready.remove(&key);
+            self.not_ready.remove(&key);
+            self.states.pause(&key, false);
+            self.unpublished.remove(&key);
+            self.drop_parked(Some(&key));
+        }
+        self.closing.remove(&key);
+        self.deferred.retain(|(chat, _)| !in_project(chat));
+        closed
+    }
+
+    // ---- handoff transcript jobs ----------------------------------------------------------------------------
+
+    /// The transcript jobs to run, each handed over once (a job can't be cloned): run each with
+    /// [`TranscriptJob::run`] on a blocking worker. A job reports its own outcome to the host, also when it is dropped
+    /// unrun, panics or its worker is cancelled; `pump` and `tick` take it from there. Callable at any time, while
+    /// quitting or closing a Project too.
+    pub fn take_jobs(&mut self) -> Vec<TranscriptJob> {
+        self.ready_jobs.drain(..).collect()
+    }
+
+    /// Where a quit stands: `Done` only once every job's outcome is handled, every temporary file it left is removed,
+    /// and the states are saved and closed.
+    pub fn quit_state(&self) -> QuitState {
+        if self.closed {
+            return QuitState::Done;
+        }
+        if !self.quitting {
+            return QuitState::Running;
+        }
+        if !self.job_slots.is_empty() {
+            let cleanups = self
+                .job_slots
+                .values()
+                .filter(|slot| slot.cleanup.is_some())
+                .count();
+            return QuitState::JobsPending {
+                jobs: self.job_slots.len() - cleanups,
+                cleanups,
+            };
+        }
+        if self.providers_shut_down {
+            QuitState::ClosePending
+        } else {
+            QuitState::Running
+        }
+    }
+
+    /// Refused with `TRANSCRIPTS_AT_CAPACITY` when every job reservation is taken: checked before a handoff stages
+    /// anything.
+    fn transcript_capacity(&self) -> Result<()> {
+        if self.job_slots.len() >= crate::transcripts::MAX_TRANSCRIPT_JOBS {
+            return Err(StoreError::TranscriptsAtCapacity(format!(
+                "{} handoffs are being prepared; try again once one has started.",
+                crate::transcripts::MAX_TRANSCRIPT_JOBS
+            )));
+        }
+        Ok(())
+    }
+
+    /// Opens the handover store (its lease taken, leftovers swept) once.
+    fn open_transcripts(&mut self) -> Result<()> {
+        if self.transcripts.is_none() {
+            self.transcripts = Some(TranscriptJobs::new(self.states.isolation())?);
+        }
+        Ok(())
+    }
+
+    /// A restore staged by `send` (divider and message saved, the run opened): its turn is reserved now and the
+    /// transcript job queued. The turn starts once the brief is written and the divider saved done.
+    #[allow(clippy::too_many_arguments)]
+    fn stage_restore(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        session: i64,
+        provider: &str,
+        divider: i64,
+        turn_fields: Map<String, Value>,
+        start: Map<String, Value>,
+    ) -> TurnId {
+        let turn = self.reserve_turn(chat, provider);
+        // Borrowed in place (its messages shared, not copied): the job copies only the selected Chat's parts.
+        let state = self.states.current(project);
+        // Node's lastUserMessage: the last of the Chat's messages before the divider that a person typed.
+        let last_user_message = state
+            .as_ref()
+            .and_then(|state| {
+                state.message_list().iter().rev().find(|m| {
+                    m.get("session_id").and_then(Value::as_i64) == Some(session)
+                        && m.get("id")
+                            .and_then(Value::as_f64)
+                            .is_some_and(|id| id < divider as f64)
+                        && m.get("role").and_then(Value::as_str) == Some("user")
+                        && m.get("body")
+                            .and_then(Value::as_str)
+                            .is_some_and(|body| !body.trim().is_empty())
+                })
+            })
+            .and_then(|m| m.get("body").cloned())
+            .unwrap_or_else(|| json!(""));
+        self.preparing.insert(
+            chat.to_string(),
+            Preparing {
+                turn,
+                project: project.to_path_buf(),
+                transcript: None,
+                brief_prompt: None,
+                provider: provider.to_string(),
+                catch_up: false,
+                last_user_message: Some(last_user_message),
+                brief_id: None,
+                brief: None,
+                divider: Some(divider),
+                session,
+                turn_fields,
+                start,
+                saving: false,
+                told_saving: false,
+                changed_files: Vec::new(),
+                held_brief: None,
+                held_failure: None,
+            },
+        );
+        self.sync_busy();
+        // The minimal brief's changed files: Git in the Chat's worktree (or its Link members), admitted folders only.
+        let changed = self.git.plan(
+            preparing_start_cwd(self.preparing.get(chat)).as_deref(),
+            state.as_ref().and_then(|state| {
+                state
+                    .sessions()?
+                    .get(&session.to_string())?
+                    .get("worktrees")
+            }),
+        );
+        let reserved = match &state {
+            Some(state) => self.reserve_transcript(
+                project,
+                chat,
+                turn,
+                TranscriptSource {
+                    state: state.into(),
+                    session: session as u64,
+                    before: Some(divider as f64),
+                    provider: Some(provider),
+                    catch_up_after: None,
+                    clock: handover::Clock {
+                        zone: self.handoff_zone,
+                        now_ms: self.states.now() as f64,
+                    },
+                    changed,
+                },
+            ),
+            None => Err(StoreError::Invalid(format!(
+                "{} isn't open.",
+                project.display()
+            ))),
+        };
+        if let Err(error) = reserved {
+            self.abandon_preparation(chat, turn, &error.to_string());
+        }
+        turn
+    }
+
+    /// The brief is written: the divider is marked done with it and the transcript's path, then saved; the turn starts
+    /// once that save holds (a failed save is retried on `tick`, the turn never starts before).
+    fn finish_preparation(&mut self, chat: &str, turn: TurnId) {
+        let Some(preparing) = self.preparing.get(chat).filter(|p| p.turn == turn) else {
+            return;
+        };
+        let Some(divider) = preparing.divider else {
+            return;
+        };
+        let (project, session) = (preparing.project.clone(), preparing.session);
+        let brief = preparing.brief.clone().unwrap_or_default();
+        let path = preparing
+            .transcript
+            .as_ref()
+            .map(|path| jsjson::js_string(&path.to_string_lossy()))
+            .unwrap_or_default();
+        let updated = self
+            .states
+            .update(&project, Some(&[session]), true, |latest| {
+                let mut changed = false;
+                let list = latest
+                    .message_list()
+                    .iter()
+                    .map(|m| {
+                        if !is_divider(m, divider, &["preparing"]) {
+                            return m.clone();
+                        }
+                        changed = true;
+                        let mut value = m.value().clone();
+                        let context = value["context"]
+                            .as_object_mut()
+                            .expect("a divider's context");
+                        context.insert("status".into(), json!("done"));
+                        context.insert("brief".into(), json!(brief));
+                        context.insert("transcriptPath".into(), json!(path));
+                        Msg::new(value)
+                    })
+                    .collect();
+                changed.then(|| latest.with_messages(list))
+            });
+        match updated {
+            Ok((_, changed)) => {
+                if changed {
+                    self.broadcast(&project);
+                }
+                if let Some(preparing) = self.preparing.get_mut(chat) {
+                    preparing.saving = true;
+                }
+                self.start_prepared(chat);
+            }
+            Err(error) => self.abandon_preparation(chat, turn, &error.to_string()),
+        }
+    }
+
+    /// Starts a prepared turn once its done divider is saved; a failed save keeps it for the next `tick`.
+    fn start_prepared(&mut self, chat: &str) {
+        let Some(preparing) = self.preparing.get(chat).filter(|p| p.saving) else {
+            return;
+        };
+        let project = preparing.project.clone();
+        // Not ready: nothing saved or started; an explicit open retries it.
+        if !self.ready.contains(&project) {
+            return;
+        }
+        if let Err(error) = self.states.flush(Some(&project)) {
+            // Told once: the same save is tried again on every tick until it holds or the handoff is stopped.
+            let preparing = self.preparing.get_mut(chat).expect("checked above");
+            if !std::mem::replace(&mut preparing.told_saving, true) {
+                self.notice(Notice::Failed {
+                    chat: chat.to_string(),
+                    what: "saving the handoff before its turn starts (tried again on each tick)"
+                        .into(),
+                    error: error.to_string(),
+                });
+            }
+            return;
+        }
+        let preparing = self.preparing.remove(chat).expect("checked above");
+        self.sync_busy();
+        let lead = handover::framed_brief(
+            preparing
+                .brief
+                .as_ref()
+                .map(|b| Value::String(b.clone()))
+                .as_ref(),
+        )
+        .unwrap_or_default();
+        let prompt = with_lead(&lead, preparing.start.get("prompt"));
+        let mut fields = preparing.turn_fields;
+        fields.insert("prompt".into(), prompt.clone());
+        self.turns.insert(chat.to_string(), Value::Object(fields));
+        let mut start = preparing.start;
+        start.insert("prompt".into(), prompt);
+        self.launch_turn(
+            chat,
+            &preparing.provider,
+            &Value::Object(start),
+            preparing.turn,
+        );
+    }
+
+    /// Marks a handoff's divider failed (only while it is preparing; Node's failHandoff, a restore reverting nothing).
+    fn fail_divider(&mut self, project: &Path, session: i64, divider: i64, statuses: &[&str]) {
+        let failed = self
+            .states
+            .update(project, Some(&[session]), true, |latest| {
+                let mut changed = false;
+                let list = latest
+                    .message_list()
+                    .iter()
+                    .map(|m| {
+                        if !is_divider(m, divider, statuses) {
+                            return m.clone();
+                        }
+                        changed = true;
+                        let mut value = m.value().clone();
+                        value["context"]["status"] = json!("failed");
+                        Msg::new(value)
+                    })
+                    .collect();
+                changed.then(|| latest.with_messages(list))
+            });
+        match failed {
+            Ok((_, true)) => self.broadcast(project),
+            Ok(_) => {}
+            Err(error) => self.notice(Notice::Failed {
+                chat: String::new(),
+                what: "marking a handoff failed".into(),
+                error: error.to_string(),
+            }),
+        }
+    }
+
+    /// Whether restore handoffs are prepared ([`HandoffMode::Restore`], tests only) or refused (production).
+    pub fn handoff_mode(&self) -> HandoffMode {
+        self.handoff
+    }
+
+    /// Tests only: prepares restore handoffs instead of refusing them. Refused once any send was attempted (rejected
+    /// ones included) or any turn, run, preparation or job exists: a host changes mode only before it has done anything.
+    #[cfg(feature = "test-fixtures")]
+    pub fn enable_restore_for_tests(&mut self) -> Result<()> {
+        if self.send_attempted
+            || self.next_turn > 0
+            || !self.runs.is_empty()
+            || !self.preparing.is_empty()
+            || !self.job_slots.is_empty()
+        {
+            return Err(StoreError::Invalid(
+                "Restore handoffs can only be turned on before the host has done anything.".into(),
+            ));
+        }
+        self.handoff = HandoffMode::Restore;
+        Ok(())
+    }
+
+    /// Opens a Project for this host: the only way it becomes ready, and required before any send, queued start,
+    /// Send now or answer for it (refused `PROJECT_NOT_READY` until then). Provider events of a loaded Project that
+    /// isn't ready are kept (see `park`) and handled once, in order, when this succeeds; then held handoff steps go on.
+    ///
+    /// Quitting, or the Project closing: `OWNER_CLOSING`, nothing changes. Otherwise its states are loaded (a failure
+    /// there releases as before), ownership and its root are verified, it is marked not ready, the handover store is
+    /// opened (lease, then the sweep; another owner holds it: `HANDOVER_STORE_BUSY`), dividers left preparing are
+    /// recovered (this host's live preparations skipped, never cancelled) and the result is flushed. Only then is it
+    /// ready, told once as `Notice::ProjectReady`. Any failure after loading keeps its locks and state and leaves it not
+    /// ready; calling this again retries.
+    ///
+    /// Already ready: ownership, the root and the handover store are checked again and it returns, with no recovery,
+    /// save or notice. If a check fails it becomes not ready (new work refused, locks kept) and the error is returned:
+    /// never ready against an untrusted root.
+    pub fn open_project(&mut self, project: &Path) -> Result<()> {
+        let key = self.canonical_project(&project.display().to_string())?;
+        if self.quitting || self.closing.contains(&key) {
+            return Err(StoreError::OwnerClosing(format!(
+                "{} is closing (or Milagre is quitting); it wasn't opened.",
+                key.display()
+            )));
+        }
+        if self.ready.contains(&key) {
+            return self.require_project_ready(&key);
+        }
+        self.states.get(&key)?;
+        self.set_ready(&key, false);
+        self.states.assert_owned(&key)?;
+        self.open_transcripts()?;
+        if let Some(jobs) = &self.transcripts {
+            jobs.validate()?;
+        }
+        if self.recover_handoffs(&key)? {
+            // Kept until an open succeeds, so a failed save here doesn't lose the publication.
+            self.unpublished.insert(key.clone());
+        }
+        self.states.flush(Some(&key))?;
+        self.set_ready(&key, true);
+        self.notice(Notice::ProjectReady {
+            project: key.clone(),
+        });
+        // What recovery changed is published now that the Project is ready (Node broadcasts it as it recovers).
+        if self.unpublished.remove(&key) {
+            self.broadcast(&key);
+        }
+        // What waited on readiness goes on, once: provider events in the order they came, then held handoff steps.
+        self.release_parked(&key);
+        self.resume_preparations(&key);
+        Ok(())
+    }
+
+    /// The handoff steps of `project` that settled while it wasn't ready, applied now that it is: a held failure,
+    /// a held brief, a done divider still to save and start; held transcripts are committed by `drive_jobs`.
+    fn resume_preparations(&mut self, project: &Path) {
+        self.drive_jobs(false);
+        let chats: Vec<String> = self
+            .preparing
+            .iter()
+            .filter(|(_, p)| p.project == project)
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in chats {
+            let Some(preparing) = self.preparing.get_mut(&chat) else {
+                continue;
+            };
+            let turn = preparing.turn;
+            if let Some(why) = preparing.held_failure.take() {
+                self.abandon_preparation(&chat, turn, &why);
+            } else if let Some(reply) = preparing.held_brief.take() {
+                self.brief_settled(&chat, turn, reply);
+            } else if preparing.saving {
+                self.start_prepared(&chat);
+            }
+        }
+    }
+
+    /// Whether a Project is open and ready here (see [`ChatHost::open_project`]): a pure lookup, no I/O, never loads
+    /// or reopens anything. `project` is compared as given (the canonical path `open_project` was called with).
+    pub fn is_project_ready(&self, project: &Path) -> bool {
+        self.ready.contains(project)
+    }
+
+    /// Checks a ready Project still is: its ownership and root (`assert_owned`) and the retained handover store
+    /// (folder still the one locked). Not ready: `PROJECT_NOT_READY`. A failed check makes it not ready (new work
+    /// refused, locks and state kept) and returns the error. Never recovers, loads or reopens: only `open_project`
+    /// makes a Project ready.
+    pub fn require_project_ready(&mut self, project: &Path) -> Result<()> {
+        self.require_ready(project)?;
+        let checked = self
+            .states
+            .assert_owned(project)
+            .and_then(|()| match &self.transcripts {
+                Some(jobs) => jobs.validate(),
+                None => Ok(()),
+            });
+        if let Err(error) = checked {
+            self.set_ready(project, false);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Moves a loaded Project to ready or not ready; the states' clock writes and unloads nothing of a not-ready one.
+    fn set_ready(&mut self, key: &Path, ready: bool) {
+        if ready {
+            self.not_ready.remove(key);
+            self.ready.insert(key.to_path_buf());
+        } else {
+            self.ready.remove(key);
+            self.not_ready.insert(key.to_path_buf());
+        }
+        self.states.pause(key, !ready);
+    }
+
+    /// Refused `PROJECT_NOT_READY` unless the Project of `project` is ready.
+    fn require_ready(&self, project: &Path) -> Result<()> {
+        if self.ready.contains(project) {
+            return Ok(());
+        }
+        Err(StoreError::ProjectNotReady(format!(
+            "{} isn't open and ready here; nothing was saved or started.",
+            project.display()
+        )))
+    }
+
+    /// [`ChatHost::require_ready`] for the Project of a Chat key.
+    fn require_ready_chat(&self, chat: &str) -> Result<()> {
+        self.require_ready(Path::new(agent_runs::project_of_key(chat)))
+    }
+
+    /// recoverHandoffs: when a Project opens, a divider still `preparing` that no handoff here prepares failed in a
+    /// crash: it is marked failed (a switch's session going back to the provider it left), and `handoverPending`
+    /// marks go. Call after the handover store is open (its leftovers swept).
+    fn recover_handoffs(&mut self, key: &Path) -> Result<bool> {
+        let key = key.to_path_buf();
+        let project_text = key.display().to_string();
+        let live: HashSet<String> = self.preparing.keys().cloned().collect();
+        // Only Chats whose summary has a divider preparing (or that have no summary) need their messages. Unlike Node,
+        // which reuses the state the open just read (`known`), this reads it again (the same state, no I/O when
+        // loaded), and a session id that isn't an integer is left out (Node passes it on; no Chat has one). A stale
+        // summary without `openHandoff` hides a preparing divider here as in Node, until that Chat loads.
+        let chats: Vec<crate::chat_db::ChatId> = self
+            .states
+            .get(&key)?
+            .sessions()
+            .map(|sessions| {
+                sessions
+                    .values()
+                    .filter(|session| {
+                        let summary = session.get("summary");
+                        !jsjson::truthy(summary)
+                            || summary.is_some_and(|summary| summary.get("openHandoff").is_some())
+                    })
+                    .filter_map(|session| {
+                        let id = session.get("id")?.as_f64()?;
+                        (id.fract() == 0.0).then_some(id as crate::chat_db::ChatId)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let (_, changed) = self.states.update(&key, Some(&chats), true, |latest| {
+            let mut sessions = latest.sessions().cloned().unwrap_or_default();
+            let mut touched = false;
+            for session in sessions.values_mut() {
+                if let Some(map) = session.as_object_mut() {
+                    touched |= map.shift_remove("handoverPending").is_some();
+                }
+            }
+            let list: Vec<MsgRef> = latest
+                .message_list()
+                .iter()
+                .map(|m| {
+                    let preparing = m.get("context").is_some_and(|c| {
+                        c.get("kind").and_then(Value::as_str) == Some("handoff")
+                            && c.get("status").and_then(Value::as_str) == Some("preparing")
+                    });
+                    let chat = agent_runs::chat_key(
+                        &project_text,
+                        m.get("session_id").unwrap_or(&Value::Null),
+                    );
+                    if !preparing || live.contains(&chat) {
+                        return m.clone();
+                    }
+                    touched = true;
+                    let mut value = m.value().clone();
+                    let from = value["context"]["from"]["provider"].clone();
+                    let to = value["context"]["to"]["provider"].clone();
+                    value["context"]["status"] = json!("failed");
+                    let session_key = jsjson::property_key(m.get("session_id"));
+                    if let Some(Value::Object(session)) = sessions.get_mut(&session_key) {
+                        if from != to && session.get("provider") == Some(&to) {
+                            revert_switch(session, &from, &to);
+                        }
+                    }
+                    Msg::new(value)
+                })
+                .collect();
+            touched.then(|| {
+                latest
+                    .with_field("sessions", Value::Object(sessions))
+                    .with_messages(list)
+            })
+        })?;
+        // Told once the Project is ready (open_project): nothing of it is published before.
+        Ok(changed)
+    }
+
+    /// Reserves the transcript job of the handoff `chat` prepares for `turn`, ready for `take_jobs`.
+    fn reserve_transcript(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        turn: TurnId,
+        source: TranscriptSource<'_>,
+    ) -> Result<JobId> {
+        self.transcript_capacity()?;
+        self.open_transcripts()?;
+        let job = self
+            .transcripts
+            .as_mut()
+            .expect("opened above")
+            .job(project, source)?;
+        let id = job.id();
+        self.job_slots.insert(
+            id,
+            JobSlot {
+                project: project.to_path_buf(),
+                chat: chat.to_string(),
+                turn,
+                cancelled: false,
+                cleanup: None,
+                held: None,
+                told: false,
+            },
+        );
+        self.ready_jobs.push_back(job);
+        self.sync_busy();
+        Ok(id)
+    }
+
+    /// Handles the job outcomes reported since the last call; with `retry_cleanups` (only `tick` and `shutdown`), also
+    /// tries once more to remove each temporary file a job left. That is the only retry, and it only ever unlinks the
+    /// job's own temporary name through the folder it holds: at most one try per job per call.
+    fn drive_jobs(&mut self, retry_cleanups: bool) {
+        let outcomes = match &self.transcripts {
+            Some(jobs) => jobs.take_outcomes(),
+            None => return,
+        };
+        for outcome in outcomes {
+            self.job_outcome(outcome);
+        }
+        // Transcripts held while their Project wasn't ready: committed once it is, cleaned up once they're stale.
+        let held: Vec<JobId> = self
+            .job_slots
+            .iter()
+            .filter(|(_, slot)| slot.held.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in held {
+            let Some(held) = self
+                .job_slots
+                .get_mut(&id)
+                .and_then(|slot| slot.held.take())
+            else {
+                continue;
+            };
+            self.staged_outcome(id, held);
+        }
+        if retry_cleanups {
+            let waiting: Vec<JobId> = self
+                .job_slots
+                .iter()
+                .filter(|(_, slot)| slot.cleanup.is_some())
+                .map(|(id, _)| *id)
+                .collect();
+            for id in waiting {
+                if let Some(staged) = self
+                    .job_slots
+                    .get_mut(&id)
+                    .and_then(|slot| slot.cleanup.take())
+                {
+                    self.clean_up(id, staged);
+                }
+            }
+        }
+    }
+
+    /// Whose a job is and whether its outcome still counts (its handoff current, nothing closing).
+    fn job_current(&self, id: JobId) -> Option<(String, TurnId, PathBuf, bool)> {
+        let slot = self.job_slots.get(&id)?;
+        let (chat, turn, project) = (slot.chat.clone(), slot.turn, slot.project.clone());
+        let current = !slot.cancelled
+            && !self.quitting
+            && !self.closing.contains(&project)
+            && self
+                .preparing
+                .get(&chat)
+                .is_some_and(|preparing| preparing.turn == turn);
+        Some((chat, turn, project, current))
+    }
+
+    /// A staged transcript: committed if its handoff is current and its Project ready, kept in its slot while the
+    /// Project isn't ready (its cleanup still goes on once it is stale), else cleaned up.
+    fn staged_outcome(&mut self, id: JobId, held: HeldStaged) {
+        let Some((chat, turn, project, current)) = self.job_current(id) else {
+            return;
+        };
+        if !current {
+            self.clean_up(id, held.staged);
+            return;
+        }
+        if !self.ready.contains(&project) {
+            if let Some(slot) = self.job_slots.get_mut(&id) {
+                slot.held = Some(held);
+            }
+            return;
+        }
+        // The generation and the Project are checked here, on the actor, right before the one rename.
+        match self
+            .states
+            .assert_owned(&project)
+            .and_then(|()| held.staged.commit())
+        {
+            Ok(path) => {
+                self.end_job(id);
+                if let Some(preparing) = self.preparing.get_mut(&chat) {
+                    preparing.changed_files = held.changed_files;
+                }
+                self.transcript_ready(&chat, turn, path, held.brief_prompt);
+            }
+            Err(error) => {
+                // It may be renamed already: never renamed, rendered or written again. The handoff ends.
+                self.clean_up(id, held.staged);
+                self.abandon_preparation(
+                    &chat,
+                    turn,
+                    &format!("The handoff transcript couldn't be saved: {error}"),
+                );
+            }
+        }
+    }
+
+    fn job_outcome(&mut self, outcome: JobOutcome) {
+        let id = outcome.id();
+        // Each job reports once and its slot lives until then: nothing else can report.
+        let Some((chat, turn, _, current)) = self.job_current(id) else {
+            return;
+        };
+        match outcome {
+            JobOutcome::Staged {
+                staged,
+                brief_prompt,
+                changed_files,
+            } => self.staged_outcome(
+                id,
+                HeldStaged {
+                    staged,
+                    brief_prompt,
+                    changed_files,
+                },
+            ),
+            JobOutcome::Failed {
+                error, leftover, ..
+            } => {
+                match leftover {
+                    Some(staged) => self.clean_up(id, staged),
+                    None => self.end_job(id),
+                }
+                if current {
+                    self.abandon_preparation(
+                        &chat,
+                        turn,
+                        &format!("The handoff transcript couldn't be written: {error}"),
+                    );
+                }
+            }
+            JobOutcome::Unknown { leftover, .. } => {
+                match leftover {
+                    Some(staged) => self.clean_up(id, staged),
+                    None => self.end_job(id),
+                }
+                if current {
+                    self.abandon_preparation(
+                        &chat,
+                        turn,
+                        "The handoff transcript job stopped before it finished.",
+                    );
+                }
+            }
+        }
+    }
+
+    /// Removes a temporary file a job left (through its held folder). The job's reservation ends once it is gone; a
+    /// failure keeps it (and its Project held) for the next try, told once.
+    fn clean_up(&mut self, id: JobId, staged: StagedTranscript) {
+        match staged.discard() {
+            Ok(()) => self.end_job(id),
+            Err(error) => {
+                let Some(slot) = self.job_slots.get_mut(&id) else {
+                    return;
+                };
+                slot.cleanup = Some(staged);
+                if !slot.told {
+                    slot.told = true;
+                    let chat = slot.chat.clone();
+                    self.notice(Notice::Failed {
+                        chat,
+                        what:
+                            "removing a handoff's temporary transcript (tried again on each tick)"
+                                .into(),
+                        error: error.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    fn end_job(&mut self, id: JobId) {
+        self.job_slots.remove(&id);
+        if let Some(jobs) = &mut self.transcripts {
+            jobs.finish(id);
+        }
+        self.sync_busy();
+    }
+
+    /// The handoff's transcript is in place: what its brief reads is kept for the next step.
+    fn transcript_ready(
+        &mut self,
+        chat: &str,
+        turn: TurnId,
+        path: PathBuf,
+        brief_prompt: Option<handover::BriefRequest>,
+    ) {
+        if let Some(preparing) = self.preparing.get_mut(chat).filter(|p| p.turn == turn) {
+            preparing.transcript = Some(path);
+            preparing.brief_prompt = brief_prompt;
+            self.ask_brief(chat, turn);
+        }
+    }
+
+    /// Admits a worktree for the changed files of a handoff's minimal brief: a canonical folder inside the isolated
+    /// copy with a Git folder of its own and no redirecting config (see [`crate::changed_files`]). Nothing else is ever
+    /// run in; a Chat whose worktree isn't admitted gets no list, as a failing Node run does.
+    pub fn admit_worktree(&mut self, path: &Path) -> Result<()> {
+        self.git.admit(path)
+    }
+
+    /// Lets the host ask a model for handoff briefs (none registered: every brief is the minimal one).
+    pub fn register_brief_model(&mut self, model: Box<dyn BriefModel>) {
+        self.brief_model = Some(model);
+    }
+
+    /// Asks the brief of the handoff `turn` prepares in `chat`, with the escaped transcript (`safe_brief_request`).
+    /// No model, a model that refuses, a full brief table or a request that can't go out exactly: the minimal brief
+    /// at once.
+    fn ask_brief(&mut self, chat: &str, turn: TurnId) {
+        let Some(preparing) = self.preparing.get(chat).filter(|p| p.turn == turn) else {
+            return;
+        };
+        self.next_brief += 1;
+        let id = BriefId(self.next_brief);
+        let request = match &preparing.brief_prompt {
+            Some(prompt) => BriefRequest::outbound(
+                id,
+                chat,
+                turn,
+                &preparing.provider,
+                preparing.catch_up,
+                prompt,
+            ),
+            None => Err(StoreError::Invalid(
+                "The brief's prompt couldn't be made.".into(),
+            )),
+        };
+        let asked = match (request, &mut self.brief_model) {
+            (Ok(request), Some(model)) if self.briefs.len() < MAX_BRIEFS => {
+                model.ask(request).is_ok()
+            }
+            _ => false,
+        };
+        if !asked {
+            self.brief_settled(chat, turn, None);
+            return;
+        }
+        let due = self.states.now() + self.brief_grace_ms;
+        self.briefs.insert(id, (chat.to_string(), turn, due));
+        if let Some(preparing) = self.preparing.get_mut(chat) {
+            preparing.brief_id = Some(id);
+        }
+    }
+
+    /// Settles briefs: replies and failures from the model, and (with `now`) the ones past their deadline, which are
+    /// cancelled (advisory) and count as failed. Anything later for a settled, cancelled or unknown id is dropped.
+    fn drive_briefs(&mut self, now: Option<i64>) {
+        let events = match &mut self.brief_model {
+            Some(model) => model.take_events(),
+            None => Vec::new(),
+        };
+        for event in events {
+            let (id, reply) = match event {
+                BriefEvent::Replied { brief, reply } => (brief, inbound_reply(&reply)),
+                BriefEvent::Failed { brief } => (brief, None),
+            };
+            if let Some((chat, turn, _)) = self.briefs.remove(&id) {
+                self.brief_settled(&chat, turn, reply);
+            }
+        }
+        if let Some(now) = now {
+            let overdue: Vec<BriefId> = self
+                .briefs
+                .iter()
+                .filter(|(_, (_, _, due))| *due <= now)
+                .map(|(id, _)| *id)
+                .collect();
+            for id in overdue {
+                if let Some((chat, turn, _)) = self.briefs.remove(&id) {
+                    if let Some(model) = &mut self.brief_model {
+                        model.cancel(id);
+                    }
+                    self.brief_settled(&chat, turn, None);
+                }
+            }
+        }
+    }
+
+    /// The brief of the handoff `turn` prepares: the model's reply read as Node reads it, else the minimal brief.
+    fn brief_settled(&mut self, chat: &str, turn: TurnId, reply: Option<String>) {
+        let ready = |project: &Path| self.ready.contains(project);
+        let Some(project) = self
+            .preparing
+            .get(chat)
+            .filter(|p| p.turn == turn)
+            .map(|p| p.project.clone())
+        else {
+            return;
+        };
+        let ready = ready(&project);
+        let preparing = self.preparing.get_mut(chat).expect("checked above");
+        preparing.brief_id = None;
+        if !ready {
+            // Kept until an explicit open: nothing is written while the Project isn't ready.
+            preparing.held_brief = Some(reply);
+            return;
+        }
+        let file = preparing
+            .transcript
+            .as_ref()
+            .map(|path| Value::String(jsjson::js_string(&path.to_string_lossy())));
+        let provider = Value::String(preparing.provider.clone());
+        preparing.brief = Some(handover::brief_text(
+            file.as_ref(),
+            Some(&provider),
+            preparing.catch_up,
+            reply.as_deref(),
+            preparing.last_user_message.as_ref(),
+            &preparing
+                .changed_files
+                .iter()
+                .map(|file| Value::String(file.clone()))
+                .collect::<Vec<_>>(),
+        ));
+        self.finish_preparation(chat, turn);
+    }
+
+    /// Cancels a brief still out (advisory): its result, whenever it comes, is dropped.
+    fn drop_brief(&mut self, id: Option<BriefId>) {
+        if let Some(id) = id {
+            if self.briefs.remove(&id).is_some() {
+                if let Some(model) = &mut self.brief_model {
+                    model.cancel(id);
+                }
+            }
+        }
+    }
+
+    /// A handoff of `turn` that won't start: forgotten, and told. Nothing of it is retried.
+    fn abandon_preparation(&mut self, chat: &str, turn: TurnId, why: &str) {
+        let Some(mut preparing) = self.preparing.remove(chat) else {
+            return;
+        };
+        if preparing.turn != turn {
+            self.preparing.insert(chat.to_string(), preparing);
+            return;
+        }
+        if !self.ready.contains(&preparing.project) {
+            // Kept until an explicit open: the divider fails and the turn ends only once the Project is ready.
+            preparing
+                .held_failure
+                .get_or_insert_with(|| why.to_string());
+            self.preparing.insert(chat.to_string(), preparing);
+            return;
+        }
+        self.drop_brief(preparing.brief_id);
+        self.sync_busy();
+        self.notice(Notice::Failed {
+            chat: chat.to_string(),
+            what: "preparing the handoff".into(),
+            error: why.to_string(),
+        });
+        // Node: abandonHandoff (the divider failed), then the start's `.catch` folds `turn-failed` with the message.
+        if let Some(divider) = preparing.divider {
+            self.fail_divider(
+                &preparing.project,
+                preparing.session,
+                divider,
+                &["preparing"],
+            );
+        }
+        if self.active_turn(chat) == Some(turn) {
+            self.fail_turn(
+                chat,
+                turn,
+                &jsjson::js_string(why),
+                "a handoff that couldn't be prepared",
+            );
+        }
+    }
+
+    /// Stop while a handoff is prepared (Node's cancelHandoff): no agent session runs yet, so the divider fails and the
+    /// turn is cancelled here. True when there was one.
+    fn cancel_handoff(&mut self, chat: &str) -> bool {
+        if !self.preparing.contains_key(chat) {
+            return false;
+        }
+        let only = chat.to_string();
+        self.hold_on_cancel.insert(only.clone());
+        self.cancel_where(|key, _| key == only);
+        self.hold_on_cancel.remove(&only);
+        true
+    }
+
+    /// Stops the handoffs being prepared (all, or one Project's): their jobs' results will only be cleaned up, and
+    /// jobs not yet taken are dropped (each reports `Unknown`, nothing written).
+    fn cancel_preparations(&mut self, project: Option<&Path>) {
+        let project = project.map(Path::to_path_buf);
+        self.cancel_where(|_, preparing| {
+            project.as_ref().is_none_or(|key| *key == preparing.project)
+        });
+        // Jobs of handoffs already gone (a stale one) in scope are cancelled too.
+        for slot in self.job_slots.values_mut() {
+            if project.as_ref().is_none_or(|key| *key == slot.project) {
+                slot.cancelled = true;
+            }
+        }
+        self.drop_cancelled_jobs();
+    }
+
+    /// Cancels the handoffs being prepared that `pick` picks: their jobs' results are only cleaned up (jobs not taken
+    /// yet are dropped, reporting `Unknown`), their briefs are cancelled, their dividers fail and their turns end
+    /// `turn-cancelled`.
+    fn cancel_where(&mut self, pick: impl Fn(&str, &Preparing) -> bool) {
+        let chats: Vec<String> = self
+            .preparing
+            .iter()
+            .filter(|(chat, preparing)| pick(chat, preparing))
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in chats {
+            let preparing = self.preparing.remove(&chat).expect("listed above");
+            for slot in self.job_slots.values_mut() {
+                if slot.chat == chat && slot.turn == preparing.turn {
+                    slot.cancelled = true;
+                }
+            }
+            self.drop_brief(preparing.brief_id);
+            // Node's abandonHandoff with `aborted`: a divider already marked done (its save still pending) fails too.
+            if let Some(divider) = preparing.divider {
+                let statuses: &[&str] = if preparing.saving {
+                    &["preparing", "done"]
+                } else {
+                    &["preparing"]
+                };
+                self.fail_divider(&preparing.project, preparing.session, divider, statuses);
+            }
+            if self.active_turn(&chat) == Some(preparing.turn) {
+                if let Err(error) =
+                    self.receive(&chat, preparing.turn, &json!({ "type": "turn-cancelled" }))
+                {
+                    self.notice(Notice::Failed {
+                        chat: chat.clone(),
+                        what: "cancelling a handoff's turn".into(),
+                        error: error.to_string(),
+                    });
+                }
+            }
+        }
+        self.drop_cancelled_jobs();
+        self.sync_busy();
+    }
+
+    /// Jobs of cancelled handoffs not taken yet are dropped (each reports `Unknown`; nothing was written).
+    fn drop_cancelled_jobs(&mut self) {
+        let cancelled: HashSet<JobId> = self
+            .job_slots
+            .iter()
+            .filter(|(_, slot)| slot.cancelled)
+            .map(|(id, _)| *id)
+            .collect();
+        self.ready_jobs.retain(|job| !cancelled.contains(&job.id()));
+    }
+
+    /// Jobs or cleanups still out for `project` (all Projects with `None`).
+    fn jobs_out(&self, project: Option<&Path>) -> usize {
+        self.job_slots
+            .values()
+            .filter(|slot| project.is_none_or(|key| key == slot.project))
+            .count()
+    }
+
+    fn quit_pending(&self, what: &str) -> StoreError {
+        let QuitState::JobsPending { jobs, cleanups } = self.quit_state() else {
+            return StoreError::QuitPending(format!(
+                "{what} waits on {} handoff transcript jobs.",
+                self.jobs_out(None)
+            ));
+        };
+        StoreError::QuitPending(format!(
+            "{what} waits on {jobs} handoff transcript jobs and {cleanups} temporary files; every lock is held. Call it again once they report back."
+        ))
+    }
+
+    /// Tests only: prepares a handoff's transcript in `chat` with a new turn, as staging a restore will.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_prepare_transcript(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        source: TranscriptSource<'_>,
+    ) -> Result<(TurnId, JobId)> {
+        self.test_prepare_handoff(project, chat, "kiro", None, source)
+    }
+
+    /// Tests only: [`ChatHost::test_prepare_transcript`] handing over from `provider`, `last_user_message` the last
+    /// request.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_prepare_handoff(
+        &mut self,
+        project: &Path,
+        chat: &str,
+        provider: &str,
+        last_user_message: Option<Value>,
+        source: TranscriptSource<'_>,
+    ) -> Result<(TurnId, JobId)> {
+        let catch_up = source.catch_up_after.is_some();
+        self.next_turn += 1;
+        let turn = TurnId(self.next_turn);
+        self.preparing.insert(
+            chat.to_string(),
+            Preparing {
+                turn,
+                project: project.to_path_buf(),
+                transcript: None,
+                brief_prompt: None,
+                provider: provider.to_string(),
+                catch_up,
+                last_user_message,
+                brief_id: None,
+                brief: None,
+                divider: None,
+                session: 0,
+                turn_fields: Map::new(),
+                start: Map::new(),
+                saving: false,
+                told_saving: false,
+                changed_files: Vec::new(),
+                held_brief: None,
+                held_failure: None,
+            },
+        );
+        let job = match self.reserve_transcript(project, chat, turn, source) {
+            Ok(job) => job,
+            Err(error) => {
+                self.preparing.remove(chat);
+                return Err(error);
+            }
+        };
+        Ok((turn, job))
+    }
+
+    /// Tests only: the handoff being prepared in `chat`: its turn, its committed transcript and what the brief reads.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_preparation(
+        &self,
+        chat: &str,
+    ) -> Option<(TurnId, Option<PathBuf>, Option<String>)> {
+        self.preparing.get(chat).map(|p| {
+            (
+                p.turn,
+                p.transcript.clone(),
+                p.brief_prompt.as_ref().map(|prompt| prompt.prompt.clone()),
+            )
+        })
+    }
+
+    /// Tests only: the brief written for the handoff being prepared in `chat`, once settled.
+    #[cfg(feature = "test-fixtures")]
+    pub fn test_brief(&self, chat: &str) -> Option<String> {
+        self.preparing.get(chat).and_then(|p| p.brief.clone())
+    }
+
+    /// Senders still waiting on a queued message's start (or a start in flight) hear `null` (Node's "Milagre
+    /// restarted first"); the entries stay queued on disk. `project` limits it to one Project.
+    fn release_waiters(&mut self, project: Option<&Path>) {
+        let in_scope = |chat: &str| {
+            project.is_none_or(|key| Path::new(agent_runs::project_of_key(chat)) == key)
+        };
+        let starting: Vec<(TurnId, String, String)> = self
+            .queue_turns
+            .iter()
+            .filter(|(_, (_, chat))| in_scope(chat))
+            .map(|(turn, (id, chat))| (*turn, id.clone(), chat.clone()))
+            .collect();
+        for (turn, id, chat) in starting {
+            self.queue_turns.remove(&turn);
+            self.tell_queue_started(&chat, &id, Value::Null);
+        }
+        let projects: Vec<PathBuf> = match project {
+            Some(key) => vec![key.to_path_buf()],
+            None => self.states.projects(),
+        };
+        for key in projects {
+            let Some(state) = self.states.current(&key) else {
+                continue;
+            };
+            let Some(sessions) = state.sessions() else {
+                continue;
+            };
+            let mut waiting = Vec::new();
+            for (session_id, session) in jsjson::js_entries(sessions) {
+                for entry in session
+                    .get("queued")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    if let Some(id) = entry
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|id| self.queue_waiters.contains(*id))
+                    {
+                        waiting.push((format!("{}#{session_id}", key.display()), id.to_string()));
+                    }
+                }
+            }
+            for (chat, id) in waiting {
+                self.tell_queue_started(&chat, &id, Value::Null);
+            }
+        }
+        self.deadlines.retain(|chat, _| !in_scope(chat));
+    }
+
+    /// Ends the host. Providers' waiting events are handled first. Refused while a turn runs (quit-time suspend and
+    /// resume aren't ported) unless `force`, which ends those turns as failed (their replies so far saved). Then every
+    /// provider shuts down (nonblocking by the trait's contract) and the states close.
+    ///
+    /// A close that fails (a save failing) returns its error and leaves the host quitting for good: sends and starts
+    /// stay refused, the providers stay shut down (a host never runs again after that; start a new one), and the
+    /// states keep their unsaved changes and locks (`ProjectStates::close`). Calling `shutdown` again is the recovery:
+    /// it only retries the save and the close, and the quit is complete once it returns `Ok`.
+    pub fn shutdown(&mut self, force: bool) -> Result<()> {
+        if self.providers_shut_down {
+            self.drive_jobs(true);
+            if !self.job_slots.is_empty() {
+                return Err(self.quit_pending("The quit"));
+            }
+            let closed = self.states.close();
+            // A release refused during the close leaves its lock on disk: told before returning, so a host that quits
+            // now still hears it with one last take of the notices.
+            self.tell_stranded();
+            closed?;
+            self.closed();
+            return Ok(());
+        }
+        // From here no queued message starts and no send is taken, not even from the events handled below.
+        self.quitting = true;
+        let errors = self.pump();
+        for error in errors {
+            self.notice(Notice::Failed {
+                chat: String::new(),
+                what: "handling events before quitting".into(),
+                error: error.to_string(),
+            });
+        }
+        let running: Vec<String> = self
+            .active
+            .keys()
+            .chain(self.stuck.keys())
+            .chain(self.preparing.keys())
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if let Some(chat) = running.first() {
+            if !force {
+                self.quitting = false;
+                // The turn ends handled before the refusal move their queues on now.
+                for (deferred, event) in std::mem::take(&mut self.deferred) {
+                    if let Err(error) = self.after_turn(&deferred, &event) {
+                        self.notice(Notice::Failed {
+                            chat: deferred.clone(),
+                            what: "starting the next queued message".into(),
+                            error: error.to_string(),
+                        });
+                    }
+                }
+                return Err(gate(&format!(
+                    "Quitting while a turn runs in {chat} (suspend and resume)"
+                )));
+            }
+        }
+        self.send_next.clear();
+        // A handoff still preparing never started its agent: it is cancelled, not force-ended.
+        self.cancel_preparations(None);
+        for chat in &running {
+            if let Some(turn) = self.active_turn(chat) {
+                self.force_end(chat, turn, "Milagre quit before the turn ended.");
+            }
+            self.stuck.remove(chat);
+        }
+        for provider in self.providers.values_mut() {
+            provider.shutdown();
+        }
+        self.providers_shut_down = true;
+        let mode_chats: Vec<String> = self
+            .pending_modes
+            .values()
+            .map(|pending| pending.chat.clone())
+            .collect();
+        for chat in mode_chats {
+            self.uncertain_modes(
+                &chat,
+                None,
+                "Milagre quit before the agent confirmed the permission mode.",
+                true,
+            );
+        }
+        let waiting: Vec<String> = self
+            .pending_answers
+            .values()
+            .map(|pending| pending.chat.clone())
+            .collect();
+        for chat in waiting {
+            self.fail_answers(
+                &chat,
+                None,
+                "Milagre quit before the agent took the answer.",
+            );
+        }
+        self.release_waiters(None);
+        self.latest.clear();
+        // Handoffs being prepared stop; their jobs' results are only cleaned up. Until every job reported and every
+        // temporary file is gone, nothing closes and every lock stays held.
+        self.cancel_preparations(None);
+        self.drive_jobs(true);
+        self.sync_busy();
+        if !self.job_slots.is_empty() {
+            return Err(self.quit_pending("The quit"));
+        }
+        let closed = self.states.close();
+        self.tell_stranded();
+        closed?;
+        self.closed();
+        Ok(())
+    }
+
+    /// The quit completed: nothing is ready, kept or published any more.
+    fn closed(&mut self) {
+        #[cfg(feature = "routine-execution-fixture")]
+        self.routine_unread.clear();
+        self.closed = true;
+        self.ready.clear();
+        self.not_ready.clear();
+        self.unpublished.clear();
+        self.drop_parked(None);
+    }
+
+    /// chat:send-status with nothing in flight (sends here finish before the next call).
+    pub fn send_status(&mut self, project: &Path, client_message_id: &Value) -> Result<Value> {
+        self.states.send_status(project, client_message_id)
+    }
+
+    /// The turn an answer belongs to: the one running in the Chat, and its provider. A request lives in its turn's
+    /// run (Node drops a run's approvals and questions with it), so with no turn running nothing waits on an answer:
+    /// it settles `false` at once, as Node's do.
+    fn session_of(&self, chat: &str) -> Option<(TurnId, String)> {
+        self.active.get(chat).cloned()
+    }
+
+    /// Composer mode change: await the live session's update, then note the preference even when it failed.
+    /// An idle retained session is still live; a missing session only notes the preference (Node's optional call).
+    pub fn set_permission_mode(&mut self, request: &Value) -> Result<ModeTicket> {
+        let mode = request
+            .get("mode")
+            .and_then(Value::as_str)
+            .filter(|mode| PERMISSION_MODES.contains(mode))
+            .ok_or_else(|| {
+                StoreError::Invalid(format!(
+                    "Unknown permission mode: {}",
+                    jsjson::property_key(request.get("mode"))
+                ))
+            })?;
+        let chat = request
+            .get("chatId")
+            .and_then(Value::as_str)
+            .filter(|chat| session_of_key(chat).is_some())
+            .ok_or_else(|| StoreError::Invalid("Choose a Chat.".into()))?;
+        let project = PathBuf::from(agent_runs::project_of_key(chat));
+        if self.quitting || self.closing.contains(&project) {
+            return Err(StoreError::OwnerClosing(
+                "The Chat's owner is closing.".into(),
+            ));
+        }
+        self.require_project_ready(&project)?;
+        let (_, session) = self.canonical_chat(chat)?;
+        if chat != chat_key(agent_runs::project_of_key(chat), &json!(session)) {
+            return Err(StoreError::Invalid(format!(
+                "{chat} isn't how this Chat is named."
+            )));
+        }
+        let wire_chat = outbound_identity(chat)?;
+        if self
+            .pending_modes
+            .values()
+            .any(|pending| pending.chat == chat)
+        {
+            return Err(StoreError::ModeChangePending(
+                "A permission-mode update is still waiting for this Chat's agent.".into(),
+            ));
+        }
+        let generation = self.latest.get(chat).copied();
+        let provider = self
+            .turns
+            .get(chat)
+            .and_then(|turn| turn.get("provider"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let Some((turn, provider)) = generation.zip(provider) else {
+            self.note_mode(chat, generation, mode)?;
+            return Ok(ModeTicket::Settled);
+        };
+        if self.pending_modes.len() >= self.mode_capacity {
+            return Err(StoreError::ModesAtCapacity(
+                "Too many permission-mode updates are waiting for their agents.".into(),
+            ));
+        }
+        self.next_mode = self.next_mode.checked_add(1).ok_or_else(|| {
+            StoreError::Invalid("Permission-mode operation identities are exhausted.".into())
+        })?;
+        let change = ModeChangeId(self.next_mode);
+        let accepted = self.provider(&provider).and_then(|adapter| {
+            adapter
+                .set_mode(&wire_chat, turn, change, mode)
+                .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))
+        });
+        if let Err(live_error) = accepted {
+            // Node always attempts the note; the live error takes precedence over a note failure.
+            let _ = self.note_mode(chat, Some(turn), mode);
+            return Err(live_error);
+        }
+        self.pending_modes.insert(
+            change,
+            PendingMode {
+                chat: chat.into(),
+                turn,
+                mode: mode.into(),
+                due: self.states.now().saturating_add(self.mode_grace_ms),
+                told: false,
+                revoked: false,
+            },
+        );
+        Ok(ModeTicket::Pending(change))
+    }
+
+    /// Note only settings of the captured generation. Persist the Chat preference even if a newer turn started;
+    /// unlike Node's unguarded turn map, a late callback cannot rewrite that newer turn's active settings.
+    fn note_mode(&mut self, chat: &str, generation: Option<TurnId>, mode: &str) -> Result<()> {
+        self.require_ready_chat(chat)?;
+        if self.latest.get(chat).copied() == generation {
+            if let Some(turn) = self.turns.get_mut(chat).and_then(Value::as_object_mut) {
+                turn.insert("permissionMode".into(), json!(mode));
+            }
+        }
+        let project = PathBuf::from(agent_runs::project_of_key(chat));
+        let session_id = session_of_key(chat).expect("validated Chat");
+        let (_, changed) = self.states.update(&project, Some(&[]), true, |latest| {
+            let mut session = agent_runs_session(latest, session_id)?;
+            if session.get("permissionMode").and_then(Value::as_str) == Some(mode) {
+                return None;
+            }
+            session.insert("permissionMode".into(), json!(mode));
+            Some(agent_runs::with_session(latest, session_id, session))
+        })?;
+        if changed {
+            self.broadcast(&project);
+        }
+        Ok(())
+    }
+
+    fn settle_mode(
+        &mut self,
+        chat: &str,
+        change: ModeChangeId,
+        outcome: ModeOutcome,
+    ) -> Result<()> {
+        if !self
+            .pending_modes
+            .get(&change)
+            .is_some_and(|pending| pending.chat == chat)
+        {
+            return Err(StoreError::Invalid(
+                "A late or unknown permission-mode receipt was dropped.".into(),
+            ));
+        }
+        if let ModeOutcome::Uncertain(error) = outcome {
+            let pending = self.pending_modes.get_mut(&change).expect("checked");
+            if !pending.told {
+                pending.told = true;
+                self.notice(Notice::ModeSettled {
+                    chat: chat.into(),
+                    change,
+                    result: ModeResult::Uncertain(jsjson::js_string(&error.message)),
+                });
+            }
+            return Ok(());
+        }
+        let pending = self.pending_modes.remove(&change).expect("checked");
+        let noted = if pending.revoked {
+            Ok(())
+        } else {
+            self.note_mode(chat, Some(pending.turn), &pending.mode)
+        };
+        let result = match outcome {
+            ModeOutcome::Failed(error) => ModeResult::Failed(jsjson::js_string(&error.message)),
+            ModeOutcome::Applied => match noted {
+                Ok(()) => ModeResult::Applied,
+                Err(error) => ModeResult::Failed(error.to_string()),
+            },
+            ModeOutcome::Uncertain(_) => unreachable!("handled before release"),
+        };
+        if pending.told {
+            self.notice(Notice::ModeResolved {
+                chat: chat.into(),
+                change,
+                result,
+            });
+        } else {
+            self.notice(Notice::ModeSettled {
+                chat: chat.into(),
+                change,
+                result,
+            });
+        }
+        Ok(())
+    }
+
+    /// A logical close is not proof of cleanup. Failed close requests and asynchronous accepted closes both retain
+    /// capacity and Chat authority until a definitive receipt or actual Exited. Forget/quit revoke preference writes.
+    fn uncertain_modes(&mut self, chat: &str, upto: Option<TurnId>, message: &str, revoke: bool) {
+        let mut notices = Vec::new();
+        for (change, pending) in &mut self.pending_modes {
+            if pending.chat != chat || !upto.is_none_or(|turn| pending.turn == turn) {
+                continue;
+            }
+            pending.revoked |= revoke;
+            if !pending.told {
+                pending.told = true;
+                notices.push(Notice::ModeSettled {
+                    chat: chat.into(),
+                    change: *change,
+                    result: ModeResult::Uncertain(jsjson::js_string(message)),
+                });
+            }
+        }
+        for notice in notices {
+            self.notice(notice);
+        }
+    }
+
+    /// An actual provider Exited releases unknown mode authority. An ordinary turn end or close request does not.
+    fn close_modes(&mut self, chat: &str, upto: Option<TurnId>, message: &str) {
+        let closed: Vec<ModeChangeId> = self
+            .pending_modes
+            .iter()
+            .filter(|(_, pending)| {
+                pending.chat == chat && upto.is_none_or(|turn| pending.turn == turn)
+            })
+            .map(|(change, _)| *change)
+            .collect();
+        for change in closed {
+            let pending = self.pending_modes.remove(&change).expect("present");
+            if !pending.revoked {
+                let _ = self.note_mode(chat, Some(pending.turn), &pending.mode);
+            }
+            if !pending.told {
+                self.notice(Notice::ModeSettled {
+                    chat: chat.into(),
+                    change,
+                    result: ModeResult::Uncertain(jsjson::js_string(message)),
+                });
+            }
+        }
+    }
+
+    /// agent:respond-permission (runtime.cjs respondPermission, SessionManager.respondToPermission): the user's
+    /// decision handed to the session waiting on it, settling later as [`Notice::AnswerSettled`]; its
+    /// `permission-resolved` follows as an agent event. Setup reviews (`setup-review-*`) are refused: Worktree setup
+    /// isn't ported.
+    pub fn respond_permission(&mut self, request: &Value) -> Result<AnswerTicket> {
+        if let Some(chat) = request.get("chatId").and_then(Value::as_str) {
+            self.require_ready_chat(chat)?;
+        }
+        let request_id = request.get("requestId");
+        if request_id
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with("setup-review-"))
+        {
+            return Err(gate("Answering a Worktree setup review"));
+        }
+        let decision = request.get("decision");
+        let Some(decision) = decision
+            .and_then(Value::as_str)
+            .filter(|d| USER_DECISIONS.contains(d))
+        else {
+            return Err(StoreError::Invalid(format!(
+                "Unknown permission decision: {}",
+                jsjson::property_key(decision)
+            )));
+        };
+        let chat = request
+            .get("chatId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let Some((turn, provider)) = self.session_of(&chat) else {
+            return Ok(AnswerTicket::Settled(false));
+        };
+        let id = jsjson::property_key(request_id);
+        self.admit_answer(&chat, turn, &id)?;
+        let wire_chat = outbound_identity(&chat)?;
+        let wire_id = outbound_identity(&id)?;
+        let answer = self.next_answer_id();
+        self.provider(&provider)?
+            .respond_permission(&wire_chat, turn, answer, &wire_id, decision)
+            .map_err(|error| StoreError::Invalid(jsjson::js_string(&error.message)))?;
+        self.hold_answer(answer, &chat, turn, &id, None);
+        Ok(AnswerTicket::Pending(answer))
+    }
+
+    fn next_answer_id(&mut self) -> AnswerId {
+        self.next_answer += 1;
+        AnswerId(self.next_answer)
+    }
+
+    fn hold_answer(
+        &mut self,
+        answer: AnswerId,
+        chat: &str,
+        turn: TurnId,
+        request: &str,
+        message: Option<f64>,
+    ) {
+        let due = self.states.now() + self.answer_grace_ms;
+        self.pending_answers.insert(
+            answer,
+            PendingAnswer {
+                chat: chat.into(),
+                turn,
+                request: request.into(),
+                message,
+                due,
+            },
+        );
+    }
+
+    /// Settles a handed-over answer, told as `Notice::AnswerSettled`. `NotWaiting` and `Failed` (proven
+    /// undelivered) take its answers message back; `Uncertain` keeps it and keeps the answer to block retries. A later
+    /// definitive settlement of an uncertain answer is told as `Notice::AnswerResolved`. Unknown, already settled, or
+    /// another Chat's: dropped.
+    fn settle_answer(
+        &mut self,
+        chat: &str,
+        answer: AnswerId,
+        outcome: AnswerOutcome,
+    ) -> Result<()> {
+        let message_of = |error: ProviderError| jsjson::js_string(&error.message);
+        let result = match outcome {
+            AnswerOutcome::Accepted => AnswerResult::Accepted,
+            AnswerOutcome::NotWaiting => AnswerResult::NotWaiting,
+            AnswerOutcome::Failed(error) => AnswerResult::Failed(message_of(error)),
+            AnswerOutcome::Uncertain(error) => AnswerResult::Uncertain(message_of(error)),
+        };
+        if let Some(pending) = self
+            .pending_answers
+            .get(&answer)
+            .filter(|pending| pending.chat == chat)
+            .cloned()
+        {
+            self.pending_answers.remove(&answer);
+            match &result {
+                AnswerResult::Uncertain(_) => self.keep_uncertain(answer, pending),
+                AnswerResult::Accepted => {}
+                _ => self.take_back_or_tell(chat, pending.message),
+            }
+            self.notice(Notice::AnswerSettled {
+                chat: chat.into(),
+                answer,
+                result,
+            });
+            return Ok(());
+        }
+        let kept = self
+            .uncertain_answers
+            .get(&answer)
+            .or_else(|| self.historical_answers.get(&answer))
+            .filter(|kept| kept.chat == chat)
+            .cloned();
+        if let Some(kept) = kept {
+            if matches!(result, AnswerResult::Uncertain(_)) {
+                return Ok(());
+            }
+            self.uncertain_answers.remove(&answer);
+            self.historical_answers.remove(&answer);
+            if result != AnswerResult::Accepted {
+                self.take_back_or_tell(chat, kept.message);
+            }
+            self.notice(Notice::AnswerResolved {
+                chat: chat.into(),
+                answer,
+                result,
+            });
+            return Ok(());
+        }
+        Err(StoreError::Invalid(format!(
+            "A settlement of answer {} for {chat} was dropped: no such answer waits.",
+            answer.0
+        )))
+    }
+
+    /// Kept until a definitive settlement or its turn ends (or its session closes); never evicted (eviction would let
+    /// the same request be answered twice while it lives). Its slot stays taken (see `admit_answer`).
+    fn keep_uncertain(&mut self, answer: AnswerId, pending: PendingAnswer) {
+        self.uncertain_answers.insert(answer, pending);
+    }
+
+    /// Answers holding a slot: on their way, or with an unknown delivery.
+    pub fn answers_in_flight(&self) -> usize {
+        self.pending_answers.len() + self.uncertain_answers.len()
+    }
+
+    /// Whether another answer may be handed over: one per request and generation, and a free slot. Checked before
+    /// anything is shown or handed over; the slot is taken when the answer is held.
+    fn admit_answer(&self, chat: &str, turn: TurnId, request: &str) -> Result<()> {
+        if let Some(why) = self.answer_in_flight(chat, turn, request) {
+            return Err(StoreError::AnswerDeliveryUnknown(why.into()));
+        }
+        if self.answers_in_flight() >= self.answer_capacity {
+            return Err(StoreError::AnswersAtCapacity(format!(
+                "{} answers are still waiting on the agents; try again once some are settled.",
+                self.answers_in_flight()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Whether a request already has an answer on its way, or one whose delivery is unknown, in this session generation.
+    fn answer_in_flight(&self, chat: &str, turn: TurnId, request: &str) -> Option<&'static str> {
+        let same = |pending: &PendingAnswer| {
+            pending.chat == chat && pending.turn == turn && pending.request == request
+        };
+        if self.pending_answers.values().any(same) {
+            return Some("An answer to this request is already on its way to the agent.");
+        }
+        if self.uncertain_answers.values().any(same) {
+            return Some("An earlier answer to this request may have reached the agent; it can't be answered again until that's known.");
+        }
+        None
+    }
+
+    /// Releases the answers of a Chat's turns up to `upto` (all of them with None) once their requests can't be
+    /// waiting any more: the turn ended (its run, approvals and questions with it), or its session closed (forced end,
+    /// `Exited`, close, quit). Answers still on their way settle `Uncertain` (their messages stay); uncertain ones stop
+    /// holding a slot and blocking retries. Both move to a bounded history, where a late definitive settlement still
+    /// resolves them (taking the message back when it proves nothing was delivered).
+    fn fail_answers(&mut self, chat: &str, upto: Option<TurnId>, message: &str) {
+        let in_scope = |pending: &PendingAnswer| {
+            pending.chat == chat && upto.is_none_or(|upto| pending.turn <= upto)
+        };
+        let doomed: Vec<AnswerId> = self
+            .pending_answers
+            .iter()
+            .filter(|(_, pending)| in_scope(pending))
+            .map(|(answer, _)| *answer)
+            .collect();
+        for answer in doomed {
+            let error = ProviderError::new(ProviderErrorKind::Exited, message);
+            let _ = self.settle_answer(chat, answer, AnswerOutcome::Uncertain(error));
+        }
+        let released: Vec<AnswerId> = self
+            .uncertain_answers
+            .iter()
+            .filter(|(_, kept)| in_scope(kept))
+            .map(|(answer, _)| *answer)
+            .collect();
+        for answer in released {
+            let kept = self.uncertain_answers.remove(&answer).expect("present");
+            self.historical_answers.insert(answer, kept);
+        }
+        while self.historical_answers.len() > self.answer_history {
+            if let Some((answer, forgotten)) = self.historical_answers.pop_first() {
+                self.notice(Notice::AnswerForgotten {
+                    chat: forgotten.chat,
+                    answer,
+                });
+            }
+        }
+    }
+
+    fn provider(&mut self, name: &str) -> Result<&mut Box<dyn Provider>> {
+        self.providers.get_mut(name).ok_or_else(|| {
+            StoreError::Invalid(format!(
+                "No {name} provider adapter is registered with the Rust owner."
+            ))
+        })
+    }
+
+    /// agent:answer-question (runtime.cjs answerQuestion): the answers show in the Chat as the user's message
+    /// (`summary`, after the reply so far) before they go to the agent, and are taken back if the agent doesn't take
+    /// them. Refused: chat secrets and bug reports (their requests never reach a Chat), images attached to answers,
+    /// and a Subchat suggestion card's answer. Subchat escalation bookkeeping isn't ported.
+    pub fn answer_question(&mut self, request: &Value) -> Result<AnswerTicket> {
+        if let Some(chat) = request.get("chatId").and_then(Value::as_str) {
+            self.require_ready_chat(chat)?;
+        }
+        let request_id = request.get("requestId");
+        let id_text = request_id.and_then(Value::as_str);
+        if id_text.is_some_and(|id| id.starts_with("milagre-secret-")) {
+            return Err(gate("Answering a secret request (chat secrets)"));
+        }
+        if id_text.is_some_and(|id| id.starts_with("milagre-bug-report-")) {
+            return Err(gate("Approving a Milagre bug report"));
+        }
+        let answers = request.get("answers").cloned();
+        if jsjson::truthy(answers.as_ref()) {
+            match jsjson::nullish(request.get("images"), None) {
+                None => {}
+                Some(Value::Object(images)) => {
+                    if images.values().any(|attached| !attached.is_array()) {
+                        return Err(StoreError::Invalid(
+                            "Invalid images for an agent question.".into(),
+                        ));
+                    }
+                    let count: usize = images
+                        .values()
+                        .filter_map(Value::as_array)
+                        .map(Vec::len)
+                        .sum();
+                    if count > 10 {
+                        return Err(StoreError::Invalid(
+                            "Attach at most 10 images to your answers.".into(),
+                        ));
+                    }
+                    if count > 0 {
+                        return Err(gate("Images attached to answers"));
+                    }
+                }
+                Some(_) => {
+                    return Err(StoreError::Invalid(
+                        "Invalid images for an agent question.".into(),
+                    ))
+                }
+            }
+        }
+        if matches!(request.get("suggestionId"), Some(Value::String(_))) {
+            return Err(gate("Answering through a Subchat's suggestion card"));
+        }
+        let chat_value = request.get("chatId");
+        let chat = chat_value.and_then(Value::as_str).unwrap_or("").to_string();
+        let summary = request
+            .get("summary")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty());
+        // Bounded before anything is shown: the summary becomes a saved message.
+        if summary.is_some_and(|summary| jsjson::utf16_len(summary) > MAX_ANSWER_SUMMARY) {
+            return Err(StoreError::Invalid(format!(
+                "The answers summary is longer than {MAX_ANSWER_SUMMARY} characters."
+            )));
+        }
+        let open = chat_value.is_some_and(Value::is_string)
+            && self
+                .states
+                .has(Path::new(agent_runs::project_of_key(&chat)));
+        // One answer per request and session generation while one is on its way or its delivery is unknown: checked
+        // before anything is shown.
+        let request_key = jsjson::property_key(request_id);
+        let given = answers.clone().unwrap_or(Value::Null);
+        // What the provider would get is built before anything is shown: an identity it can't receive is refused here,
+        // never shown and then taken back.
+        let wire = match self.session_of(&chat) {
+            Some((turn, _)) => {
+                self.admit_answer(&chat, turn, &request_key)?;
+                Some((
+                    outbound_identity(&chat)?,
+                    outbound_identity(&request_key)?,
+                    outbound_answers(&given)?,
+                ))
+            }
+            None => None,
+        };
+        let recorded = match (jsjson::truthy(answers.as_ref()), summary) {
+            (true, Some(summary)) if open => {
+                match self.record_answers(&chat, summary, request_id, answers.as_ref().unwrap()) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        self.notice(Notice::Failed {
+                            chat: chat.clone(),
+                            what: "showing the answers".into(),
+                            error: error.to_string(),
+                        });
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+        // SessionManager.answerQuestion: only null or a few short strings per question reach a session.
+        let handed = if !valid_answers(Some(&given)) || request.get("answers").is_none() {
+            Err(StoreError::Invalid(
+                "Invalid answers to an agent question.".into(),
+            ))
+        } else {
+            match (self.session_of(&chat), wire) {
+                (Some((turn, provider)), Some(wire)) => {
+                    let answer = self.next_answer_id();
+                    self.provider(&provider)
+                        .map(|adapter| (adapter, wire))
+                        .and_then(|(adapter, (wire_chat, wire_id, wire_answers))| {
+                            adapter
+                                .answer_question(&wire_chat, turn, answer, &wire_id, &wire_answers)
+                                .map_err(|error| {
+                                    StoreError::Invalid(jsjson::js_string(&error.message))
+                                })
+                        })
+                        .map(|_| Some((answer, turn)))
+                }
+                _ => Ok(None),
+            }
+        };
+        match handed {
+            Ok(Some((answer, turn))) => {
+                self.hold_answer(answer, &chat, turn, &request_key, recorded);
+                Ok(AnswerTicket::Pending(answer))
+            }
+            Ok(None) => {
+                self.take_back_or_tell(&chat, recorded);
+                Ok(AnswerTicket::Settled(false))
+            }
+            // The original error stands; a take-back that fails too is told, not swapped in.
+            Err(error) => {
+                self.take_back_or_tell(&chat, recorded);
+                Err(error)
+            }
+        }
+    }
+
+    /// ChatHost.recordAnswers: the answers message saved after the reply so far, `answers-sent` told before anything
+    /// is written, then a flush whose failure stays as save status (tried again). The new message's id.
+    fn record_answers(
+        &mut self,
+        chat: &str,
+        body: &str,
+        request_id: Option<&Value>,
+        answers: &Value,
+    ) -> Result<Option<f64>> {
+        let (project, session_id) = self.canonical_chat(chat)?;
+        let project_text = project.display().to_string();
+        let now = self.states.now();
+        let mut runs = self.runs.clone();
+        let mut seq = self.seq;
+        let mut message_id = None;
+        let mut added: Vec<MsgRef> = Vec::new();
+        let (state, changed) =
+            self.states
+                .update(&project, Some(&[session_id]), true, |latest| {
+                    let request = runs
+                        .get(chat)
+                        .and_then(|run| run.get("questions"))
+                        .and_then(Value::as_array)
+                        .and_then(|questions| {
+                            questions.iter().find(|item| {
+                                match (item.get("requestId"), request_id) {
+                                    (Some(a), Some(b)) => jsjson::strict_equals(a, b),
+                                    (None, None) => true,
+                                    _ => false,
+                                }
+                            })
+                        })
+                        .cloned();
+                    let answered = agent_runs::answered_questions(request.as_ref(), answers);
+                    let (next, next_runs, id) = agent_runs::record_answers(
+                        latest,
+                        &runs,
+                        &project_text,
+                        chat,
+                        body,
+                        answered,
+                        now,
+                    )?;
+                    let before = latest.message_list().len();
+                    added = next.message_list()[before..]
+                        .iter()
+                        .filter(|m| m.get("role").and_then(Value::as_str) == Some("assistant"))
+                        .cloned()
+                        .collect();
+                    runs = next_runs;
+                    message_id = Some(id);
+                    seq += 1;
+                    Some(next)
+                })?;
+        if !changed || message_id.is_none() {
+            return Ok(None);
+        }
+        self.runs = runs;
+        self.seq = seq;
+        self.notice(Notice::Event {
+            chat: chat.into(),
+            event: json!({ "type": "answers-sent" }),
+            seq: Some(seq),
+            with_state: true,
+        });
+        if let Err(error) = self.states.flush(Some(&project)) {
+            self.notice(Notice::Failed {
+                chat: chat.into(),
+                what: "saving the answers".into(),
+                error: error.to_string(),
+            });
+        }
+        if added.iter().any(|m| {
+            m.get("body")
+                .and_then(Value::as_str)
+                .is_some_and(|body| body.contains("!["))
+        }) {
+            self.notice(Notice::Gap {
+                chat: chat.into(),
+                what: "reply image capture".into(),
+            });
+        }
+        let _ = state;
+        Ok(message_id)
+    }
+
+    /// ChatHost.takeBack: removes a message again, such as answers that never reached the agent.
+    fn take_back_or_tell(&mut self, chat: &str, message: Option<f64>) {
+        if let Some(id) = message {
+            if let Err(error) = self.take_back(chat, id) {
+                self.notice(Notice::Failed {
+                    chat: chat.into(),
+                    what: "taking the answers back".into(),
+                    error: error.to_string(),
+                });
+            }
+        }
+    }
+
+    fn take_back(&mut self, chat: &str, id: f64) -> Result<()> {
+        let (project, session_id) = self.canonical_chat(chat)?;
+        // Never opens (and locks) a Project that was closed: its answers message went with it.
+        if !self.states.has(&project) {
+            return Ok(());
+        }
+        let (_, changed) = self
+            .states
+            .update(&project, Some(&[session_id]), true, |latest| {
+                let same = |m: &MsgRef| m.get("id").and_then(Value::as_f64) == Some(id);
+                latest.message_list().iter().any(same).then(|| {
+                    latest.with_messages(
+                        latest
+                            .message_list()
+                            .iter()
+                            .filter(|m| !same(m))
+                            .cloned()
+                            .collect(),
+                    )
+                })
+            })?;
+        if changed {
+            self.broadcast(&project);
+        }
+        Ok(())
+    }
+
+    /// The command boundary for a wire server, with the daemon's arguments.
+    pub fn call(&mut self, method: &str, args: &[Value]) -> Result<Value> {
+        let arg = |index: usize| args.get(index).cloned().unwrap_or(Value::Null);
+        match method {
+            "chat:send" => {
+                let request = arg(0);
+                let project = request
+                    .get("projectPath")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from);
+                if !project
+                    .as_deref()
+                    .is_some_and(|project| self.states.has(project))
+                {
+                    return Err(StoreError::Invalid(
+                        "Open the project before sending to its chats.".into(),
+                    ));
+                }
+                let sent = self.send(&request)?;
+                Ok(json!({ "sessionId": sent.session_id }))
+            }
+            "chat:send-status" => {
+                let project = arg(0)
+                    .as_str()
+                    .map(PathBuf::from)
+                    .filter(|path| self.states.has(path))
+                    .ok_or(StoreError::BadSendStatus)?;
+                self.require_ready(&project)?;
+                self.send_status(&project, &arg(1))
+            }
+            "agent:interrupt" => {
+                let chat = arg(0);
+                let chat = chat
+                    .as_str()
+                    .ok_or_else(|| StoreError::Invalid("Choose a Chat.".into()))?;
+                self.interrupt(chat).map(|_| Value::Null)
+            }
+            "chat:queue-send" | "chat:queue-remove" => {
+                let chat = arg(0)
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| StoreError::Invalid("Choose a Chat.".into()))?;
+                let id = arg(1).as_str().map(str::to_string).ok_or_else(|| {
+                    StoreError::Invalid("That queued message isn't valid.".into())
+                })?;
+                if method == "chat:queue-send" {
+                    self.send_queued_now(&chat, &id).map(|_| Value::Null)
+                } else {
+                    self.remove_queued(&chat, &id).map(Value::Bool)
+                }
+            }
+            // Pending: the wire server keeps the client's reply until `Notice::AnswerSettled { answer }`.
+            "agent:respond-permission" => self.respond_permission(&arg(0)).map(ticket_value),
+            "agent:answer-question" => self.answer_question(&arg(0)).map(ticket_value),
+            "agent:set-permission-mode" => {
+                self.set_permission_mode(&arg(0))
+                    .map(|ticket| match ticket {
+                        ModeTicket::Settled => Value::Null,
+                        ModeTicket::Pending(change) => json!({ "pendingMode": change.0 }),
+                    })
+            }
+            // Reads serve a ready Project only: never one loaded but not ready (its state may not be published, or
+            // its root no longer trusted), and they never load or reopen one.
+            other => {
+                if let Some(project) = arg(0).as_str() {
+                    if self.states.has(Path::new(project)) {
+                        self.require_ready(Path::new(project))?;
+                    }
+                }
+                self.states.call(other, args)
+            }
+        }
+    }
+}
+
+/// The working folder a prepared turn's start request names (its `cwd`), as text.
+fn preparing_start_cwd(preparing: Option<&Preparing>) -> Option<String> {
+    preparing?.start.get("cwd")?.as_str().map(str::to_string)
+}
+
+/// Whether `m` is the handoff divider `id` in one of `statuses`.
+fn is_divider(m: &MsgRef, id: i64, statuses: &[&str]) -> bool {
+    m.get("id").and_then(Value::as_f64) == Some(id as f64)
+        && m.get("context").is_some_and(|c| {
+            c.get("kind").and_then(Value::as_str) == Some("handoff")
+                && c.get("status")
+                    .and_then(Value::as_str)
+                    .is_some_and(|status| statuses.contains(&status))
+        })
+}
+
+/// chat-host.cjs `withLead(lead, prompt)`: the parts that aren't blank, a blank line between.
+fn with_lead(lead: &str, prompt: Option<&Value>) -> Value {
+    let mut parts = Vec::new();
+    if !lead.trim().is_empty() {
+        parts.push(lead.to_string());
+    }
+    if let Some(Value::String(prompt)) = prompt {
+        if !prompt.trim().is_empty() {
+            parts.push(prompt.clone());
+        }
+    }
+    Value::String(parts.join("\n\n"))
+}
+
+/// chat-host.cjs `revertSwitch(session, from, to)` with `withNativeSessions`: the session back on `from`, its native
+/// session parked under `to`, `from`'s parked one resumed.
+fn revert_switch(session: &mut Map<String, Value>, from: &Value, to: &Value) {
+    let mut parked = match session.get("native_sessions") {
+        Some(Value::Object(parked)) => parked.clone(),
+        _ => Map::new(),
+    };
+    if let Some(current) = session
+        .get("native_session_id")
+        .filter(|id| jsjson::truthy(Some(id)))
+    {
+        parked.insert(jsjson::property_key(Some(to)), current.clone());
+    }
+    let resume = parked.shift_remove(&jsjson::property_key(Some(from)));
+    session.insert("provider".into(), from.clone());
+    session.shift_remove("native_session_id");
+    session.shift_remove("native_sessions");
+    if let Some(resume) = resume.filter(|id| jsjson::truthy(Some(id))) {
+        session.insert("native_session_id".into(), resume);
+    }
+    if !parked.is_empty() {
+        session.insert("native_sessions".into(), Value::Object(parked));
+    }
+}
+
+fn agent_runs_session(state: &ProjectState, session: i64) -> Option<Map<String, Value>> {
+    session_value(state, &json!(session))
+}
+
+/// ChatHost.fold's stamps on step events, from the run as it stands: a started step keeps the start of an earlier copy
+/// of itself (a title update while it waits for approval) and gets its command as `input`; a completed one gets its
+/// end, duration and summarizeStep's facts.
+fn enrich_step_event(event: &mut Value, runs: &Runs, chat: &str, now: i64) {
+    let steps: &[Value] = runs
+        .get(chat)
+        .and_then(|run| run.get("steps"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let same = |a: Option<&Value>, b: Option<&Value>| match (jsjson::defined(a), jsjson::defined(b))
+    {
+        (Some(a), Some(b)) => jsjson::strict_equals(a, b),
+        (None, None) => true,
+        _ => false,
+    };
+    match event.get("type").and_then(Value::as_str) {
+        Some("step-started") => {
+            let Some(step) = event.get("step").and_then(Value::as_object).cloned() else {
+                return;
+            };
+            let started_at = steps
+                .iter()
+                .find(|known| same(known.get("id"), step.get("id")))
+                .and_then(|known| jsjson::nullish(known.get("startedAt"), None).cloned())
+                .unwrap_or_else(|| json!(now));
+            let kind = step.get("kind").and_then(Value::as_str);
+            let command = match step.get("detail") {
+                Some(Value::String(detail))
+                    if matches!(kind, Some("shell" | "setup"))
+                        && detail.starts_with("$ ")
+                        && detail.ends_with('\n') =>
+                {
+                    Some(detail[2..detail.len() - 1].to_string())
+                }
+                _ => None,
+            };
+            let input = match command {
+                Some(command) if !command.is_empty() && jsjson::utf16_len(&command) <= 4000 => {
+                    Some(Value::String(command))
+                }
+                _ => step.get("input").cloned(),
+            };
+            let mut stamped = step;
+            if let Some(input) = input.filter(|input| jsjson::truthy(Some(input))) {
+                stamped.insert("input".into(), input);
+            }
+            stamped.insert("startedAt".into(), started_at);
+            event["step"] = Value::Object(stamped);
+        }
+        Some("step-completed") => {
+            let Some(step) = steps
+                .iter()
+                .find(|known| same(known.get("id"), event.get("id")))
+            else {
+                return;
+            };
+            let mut merged = step.as_object().cloned().unwrap_or_default();
+            for (key, value) in event.as_object().into_iter().flatten() {
+                merged.insert(key.clone(), value.clone());
+            }
+            let facts = crate::tool_activity::summarize_step(&merged);
+            let duration = match jsjson::nullish(event.get("durationMs"), None) {
+                Some(duration) => Some(duration.clone()),
+                None => match jsjson::defined(step.get("startedAt")) {
+                    None | Some(Value::Null) => None,
+                    Some(started) => {
+                        let started = match started {
+                            Value::Number(number) => jsjson::as_f64(number),
+                            Value::Bool(flag) => f64::from(u8::from(*flag)),
+                            Value::String(text) => text.trim().parse().unwrap_or(f64::NAN),
+                            _ => f64::NAN,
+                        };
+                        let elapsed = now as f64 - started;
+                        Some(jsjson::number(if elapsed.is_nan() {
+                            f64::NAN
+                        } else {
+                            elapsed.max(0.0)
+                        }))
+                    }
+                },
+            };
+            let object = event.as_object_mut().expect("an event is an object");
+            for (key, value) in facts {
+                object.insert(key, value);
+            }
+            object.insert("endedAt".into(), json!(now));
+            if let Some(duration) = duration {
+                object.insert("durationMs".into(), duration);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// An answer ticket as the command boundary returns it: the boolean once settled, `{ "pendingAnswer": id }` before.
+fn ticket_value(ticket: AnswerTicket) -> Value {
+    match ticket {
+        AnswerTicket::Settled(accepted) => Value::Bool(accepted),
+        AnswerTicket::Pending(answer) => json!({ "pendingAnswer": answer.0 }),
+    }
+}
+
+/// Why a value can't be handed to an agent: an identity holding an unpaired UTF-16 surrogate.
+const IDENTITY_REFUSED: &str =
+    "An id, path or model holding an unpaired UTF-16 surrogate can't be handed to an agent.";
+
+fn send_prompt(request: &Value) -> Value {
+    [request.get("prompt"), request.get("body")]
+        .into_iter()
+        .flatten()
+        .find(|value| jsjson::truthy(Some(value)))
+        .cloned()
+        .unwrap_or_else(|| json!("Describe the attached images."))
+}
+
+/// Strip all attachment metadata from the provider JSON. The only image authority is the typed validated list.
+fn outbound_image_request(
+    request: &Value,
+) -> std::result::Result<(RawJson, Vec<ImageInput>), String> {
+    let empty = json!([]);
+    let images = ImageInput::decode_all(request.get("images").unwrap_or(&empty))
+        .map_err(|e| e.to_string())?;
+    let mut fields = request
+        .as_object()
+        .cloned()
+        .ok_or_else(|| "A turn's request must be an object.".to_string())?;
+    if fields.contains_key("images") {
+        fields.insert("images".into(), empty);
+    }
+    Ok((outbound_request(&Value::Object(fields))?, images))
+}
+
+/// An identity (a Chat key, a request or question id) as the provider gets it: plain, refused rather than replaced
+/// (a replacement could make two different identities equal).
+fn outbound_identity(text: &str) -> Result<String> {
+    jsjson::decode_text_strict(text).map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()))
+}
+
+/// How each field of a turn's request reaches a provider (the request ChatHost builds for SessionManager.startTurn).
+/// A field with no rule is refused: adding one means deciding which it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outbound {
+    /// Free text the user wrote: an unpaired surrogate becomes U+FFFD on the way out (the saved text keeps it).
+    FreeText,
+    /// An identity or a setting (ids, paths, model, enum-like names, flags): decoded exactly, or refused.
+    Exact,
+    /// Raw JSON carries no images. Explicit image-capable adapters receive a separate validated byte list.
+    NoImages,
+}
+
+const OUTBOUND_REQUEST: [(&str, Outbound); 13] = [
+    ("prompt", Outbound::FreeText),
+    ("provider", Outbound::Exact),
+    ("model", Outbound::Exact),
+    ("permissionMode", Outbound::Exact),
+    ("effort", Outbound::Exact),
+    ("ultracode", Outbound::Exact),
+    ("fastMode", Outbound::Exact),
+    // A reply style's name ("concise", claude-provider.cjs applyReplyStyle), not text.
+    ("replies", Outbound::Exact),
+    ("tldrEnabled", Outbound::Exact),
+    ("chatId", Outbound::Exact),
+    ("cwd", Outbound::Exact),
+    ("resumeId", Outbound::Exact),
+    ("images", Outbound::NoImages),
+];
+
+/// A turn's request as the provider gets it, field by field (`OUTBOUND_REQUEST`): the prompt lossy, every identity
+/// exact or refused, raw images empty (typed separately), an unknown field refused.
+fn outbound_request(request: &Value) -> std::result::Result<RawJson, String> {
+    let Value::Object(map) = request else {
+        return Err("A turn's request must be an object.".into());
+    };
+    let mut out = serde_json::Map::new();
+    for (key, value) in map {
+        let Some((_, rule)) = OUTBOUND_REQUEST.iter().find(|(name, _)| name == key) else {
+            return Err(format!(
+                "The turn request field \"{key}\" has no outbound rule."
+            ));
+        };
+        let raw = match (rule, value) {
+            (Outbound::FreeText, Value::String(text)) => {
+                Value::String(jsjson::decode_text_lossy(text))
+            }
+            (Outbound::NoImages, Value::Array(images)) if images.is_empty() => json!([]),
+            (Outbound::NoImages, _) => {
+                return Err("Sending images isn't supported by the Rust owner yet.".into())
+            }
+            (_, other) => {
+                RawJson::decode(other)
+                    .map_err(|_| IDENTITY_REFUSED.to_string())?
+                    .0
+            }
+        };
+        out.insert(key.clone(), raw);
+    }
+    Ok(RawJson(Value::Object(out)))
+}
+
+/// Answers as the provider gets them: question ids (keys) strict, answer strings (free text) lossy.
+fn outbound_answers(answers: &Value) -> Result<RawJson> {
+    let Value::Object(map) = answers else {
+        return RawJson::decode(answers).map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()));
+    };
+    let mut out = serde_json::Map::new();
+    for (question, values) in map {
+        let values = match values {
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|item| match item {
+                        Value::String(text) => Ok(Value::String(jsjson::decode_text_lossy(text))),
+                        other => RawJson::decode(other).map(|raw| raw.0),
+                    })
+                    .collect::<std::result::Result<_, _>>()
+                    .map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()))?,
+            ),
+            other => {
+                RawJson::decode(other)
+                    .map_err(|_| StoreError::Invalid(IDENTITY_REFUSED.into()))?
+                    .0
+            }
+        };
+        out.insert(outbound_identity(question)?, values);
+    }
+    Ok(RawJson(Value::Object(out)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_outbound_request_field_has_a_rule() {
+        let request = json!({ "provider": "kiro", "model": "m", "prompt": "cut \u{10FFFE}\u{F0000}", "chatId": "/p#1", "cwd": "/wt", "images": [] });
+        let raw = outbound_request(&request).unwrap().0;
+        assert_eq!(raw["prompt"], json!("cut \u{FFFD}"));
+        let unknown = json!({ "prompt": "x", "attachments": ["a"] });
+        assert!(outbound_request(&unknown)
+            .unwrap_err()
+            .contains("\"attachments\" has no outbound rule"));
+        let images = json!({ "prompt": "x", "images": [{ "path": "/a.png" }] });
+        assert!(outbound_request(&images).unwrap_err().contains("images"));
+        let identity = json!({ "prompt": "x", "replies": "concise\u{10FFFE}\u{F0001}" });
+        assert_eq!(outbound_request(&identity).unwrap_err(), IDENTITY_REFUSED);
+    }
+}

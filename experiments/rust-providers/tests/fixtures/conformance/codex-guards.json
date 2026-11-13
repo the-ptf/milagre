@@ -1,0 +1,1761 @@
+{
+  "generatedFrom": "babysit-guard.cjs, escalation-guard.cjs, advisor-policy.cjs",
+  "babysit": [
+    {
+      "command": "git status",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git status",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": [],
+      "denial": null
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git push origin HEAD",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr merge 1",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr close 1",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr reopen 1",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["reply"],
+      "denial": "Babysit level Report only doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["reply"],
+      "denial": "Babysit level Report only doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["reply"],
+      "denial": "Babysit level Fix, don't push doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["reply"],
+      "denial": "Babysit level Fix, don't push doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["reply"],
+      "denial": "Babysit level Fix and push doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["reply"],
+      "denial": "Babysit level Fix and push doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["reply"],
+      "denial": null
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["reply"],
+      "denial": null
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["reply"],
+      "denial": null
+    },
+    {
+      "command": "gh pr comment 1 --body hello",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["reply"],
+      "denial": null
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Report only doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Report only doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Fix, don't push doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Fix, don't push doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Fix and push doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Fix and push doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Fix, push and reply doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["rerequest"],
+      "denial": "Babysit level Fix, push and reply doesn't allow re-requesting review. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["rerequest"],
+      "denial": null
+    },
+    {
+      "command": "gh pr edit 1 --add-reviewer reviewer",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["rerequest"],
+      "denial": null
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["resolve"],
+      "denial": "Babysit level Report only doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["resolve"],
+      "denial": "Babysit level Report only doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["resolve"],
+      "denial": "Babysit level Fix, don't push doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["resolve"],
+      "denial": "Babysit level Fix, don't push doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["resolve"],
+      "denial": "Babysit level Fix and push doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["resolve"],
+      "denial": "Babysit level Fix and push doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["resolve"],
+      "denial": "Babysit level Fix, push and reply doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["resolve"],
+      "denial": null
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["resolve"],
+      "denial": "Babysit level Fix, push, reply and re-request review doesn't allow resolving review threads. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "gh api graphql -f query=\"mutation { resolveReviewThread(input:{threadId:\"id\"}) { thread { id } } }\"",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["resolve"],
+      "denial": null
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api graphql -F query=@body.graphql",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["graphql-file"],
+      "denial": "Babysitting can't check a GraphQL request read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 --input body.json",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["body-file"],
+      "denial": "Babysitting can't check a request body read from a file, so it's blocked."
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["push", "reply"],
+      "denial": "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["push", "reply"],
+      "denial": "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["push", "reply"],
+      "denial": "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["push", "reply"],
+      "denial": "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["push", "reply"],
+      "denial": "Babysit level Fix and push doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["push", "reply"],
+      "denial": "Babysit level Fix and push doesn't allow replying on GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["push", "reply"],
+      "denial": null
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["push", "reply"],
+      "denial": null
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["push", "reply"],
+      "denial": null
+    },
+    {
+      "command": "env X=1 bash -lc 'git push origin HEAD; gh pr comment 1 --body hi'",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["push", "reply"],
+      "denial": null
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "echo $(gh pr merge 1)",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs."
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "git -c alias.ship=push ship",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["push"],
+      "denial": null
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "eval \"$(cat <<'END'\ngh pr merge 1\nEND\n)\"",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1 -X PATCH -f state=closed",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["close"],
+      "denial": "Babysitting never closes or reopens the PR."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 1,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 1,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 2,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 2,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 3,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 3,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 4,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 4,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 5,
+      "resolveThreads": false,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    },
+    {
+      "command": "gh api repos/o/r/pulls/1/merge -X PUT",
+      "level": 5,
+      "resolveThreads": true,
+      "actions": ["merge"],
+      "denial": "Babysitting never merges."
+    }
+  ],
+  "advisors": [
+    {
+      "inherited": {},
+      "url": null,
+      "expected": {
+        "features": {
+          "shell_tool": false,
+          "unified_exec": false,
+          "multi_agent": false,
+          "multi_agent_v2": false,
+          "code_mode": false,
+          "code_mode_host": false,
+          "code_mode_only": false,
+          "apps": false,
+          "plugins": false,
+          "hooks": false,
+          "browser_use": false,
+          "browser_use_external": false,
+          "computer_use": false,
+          "image_generation": false,
+          "in_app_local_automation": false,
+          "view_image": false,
+          "skill_mcp_dependency_install": false,
+          "default_mode_request_user_input": false,
+          "send_message_to_user_async": false,
+          "skip_host_skill_discovery": true
+        },
+        "mcp_servers": {},
+        "web_search": "disabled",
+        "agents": {
+          "enabled": false
+        },
+        "tools": {
+          "view_image": false,
+          "web_search": false
+        }
+      },
+      "policy": {
+        "approvalPolicy": "never",
+        "sandbox": "read-only",
+        "sandboxPolicy": {
+          "type": "readOnly",
+          "networkAccess": false
+        }
+      }
+    },
+    {
+      "inherited": {},
+      "url": "http://127.0.0.1:1234/mcp",
+      "expected": {
+        "features": {
+          "shell_tool": false,
+          "unified_exec": false,
+          "multi_agent": false,
+          "multi_agent_v2": false,
+          "code_mode": false,
+          "code_mode_host": false,
+          "code_mode_only": false,
+          "apps": false,
+          "plugins": false,
+          "hooks": false,
+          "browser_use": false,
+          "browser_use_external": false,
+          "computer_use": false,
+          "image_generation": false,
+          "in_app_local_automation": false,
+          "view_image": false,
+          "skill_mcp_dependency_install": false,
+          "default_mode_request_user_input": false,
+          "send_message_to_user_async": false,
+          "skip_host_skill_discovery": true
+        },
+        "mcp_servers": {
+          "milagre": {
+            "url": "http://127.0.0.1:1234/mcp",
+            "enabled": true,
+            "tool_timeout_sec": 60
+          }
+        },
+        "web_search": "disabled",
+        "agents": {
+          "enabled": false
+        },
+        "tools": {
+          "view_image": false,
+          "web_search": false
+        }
+      },
+      "policy": {
+        "approvalPolicy": "never",
+        "sandbox": "read-only",
+        "sandboxPolicy": {
+          "type": "readOnly",
+          "networkAccess": false
+        }
+      }
+    },
+    {
+      "inherited": {
+        "mcp_servers": {
+          "github": {
+            "url": "https://example.test"
+          },
+          "milagre": {
+            "enabled": true
+          }
+        }
+      },
+      "url": null,
+      "expected": {
+        "features": {
+          "shell_tool": false,
+          "unified_exec": false,
+          "multi_agent": false,
+          "multi_agent_v2": false,
+          "code_mode": false,
+          "code_mode_host": false,
+          "code_mode_only": false,
+          "apps": false,
+          "plugins": false,
+          "hooks": false,
+          "browser_use": false,
+          "browser_use_external": false,
+          "computer_use": false,
+          "image_generation": false,
+          "in_app_local_automation": false,
+          "view_image": false,
+          "skill_mcp_dependency_install": false,
+          "default_mode_request_user_input": false,
+          "send_message_to_user_async": false,
+          "skip_host_skill_discovery": true
+        },
+        "mcp_servers": {
+          "github": {
+            "enabled": false
+          },
+          "milagre": {
+            "enabled": false
+          }
+        },
+        "web_search": "disabled",
+        "agents": {
+          "enabled": false
+        },
+        "tools": {
+          "view_image": false,
+          "web_search": false
+        }
+      },
+      "policy": {
+        "approvalPolicy": "never",
+        "sandbox": "read-only",
+        "sandboxPolicy": {
+          "type": "readOnly",
+          "networkAccess": false
+        }
+      }
+    },
+    {
+      "inherited": {
+        "mcp_servers": {
+          "github": {
+            "url": "https://example.test"
+          },
+          "milagre": {
+            "enabled": true
+          }
+        }
+      },
+      "url": "http://127.0.0.1:1234/mcp",
+      "expected": {
+        "features": {
+          "shell_tool": false,
+          "unified_exec": false,
+          "multi_agent": false,
+          "multi_agent_v2": false,
+          "code_mode": false,
+          "code_mode_host": false,
+          "code_mode_only": false,
+          "apps": false,
+          "plugins": false,
+          "hooks": false,
+          "browser_use": false,
+          "browser_use_external": false,
+          "computer_use": false,
+          "image_generation": false,
+          "in_app_local_automation": false,
+          "view_image": false,
+          "skill_mcp_dependency_install": false,
+          "default_mode_request_user_input": false,
+          "send_message_to_user_async": false,
+          "skip_host_skill_discovery": true
+        },
+        "mcp_servers": {
+          "github": {
+            "enabled": false
+          },
+          "milagre": {
+            "url": "http://127.0.0.1:1234/mcp",
+            "enabled": true,
+            "tool_timeout_sec": 60
+          }
+        },
+        "web_search": "disabled",
+        "agents": {
+          "enabled": false
+        },
+        "tools": {
+          "view_image": false,
+          "web_search": false
+        }
+      },
+      "policy": {
+        "approvalPolicy": "never",
+        "sandbox": "read-only",
+        "sandboxPolicy": {
+          "type": "readOnly",
+          "networkAccess": false
+        }
+      }
+    }
+  ],
+  "escalation": [
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 0,
+      "call": {
+        "name": "read_linked_file",
+        "input": {},
+        "readOnly": true
+      },
+      "denial": null,
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 0,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      },
+      "denial": null,
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 0,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "other",
+          "requestId": "request"
+        }
+      },
+      "denial": "This turn only tells the human about a waiting Subchat: you can read, and use chat_respond on the requests you were woken for. Everything else waits for the human's next message.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 0,
+      "call": {
+        "name": "tasks_set",
+        "input": {}
+      },
+      "denial": "This turn only tells the human about a waiting Subchat: you can read, and use chat_respond on the requests you were woken for. Everything else waits for the human's next message.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 0,
+      "call": {
+        "name": "unknown",
+        "input": {}
+      },
+      "denial": "This turn only tells the human about a waiting Subchat: you can read, and use chat_respond on the requests you were woken for. Everything else waits for the human's next message.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 6,
+      "call": {
+        "name": "read_linked_file",
+        "input": {},
+        "readOnly": true
+      },
+      "denial": null,
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 6,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      },
+      "denial": null,
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 6,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "other",
+          "requestId": "request"
+        }
+      },
+      "denial": "This turn only tells the human about a waiting Subchat: you can read, and use chat_respond on the requests you were woken for. Everything else waits for the human's next message.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 6,
+      "call": {
+        "name": "tasks_set",
+        "input": {}
+      },
+      "denial": "This turn only tells the human about a waiting Subchat: you can read, and use chat_respond on the requests you were woken for. Everything else waits for the human's next message.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 6,
+      "call": {
+        "name": "unknown",
+        "input": {}
+      },
+      "denial": "This turn only tells the human about a waiting Subchat: you can read, and use chat_respond on the requests you were woken for. Everything else waits for the human's next message.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 7,
+      "call": {
+        "name": "read_linked_file",
+        "input": {},
+        "readOnly": true
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 7,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 7,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "other",
+          "requestId": "request"
+        }
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 7,
+      "call": {
+        "name": "tasks_set",
+        "input": {}
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 7,
+      "call": {
+        "name": "unknown",
+        "input": {}
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 8,
+      "call": {
+        "name": "read_linked_file",
+        "input": {},
+        "readOnly": true
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 8,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 8,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "other",
+          "requestId": "request"
+        }
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 8,
+      "call": {
+        "name": "tasks_set",
+        "input": {}
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 8,
+      "call": {
+        "name": "unknown",
+        "input": {}
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": false
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 9,
+      "call": {
+        "name": "read_linked_file",
+        "input": {},
+        "readOnly": true
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": true
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 9,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": true
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 9,
+      "call": {
+        "name": "chat_respond",
+        "input": {
+          "chatId": "other",
+          "requestId": "request"
+        }
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": true
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 9,
+      "call": {
+        "name": "tasks_set",
+        "input": {}
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": true
+    },
+    {
+      "requests": [
+        {
+          "chatId": "child",
+          "requestId": "request"
+        }
+      ],
+      "calls": 9,
+      "call": {
+        "name": "unknown",
+        "input": {}
+      },
+      "denial": "You have used this turn's tool calls: reply to the human now, with what you know and your recommendation.",
+      "stopped": true
+    }
+  ],
+  "toolCalls": 6,
+  "toolGrace": 2
+}

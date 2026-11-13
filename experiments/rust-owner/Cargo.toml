@@ -1,0 +1,39 @@
+[package]
+name = "milagre-owner-store"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Read-only Rust repositories for Milagre's Project JSON and chats.db formats (owner migration foundation)."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "milagre-owner-store"
+path = "src/main.rs"
+
+[dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+sha1 = "0.10"
+rustix = { version = "1", features = ["fs", "process"] }
+hex = "0.4"
+base64 = "0.22"
+regex = "1"
+libc = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[features]
+# Hooks for tests only (ProjectStates::fail_next_commit). Never enabled by a build of the owner; the crate's own tests
+# turn it on through the dev-dependency below.
+test-fixtures = []
+# Trusted synthetic schedule admission only. Never part of a normal owner build.
+routine-execution-fixture = []
+
+[dev-dependencies]
+tempfile = "3"
+libc = "0.2"
+milagre-owner-store = { path = ".", features = ["test-fixtures"] }
+
+[workspace]

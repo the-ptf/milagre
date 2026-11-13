@@ -1,0 +1,70 @@
+{
+  "sourceSha256": "f9da2944a3e2ac2b562f49dc2e49dcfd9d6bc04adc9d67c34fe76a8717a7ef42",
+  "tweetnaclVersion": "1.0.3",
+  "serialized": {
+    "devices": [
+      {
+        "key": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+        "kind": "phone",
+        "name": "Synthetic \ud800 ",
+        "pairedAt": 1,
+        "lastSeen": 1,
+        "isNew": true,
+        "announced": false
+      },
+      {
+        "key": "zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk",
+        "kind": "computer",
+        "name": "Synthetic computer",
+        "pairedAt": 1,
+        "lastSeen": 1,
+        "isNew": false,
+        "announced": true
+      }
+    ],
+    "removed": []
+  },
+  "afterRemove": {
+    "devices": [
+      {
+        "key": "zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk",
+        "kind": "computer",
+        "name": "Synthetic computer",
+        "pairedAt": 1,
+        "lastSeen": 1,
+        "isNew": false,
+        "announced": true
+      }
+    ],
+    "removed": [
+      {
+        "key": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+        "removedAt": 2
+      }
+    ]
+  },
+  "afterRepair": {
+    "devices": [
+      {
+        "key": "zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk",
+        "kind": "computer",
+        "name": "Synthetic computer",
+        "pairedAt": 1,
+        "lastSeen": 1,
+        "isNew": false,
+        "announced": true
+      },
+      {
+        "key": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+        "kind": "phone",
+        "name": null,
+        "pairedAt": 3,
+        "lastSeen": 3,
+        "isNew": true,
+        "announced": false
+      }
+    ],
+    "removed": []
+  },
+  "malformedLoadsEmpty": true
+}

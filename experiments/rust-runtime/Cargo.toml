@@ -1,0 +1,61 @@
+[package]
+name = "milagre-rust-runtime"
+version = "0.1.0"
+edition = "2021"
+publish = false
+default-run = "milagre-rust-runtime"
+description = "Isolated read integration of Milagre's Rust wire server and saved Project reader"
+
+[features]
+default = []
+acp-fixture = ["dep:milagre-acp"]
+app-fixture = ["dep:milagre-registry", "dep:milagre-accounts"]
+chat-runtime = ["dep:milagre-accounts", "dep:milagre-routines"]
+chat-runtime-fixture = ["chat-runtime"]
+routine-execution-fixture = ["chat-runtime-fixture", "milagre-owner-store/routine-execution-fixture"]
+
+[dependencies]
+milagre-registry = { path = "../rust-registry", optional = true }
+milagre-accounts = { path = "../rust-accounts", optional = true }
+milagre-routines = { path = "../rust-routines", features = ["durable-store"], optional = true }
+milagre-acp = { path = "../rust-acp", features = ["fake-session"], optional = true }
+libc = "0.2"
+milagre-owner-store = { path = "../rust-owner" }
+milagre-owner-wire = { path = "../rust-owner-wire" }
+milagre-content-store = { path = "../rust-content-store" }
+milagre-ports = { path = "../rust-ports" }
+milagre-terminals = { path = "../rust-terminals" }
+milagre-git-read = { path = "../rust-git" }
+milagre-tools = { path = "../rust-tools" }
+milagre-claude = { path = "../rust-claude" }
+milagre-providers = { path = "../rust-providers" }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+milagre-owner-store = { path = "../rust-owner", features = ["test-fixtures"] }
+
+[workspace]
+
+[[bin]]
+name = "runtime-fake-claude"
+path = "../rust-claude/src/bin/fake_claude.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "acp-runtime"
+path = "src/bin/acp-runtime.rs"
+required-features = ["acp-fixture"]
+
+[[bin]]
+name = "app-fixture"
+path = "src/bin/app-fixture.rs"
+required-features = ["app-fixture"]
+
+[[bin]]
+name = "chat-runtime"
+path = "src/bin/chat-runtime.rs"
+required-features = ["chat-runtime"]

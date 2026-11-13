@@ -1,0 +1,5 @@
+{
+ "readProjectState": "{\"error\":\"This Project's messages are kept in <project>/.milagre/chats.db, which is missing.\"}",
+ "readProjectStateUncompacted": "{\"error\":\"This Project's messages are kept in <project>/.milagre/chats.db, which is missing.\"}",
+ "projectStatesLoad": "{\"error\":\"This Project's messages are kept in <project>/.milagre/chats.db, which is missing.\"}"
+}

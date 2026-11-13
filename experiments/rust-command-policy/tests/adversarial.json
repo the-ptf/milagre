@@ -1,0 +1,622 @@
+[
+  {
+    "command": "echo 'git push'",
+    "actions": []
+  },
+  {
+    "command": "echo git push",
+    "actions": []
+  },
+  {
+    "command": "git 'pu'\"sh\" origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'g\\x69t' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "command -- git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "env -i nohup git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash -c 'gh pr merge 1'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "echo $(gh pr merge 1)",
+    "actions": ["merge"]
+  },
+  {
+    "command": "printf '%s' \"$(git push)\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo `git push`",
+    "actions": ["push"]
+  },
+  {
+    "command": "eval 'git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { x: mergePullRequest(input: {}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { closePullRequest(input: {}) { clientMutationId } resolveReviewThread(input: {}) { clientMutationId } }'",
+    "actions": ["close", "resolve"]
+  },
+  {
+    "command": "gh api graphql -f 'query=query { repository(name: \"mergePullRequest\") { id } }'",
+    "actions": []
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { addComment(input: {body: \"mergePullRequest\"}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { futureMutation(input: {}) { id } }'",
+    "error": true
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { ...X } fragment X on Mutation { mergePullRequest(input: {}) { clientMutationId } }'",
+    "error": true
+  },
+  {
+    "command": "gh api -X POST repos/o/r/unknown",
+    "error": true
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 -f state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "gh api graphql --input -",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api -\u00e9 whatever",
+    "error": true
+  },
+  {
+    "command": "git -c alias.ship='!gh pr merge 1' ship",
+    "error": true
+  },
+  {
+    "command": "git ship",
+    "error": true
+  },
+  {
+    "command": "git rebase -x 'gh pr merge 1' main",
+    "error": true
+  },
+  {
+    "command": "git fetch 'ext::gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git -c core.sshCommand='gh pr merge 1' fetch",
+    "error": true
+  },
+  {
+    "command": "rg --pre 'gh pr merge 1' hi",
+    "error": true
+  },
+  {
+    "command": "printf -v BASH_ENV hook; bash -c 'git status'",
+    "error": true
+  },
+  {
+    "command": "env BASH_ENV=hook bash -c 'git status'",
+    "error": true
+  },
+  {
+    "command": "bash -lc 'git status'",
+    "error": true
+  },
+  {
+    "command": "python -c 'import os; os.system(\"git push\")'",
+    "error": true
+  },
+  {
+    "command": "npm test",
+    "error": true
+  },
+  {
+    "command": "curl -X POST https://api.github.com/repos/o/r/pulls/1/merge",
+    "error": true
+  },
+  {
+    "command": "xargs git push",
+    "error": true
+  },
+  {
+    "command": "echo 'gh pr merge 1' | bash",
+    "error": true
+  },
+  {
+    "command": "bash <<EOF\ngh pr merge 1\nEOF",
+    "error": true
+  },
+  {
+    "command": "sh <<< 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "$(echo gh) pr merge 1",
+    "error": true
+  },
+  {
+    "command": "git ${subcommand}",
+    "error": true
+  },
+  {
+    "command": "g${x}it push",
+    "error": true
+  },
+  {
+    "command": "git p*sh",
+    "error": true
+  },
+  {
+    "command": "git {push,status}",
+    "error": true
+  },
+  {
+    "command": "source hook",
+    "error": true
+  },
+  {
+    "command": "alias x='git push'; x",
+    "error": true
+  },
+  {
+    "command": "function git() { gh pr merge 1; }; git status",
+    "error": true
+  },
+  {
+    "command": "for x in git; do $x push; done",
+    "error": true
+  },
+  {
+    "command": "echo <(git push)",
+    "error": true
+  },
+  {
+    "command": "echo $((x[$(git push)]))",
+    "error": true
+  },
+  {
+    "command": "git push 'unterminated",
+    "error": true
+  },
+  {
+    "command": "/tmp/git status",
+    "error": true
+  },
+  {
+    "command": "echo $'\\0git'",
+    "error": true
+  },
+  {
+    "command": "gh api -X POST repos/o/r/%70ulls/1/merge",
+    "error": true
+  },
+  {
+    "command": "printf '%n' BASH_ENV; bash -c 'git status'",
+    "error": true
+  },
+  {
+    "command": "printf '%5n' BASH_ENV",
+    "error": true
+  },
+  {
+    "command": "printf \"$(echo %n)\" BASH_ENV",
+    "error": true
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: CLOSED}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: OPEN}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation ($input: UpdatePullRequestInput!) { updatePullRequest(input: $input) { clientMutationId } }' -F input=@body.json",
+    "error": true
+  },
+  {
+    "command": "gh api -X PATCH 'repos/o/r/pulls/1?state=closed'",
+    "error": true
+  },
+  {
+    "command": "git rebase --exe 'gh pr merge 1' HEAD~1",
+    "error": true
+  },
+  {
+    "command": "git fetch --upload-p 'gh pr merge 1' /isolated/remote.git",
+    "error": true
+  },
+  {
+    "command": "git -C /other status",
+    "error": true
+  },
+  {
+    "command": "git --git-dir /other/.git status",
+    "error": true
+  },
+  {
+    "command": "git --work-tree /other status",
+    "error": true
+  },
+  {
+    "command": "git --git-dir=/other/.git status",
+    "error": true
+  },
+  {
+    "command": "git -c user.name=x status",
+    "error": true
+  },
+  {
+    "command": "git -c alias.ship=push -c alias.ship='!gh pr merge 1' ship",
+    "error": true
+  },
+  {
+    "command": "cd /other && git status",
+    "error": true
+  },
+  {
+    "command": "git log --future-option value",
+    "error": true
+  },
+  {
+    "command": "git rebase --e 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git rebase --ex 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git rebase --exe 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git rebase --exec 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --u 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --up 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --upl 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --uplo 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --uploa 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --upload 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --upload- 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --upload-p 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --upload-pa 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --upload-pac 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git fetch --upload-pack 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --r 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --re 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --rec 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --rece 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --recei 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --receiv 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --receive 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --receive- 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --receive-p 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --receive-pa 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --receive-pac 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git push --receive-pack 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --e 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --ex 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --ext 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --ext- 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --ext-d 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --ext-di 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --ext-dif 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git diff --ext-diff 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --t 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --te 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --tex 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --text 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --textc 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --textco 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --textcon 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git show --textconv 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --o 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --ou 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --out 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --outp 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --outpu 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --output 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --o 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --op 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --ope 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open- 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-f 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-fi 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-fil 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-file 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files- 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-i 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-in 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-in- 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-in-p 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-in-pa 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-in-pag 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-in-page 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --open-files-in-pager 'gh pr merge 1'",
+    "error": true
+  },
+  {
+    "command": "git log --pretty --output=F",
+    "error": true
+  },
+  {
+    "command": "git show --pretty --output=F",
+    "error": true
+  },
+  {
+    "command": "git show --format --output=F",
+    "error": true
+  },
+  {
+    "command": "git rev-list --format --output=F",
+    "error": true
+  },
+  {
+    "command": "git diff -U --output=F",
+    "error": true
+  },
+  {
+    "command": "git diff --unified --output=F",
+    "error": true
+  },
+  {
+    "command": "git log -1 --pretty --output=.git/config '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
+    "error": true
+  },
+  {
+    "command": "git log --pretty value",
+    "error": true
+  },
+  {
+    "command": "git diff --unified 3",
+    "error": true
+  },
+  {
+    "command": "git diff -U 3",
+    "error": true
+  },
+  {
+    "command": "git log --format --output=.git/config",
+    "error": true
+  },
+  {
+    "command": "git log --date --output=F",
+    "error": true
+  },
+  {
+    "command": "git log --pretty=oneline",
+    "actions": []
+  },
+  {
+    "command": "git show '--format=%s'",
+    "actions": []
+  },
+  {
+    "command": "git rev-list --format=oneline HEAD",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified=3",
+    "actions": []
+  },
+  {
+    "command": "git diff -U3",
+    "actions": []
+  }
+]

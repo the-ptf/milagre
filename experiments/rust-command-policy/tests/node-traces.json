@@ -1,0 +1,1622 @@
+[
+  {
+    "command": "git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --force-with-lease origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "git commit -m 'fix' && git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git -C /repo push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git -c user.name=x push origin",
+    "actions": ["push"]
+  },
+  {
+    "command": "git --no-pager push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git --git-dir /repo/.git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "/usr/bin/git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "FOO=1 git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "env GIT_TRACE=1 git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "sudo -u me git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "nohup git push &",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo origin | xargs git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git -c alias.ship=push ship",
+    "actions": ["push"]
+  },
+  {
+    "command": "git send-pack origin main",
+    "actions": ["push"]
+  },
+  {
+    "command": "git subtree push --prefix=docs origin gh-pages",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh pr update-branch 4",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh pr update-branch 4 --rebase",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh repo sync owner/fork --branch main",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api --method PUT repos/o/r/pulls/1/update-branch",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api --method PUT repos/o/r/pulls/1/update-branch/",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git status && git log --oneline -3 && git fetch origin",
+    "actions": []
+  },
+  {
+    "command": "gh api repos/o/r/git/refs/heads/main",
+    "actions": []
+  },
+  {
+    "command": "git commit -m \"don't git push yet; gh pr merge later\"",
+    "actions": []
+  },
+  {
+    "command": "echo 'git push' > notes.txt",
+    "actions": []
+  },
+  {
+    "command": "grep -rn \"gh pr comment\" docs",
+    "actions": []
+  },
+  {
+    "command": "gh pr comment 42 --body \"Fixed in abc123\"",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr review 42 --comment -b 'done'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh issue comment 42 --body hi",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/pulls/42/comments/7/replies -f body=done",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api --method=POST repos/o/r/issues/42/comments -f body=done",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/issues/42/comments -f body=done",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -XPATCH repos/o/r/issues/comments/9 -f body=edited",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/pulls/42/reviews --input review.json",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input: {}) { comment { id } } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -F query='mutation($id: ID!) { addPullRequestReviewComment(input: {}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql --raw-field query='mutation { addComment(input: {subjectId: \"x\", body: \"y\"}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/pulls/42/comments",
+    "actions": []
+  },
+  {
+    "command": "gh api -X GET repos/o/r/issues/42/comments",
+    "actions": []
+  },
+  {
+    "command": "gh pr view 42 --comments && gh pr checks 42",
+    "actions": []
+  },
+  {
+    "command": "gh pr comment 42 --body \"Fixed in abc123 <!-- milagre-babysit -->\"",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer alice",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer=alice",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/pulls/42/requested_reviewers -f 'reviewers[]=alice'",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/pulls/42/requested_reviewers/ -f 'reviewers[]=alice'",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { requestReviews(input: {pullRequestId: \"x\", userIds: [\"y\"]}) { clientMutationId } }'",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer alice -R o/r",
+    "actions": ["rerequest"]
+  },
+  {
+    "command": "gh api repos/o/r/pulls/42/requested_reviewers",
+    "actions": []
+  },
+  {
+    "command": "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"t\"}) { thread { isResolved } } }'",
+    "actions": ["resolve"]
+  },
+  {
+    "command": "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { pullRequest(number: 1) { reviewThreads(first: 50) { nodes { isResolved } } } } }'",
+    "actions": []
+  },
+  {
+    "command": "gh pr merge 42 --squash",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api -X PUT repos/o/r/pulls/42/merge",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api -X PUT /repos/o/r/pulls/42/merge/",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "git merge origin/main",
+    "actions": []
+  },
+  {
+    "command": "npm test && git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "npm test || git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "npm test; git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "npm test & git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git status | git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "npm test\ngit push",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash -c 'npm test && git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "sh -c \"git -C /repo push\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "zsh -lc 'git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo $(git push)",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo `git push`",
+    "actions": ["push"]
+  },
+  {
+    "command": "eval \"git push\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "(cd /repo && git push)",
+    "actions": ["push"]
+  },
+  {
+    "command": "{ git push; }",
+    "actions": ["push"]
+  },
+  {
+    "command": "if true; then git push; fi",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo '{\"query\":\"mutation { mergePullRequest(input: {}) { clientMutationId } }\"}' | gh api graphql --input -",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql --input - <<'EOF'\n{\"query\":\"mutation { resolveReviewThread(input: {}) { clientMutationId } }\"}\nEOF",
+    "actions": ["resolve"]
+  },
+  {
+    "command": "gh api graphql --input body.json",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api graphql -F query=@mutation.graphql",
+    "actions": ["graphql-file"]
+  },
+  {
+    "command": "gh api graphql -f query='query { viewer { login } }'",
+    "actions": []
+  },
+  {
+    "command": "git commit -m \"$(cat <<'EOF'\nFix the flaky test\n\nDon't git push until CI is green; gh pr merge later.\nEOF\n)\"",
+    "actions": []
+  },
+  {
+    "command": "gh pr comment 4 --body-file - <<'EOF'\nFixed in abc123. I won't gh pr merge this myself.\nEOF",
+    "actions": ["reply"]
+  },
+  {
+    "command": "cat <<-\"NOTE\" > notes.txt\n\tgit push when ready\n\tNOTE\nnpm test",
+    "actions": []
+  },
+  {
+    "command": "cat <<EOF > notes.txt\ngit push\nEOF",
+    "actions": []
+  },
+  {
+    "command": "cat <<'EOF' > notes.txt\nnothing here\nEOF\ngit push",
+    "actions": ["push"]
+  },
+  {
+    "command": "cat <<'EOF' | git push\nbody\nEOF",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh pr comment 4 --body-file - <<'EOF'\nFixed.\nEOF",
+    "actions": ["reply"]
+  },
+  {
+    "command": "bash <<'EOF'\ngit push\nEOF",
+    "actions": ["push"]
+  },
+  {
+    "command": "sh <<EOF\ngit push\nEOF",
+    "actions": ["push"]
+  },
+  {
+    "command": "cat <<EOF | sh\ngit push\nEOF",
+    "actions": ["push"]
+  },
+  {
+    "command": "zsh -s <<-EOF\n\tnpm test && git push\n\tEOF",
+    "actions": ["push"]
+  },
+  {
+    "command": "source /dev/stdin <<EOF\ngit push\nEOF",
+    "actions": ["push"]
+  },
+  {
+    "command": "eval \"$(cat <<'EOF'\ngit push\nEOF\n)\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "$(cat <<EOF\ngit push\nEOF\n)",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo 'git push' | sh",
+    "actions": ["push"]
+  },
+  {
+    "command": "cat <<EOF | bash -s\ngh pr merge 4\nEOF",
+    "actions": ["merge"]
+  },
+  {
+    "command": "git commit -m \"$(cat <<'EOF'\nDon't git push yet.\nEOF\n)\"",
+    "actions": []
+  },
+  {
+    "command": "gh pr comment 4 --body-file - <<'EOF'\nI won't gh pr merge this.\nEOF",
+    "actions": ["reply"]
+  },
+  {
+    "command": "bash <<< \"git push\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash <<<\"git push origin HEAD\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "cat <<< \"git push\" | sh",
+    "actions": ["push"]
+  },
+  {
+    "command": "sh <<< 'gh pr merge 1'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "echo \"$(bash <<< 'git push')\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "grep foo <<< \"git push\"",
+    "actions": []
+  },
+  {
+    "command": "grep foo <<< \"x\"; git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh pr close 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh pr close 42 --delete-branch -c done",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh pr reopen 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api graphql -f query='mutation { closePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -f state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "echo '{\"state\":\"closed\"}' | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/issues/42 --input - <<< '{\"state\": \"open\"}'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -F state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 --raw-field=state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 --input body.json",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "cat body.json | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "echo \"{\\\"state\\\":\\\"closed\\\"}\" | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 --input - <<< \"{\\\"state\\\":\\\"closed\\\"}\"",
+    "actions": ["close"]
+  },
+  {
+    "command": "echo '{\"st'ate'\":\"closed\"}' | gh api -X PATCH repos/o/r/issues/42 --input -",
+    "actions": ["close"]
+  },
+  {
+    "command": "echo '{\"title\":\"Better\"}' | gh api -X PATCH repos/o/r/pulls/42 --input -",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh issue close 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh issue close 42 --reason 'not planned'",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh issue reopen 42",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh issue edit 42 --add-label bug",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh issue view 42",
+    "actions": []
+  },
+  {
+    "command": "bash -c $'git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo $'git push' | sh",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'git' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'\\x67it' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'\\147it' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'\\u0067it' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash -c $'git\\tpush'",
+    "actions": ["push"]
+  },
+  {
+    "command": "sh -c $'gh pr merge 1'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "echo $'line one\\nline two'",
+    "actions": []
+  },
+  {
+    "command": "grep $'git push' notes.txt",
+    "actions": []
+  },
+  {
+    "command": "echo $'\\U7fffffff'",
+    "actions": []
+  },
+  {
+    "command": "gh api -X POST repos/o/r/issues/42/labels -f 'labels[]=bug'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X DELETE repos/o/r/issues/42/labels/bug",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PUT repos/o/r/issues/42/labels -f 'labels[]=bug'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/issues/42/assignees -f 'assignees[]=me'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X DELETE repos/o/r/issues/42/assignees -f 'assignees[]=me'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/issues/42 -F milestone=3",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -f 'assignees[]=me'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api repos/o/r/issues/42/labels",
+    "actions": []
+  },
+  {
+    "command": "gh pr edit 42 --title 'Better title'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr ready 42",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr ready 42 --undo",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --body-file notes.md",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --add-label bug",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/42 -f title=Better",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh pr edit 42 --add-reviewer alice --title x",
+    "actions": ["rerequest", "reply"]
+  },
+  {
+    "command": "gh pr view 42 --json isDraft",
+    "actions": []
+  },
+  {
+    "command": "(( x = 1 << 2 ))\ngit push",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo $((1<<2))\ngit push",
+    "actions": ["push"]
+  },
+  {
+    "command": "(( y <<= 1 )); git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "",
+    "actions": []
+  },
+  {
+    "command": "ls",
+    "actions": []
+  },
+  {
+    "command": "npm test",
+    "actions": []
+  },
+  {
+    "command": "gh pr checks 42 --watch",
+    "actions": []
+  },
+  {
+    "command": "gh run view 123 --log-failed",
+    "actions": []
+  },
+  {
+    "command": "git rebase origin/main",
+    "actions": []
+  },
+  {
+    "command": "git commit -am wip",
+    "actions": []
+  },
+  {
+    "command": "echo 'git push'",
+    "actions": []
+  },
+  {
+    "command": "echo git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "git 'pu'\"sh\" origin HEAD",
+    "actions": ["push"]
+  },
+  {
+    "command": "$'g\\x69t' push",
+    "actions": ["push"]
+  },
+  {
+    "command": "command -- git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "env -i nohup git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "bash -c 'gh pr merge 1'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "echo $(gh pr merge 1)",
+    "actions": ["merge"]
+  },
+  {
+    "command": "printf '%s' \"$(git push)\"",
+    "actions": ["push"]
+  },
+  {
+    "command": "eval 'git push'",
+    "actions": ["push"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { x: mergePullRequest(input: {}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { closePullRequest(input: {}) { clientMutationId } resolveReviewThread(input: {}) { clientMutationId } }'",
+    "actions": ["close", "resolve"]
+  },
+  {
+    "command": "gh api graphql -f 'query=query { repository(name: \"mergePullRequest\") { id } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { addComment(input: {body: \"mergePullRequest\"}) { clientMutationId } }'",
+    "actions": ["merge", "reply"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { futureMutation(input: {}) { id } }'",
+    "actions": []
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { ...X } fragment X on Mutation { mergePullRequest(input: {}) { clientMutationId } }'",
+    "actions": ["merge"]
+  },
+  {
+    "command": "gh api -X POST repos/o/r/unknown",
+    "actions": []
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 -f state=closed",
+    "actions": ["close"]
+  },
+  {
+    "command": "gh api -X PATCH repos/o/r/pulls/1 --input -",
+    "actions": ["body-file"]
+  },
+  {
+    "command": "gh api graphql --input -",
+    "actions": []
+  },
+  {
+    "command": "gh api -é whatever",
+    "actions": []
+  },
+  {
+    "command": "git -c alias.ship='!gh pr merge 1' ship",
+    "actions": []
+  },
+  {
+    "command": "git ship",
+    "actions": []
+  },
+  {
+    "command": "git rebase -x 'gh pr merge 1' main",
+    "actions": []
+  },
+  {
+    "command": "git fetch 'ext::gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git -c core.sshCommand='gh pr merge 1' fetch",
+    "actions": []
+  },
+  {
+    "command": "rg --pre 'gh pr merge 1' hi",
+    "actions": []
+  },
+  {
+    "command": "printf -v BASH_ENV hook; bash -c 'git status'",
+    "actions": []
+  },
+  {
+    "command": "env BASH_ENV=hook bash -c 'git status'",
+    "actions": []
+  },
+  {
+    "command": "bash -lc 'git status'",
+    "actions": []
+  },
+  {
+    "command": "python -c 'import os; os.system(\"git push\")'",
+    "actions": []
+  },
+  {
+    "command": "curl -X POST https://api.github.com/repos/o/r/pulls/1/merge",
+    "actions": []
+  },
+  {
+    "command": "xargs git push",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo 'gh pr merge 1' | bash",
+    "actions": ["merge"]
+  },
+  {
+    "command": "bash <<EOF\ngh pr merge 1\nEOF",
+    "actions": ["merge"]
+  },
+  {
+    "command": "$(echo gh) pr merge 1",
+    "actions": []
+  },
+  {
+    "command": "git ${subcommand}",
+    "actions": []
+  },
+  {
+    "command": "g${x}it push",
+    "actions": []
+  },
+  {
+    "command": "git p*sh",
+    "actions": []
+  },
+  {
+    "command": "git {push,status}",
+    "actions": []
+  },
+  {
+    "command": "source hook",
+    "actions": []
+  },
+  {
+    "command": "alias x='git push'; x",
+    "actions": []
+  },
+  {
+    "command": "function git() { gh pr merge 1; }; git status",
+    "actions": ["merge"]
+  },
+  {
+    "command": "for x in git; do $x push; done",
+    "actions": []
+  },
+  {
+    "command": "echo <(git push)",
+    "actions": ["push"]
+  },
+  {
+    "command": "echo $((x[$(git push)]))",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push 'unterminated",
+    "actions": ["push"]
+  },
+  {
+    "command": "/tmp/git status",
+    "actions": []
+  },
+  {
+    "command": "echo $'\\0git'",
+    "actions": []
+  },
+  {
+    "command": "gh api -X POST repos/o/r/%70ulls/1/merge",
+    "actions": []
+  },
+  {
+    "command": "printf '%n' BASH_ENV; bash -c 'git status'",
+    "actions": []
+  },
+  {
+    "command": "printf '%5n' BASH_ENV",
+    "actions": []
+  },
+  {
+    "command": "printf \"$(echo %n)\" BASH_ENV",
+    "actions": []
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: CLOSED}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation { updatePullRequest(input: {pullRequestId: \"x\", state: OPEN}) { clientMutationId } }'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api graphql -f 'query=mutation ($input: UpdatePullRequestInput!) { updatePullRequest(input: $input) { clientMutationId } }' -F input=@body.json",
+    "actions": ["reply"]
+  },
+  {
+    "command": "gh api -X PATCH 'repos/o/r/pulls/1?state=closed'",
+    "actions": ["reply"]
+  },
+  {
+    "command": "git rebase --exe 'gh pr merge 1' HEAD~1",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-p 'gh pr merge 1' /isolated/remote.git",
+    "actions": []
+  },
+  {
+    "command": "git -C /other status",
+    "actions": []
+  },
+  {
+    "command": "git --git-dir /other/.git status",
+    "actions": []
+  },
+  {
+    "command": "git --work-tree /other status",
+    "actions": []
+  },
+  {
+    "command": "git --git-dir=/other/.git status",
+    "actions": []
+  },
+  {
+    "command": "git -c user.name=x status",
+    "actions": []
+  },
+  {
+    "command": "git -c alias.ship=push -c alias.ship='!gh pr merge 1' ship",
+    "actions": ["push"]
+  },
+  {
+    "command": "cd /other && git status",
+    "actions": []
+  },
+  {
+    "command": "git log --future-option value",
+    "actions": []
+  },
+  {
+    "command": "git rebase --e 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git rebase --ex 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git rebase --exe 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git rebase --exec 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --u 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --up 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upl 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --uplo 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --uploa 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-p 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-pa 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-pac 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git fetch --upload-pack 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git push --r 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --re 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --rec 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --rece 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --recei 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receiv 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive- 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-p 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-pa 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-pac 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git push --receive-pack 'gh pr merge 1'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git diff --e 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ex 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-d 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-di 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-dif 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git diff --ext-diff 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --t 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --te 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --tex 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --text 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textc 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textco 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textcon 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git show --textconv 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --o 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --ou 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --out 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --outp 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --outpu 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --output 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --op 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --ope 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-f 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-fi 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-fil 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-file 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-i 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in- 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-p 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-pa 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-pag 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-page 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --open-files-in-pager 'gh pr merge 1'",
+    "actions": []
+  },
+  {
+    "command": "git log --pretty --output=F",
+    "actions": []
+  },
+  {
+    "command": "git show --pretty --output=F",
+    "actions": []
+  },
+  {
+    "command": "git show --format --output=F",
+    "actions": []
+  },
+  {
+    "command": "git rev-list --format --output=F",
+    "actions": []
+  },
+  {
+    "command": "git diff -U --output=F",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified --output=F",
+    "actions": []
+  },
+  {
+    "command": "git log -1 --pretty --output=.git/config '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
+    "actions": []
+  },
+  {
+    "command": "git log --pretty value",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified 3",
+    "actions": []
+  },
+  {
+    "command": "git diff -U 3",
+    "actions": []
+  },
+  {
+    "command": "git log --format --output=.git/config",
+    "actions": []
+  },
+  {
+    "command": "git log --date --output=F",
+    "actions": []
+  },
+  {
+    "command": "git log --pretty=oneline",
+    "actions": []
+  },
+  {
+    "command": "git show '--format=%s'",
+    "actions": []
+  },
+  {
+    "command": "git rev-list --format=oneline HEAD",
+    "actions": []
+  },
+  {
+    "command": "git diff --unified=3",
+    "actions": []
+  },
+  {
+    "command": "git diff -U3",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--e' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--e=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--ex' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--ex=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exe' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exe=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exec' '/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--exec=/usr/bin/touch '\\''/isolated/marker'\\''' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--u' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--u=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--up' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--up=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upl' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upl=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uplo' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uplo=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uploa' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--uploa=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-p' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-p=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pa' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pa=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pac' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pac=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pack' '/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--upload-pack=/usr/bin/touch '\\''/isolated/marker'\\''; exit 1' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--pretty' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--date' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--max-count' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '-n' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--since' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--until' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--author' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '--grep' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--pretty' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--date' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--max-count' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '-n' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--since' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--until' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--author' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'show' '--grep' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'diff' '--diff-filter' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'diff' '--unified' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'ls-files' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'ls-tree' '--format' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'branch' '--format' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'branch' '--sort' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'branch' '--set-upstream-to' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--depth' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--deepen' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--shallow-since' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'fetch' '--shallow-exclude' '--zz-probe-flag' '/isolated/remote.git'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '--message' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '-m' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '--file' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'commit' '-F' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'restore' '--source' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'restore' '-s' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'checkout' '-b' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'checkout' '-B' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'checkout' '--orphan' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'switch' '-c' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'switch' '-C' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'switch' '--orphan' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'merge' '--message' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'merge' '-m' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rebase' '--onto' '--zz-probe-flag' 'HEAD~1'",
+    "actions": []
+  },
+  {
+    "command": "git 'cherry-pick' '--mainline' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'cherry-pick' '-m' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'stash' '--message' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'stash' '-m' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'blame' '--date' '--zz-probe-flag' 'file'",
+    "actions": []
+  },
+  {
+    "command": "git 'blame' '-L' '--zz-probe-flag' 'file'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--max-count' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '-n' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--since' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--until' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'rev-list' '--format' '--zz-probe-flag' 'HEAD'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '--message' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '-m' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '--format' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'tag' '--sort' '--zz-probe-flag' 'fixture-tag'",
+    "actions": []
+  },
+  {
+    "command": "git 'subtree' 'push' '--prefix' '--zz-probe-flag'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git 'subtree' 'push' '-P' '--zz-probe-flag'",
+    "actions": ["push"]
+  },
+  {
+    "command": "git 'diff' '-U' '--zz-probe-flag'",
+    "actions": []
+  },
+  {
+    "command": "git 'log' '-1' '--pretty' '--output=.git/config' '--format=[core]%n%x09fsmonitor = /isolated/marker-helper' && git status --short",
+    "actions": []
+  }
+]

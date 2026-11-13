@@ -1,0 +1,28 @@
+[package]
+name = "milagre-usage"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Offline usage limits, transcript scanning, cache and report contracts for the Rust migration"
+
+[workspace]
+
+[features]
+fixture-admission = []
+
+[dependencies]
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"] }
+regex = "1"
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "rt", "macros", "rt-multi-thread", "time", "test-util"] }

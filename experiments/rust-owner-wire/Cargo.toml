@@ -1,0 +1,18 @@
+[package]
+name = "milagre-owner-wire"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Isolated Rust implementation of Milagre's local daemon wire protocol"
+
+[dependencies]
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+rand = "0.8"
+libc = "0.2"
+tempfile = "3"
+
+[workspace]

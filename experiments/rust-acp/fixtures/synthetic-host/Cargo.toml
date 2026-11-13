@@ -1,0 +1,31 @@
+[package]
+name = "milagre-acp-native-core-context"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Standalone native-core, copied-service admission and fixed synthetic native composition fixtures"
+
+[workspace]
+
+[[test]]
+name = "native_core_context"
+path = "native_core_context.rs"
+
+[[test]]
+name = "service_admission"
+path = "service_admission.rs"
+
+[[test]]
+name = "service_native_composition"
+path = "service_native_composition.rs"
+
+[dev-dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+milagre-accounts = { path = "../../../rust-accounts" }
+milagre-owner-store = { path = "../../../rust-owner" }
+milagre-registry = { path = "../../../rust-registry" }
+tokio = { version = "1.47", features = ["rt", "time"] }
