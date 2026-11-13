@@ -473,7 +473,8 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 
 - The composer is a floating control: the surface at 76% with `backdrop-blur-chip` and a low shadow, never a raised
   card. In an open Chat it and the chip row float over the transcript, which scrolls on under their glass; the
-  transcript's bottom pad is their height.
+  transcript's bottom pad is their height,
+  and it stops on the composer's bottom edge so no text shows under it.
 - With Ultracode on, its border and glow take purple and breathe slowly.
 
 ## Copy
@@ -550,6 +551,8 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - The composer's model chip shows no permission shield; Full stays orange in the picker's footer.
 - A Subchat's breadcrumb parent is plain text flush with the Chat title: no box, arrow or dot.
 - ⇧⌘D shows or hides the Changes panel on the view it was left on.
+- No Subchats pill above the composer on desktop: the Details panel's Lineage lists them. The phone keeps its pill (it
+  has no Details panel). No "N waiting" chip in the top bar, nor the phone's Attention pill.
 - The Details panel (from GPUI's Details tab) has its own corner toggle and no shortcut: Environment, Lineage
   (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, a muted → before the state under the pointer), Background
   tasks and Links. Rows are 32 high, inset 8 from the panel edges so the `hover` fill is a rounded block; Lineage,

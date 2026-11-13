@@ -7,7 +7,6 @@ import { useQuoteInbox } from "../lib/quote-inbox";
 import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
-import { SubchatTrack } from "./agents/SubchatTrack";
 import { DelegationReportLine } from "./DelegationReportLine";
 import { SubchatMessage } from "./agents/SubchatMessages";
 import { hiddenSubchatNotes, subchatNote } from "../lib/subchat-transcript";
@@ -32,9 +31,8 @@ import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { chatHistory } from "@milagre/shared/chat-history";
-import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, PermissionDecision, QuestionAnswers, Subagent } from "../model";
-import type { SubchatSource } from "../lib/subchat-track";
-import { latestReports, reportMarker } from "@milagre/shared/subchat-states";
+import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../model";
+import { reportMarker } from "@milagre/shared/subchat-states";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -350,8 +348,6 @@ function ReplyContent({
     </>
   );
 }
-
-const NO_REPORTS: ReadonlyMap<string, string> = new Map();
 
 const MessageSection = memo(function MessageSection({
   message,
@@ -983,10 +979,6 @@ interface ChatComposerProps {
   onArchiveSubagent?: (id: string, archived: boolean) => void;
   onStopAdvisor?: (id: string) => void;
   onRetryAdvisor?: (id: string) => void;
-  /** The Chat's Subchats, for the pill beside the composer's PR pills; absent when it has none. Opening one uses onOpenLinkedChat. */
-  subchats?: SubchatSource;
-  onAnswerSubchat?: (chatKey: string, requestId: string, answers: QuestionAnswers) => void;
-  onRespondSubchat?: (chatKey: string, requestId: string, decision: PermissionDecision) => void;
   waitingForSubagents?: boolean;
   /** The Chat's activity (chat-activity.mjs): a background one shows how many background agents still work. */
   activity?: ChatActivity;
@@ -1396,9 +1388,6 @@ export function ChatComposer({
   onArchiveSubagent,
   onStopAdvisor,
   onRetryAdvisor,
-  subchats,
-  onAnswerSubchat,
-  onRespondSubchat,
   waitingForSubagents = false,
   activity,
   plan,
@@ -1468,7 +1457,6 @@ export function ChatComposer({
   onOpenPullRequestLink,
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
-  const subchatReports = useMemo(() => (subchats ? latestReports(messages) : NO_REPORTS), [subchats, messages]);
   const { appearance, newChatGlance } = useSettings();
   const chatWidth = appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
@@ -1772,7 +1760,8 @@ export function ChatComposer({
                 </InlineError>
               </div>
             ) : (
-              <div className="relative flex min-h-0 flex-1 flex-col">
+              <div className="relative flex min-h-0 flex-1 flex-col pb-1.5">
+                {/* The transcript stops on the composer's bottom edge (the dock's 6px padding under it), so no text shows below it. */}
                 <MessageSelection container={root} provider={sessionProvider ?? selectedModel.provider} onQuote={(quote) => addQuotes([quote])} />
                 <MessageScroller
                   navigation="rail"
@@ -1882,18 +1871,6 @@ export function ChatComposer({
             {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
             <LayoutGroup>
-              {/* The Subchats lead the left side; the last pill there takes the free space to its right. */}
-              {!isNewChat && subchats && onOpenLinkedChat && onAnswerSubchat && onRespondSubchat && (
-                <SubchatTrack
-                  key={`subchats-${subchats.parentKey}`}
-                  source={subchats}
-                  reports={subchatReports}
-                  className={pullRequestAction || reviewPill ? "" : "mr-auto"}
-                  onOpen={onOpenLinkedChat}
-                  onAnswer={onAnswerSubchat}
-                  onRespond={onRespondSubchat}
-                />
-              )}
               <AnimatePresence initial={false}>
                 {!isNewChat && pullRequestAction && (
                   <PillSlot key="pr-action" slot="pr-action" className={reviewPill ? "flex" : "mr-auto flex"}>
