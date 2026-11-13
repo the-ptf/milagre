@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowDown01Icon,
@@ -28,6 +28,8 @@ import { useWindowChrome } from "../../lib/window-chrome";
 import { useDisplayNow } from "../../lib/display-clock";
 import { familyEntry, type FamilyEntry, type FamilyReads } from "../../lib/family-menu";
 import { KIND_INK } from "../../lib/subchat-track";
+import { chatKey as sharedChatKey } from "../../lib/agent-runs";
+import { ChatContextMenu, RenameField, type ChatRowActions, type SidebarRecent } from "../sidebar/ChatRow";
 import { Icon } from "../primitives/Icon";
 import { IconButton } from "../primitives/Button";
 import { ScrollArea } from "../primitives/ScrollArea";
@@ -75,6 +77,8 @@ export function setDetailsPanelOpen(next: boolean) {
 // The folds, kept for the session across Chats.
 const folds = { lineage: false, background: false, links: false };
 
+type ChatMenuSource = { item: SidebarRecent; actions: ChatRowActions };
+
 export type DetailsData = {
   /** The open Chat's key (`<scope>#<id>`). */
   chatKey: string;
@@ -89,6 +93,8 @@ export type DetailsData = {
   /** The family's sessions and live runs, for Lineage. */
   family?: FamilyReads;
   onOpenChat: (key: string) => void;
+  /** A Lineage Chat's sidebar row and its actions, for its right-click menu; undefined for a Chat the sidebar doesn't list. */
+  menuFor?: (key: string) => ChatMenuSource | undefined;
   backgroundTasks?: BackgroundTask[];
   ports?: AgentPort[];
   subagents?: Subagent[];
@@ -203,45 +209,77 @@ function elapsed(since: number, now: number) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** A Lineage row: opens that Chat; under the pointer a muted arrow takes the place of its state. Done stays muted, not green. */
+/**
+ * A Lineage row: opens that Chat; under the pointer a muted arrow takes the place of its state. Done stays muted, not
+ * green. A right-click opens the same menu as the Chat's sidebar row; Rename edits the title in place.
+ */
 function LineageRow({
   entry,
   icon,
   value,
   depth = 0,
   onOpen,
+  menu,
 }: {
   entry: FamilyEntry;
   icon: "parent" | "child";
   value: string;
   depth?: number;
   onOpen: () => void;
+  menu?: ChatMenuSource;
 }) {
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const closeMenu = useCallback(() => setMenuAt(null), []);
+  const glyph = <Glyph icon={icon === "parent" ? ArrowUpLeft01Icon : Redo03Icon} size={icon === "parent" ? 16 : 14} />;
+  const style = depth ? { paddingLeft: 8 + depth * 16 } : undefined;
+  if (renaming && menu)
+    return (
+      <div data-details-lineage={entry.key} className={`${ROW} w-[calc(100%-16px)] bg-hover`} style={style}>
+        {glyph}
+        <RenameField
+          initial={menu.item.label}
+          className="h-8 text-13"
+          onDone={(title) => {
+            setRenaming(false);
+            if (title && title !== menu.item.label) menu.actions.onRename?.(menu.item.id, title);
+          }}
+        />
+      </div>
+    );
   return (
-    <button
-      type="button"
-      data-details-lineage={entry.key}
-      onClick={onOpen}
-      className={`group/lineage ${ROW} ${CLICKABLE} w-[calc(100%-16px)]`}
-      style={depth ? { paddingLeft: 8 + depth * 16 } : undefined}
-    >
-      <Glyph icon={icon === "parent" ? ArrowUpLeft01Icon : Redo03Icon} size={icon === "parent" ? 16 : 14} />
-      <span className="min-w-0 flex-1 truncate">{entry.title}</span>
-      <span className="grid shrink-0 justify-items-end">
-        <Value
-          className={`col-start-1 row-start-1 transition-opacity group-hover/lineage:opacity-0 group-focus-visible/lineage:opacity-0 ${icon === "parent" || entry.ink === KIND_INK.done ? "text-ink-3" : entry.ink}`}
-        >
-          {value}
-        </Value>
-        <span
-          aria-hidden
-          data-details-arrow
-          className="col-start-1 row-start-1 flex text-ink-3 opacity-0 transition-opacity group-hover/lineage:opacity-100 group-focus-visible/lineage:opacity-100"
-        >
-          →
+    <>
+      <button
+        type="button"
+        data-details-lineage={entry.key}
+        onClick={onOpen}
+        onContextMenu={(event) => {
+          if (!menu || menu.item.pending) return;
+          event.preventDefault();
+          setMenuAt({ x: event.clientX, y: event.clientY });
+        }}
+        className={`group/lineage ${ROW} ${CLICKABLE} w-[calc(100%-16px)] ${menuAt ? "bg-hover" : ""}`}
+        style={style}
+      >
+        {glyph}
+        <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+        <span className="grid shrink-0 justify-items-end">
+          <Value
+            className={`col-start-1 row-start-1 transition-opacity group-hover/lineage:opacity-0 group-focus-visible/lineage:opacity-0 ${icon === "parent" || entry.ink === KIND_INK.done ? "text-ink-3" : entry.ink}`}
+          >
+            {value}
+          </Value>
+          <span
+            aria-hidden
+            data-details-arrow
+            className="col-start-1 row-start-1 flex text-ink-3 opacity-0 transition-opacity group-hover/lineage:opacity-100 group-focus-visible/lineage:opacity-100"
+          >
+            →
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+      {menuAt && menu && <ChatContextMenu item={menu.item} position={menuAt} actions={menu.actions} onRename={() => setRenaming(true)} onClose={closeMenu} />}
+    </>
   );
 }
 
@@ -337,9 +375,19 @@ export function DetailsBody({ data }: { data: DetailsData }) {
           <Heading label="Lineage" open={!folds.lineage} onToggle={fold("lineage")} />
           {!folds.lineage && (
             <>
-              {parent && <LineageRow entry={parent} icon="parent" value="Parent" onOpen={() => data.onOpenChat(parent.key)} />}
+              {parent && (
+                <LineageRow entry={parent} icon="parent" value="Parent" onOpen={() => data.onOpenChat(parent.key)} menu={data.menuFor?.(parent.key)} />
+              )}
               {children.map(({ entry, depth }) => (
-                <LineageRow key={entry.key} entry={entry} icon="child" value={entry.word} depth={depth} onOpen={() => data.onOpenChat(entry.key)} />
+                <LineageRow
+                  key={entry.key}
+                  entry={entry}
+                  icon="child"
+                  value={entry.word}
+                  depth={depth}
+                  onOpen={() => data.onOpenChat(entry.key)}
+                  menu={data.menuFor?.(entry.key)}
+                />
               ))}
             </>
           )}
@@ -461,6 +509,8 @@ export function DetailsPanelHost({
   pullRequest,
   onOpenChat,
   onReveal,
+  chats,
+  chatActions,
 }: {
   chatKey: string | null;
   project?: { name: string; path: string };
@@ -475,6 +525,9 @@ export function DetailsPanelHost({
   subagents?: Subagent[];
   pullRequest?: DetailsData["pullRequest"];
   onOpenChat: (key: string) => void;
+  /** The Project's sidebar rows and their actions: a Lineage row's right-click menu is its sidebar row's. */
+  chats?: SidebarRecent[];
+  chatActions?: ChatRowActions;
 }) {
   const { thisMac } = useComputers();
   const { routines } = useRoutines();
@@ -496,6 +549,10 @@ export function DetailsPanelHost({
         editorName: editor?.name,
         family: family ? { ...family, routines, now } : undefined,
         onOpenChat,
+        menuFor: (key) => {
+          const item = project && chatActions ? chats?.find((chat) => sharedChatKey(project.path, Number(chat.id)) === key) : undefined;
+          return item && chatActions ? { item, actions: chatActions } : undefined;
+        },
         backgroundTasks,
         ports,
         subagents,

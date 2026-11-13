@@ -4342,6 +4342,8 @@ function App() {
               }
               onOpenChat={openAlone}
               onReveal={() => selectedSession && revealChat(selectedSession.id)}
+              chats={chats}
+              chatActions={chatActions}
             />
           </div>
           {linkDialog}

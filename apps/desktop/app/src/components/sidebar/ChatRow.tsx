@@ -1558,17 +1558,20 @@ function PullRequestChip({
   );
 }
 
-function RenameField({
+export function RenameField({
   initial,
   onDone,
   inbox = false,
   edge = false,
+  className,
 }: {
   initial: string;
   onDone: (title: string | null) => void;
   inbox?: boolean;
   /** The Title first row's 14px title on a 20px line. */
   edge?: boolean;
+  /** Size classes for a field outside the sidebar (Details' Lineage), in place of the sidebar's. */
+  className?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const done = useRef(false);
@@ -1600,7 +1603,11 @@ function RenameField({
         }
       }}
       onBlur={(event) => finish(event.currentTarget.value.trim())}
-      className={`sidebar-copy min-w-0 flex-1 bg-transparent font-medium text-ink outline-none ${edge ? "h-5 text-[length:calc(14px+var(--sidebar-delta))] leading-5" : inbox ? "h-[18px] text-[length:calc(13px+var(--sidebar-delta))] leading-[18px]" : "text-[length:calc(14px+var(--sidebar-delta))]"}`}
+      className={
+        className
+          ? `min-w-0 flex-1 bg-transparent text-ink outline-none ${className}`
+          : `sidebar-copy min-w-0 flex-1 bg-transparent font-medium text-ink outline-none ${edge ? "h-5 text-[length:calc(14px+var(--sidebar-delta))] leading-5" : inbox ? "h-[18px] text-[length:calc(13px+var(--sidebar-delta))] leading-[18px]" : "text-[length:calc(14px+var(--sidebar-delta))]"}`
+      }
     />
   );
 }
@@ -1850,6 +1857,58 @@ function LinkIssuePopover({ position, onPick, onClose }: { position: { x: number
       <LinearIssuePicker className="w-[420px] max-w-[calc(100vw-2rem)]" title="Link a Linear issue" onPick={onPick} onClose={onClose} />
     </div>,
     document.body,
+  );
+}
+
+/**
+ * A Chat's right-click menu outside the sidebar (Details' Lineage): the same entries as its sidebar row, with "Link
+ * issue…" opening the issue picker at the menu's place. Rename is the caller's, since the title sits in its row.
+ */
+export function ChatContextMenu({
+  item,
+  position,
+  actions,
+  onRename,
+  onClose,
+}: {
+  item: SidebarRecent;
+  position: { x: number; y: number };
+  actions: ChatRowActions;
+  onRename: () => void;
+  onClose: () => void;
+}) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(true);
+  const [linking, setLinking] = useState<{ x: number; y: number } | null>(null);
+  const at = { x: Math.min(position.x, window.innerWidth - MENU_WIDTH - 8), y: position.y };
+  useEffect(() => {
+    if (!menuOpen && !linking) onClose();
+  }, [menuOpen, linking, onClose]);
+  return (
+    <>
+      {menuOpen && (
+        <ChatMenu
+          item={item}
+          position={at}
+          trigger={trigger}
+          onClose={() => setMenuOpen(false)}
+          onRename={onRename}
+          onLink={() => setLinking(at)}
+          linked={false}
+          actions={actions}
+        />
+      )}
+      {linking && (
+        <LinkIssuePopover
+          position={linking}
+          onPick={(issue) => {
+            setLinking(null);
+            actions.onLinkIssue?.(item.id, issue.key, issue.workspace);
+          }}
+          onClose={() => setLinking(null)}
+        />
+      )}
+    </>
   );
 }
 
