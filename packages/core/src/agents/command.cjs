@@ -2,6 +2,7 @@ const { spawnWindowsJob } = require("./windows-job.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn, execFile } = require("node:child_process");
+const { withoutHostVariables } = require("../host-env.cjs");
 
 // npm's Windows launchers are batch files. Resolve their JS entry and call Node
 // directly so prompts, file names and arguments never pass through cmd.exe.
@@ -27,10 +28,19 @@ function commandInvocation(file, args, { platform = process.platform } = {}) {
   const localNode = path.join(root, "node.exe");
   return { file: fs.existsSync(localNode) ? localNode : process.execPath, args: [entry, ...args] };
 }
+// Every agent CLI and the tools it starts get the given environment (or the host's) without the host's own variables:
+// the host runs on Electron with ELECTRON_RUN_AS_NODE=1, which an agent's shell would otherwise pass to every Electron
+// app it starts. The one exception is the wrapper above resolving to this Electron binary (a Windows npm wrapper with
+// no node.exe beside it), which runs the CLI's JS entry in Node mode on purpose.
+function launchOptions(options = {}, electronAsNode = false) {
+  const env = withoutHostVariables(options.env || process.env);
+  if (electronAsNode) env.ELECTRON_RUN_AS_NODE = "1";
+  return { ...options, env };
+}
+const runsElectronAsNode = (invocation, file) => invocation.file !== file && invocation.file === process.execPath && !!process.versions.electron;
 function spawnCommand(file, args, options, spawnImpl = spawn) {
   const invocation = commandInvocation(file, args);
-  if (invocation.file !== file && invocation.file === process.execPath && process.versions.electron)
-    options = { ...options, env: { ...(options.env || process.env), ELECTRON_RUN_AS_NODE: "1" } };
+  options = launchOptions(options, runsElectronAsNode(invocation, file));
   if (process.platform === "win32") return spawnWindowsJob(invocation.file, invocation.args, options, spawnImpl);
   return spawnImpl(invocation.file, invocation.args, options);
 }
@@ -42,8 +52,7 @@ function execCommand(file, args, options, callback, execFileImpl = execFile) {
     queueMicrotask(() => callback(error, "", ""));
     return;
   }
-  if (invocation.file !== file && invocation.file === process.execPath && process.versions.electron)
-    options = { ...options, env: { ...(options.env || process.env), ELECTRON_RUN_AS_NODE: "1" } };
+  options = launchOptions(options, runsElectronAsNode(invocation, file));
   return execFileImpl(invocation.file, invocation.args, options, callback);
 }
-module.exports = { commandInvocation, spawnCommand, execCommand };
+module.exports = { agentEnvironment: withoutHostVariables, commandInvocation, launchOptions, spawnCommand, execCommand };

@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { randomUUID } = require("node:crypto");
+const { withoutHostVariables } = require("./host-env.cjs");
 
 const TERMINAL_ID = /^[0-9a-f-]{36}$/;
 const MAX_BUFFER_CHARS = 1024 * 1024;
@@ -18,9 +19,6 @@ const TITLE_POLL_MS = 1500;
 const MAX_PER_CHAT = 12;
 const MAX_TOTAL = 64;
 const UNIX_SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "xonsh", "elvish"]);
-// Variables that describe the host process, not a shell the user opens: Electron in Node mode would make every
-// Electron app the user starts from the Terminal run as plain Node.
-const HOST_ONLY = new Set(["ELECTRON_RUN_AS_NODE", "ELECTRON_NO_ATTACH_CONSOLE", "MILAGRE_BUNDLED_BIN_DIR", "PWD", "OLDPWD", "SHLVL", "_"]);
 
 /**
  * On Linux, prefer installed zsh; otherwise use the account's login shell, then $SHELL (which the host may have
@@ -62,8 +60,8 @@ function terminalShell({ platform = process.platform, env = process.env, exists 
 const TERMINAL_TYPE = "xterm-256color";
 
 function terminalEnvironment(env = process.env) {
-  const result = {};
-  for (const [key, value] of Object.entries(env)) if (!HOST_ONLY.has(key) && typeof value === "string") result[key] = value;
+  // A Terminal is the user's shell, not the host's: see host-env.cjs.
+  const result = withoutHostVariables(env);
   result.TERM = TERMINAL_TYPE;
   result.COLORTERM = "truecolor";
   result.TERM_PROGRAM = "Milagre";

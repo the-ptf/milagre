@@ -16,9 +16,9 @@ const NPM_TIMEOUT_MS = 5_000;
 // Shells that take `-i -l -c` and run the command line below as written. Others aren't started; the
 // install folders still apply.
 const SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh"]);
-// Not imported: set by the throwaway shell itself (PWD, OLDPWD, SHLVL, _), or meaning something to Electron
-// that the user's shell can't know about this app (a shell started from a terminal that runs Electron as Node).
-const SHELL_ONLY = new Set(["PWD", "OLDPWD", "SHLVL", "_", "ELECTRON_RUN_AS_NODE", "ELECTRON_NO_ATTACH_CONSOLE"]);
+// Not imported: set by the throwaway shell itself (PWD, OLDPWD, SHLVL, _), or meaning something to Electron or the
+// host that the user's shell can't know about this app (a shell started from a terminal that runs Electron as Node).
+const { HOST_ONLY: SHELL_ONLY } = require("../host-env.cjs");
 // What launchd gives an app opened from Finder or the Dock. Any other PATH came from a terminal.
 const LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
