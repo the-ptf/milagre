@@ -116,7 +116,7 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
 
-    assert.equal(await evaluate(checked), "One list", "Settings › General starts on One list");
+    assert.equal(await evaluate(checked), "Title first", "Settings › General shows the Title first card picked");
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0, "No Project groups");
     // The Chats group (Chats without a Project) shows only once such a Chat exists; these Projects have none.
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 0, "No Chats group without a Chat without a Project");
@@ -303,8 +303,9 @@ async function browserChecks() {
     await choose("One list");
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0);
-    // Classic rows (the default): the Project's icon leads the row, 50 high, the PR as #number.
+    // Classic rows (One list, the default): the Project's icon leads the row, 50 high, the PR as #number.
     await evaluate(`window.updateSettings({ appearance: { ...window.DEFAULT_APPEARANCE, sidebarRows: "classic" } })`);
+    await waitFor(`${checked} === "One list"`);
     await waitFor(`!!${row(1)}.querySelector("[data-row] [data-chat-project-icon]")`);
     assert.equal(await evaluate(`Math.round(${row(1)}.querySelector("[data-row]").getBoundingClientRect().height)`), 50);
     assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-pr]").textContent`), "#980");

@@ -45,8 +45,6 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
     choice("showUsageInSidebar", false, "Sidebar usage: Hide", "off disable plan limits"),
     appearanceChoice("sidebarUsage", "expanded", "Sidebar usage: Expanded", "appearance plan limits rows"),
     appearanceChoice("sidebarUsage", "compact", "Sidebar usage: Compact", "appearance plan limits icons one line"),
-    appearanceChoice("sidebarRows", "classic", "Sidebar rows: Classic", "appearance sidebar chat rows project icon"),
-    appearanceChoice("sidebarRows", "edge", "Sidebar rows: Title first", "appearance sidebar chat rows status edge alt"),
     appearanceChoice("providerIcons", "original", "Provider icons: Original", "appearance logos brand colors"),
     appearanceChoice("providerIcons", "simplified", "Provider icons: Simplified", "appearance logos monochrome black white"),
     choice("chatOrder", "created", "Chat order: Newest Chat first", "sidebar sort created date"),

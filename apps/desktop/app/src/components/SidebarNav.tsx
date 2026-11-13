@@ -103,7 +103,20 @@ import { undoHistory, type UndoAction } from "../lib/undo-history";
 import { DELETE_UNDO_MS } from "@milagre/shared/archive";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
-import { activeFamilyRoot, useUnfoldActiveFamily, jumpChatRows, rowKeys, shownChats, standInRow, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
+import {
+  activeFamilyRoot,
+  useUnfoldActiveFamily,
+  jumpChatRows,
+  rowKeys,
+  shownChats,
+  standInRow,
+  useSubchatFolds,
+  type ShownRow,
+  type SubchatFolds,
+} from "../lib/subchat-rows";
+
+/** Every family folded: the Title first list shows top-level Chats only. */
+const ALL_FOLDED: SubchatFolds = { has: () => true };
 
 type IconProps = { size?: IconSize; className?: string };
 
@@ -2271,7 +2284,12 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
     made.set(scopeKey, { source: scope.list.actions, linkProjectId: scope.list.linkProjectId, actions });
     return actions;
   };
-  const folds = useSubchatFolds();
+  const handFolds = useSubchatFolds();
+  // Title first rows (Settings › General › Chat list) list top-level Chats only, as the GPUI app does: every family is
+  // folded and shows no count; Subchats open from the Details panel's Lineage, and a parent stands in for an open one.
+  const rowStyle = useSettings().appearance.sidebarRows;
+  const titleFirst = inbox && rowStyle === "edge";
+  const folds = titleFirst ? ALL_FOLDED : handFolds;
   // Where each scope's first nine rows sit in its list, the only ones with a ⌘1–9 hint: one pass per scope, not a scan per row.
   const hintPositions = useMemo(() => {
     const positions = new Map<SidebarRecent, number>();
@@ -2328,7 +2346,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               chatKey={key}
               subchat={subchat}
               depth={depth}
-              family={family}
+              family={titleFirst ? undefined : family}
               project={inbox ? scope.name : undefined}
               dragging={dragging === key}
               {...scope.badge}

@@ -93,6 +93,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
   {
     page: "general",
+    title: "Title first",
+    group: "Chat list",
+    description: "One list with each Chat's state at the row's edge, Project and PR under the title.",
+    keywords: "status edge alt rows",
+  },
+  {
+    page: "general",
     title: "By Project",
     group: "Chat list",
     description: "A group per Project that folds.",
@@ -203,13 +210,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: "One row per provider, or provider icons in one line.",
     keywords: "limits compact",
   },
-  {
-    page: "appearance",
-    title: "Sidebar rows",
-    group: "Layout",
-    description: "Classic leads with the Project's icon. Title first puts each Chat's state at the row's edge.",
-    keywords: "chat list row status edge alt title first classic",
-  },
+
   { page: "appearance", title: "Diffs" },
   {
     page: "appearance",

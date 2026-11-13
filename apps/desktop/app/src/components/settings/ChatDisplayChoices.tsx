@@ -154,6 +154,28 @@ function OneListPreview() {
   );
 }
 
+/** Title first rows: the title with the state at its right edge, then a small Project tile and the PR at the edge. */
+function TitleFirstPreview() {
+  return (
+    <>
+      {ONE_LIST_ROWS.map((row, index) => (
+        <span key={row.id} className="flex flex-col gap-[3px] pb-1">
+          <span className="flex items-center justify-between gap-2">
+            <Bar width={row.title} />
+            <span className={`block size-1.5 shrink-0 rounded-full ${index === 0 ? "bg-orange" : index === 1 ? "bg-line-strong" : "bg-green"}`} />
+          </span>
+          <span className="flex items-center gap-1">
+            <Avatar color={row.avatar} size={5} />
+            <Bar width={row.project} soft thin />
+            <span className="flex-1" />
+            {index !== 1 && <span className="block h-1 w-3 shrink-0 rounded-full bg-green" />}
+          </span>
+        </span>
+      ))}
+    </>
+  );
+}
+
 const GroupHeader = ({ color, width }: { color: string; width: string }) => (
   <span className="flex items-center gap-1.5">
     <Avatar color={color} size={8} />
@@ -264,8 +286,16 @@ function FullToolsPreview() {
 }
 
 // The phone's Settings › Chat names these the same way.
-const CHAT_LIST_CHOICES: Choice<ChatList>[] = [
+/** The Chat list cards: One list in its two row styles (Appearance's `sidebarRows`), By Project and Tree. */
+export type ChatListPick = ChatList | "title-first";
+const CHAT_LIST_CHOICES: Choice<ChatListPick>[] = [
   { id: "list", label: "One list", description: "Newest first, Project on each row.", preview: <OneListPreview /> },
+  {
+    id: "title-first",
+    label: "Title first",
+    description: "One list with each Chat's state at the row's edge, Project and PR under the title.",
+    preview: <TitleFirstPreview />,
+  },
   { id: "grouped", label: "By Project", description: "A group per Project that folds.", preview: <GroupedPreview /> },
   { id: "tree", label: "Tree", description: "Each Project with its Worktrees, each Link with its Projects.", preview: <TreePreview /> },
 ];
@@ -283,7 +313,7 @@ const TOOL_CALL_CHOICES: Choice<ToolCallDisplay>[] = TOOL_CALL_DISPLAYS.map(({ i
   preview: TOOL_CALL_PREVIEWS[id],
 }));
 
-export function ChatListChoice({ value, onChange }: { value: ChatList; onChange: (value: ChatList) => void }) {
+export function ChatListChoice({ value, onChange }: { value: ChatListPick; onChange: (value: ChatListPick) => void }) {
   return <ChoiceCards label="Chat list" value={value} onChange={onChange} choices={CHAT_LIST_CHOICES} />;
 }
 

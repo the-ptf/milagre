@@ -119,7 +119,6 @@ import {
   MOTION_SPEEDS,
   SIDEBAR_SIZES,
   SIDEBAR_USAGE_MODES,
-  SIDEBAR_ROW_STYLES,
   PROVIDER_ICON_STYLES,
   UI_FONTS,
   type FontOption,
@@ -1134,7 +1133,14 @@ function GeneralSettings() {
         </Row>
       </Group>
       <ChoiceGroup title="Chat list">
-        <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
+        <ChatListChoice
+          value={settings.chatList === "list" && settings.appearance.sidebarRows === "edge" ? "title-first" : settings.chatList}
+          onChange={(pick) =>
+            pick === "title-first" || pick === "list"
+              ? updateSettings({ chatList: "list", appearance: { ...settings.appearance, sidebarRows: pick === "title-first" ? "edge" : "classic" } })
+              : updateSettings({ chatList: pick })
+          }
+        />
       </ChoiceGroup>
       <DoneRetentionSetting />
       <Group title="Plan usage">
@@ -1525,23 +1531,6 @@ function AppearanceSettings() {
               options={SIDEBAR_USAGE_MODES.map((mode) => ({
                 value: mode.id,
                 label: mode.label,
-              }))}
-            />
-          </Row>
-          <Row
-            label="Sidebar rows"
-            description="Classic leads with the Project's icon. Title first puts each Chat's state at the row's edge."
-            preview={preview.row("usage")}
-          >
-            <Select
-              label="Sidebar rows"
-              width={200}
-              value={appearance.sidebarRows}
-              onChange={(sidebarRows) => change("usage", { sidebarRows })}
-              onOpenChange={preview.menu("usage")}
-              options={SIDEBAR_ROW_STYLES.map((style) => ({
-                value: style.id,
-                label: style.label,
               }))}
             />
           </Row>
