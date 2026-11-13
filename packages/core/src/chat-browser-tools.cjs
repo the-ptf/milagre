@@ -8,6 +8,7 @@ const { z } = require("zod");
 // A snapshot gives each element a ref (@e12) that click, fill and the others take; refs go stale when the page navigates.
 
 const page = z.string().max(200).optional().describe("A page id from browser_list. Defaults to this Chat's newest Browser panel page.");
+const PANEL_PAGE_ID = /^panel-[a-f0-9]{24}:[A-F0-9]{32}$/;
 const ref = z
   .string()
   .regex(/^@?e\d{1,6}$/)
@@ -159,7 +160,7 @@ async function uploadable(paths, roots) {
 /**
  * @param {string} chatId
  * @param {{ devtools(request: { chatId: string; page?: string }): Promise<{ target: { id: string; title: string; url: string }; session: any; state: any }>; list(request: { chatId: string }): Promise<{ targets: { id: string; url: string; source: string }[] }> }} browsers
- * @param {{ openInPanel(chatId: string, url: string): void }} panel
+ * @param {{ openInPanel(chatId: string, url: string): void; closePage?(chatId: string, targetId: string): Promise<unknown>; closeAll?(chatId: string): Promise<unknown> }} panel
  * @param {{ roots(): Promise<string[]>; chooserWaitMs?: number }} [uploads] the folders browser_upload may send files from
  */
 function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: async () => [] }) {
@@ -193,6 +194,52 @@ function browserPageToolDefinitions(chatId, browsers, panel, uploads = { roots: 
         return JSON.stringify({
           note: "The Browser panel was asked to open the page but hasn't reported it. Milagre may not be open on this computer; check browser_list.",
         });
+      },
+    },
+    {
+      name: "browser_close",
+      description:
+        "Close a page in this Chat's Browser panel by its exact id from browser_list. Set all to true to close every tab in this Chat's Browser panel, including suspended tabs. This does not close pages in other Chats or browsers.",
+      input: {
+        page: page.describe("Exact page id from browser_list to close."),
+        all: z.boolean().optional().describe("Close every tab in this Chat's Browser panel."),
+      },
+      readOnly: false,
+      run: async (input) => {
+        const list = async () => {
+          const result = await browsers.list({ chatId });
+          if (result.error) throw new Error(result.error);
+          return result;
+        };
+        if (input.all) {
+          await list();
+          if (typeof panel.closeAll !== "function") throw new Error("The Browser panel cannot close this Chat's tabs.");
+          await panel.closeAll(chatId);
+          const until = Date.now() + 3000;
+          let absentSince = 0;
+          while (Date.now() < until) {
+            await settle(100);
+            const { targets } = await list();
+            if (targets.some((target) => target.source === "panel")) absentSince = 0;
+            else if (!absentSince) absentSince = Date.now();
+            else if (Date.now() - absentSince >= 250) return JSON.stringify({ closed: true });
+          }
+          const { targets } = await list();
+          return JSON.stringify({ closed: false, remaining: targets.filter((target) => target.source === "panel").map((target) => target.id) });
+        }
+        if (!input.page) throw new Error("Provide a page id or set all to true.");
+        if (!PANEL_PAGE_ID.test(input.page)) return JSON.stringify({ closed: false, page: input.page });
+        const target = (await list()).targets.find((item) => item.id === input.page && item.source === "panel");
+        if (!target) return JSON.stringify({ closed: false, page: input.page });
+        if (typeof panel.closePage !== "function") throw new Error("The Browser panel cannot close this page.");
+        await panel.closePage(chatId, target.id);
+        const until = Date.now() + 3000;
+        while (Date.now() < until) {
+          const { targets } = await list();
+          if (!targets.some((item) => item.id === target.id)) return JSON.stringify({ closed: true, page: target.id });
+          await settle(100);
+        }
+        return JSON.stringify({ closed: false, page: target.id });
       },
     },
     {

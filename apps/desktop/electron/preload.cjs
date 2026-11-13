@@ -636,6 +636,8 @@ contextBridge.exposeInMainWorld("milagreBrowserPanel", {
   onKey: (callback) => listenHere("browser-panel:key", callback),
   onViewed: (callback) => listenHere("browser-panel:viewed", callback),
   onOpenUrl: (callback) => listenHere("browser-panel:open-url", callback),
+  onClosePage: (callback) => listenHere("browser-panel:close-page", callback),
+  onCloseChatPages: (callback) => listenHere("browser-panel:close-chat-pages", callback),
   /** @param {{ contentsId: number; chatKey: string }[]} pages */
   setPages: (pages) => ipcRenderer.invoke("browser-panel:pages", pages),
   /** @param {number} contentsId @param {{ x: number; y: number; width: number; height: number }} rect */

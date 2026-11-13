@@ -12,6 +12,7 @@ The user has a browser inside Milagre, docked beside the Chat. Its pages belong 
 `browser_comments`). Prefer it over a separate headless browser when checking the Chat's own app.
 
 1. `browser_open` with a URL opens it in a panel tab and returns the page id once it has loaded.
+   Use `browser_close` with a page id from `browser_list` to close that page, or set `all: true` to close every tab in this Chat's Browser panel, including suspended tabs. `all: true` is required for the bulk operation. Repeating a close for an already closed id is safe and reports `closed: false`.
 2. `browser_snapshot` reads the page as an accessibility tree; each element has a ref like `@e12`.
 3. Act with `browser_click`, `browser_fill`, `browser_select`, `browser_type`, `browser_press`, `browser_hover`,
    `browser_scroll` and `browser_navigate`, passing refs from the latest snapshot. Refs go stale when the page changes:

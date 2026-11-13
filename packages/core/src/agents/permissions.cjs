@@ -221,6 +221,7 @@ const OWN_CHAT_TOOLS = [
   "html_render",
   "artifact_resolve_comment",
   "browser_open",
+  "browser_close",
   "browser_resolve_comment",
   "conclude_negotiation",
   // Hands a Routine flow step's fields back to the Run that asked for them.

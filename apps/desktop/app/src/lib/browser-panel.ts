@@ -169,6 +169,17 @@ export function closeBrowserTab(chatKey: string, tabId: string) {
   });
 }
 
+/** Closes every tab in a Chat's Browser panel, including pages currently suspended to save memory. */
+export function closeBrowserTabs(chatKey: string): number {
+  let closed = 0;
+  update(chatKey, (chat) => {
+    closed = chat.tabs.length;
+    if (!closed && !chat.open) return chat;
+    return { open: false, tabs: [], active: null };
+  });
+  return closed;
+}
+
 /** What the page reported: its address after a navigation, title, favicon, loading and history state. */
 export function patchBrowserTab(chatKey: string, tabId: string, patch: Partial<Omit<BrowserTab, "id">>) {
   update(chatKey, (chat) => {

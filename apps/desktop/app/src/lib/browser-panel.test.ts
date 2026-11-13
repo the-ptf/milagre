@@ -5,6 +5,7 @@ import {
   addressToUrl,
   chatBrowser,
   closeBrowserTab,
+  closeBrowserTabs,
   navigateBrowserTab,
   openBrowserTab,
   openInBrowserPanel,
@@ -68,6 +69,15 @@ test("closing a tab shows its right neighbour, then its left; the last one close
   assert.equal(chatBrowser(chat).active, a);
   closeBrowserTab(chat, a);
   assert.deepEqual(chatBrowser(chat), { open: false, tabs: [], active: null });
+});
+
+test("closeBrowserTabs closes every tab, including tabs whose pages are suspended", () => {
+  const chat = "/p#many-tabs";
+  for (let index = 0; index < 12; index++) openBrowserTab(chat, `http://tab-${index}.test/`);
+  assert.equal(chatBrowser(chat).tabs.length, 12);
+  assert.equal(closeBrowserTabs(chat), 12);
+  assert.deepEqual(chatBrowser(chat), { open: false, tabs: [], active: null });
+  assert.equal(closeBrowserTabs(chat), 0);
 });
 
 test("typing an address shows it at once and leaves it for the page to load", () => {
