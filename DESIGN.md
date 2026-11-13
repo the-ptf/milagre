@@ -566,7 +566,7 @@ The owner's decisions. Don't re-propose a rejected option; changing any of these
 - The Details overlay (from GPUI's Details tab) floats over the Chat under the corner's buttons, never pushing it aside:
   the composer's glass (surface at 76%, `backdrop-blur-chip`), a 1px ring and a faint shadow, fading in moving down. It
   is the first corner button (a card with right-aligned lines, `AlignBoxMiddleRight`) and has no shortcut: Environment, Lineage
-  (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, a muted → before the state under the pointer), Background
+  (the parent with `ArrowUpLeft01`, Subchats with `Redo03`, under the pointer a muted → takes the place of the state), Background
   tasks and Links. Rows are 32 high, inset 8 from the card's edges so the `hover` fill is a rounded block; Lineage,
   Background tasks and Links fold. Artifacts, Designs, Browser and Simulator keep their shortcuts.
 

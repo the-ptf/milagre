@@ -43,8 +43,8 @@ import { openInEditor, useEditors } from "../../lib/editors";
  * fill sits as a block under the text rather than an edge-to-edge band. Sections:
  *
  * - Environment: the computer, the repo, the Worktree's branch and its path (a click copies it; Finder and editor).
- * - Lineage (folds): the open Chat's parent, then its Subchats nested; a row opens that Chat, its muted → showing under
- *   the pointer before its state.
+ * - Lineage (folds): the open Chat's parent, then its Subchats nested; a row opens that Chat, a muted → taking the place of
+ *   its state under the pointer.
  * - Background tasks (folds): running commands, ports and subagents with their time.
  * - Links (folds), only when the Chat has a PR or canvas Links.
  *
@@ -202,7 +202,7 @@ function elapsed(since: number, now: number) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** A Lineage row: opens that Chat; a muted arrow shows before its state under the pointer. */
+/** A Lineage row: opens that Chat; under the pointer a muted arrow takes the place of its state. */
 function LineageRow({
   entry,
   icon,
@@ -226,14 +226,20 @@ function LineageRow({
     >
       <Glyph icon={icon === "parent" ? ArrowUpLeft01Icon : Redo03Icon} size={icon === "parent" ? 16 : 14} />
       <span className="min-w-0 flex-1 truncate">{entry.title}</span>
-      <span
-        aria-hidden
-        data-details-arrow
-        className="flex shrink-0 text-ink-3 opacity-0 transition-opacity group-hover/lineage:opacity-100 group-focus-visible/lineage:opacity-100"
-      >
-        →
+      <span className="grid shrink-0 justify-items-end">
+        <Value
+          className={`col-start-1 row-start-1 transition-opacity group-hover/lineage:opacity-0 group-focus-visible/lineage:opacity-0 ${icon === "parent" ? "text-ink-3" : entry.ink}`}
+        >
+          {value}
+        </Value>
+        <span
+          aria-hidden
+          data-details-arrow
+          className="col-start-1 row-start-1 flex text-ink-3 opacity-0 transition-opacity group-hover/lineage:opacity-100 group-focus-visible/lineage:opacity-100"
+        >
+          →
+        </span>
       </span>
-      <Value className={icon === "parent" ? "text-ink-3" : entry.ink}>{value}</Value>
     </button>
   );
 }
