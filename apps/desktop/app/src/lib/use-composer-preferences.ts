@@ -21,6 +21,9 @@ export function useComposerPreferences(chatKey: string) {
     setPrefs((prev) => {
       const current = prev[key] ?? {};
       const next = { ...prev, [key]: { ...current, ...patch } };
+      // Read the saved copy again first: the window's cached copy misses a write made outside it (another process, or
+      // the native store directly), which this read-modify-write would otherwise drop.
+      localStorage.forget("milagre.composer-preferences");
       saveComposerPreferences(localStorage, key, patch);
       return next;
     });

@@ -181,7 +181,14 @@ async function browserChecks() {
     assert.equal(await evaluate(checked("Chat list")), "One list", "the sidebar lists Chats in one list by default");
     window.webContents.focus();
     await evaluate(`${card("Chat list", "One list")}.focus()`);
-    await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))`);
+    const arrowRight = () =>
+      evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))`);
+    // Title first is One list with Appearance's edge rows, so it saves both.
+    await arrowRight();
+    await waitFor(`${checked("Chat list")} === "Title first"`);
+    assert.equal((await saved()).chatList, "list", "Title first keeps one list");
+    assert.equal((await saved()).appearance?.sidebarRows, "edge", "Title first saves the edge rows");
+    await arrowRight();
     await waitFor(`${checked("Chat list")} === "By Project"`);
     assert.equal((await saved()).chatList, "grouped", "By Project is saved");
     await screenshot("general-settings");
@@ -215,7 +222,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity-inline]")}`), true);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Settings › Chat shows Chat list, Reasoning and Tool calls as card radio groups on One list, Folded and Compact; arrow keys pick By Project and save it; Expanded opens thinking rows until clicked; Full detail shows each tool call, thinking and note in order with no fold; both save; Murilo mode reads as Full detail",
+      "PASS: Settings › Chat shows Chat list, Reasoning and Tool calls as card radio groups on One list, Folded and Compact; arrow keys pick Title first then By Project and save them; Expanded opens thinking rows until clicked; Full detail shows each tool call, thinking and note in order with no fold; both save; Murilo mode reads as Full detail",
     );
     app.exit(0);
   } catch (error) {
