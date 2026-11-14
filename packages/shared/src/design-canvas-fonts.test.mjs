@@ -25,7 +25,8 @@ const element = () => ({
 
 function page() {
   const nodes = { port: element(), world: element(), marks: element() };
-  const window = {};
+  const posted = [];
+  const window = { ReactNativeWebView: { postMessage: (data) => posted.push(JSON.parse(data)) } };
   vm.runInNewContext(DESIGNS_CANVAS_SCRIPT, {
     window,
     document: { getElementById: (id) => nodes[id], createElement: element, addEventListener() {} },
@@ -36,7 +37,7 @@ function page() {
   });
   const run = (message) => window.milagreCanvas.run(message);
   run({ t: "set", rows: [{ designs: [{ id: "home", w: 390, h: 844 }] }] });
-  return { run, frame: () => nodes.world.children[0].children[0] };
+  return { run, posted, frame: () => nodes.world.children[0].children[0] };
 }
 
 test("canvas splices held fonts exactly, keeps full HTML unchanged, and updates font versions", () => {
@@ -71,4 +72,21 @@ test("unknown fonts and malformed heads never replace a painted design or mount 
   fresh.run({ t: "fonts", key: "held", css: "@font-face{}" });
   fresh.run({ t: "html", id: "home", doc, font: "held" });
   assert.equal(fresh.frame().srcdoc, painted);
+});
+
+test("an interactive design's frame runs scripts, and Try hands it the touches until commenting takes them back", () => {
+  const p = page();
+  p.run({ t: "html", id: "home", doc: artifactDocument("<p>Layers</p>") });
+  assert.equal(p.frame().getAttribute("sandbox"), "", "a layer design runs no script");
+  p.run({ t: "play", id: "home" });
+  assert.deepEqual(p.posted.at(-1), { t: "play", id: null }, "a layer design can't be tried");
+  assert.equal(p.frame().style.pointerEvents, "none");
+  p.run({ t: "html", id: "home", doc: artifactDocument("<button>Go</button>", { code: true }), run: true });
+  assert.equal(p.frame().getAttribute("sandbox"), "allow-scripts");
+  p.run({ t: "play", id: "home" });
+  assert.deepEqual(p.posted.at(-1), { t: "play", id: "home" });
+  assert.equal(p.frame().style.pointerEvents, "auto", "the design takes the touches on it");
+  p.run({ t: "comment", on: true });
+  assert.deepEqual(p.posted.at(-1), { t: "play", id: null });
+  assert.equal(p.frame().style.pointerEvents, "none", "commenting takes them back");
 });
