@@ -1073,6 +1073,20 @@ test("an interactive design needs a screen size and pinned scripts from the allo
     /allowed CDN/,
   );
   await assert.rejects(tools.design_show.run({ id: "d", title: "D", width: 390, height: 844, html: '<script src="app.js"></script>' }), /full address/);
+  // Every CDN address in the page needs its version, not only <script src>: the policy allows the whole host.
+  for (const [id, html] of [
+    ["g", '<script type="module">import("https://esm.sh/react")</script>'],
+    ["h", '<script type="importmap">{"imports":{"react":"https://esm.sh/react"}}</script>'],
+    ["i", '<script>const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/gsap";document.head.append(s)</script>'],
+  ])
+    await assert.rejects(tools.design_show.run({ id, title: id, width: 390, height: 844, html }), /no exact version/, id);
+  await tools.design_show.run({
+    id: "j",
+    title: "J",
+    width: 390,
+    height: 844,
+    html: '<script type="module">import React from "https://esm.sh/react@18.3.1"</script>',
+  });
   await assert.rejects(tools.design_show.run({ id: "e", title: "E", html: interactiveHtml(), document: designDocument() }), /Send document \(layers\), html/);
   // cdnjs and jsdelivr addresses pin their version in the path.
   await tools.design_show.run({

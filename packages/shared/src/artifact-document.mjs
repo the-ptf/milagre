@@ -42,9 +42,15 @@ export function artifactCsp(assets = "", { code = false } = {}) {
 const PINNED = /@\d+\.\d+\.\d+|\/ajax\/libs\/[^/]+\/\d+\.\d+\.\d+/;
 const SCRIPT_SOURCE = /<script\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
 
+// Any address on those CDNs anywhere in the page: a <script src>, an import or import(), an import map, a script the
+// design builds in JS. The policy allows the whole host, so each one written down must name its version.
+const CDN_ADDRESS = /(?:https?:)?\/\/(?:unpkg\.com|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|esm\.sh)(\/[^\s"'`<>()\\]*)?/gi;
+
 /**
- * The scripts an interactive design loads, checked: each from DESIGN_CODE_HOSTS over HTTPS, at an exact version, so
- * the design draws the same tomorrow. Returns the problems, empty when there are none.
+ * The scripts an interactive design loads, checked: each <script src> from DESIGN_CODE_HOSTS over HTTPS, and every
+ * address on those CDNs in the page at an exact version, so the design draws the same tomorrow. Returns the problems,
+ * empty when there are none. An address the design assembles at run time can still pass; the design stays sandboxed
+ * with no requests of its own either way.
  */
 export function checkDesignCode(html) {
   const problems = [];
@@ -60,8 +66,10 @@ export function checkDesignCode(html) {
       continue;
     }
     if (!DESIGN_CODE_HOSTS.includes(url.origin)) problems.push(`${source} isn't on an allowed CDN (${DESIGN_CODE_HOSTS.join(", ")}).`);
-    else if (!PINNED.test(url.pathname)) problems.push(`${source} has no exact version. Pin it, such as react@18.3.1.`);
   }
+  const unpinned = new Set();
+  for (const match of html.matchAll(CDN_ADDRESS)) if (!PINNED.test(match[1] ?? "/")) unpinned.add(match[0]);
+  for (const address of unpinned) problems.push(`${address} has no exact version. Pin it, such as react@18.3.1.`);
   return problems;
 }
 
