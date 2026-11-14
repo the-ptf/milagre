@@ -11,18 +11,25 @@ export type ArtifactSummary = ArtifactRef & {
   width: number;
   height: number;
   format: "design" | "html";
+  /** A design that is the agent's own HTML, run live in the viewers, instead of layers Milagre draws. */
+  interactive?: boolean;
   kit?: { id: string; version: number; title: string };
   consistency?: { mode: "advisory" | "strict" };
 };
+
+/** Whether a design is interactive: its HTML runs under DESIGN_CODE_CSP, and it has no layer document. */
+export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
+  design?.format === "design" && design.interactive === true;
 
 /** The pinned visual identity, shared by desktop and phone. */
 export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "consistency"> | null | undefined): string {
   return design?.kit ? `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}` : "";
 }
 
-/** One version of a design an agent showed, as `artifact:get` returns it. */
-export type DesignArtifact = ArtifactSummary & {
+/** One version of a layer design an agent showed, as `artifact:get` returns it. */
+export type LayerDesignArtifact = ArtifactSummary & {
   format: "design";
+  interactive?: false;
   latest: number;
   html: string;
   document: DesignDocument;
@@ -30,6 +37,17 @@ export type DesignArtifact = ArtifactSummary & {
   fontKey?: string;
   fontCss?: string;
 };
+/** One version of an interactive design: the agent's HTML page, with no layer document. */
+export type InteractiveDesignArtifact = ArtifactSummary & {
+  format: "design";
+  interactive: true;
+  latest: number;
+  html: string;
+  document?: never;
+  fontKey?: never;
+  fontCss?: never;
+};
+export type DesignArtifact = LayerDesignArtifact | InteractiveDesignArtifact;
 /** One tab of an Artifact page: a page of its own, under a title in the page's tab bar. */
 export type ArtifactTab = { id: string; title: string; html: string };
 /** `html` is the page, or its first tab when the agent split it into `tabs`. `assets` are the files its HTML shows as `assets/<name>`. */
