@@ -305,6 +305,7 @@ export {
   ARTIFACT_PAGE_SCRIPT,
   ARTIFACT_SHELL_SCRIPT,
   DESIGNS_CANVAS_SCRIPT,
+  DESIGN_CODE_CSP,
   artifactDocument,
   artifactShell,
   designsCanvasShell,

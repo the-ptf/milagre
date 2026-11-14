@@ -5037,6 +5037,9 @@
         },
         "inline": {
           "enum": [true]
+        },
+        "code": {
+          "enum": [true]
         }
       },
       "additionalProperties": false

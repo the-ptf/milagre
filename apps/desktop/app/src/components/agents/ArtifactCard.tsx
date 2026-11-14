@@ -20,6 +20,7 @@ import {
   designActivity,
   designFeedbackMessage,
   designFeedbackText,
+  isInteractiveDesign,
   newCommentId,
   parseDesignFeedback,
   resolutionNotes,
@@ -206,11 +207,14 @@ function ScaledPreview({
   height = 800,
   pin,
   format,
+  code,
   files,
 }: {
   html: string;
   title: string;
   format?: "design" | "html";
+  /** An interactive design, run under its own policy. */
+  code?: boolean;
   /** An Artifact page's files, which its preview loads. */
   files?: PageFiles;
   width?: number;
@@ -256,6 +260,7 @@ function ScaledPreview({
             title={title}
             preview
             format={format}
+            code={code}
             files={files}
             page={
               format === "html" && pin
@@ -316,6 +321,7 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
           <ScaledPreview
             html={artifact.html}
             format={artifact.format}
+            code={isInteractiveDesign(artifact)}
             title={`Preview of ${title}`}
             width={artifact.width}
             height={artifact.height}
@@ -426,6 +432,7 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
             files={pageFiles(chatId, artifact)}
             html={artifact.html}
             format={artifact.format}
+            code={isInteractiveDesign(artifact)}
             title={`Preview of ${comment.design.title}`}
             width={artifact.width}
             height={artifact.height}
@@ -525,6 +532,7 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
           <ScaledPreview
             html={artifact.html}
             format={artifact.format}
+            code={isInteractiveDesign(artifact)}
             title={`Preview of ${design.title}`}
             width={artifact.width}
             height={artifact.height}

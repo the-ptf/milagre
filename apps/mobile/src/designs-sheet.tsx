@@ -7,13 +7,14 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { Cancel01Icon, CommentAdd01Icon, DashboardSquare01Icon, MoreHorizontalIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, CommentAdd01Icon, DashboardSquare01Icon, MoreHorizontalIcon, PlayIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
 import {
   artifactDocument,
   designFeedbackMessage,
   designGroups,
   designKitLabel,
   designsCanvasShell,
+  isInteractiveDesign,
   newCommentId,
   sentNumbers,
   type Artifact,
@@ -223,7 +224,7 @@ export function DesignsSheet({
         }
         try {
           const artifact = await promise;
-          if (live && artifact.format === "design" && artifact.document)
+          if (live && artifact.format === "design" && (artifact.document || isInteractiveDesign(artifact)))
             setLoaded((current) => ({
               source,
               chatId,
@@ -257,6 +258,8 @@ export function DesignsSheet({
   const ready = useRef(false);
   const [epoch, setEpoch] = useState(0);
   const [commenting, setCommenting] = useState(false);
+  // The interactive design being tried: it takes the touches on it until the user flies away or comments.
+  const [playing, setPlaying] = useState<string | null>(null);
   const [room, setRoom] = useState({ width: 0, height: 0 });
   const command = useCallback((message: CanvasCommand) => {
     if (!ready.current || !canvas.current) return;
@@ -302,7 +305,8 @@ export function DesignsSheet({
       const key = `${artifact.version}:${artifact.html.length}:${font ?? ""}`;
       if (sentDocs.current.get(artifact.id) === key) continue;
       sentDocs.current.set(artifact.id, key);
-      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html), ...(font ? { font } : {}) });
+      const code = isInteractiveDesign(artifact);
+      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html, { code }), ...(code ? { run: true } : {}), ...(font ? { font } : {}) });
     }
     // The layout first: the page makes a design's frame when it lays the design out.
   }, [loaded, command, epoch, layoutKey]);
@@ -366,12 +370,16 @@ export function DesignsSheet({
       switch (message.t) {
         case "ready":
           ready.current = true;
+          setPlaying(null);
           sentDocs.current.clear();
           sentFonts.current.clear();
           setEpoch((value) => value + 1);
           return;
         case "painted":
           setPainted(true);
+          return;
+        case "play":
+          setPlaying(typeof message.id === "string" ? message.id : null);
           return;
         case "view":
           if ((message.mode === "design" || message.mode === "canvas") && typeof message.id === "string") setView({ mode: message.mode, id: message.id });
@@ -515,7 +523,10 @@ export function DesignsSheet({
   const title = canvasMode ? "All designs" : (summary?.title ?? shown?.title ?? "Designs");
   const subtitle = canvasMode
     ? `${ordered.length} ${ordered.length === 1 ? "design" : "designs"}${rows.length > 1 ? ` · ${rows.length} screens` : ""}`
-    : [row?.group, position, shown ? `v${shown.version}` : "", designKitLabel(shown)].filter(Boolean).join(" · ");
+    : [row?.group, position, shown ? `v${shown.version}` : "", isInteractiveDesign(shown) ? "Interactive" : "", designKitLabel(shown)]
+        .filter(Boolean)
+        .join(" · ");
+  const tryable = !canvasMode && isInteractiveDesign(shown);
 
   const openNote = composer && composer.kind !== "read" ? notes.find((note) => note.key === composer.key) : undefined;
   const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
@@ -539,6 +550,19 @@ export function DesignsSheet({
           ),
         ].filter(Boolean)}
         trailing={[
+          tryable && shown && (
+            <CircleButton
+              key="try"
+              label={playing === shown.id ? "Stop trying the design" : "Try the design"}
+              icon={PlayIcon}
+              selected={playing === shown.id}
+              onPress={() => {
+                closeComposer();
+                if (playing !== shown.id) setCommenting(false);
+                command({ t: "play", id: playing === shown.id ? null : shown.id });
+              }}
+            />
+          ),
           source && (
             <CircleButton
               key="comment"

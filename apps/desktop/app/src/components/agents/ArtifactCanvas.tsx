@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon, Download04Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
+  DESIGN_CODE_CSP,
   ARTIFACT_ESCAPE,
   ARTIFACT_PAGE,
   artifactCsp,
@@ -11,6 +12,7 @@ import {
   restoreDesignFonts,
   designGroups,
   designKitLabel,
+  isInteractiveDesign,
   readPageMessage,
   type Artifact,
   type ArtifactAsset,
@@ -214,6 +216,7 @@ export function ArtifactFrame({
   title,
   preview = false,
   format = "design",
+  code = false,
   page,
   onPage,
   frameRef,
@@ -224,6 +227,8 @@ export function ArtifactFrame({
   title: string;
   preview?: boolean;
   format?: "design" | "html";
+  /** An interactive design: the agent's HTML, run under DESIGN_CODE_CSP with its libraries from the pinned CDNs. */
+  code?: boolean;
   /** An Artifact page's files, which its `assets/<name>` references load. */
   files?: PageFiles;
   page?: PageState;
@@ -231,7 +236,7 @@ export function ArtifactFrame({
   frameRef?: React.RefObject<HTMLIFrameElement | null>;
   onLoad?: () => void;
 }) {
-  const document = useMemo(() => artifactDocument(html, { page: format === "html" }), [html, format]);
+  const document = useMemo(() => artifactDocument(html, { page: format === "html", code }), [html, format, code]);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const ready = useRef(false);
   const told = useRef<Record<string, string>>({});
@@ -288,12 +293,14 @@ export function ArtifactFrame({
   const filesRef = useRef(files);
   filesRef.current = files;
   useEffect(() => {
-    if (format !== "html" || !window.milagre?.createArtifactPreview) return;
+    // An interactive design loads from the preview scheme too: a srcdoc frame would inherit the renderer's policy,
+    // which runs no script but the app's own.
+    if ((format !== "html" && !code) || !window.milagre?.createArtifactPreview) return;
     let live = true;
     let url: string | undefined;
     setPreviewError("");
     void window.milagre
-      .createArtifactPreview(html, filesRef.current)
+      .createArtifactPreview(html, code ? { code: true } : filesRef.current)
       .then((value) => {
         url = value;
         if (live) setRegistered({ html, files: filesKey, url });
@@ -306,13 +313,13 @@ export function ArtifactFrame({
       live = false;
       if (url) void window.milagre.releaseArtifactPreview(url);
     };
-  }, [html, format, filesKey]);
-  const isolated = format === "html" && !!window.milagre?.createArtifactPreview;
+  }, [html, format, code, filesKey]);
+  const isolated = (format === "html" || code) && !!window.milagre?.createArtifactPreview;
   const url = registered?.html === html && registered.files === filesKey ? registered.url : undefined;
   if (isolated && !url)
     return (
       <div role={previewError ? "alert" : "status"} className={`grid size-full place-items-center text-12 ${previewError ? "text-red-ink" : "text-ink-3"}`}>
-        {previewError || "Loading artifact…"}
+        {previewError || (code ? "Loading design…" : "Loading artifact…")}
       </div>
     );
   return (
@@ -324,7 +331,7 @@ export function ArtifactFrame({
       src={isolated ? url : undefined}
       sandbox="allow-scripts"
       // The policy a second time, as the embedder's (Chromium holds the document to it), beside the <meta> inside.
-      {...{ csp: isolated ? PREVIEW_CSP : ARTIFACT_CSP }}
+      {...{ csp: code ? DESIGN_CODE_CSP : isolated ? PREVIEW_CSP : ARTIFACT_CSP }}
       referrerPolicy="no-referrer"
       tabIndex={preview ? -1 : undefined}
       className={`block size-full border-0 bg-paper ${preview ? "pointer-events-none" : ""}`}
@@ -801,6 +808,11 @@ const DesignFrame = memo(function DesignFrame({
                 {designKitLabel(artifact)}
               </span>
             )}
+            {isInteractiveDesign(artifact) && (
+              <span className="ml-2" data-slot="artifact-interactive" title="Click the design to try it">
+                Interactive
+              </span>
+            )}
           </span>
           <Tooltip label="Next version" asChild>
             <IconButton
@@ -831,10 +843,12 @@ const DesignFrame = memo(function DesignFrame({
               <MenuRow
                 data-slot="artifact-export"
                 icon={Download04Icon}
-                title="Export…"
+                title={isInteractiveDesign(artifact) ? "Download HTML" : "Export…"}
                 onClick={() => {
                   setMoreOpen(false);
-                  setExporting(true);
+                  // An interactive design is its own page: it downloads as it is, with nothing to choose.
+                  if (isInteractiveDesign(artifact)) downloadHtml(artifact.html, `${artifact.id}-v${artifact.version}.html`);
+                  else setExporting(true);
                 }}
               />
             </Popover>
@@ -977,7 +991,13 @@ const DesignFrame = memo(function DesignFrame({
             commenting={commenting}
             title={shown.title}
             onPin={(x, y) =>
-              artifact && comments.onPin(shown, x, y, artifact.format === "design" ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined)
+              artifact &&
+              comments.onPin(
+                shown,
+                x,
+                y,
+                artifact.format === "design" && artifact.document ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined,
+              )
             }
           >
             {sentPins.map((pin) => (
@@ -1006,6 +1026,16 @@ const DesignFrame = memo(function DesignFrame({
     </div>
   );
 });
+
+/** Saves an interactive design's HTML as a file, through the browser's download. */
+function downloadHtml(html: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /** Keyed by the artifact actually shown, including a live edit's held version. Readiness never crosses versions. */
 function CanvasDesignBody({
@@ -1149,7 +1179,7 @@ function PaintedFrame({ artifact, title, onPainted }: { artifact: Artifact; titl
       className="absolute inset-0 transition-opacity duration-[120ms] motion-reduce:transition-none"
       style={{ opacity: ready ? 1 : 0 }}
     >
-      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} onLoad={() => setReady(true)} />
+      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} code={isInteractiveDesign(artifact)} onLoad={() => setReady(true)} />
     </div>
   );
 }

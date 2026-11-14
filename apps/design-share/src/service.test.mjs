@@ -862,3 +862,30 @@ test("a page's file is served whole or by byte range, never as a page of the sha
   });
   assert.equal(routed.status, 405);
 });
+
+test("a page of interactive designs runs them in sandboxed frames, with the pinned CDNs allowed only on that page", async () => {
+  const html =
+    '<!doctype html><html><head><script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script></head><body><button>Go</button></body></html>';
+  const snapshot = { schemaVersion: 1, title: "Prototype", designs: [{ title: "Flow", group: "Onboarding", interactive: { html, width: 390, height: 844 } }] };
+  const f = await fixture({ validate: validateDesignPageSnapshot, render: renderDesignPage });
+  assert.equal((await f.send("PUT", snapshot)).status, 201);
+  const page = await f.service.fetch(new Request(`https://share.milagre.cloud/s/${f.id}`), f.id, "");
+  const policy = page.headers.get("Content-Security-Policy");
+  assert.match(policy, /script-src 'unsafe-inline' 'unsafe-eval' https:\/\/unpkg\.com/);
+  assert.match(policy, /frame-src 'none'/);
+  const body = await page.text();
+  assert.match(body, /<iframe class="live" title="Flow" width="390" height="844" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="/);
+  assert.doesNotMatch(body, /allow-same-origin/);
+  // A layer page keeps the strict policy.
+  const layers = await fixture({ validate: validateDesignPageSnapshot, render: renderDesignPage });
+  const document = { schemaVersion: 1, width: 390, height: 844, nodes: [{ id: "t", type: "text", width: 200, height: 40, text: "Hi" }] };
+  assert.equal((await layers.send("PUT", { schemaVersion: 1, title: "Screens", designs: [{ title: "Screen", document }] })).status, 201);
+  const strict = (await layers.service.fetch(new Request(`https://share.milagre.cloud/s/${layers.id}`), layers.id, "")).headers.get("Content-Security-Policy");
+  assert.doesNotMatch(strict, /unpkg|unsafe-eval/);
+  // Scripts off the pinned CDNs are refused before publishing.
+  const refused = {
+    ...snapshot,
+    designs: [{ title: "Flow", interactive: { html: '<script src="https://evil.example/x@1.0.0/a.js"></script>', width: 390, height: 844 } }],
+  };
+  assert.equal((await (await fixture({ validate: validateDesignPageSnapshot, render: renderDesignPage })).send("PUT", refused)).status, 400);
+});

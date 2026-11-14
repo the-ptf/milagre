@@ -12,7 +12,13 @@ const element = () => ({
   appendChild(child) {
     this.children.push(child);
   },
-  setAttribute() {},
+  attributes: {},
+  setAttribute(name, value) {
+    this.attributes = { ...this.attributes, [name]: String(value) };
+  },
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
+  },
   addEventListener() {},
   remove() {},
 });

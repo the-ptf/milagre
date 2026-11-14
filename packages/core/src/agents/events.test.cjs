@@ -19,7 +19,7 @@ const {
 
 test("the instructions always carry the Designs paragraph next to the explanatory Artifacts one", () => {
   const instructions = milagreInstructions(true, "Project context");
-  assert.match(instructions, /Designs: when the user asks to see a UI, screen, mockup or visual design, create an editable document with milagre design_show/);
+  assert.match(instructions, /Designs: when the user asks to see a UI, screen, mockup, prototype or visual design, create it with milagre design_show/);
   assert.match(instructions, /design_read|design_apply|bundled design skill/);
   assert.match(instructions, /Artifacts: use milagre artifact_show for a standalone HTML page/);
   assert.match(instructions, /Inline visuals in replies: check the HTML with html_preview at 720 and 340 widths, then show it with html_render/);
@@ -898,7 +898,7 @@ test("the design instructions point the agent at the bundled design skill, which
 
 test("the design instructions name icon layers and the rendered image to check", () => {
   assert.match(MILAGRE_INSTRUCTIONS, /named layers for frames, text, shapes, icons and images/);
-  assert.match(MILAGRE_INSTRUCTIONS, /result includes the saved design rendered as an image, with layout warnings; check both/);
+  assert.match(MILAGRE_INSTRUCTIONS, /result includes the saved design rendered as an image, with layout warnings or console messages; check them/);
 });
 
 test("the design instructions defer to a design tool the user names", () => {
@@ -906,7 +906,7 @@ test("the design instructions defer to a design tool the user names", () => {
 });
 
 test("design instructions teach editable documents and version-safe revisions", () => {
-  assert.match(MILAGRE_INSTRUCTIONS, /create an editable document with milagre design_show/);
+  assert.match(MILAGRE_INSTRUCTIONS, /create it with milagre design_show/);
   assert.match(MILAGRE_INSTRUCTIONS, /design_read before revising it/);
   assert.match(MILAGRE_INSTRUCTIONS, /design_apply with its expectedVersion/);
   assert.match(MILAGRE_INSTRUCTIONS, /artifact_show/);
