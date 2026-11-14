@@ -10,6 +10,8 @@ type MenuItem = {
   destructive?: boolean;
   disabled?: boolean;
   subtitle?: string;
+  /** A submenu: the item opens these choices instead of being one (a Chat's Snooze until). */
+  submenu?: MenuItem[];
 };
 
 export type MenuSection = { title?: string; items: MenuItem[] };

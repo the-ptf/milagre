@@ -112,6 +112,7 @@ export function LinkWorkspace({
   linkedWork,
   onCanvasChat,
   usage,
+  usageButton,
   initialSessionId,
   initialDraft = "",
   openNonce = 0,
@@ -155,6 +156,8 @@ export function LinkWorkspace({
   linkedWork: LinkedWork;
   onCanvasChat: (path: string, id: number) => void;
   usage?: ReactNode;
+  /** Plan usage as one footer button beside Filters (Settings › General › Plan usage › Button). */
+  usageButton?: ReactNode;
   onNewChatInScope?: (scopeKey: string) => void;
   /** New chat (⌘N, the sidebar's +, the command palette) starts on this Mac's Project; only the Link's own + starts a Link Chat. */
   onNewChat?: (draftText?: string) => void;
@@ -670,6 +673,7 @@ export function LinkWorkspace({
                 activeId={sessionId == null ? null : String(sessionId)}
                 recents={recents}
                 usage={usage}
+                usageButton={usageButton}
                 runningKeys={sidebarRunKeys.running}
                 waitingKeys={sidebarRunKeys.waiting}
                 askingKeys={sidebarRunKeys.asking}

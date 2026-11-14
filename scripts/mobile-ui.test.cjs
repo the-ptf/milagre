@@ -484,6 +484,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // /storage's name and hint, which the Chat lists beside /undo.
       if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
       if (id === "@milagre/shared/project-list" && !(id in modules)) return require("../packages/shared/src/project-list.ts");
+      // Snooze: the shared rules, the row menu's choices, and the phone's default at its 1 hour.
+      if (id === "@milagre/shared/snooze" && !(id in modules)) return require("@milagre/shared/snooze");
+      if (base === "snooze-actions" && !(id in modules)) return require("../apps/mobile/src/snooze-actions.ts");
+      if (base === "snooze-setting" && !(id in modules)) return { useSnoozeMinutes: () => [60, () => {}] };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -4624,6 +4628,51 @@ test("the Project icon count folds a family without opening its Chat in grouped 
   }
 });
 
+test("snoozed Chats leave the list for a folded Snoozed section above Done, soonest wake first", () => {
+  const nav = navigationHost(Promise.resolve());
+  const hour = 60 * 60 * 1000;
+  nav.state.project.state.sessions[4] = { id: 4, worktree_id: 1, title: "Later", snoozed_until: Date.now() + 3 * hour };
+  nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, title: "Soon", snoozed_until: Date.now() + 45 * 60 * 1000 };
+  nav.state.project.state.sessions[6] = { id: 6, worktree_id: 1, title: "Finished", done_at: Date.now() };
+  // A wake time already passed is back in the list.
+  nav.state.project.state.sessions[7] = { id: 7, worktree_id: 1, title: "Woken", snoozed_until: Date.now() - hour };
+  const kinds = () => nav.rows().props.data.map((item) => item.kind);
+  const chats = () =>
+    nav
+      .rows()
+      .props.data.filter((item) => item.kind === "chat")
+      .map((item) => item.chat.id);
+  assert.ok(!chats().includes(4) && !chats().includes(5), "snoozed Chats leave the list");
+  assert.ok(chats().includes(7));
+  assert.ok(kinds().indexOf("snoozedHeader") < kinds().indexOf("doneHeader"), "Snoozed sits above Done");
+  const header = nav.row("snoozedHeader");
+  assert.equal(header.props.accessibilityLabel, "Snoozed, 2 chats");
+  assert.equal(header.props.accessibilityState.expanded, false);
+  assert.ok(!kinds().includes("snoozed"), "the section starts folded");
+  header.props.onPress();
+  same(
+    nav
+      .rows()
+      .props.data.filter((item) => item.kind === "snoozed")
+      .map((item) => item.chat.id),
+    [5, 4],
+  );
+  const soon = nav.row("snoozed");
+  assert.equal(find(soon, (node) => node.type === "ChatSwipeRow").props.snoozed, true);
+  assert.match(nav.open(soon).props.label, /^Soon, Snoozed, wakes in 45m$/);
+  same(
+    nav.more(soon).props.sections.map((section) => section.items.map((item) => item.id)),
+    [["wake", "done"]],
+  );
+  // The Done rows lead with no check: the title, then the countdown on the same line.
+  nav.row("doneHeader").props.onPress();
+  assert.equal(
+    find(nav.row("done"), (node) => node.type === "Icon" && node.props.icon === "CheckmarkCircle02Icon"),
+    undefined,
+  );
+  nav.unmount();
+});
+
 test("a subchat's row opens it alone, closing any split, and the open subchat's family is unfolded around it", () => {
   const nav = navigationHost(Promise.resolve(), { activeChatId: 5, effects: true });
   nav.state.project.state.sessions[4] = { id: 4, worktree_id: 1, title: "Parent" };
@@ -5439,7 +5488,14 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
     find(nav.row("chat", 0), (node) => node.props?.accessibilityLabel?.startsWith?.("Linked to")),
     undefined,
   );
-  same(ids(login), [["copy-path", "copy-branch"], ["rename", "unread"], ["pin"], ["link-with", "link-remove"], ["done", "archive"]]);
+  same(ids(login), [
+    ["copy-path", "copy-branch"],
+    ["rename", "unread"],
+    ["pin"],
+    ["link-with", "link-remove"],
+    ["snooze-for", "snooze-until"],
+    ["done", "archive"],
+  ]);
   same(ids(nav.row("chat", 0))[3], ["link-with"]);
   nav.more(login).props.onSelect("link-with");
   const [action, request] = nav.linkRequests[0];
@@ -6356,7 +6412,7 @@ async function passUndo(t) {
   await settleAll();
 }
 
-test("Chat swipe directions mark Done or read status once and block unavailable rows", async () => {
+test("Chat swipe directions reveal Snooze and Done or mark read status once and block unavailable rows", async () => {
   const react = hookHost();
   const calls = [];
   let closes = 0;
@@ -6371,11 +6427,12 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
     "./icons": { Icon: "Icon" },
     "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
   });
-  const render = (unread, disabled = false, done = false, doneable = true) => {
+  const render = (unread, disabled = false, done = false, doneable = true, snoozed = false) => {
     react.begin();
     return ChatSwipeRow({
       unread,
       done,
+      snoozed,
       doneable,
       background: "page",
       disabled,
@@ -6393,21 +6450,29 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
     },
   };
   row.props.onSwipeableOpen("right");
-  row.props.onSwipeableOpen("left");
-  assert.deepEqual(calls, ["read"], "another swipe cannot mark Done while a read is pending");
+  row.props.renderRightActions().props.children[1].props.onPress();
+  assert.deepEqual(calls, ["read"], "a revealed Done can't run while a read is pending");
   assert.equal(render(true).props.enabled.get(), false);
   pending.resolve();
   await settle();
   row = render(false);
   row.props.onSwipeableOpen("right");
   await settle();
+  // A left swipe reveals Snooze beside Done and commits nothing; a tap picks one.
   row = render(true);
   row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread"], "a revealed Snooze and Done wait for a tap");
+  const [snoozeButton, doneButton] = row.props.renderRightActions().props.children;
+  snoozeButton.props.onPress();
+  await settle();
+  assert.equal(calls.pop(), "snooze-for", "Snooze uses the default in Settings › Chat");
+  doneButton.props.onPress();
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done"]);
   row = render(false, true);
   assert.equal(row.props.enabled.get(), false);
-  row.props.onSwipeableOpen("left");
+  row.props.renderRightActions().props.children[1].props.onPress();
   assert.deepEqual(calls, ["read", "unread", "done"]);
   // A Done row reopens with a swipe right and has nothing to swipe left to.
   row = render(false, false, true);
@@ -6420,6 +6485,12 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   row.props.onSwipeableOpen("left");
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"]);
+  // A snoozed row wakes with a swipe right, the way a Done row reopens, and has nothing to swipe left to.
+  const snoozed = render(false, false, false, true, true);
+  assert.equal(snoozed.props.renderRightActions, undefined);
+  snoozed.props.onSwipeableOpen("right");
+  await settle();
+  assert.equal(calls.pop(), "wake");
   // The row draws on the list's own color, with no corners of its own, and keeps its gesture callbacks across renders.
   assert.equal(row.props.childrenContainerStyle.backgroundColor, "page");
   assert.equal(row.props.containerStyle, undefined);
@@ -6427,8 +6498,8 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   assert.ok(closes >= 3, "rows close after the action");
   assert.equal(row.props.hitSlop, undefined, "outside the sidebar a row swipes across its whole width");
 
-  // In the slide-over sidebar a left swipe only reveals Done, which a tap commits; the row leaves its right edge to the
-  // sidebar's close, and takes no swipe while the sidebar slides.
+  // In the slide-over sidebar a left swipe reveals too; the row leaves its right edge to the sidebar's close, and takes no
+  // swipe while the sidebar slides.
   let open = true;
   react.useContext = () => ({ get: () => open });
   row = render(true);
@@ -6441,7 +6512,7 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   row.props.onSwipeableOpen("left");
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"], "a revealed Done waits for its tap");
-  const done = row.props.renderRightActions();
+  const done = row.props.renderRightActions().props.children[1];
   assert.equal(done.type, "Pressable");
   done.props.onPress();
   await settle();

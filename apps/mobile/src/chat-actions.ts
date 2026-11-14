@@ -8,6 +8,7 @@ import { archiveLinkChat } from "@milagre/shared/archive";
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { pinPatch } from "./pins";
 import { keepsOnPin, sessionsWithPins, type DevicePins } from "@milagre/shared/chat-pins";
+import { snoozeMenuSection, snoozePatch } from "./snooze-actions";
 
 /**
  * Desktop's ⋯ menu for a Chat, less what only makes sense at the Mac (Finder, editor, commit). `links` is the Link
@@ -26,7 +27,11 @@ export function chatMenu(
   project = true,
   /** The Chat's Mac keeps Done; an older one gets no Mark Done or Reopen. */
   doneable = true,
+  /** This phone's default snooze in minutes (snooze-setting.ts); without it the menu offers no Snooze. */
+  snoozeMinutes?: number,
 ): MenuSection[] {
+  // Snooze came after Done, so a Mac too old for Done has no Snooze either.
+  const snooze = doneable && snoozeMinutes !== undefined ? snoozeMenuSection(chat, snoozeMinutes) : null;
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
     ...(project
@@ -58,6 +63,7 @@ export function chatMenu(
     ...(links ? [links] : []),
     // A subchat, nested under the Chat that delegated to it: desktop's "Detach from parent".
     ...(chat.parent !== undefined && !chat.archived ? [{ items: [{ id: "detach", title: "Detach from parent", systemImage: "minus.circle" }] }] : []),
+    ...(snooze ? [snooze] : []),
     {
       items: [
         ...(chat.archived || !doneable
@@ -161,6 +167,9 @@ export async function runChatAction({
   // The Mac stamps when it went Done, so the countdown follows its clock, not the phone's.
   if (action === "done") await client.call("chat:patch", [projectPath, chat.id, { done: true, unread: false }]);
   if (action === "reopen") await client.call("chat:patch", [projectPath, chat.id, { done: false }]);
+  // A settled Snooze ("snooze-at:<ms>", snooze-actions.ts) or a Wake. The computer wakes it at that time on its own.
+  const snooze = snoozePatch(action);
+  if (snooze) await client.call("chat:patch", [projectPath, chat.id, snooze]);
   if (action === "detach") notify(await client.call<string>("chat:detach", [projectPath, chat.id]));
   const worktree = state.worktrees[chat.worktree_id];
   if (action === "copy-path" && worktree) await Clipboard.setStringAsync(worktree.path);

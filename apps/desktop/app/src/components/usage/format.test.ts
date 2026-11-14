@@ -11,6 +11,7 @@ import {
   formatResetsIn,
   formatResetsAt,
   overviewUpdatedAt,
+  parseUsageInSidebar,
   formatTokens,
   formatUpdatedAgo,
   mergeSnapshot,
@@ -240,4 +241,13 @@ test("overview freshness uses the oldest last-good window, ignoring empty or inv
     overviewUpdatedAt({ providers: [claude({ updatedAt: at(-HOUR) }), claude({ updatedAt: at(0) }), claude({ windows: [], updatedAt: at(-DAY) })] }),
     at(-HOUR),
   );
+});
+
+test("the sidebar usage choice keeps an old on/off setting and defaults to the button", () => {
+  assert.equal(parseUsageInSidebar("meters", false), "meters");
+  assert.equal(parseUsageInSidebar("off"), "off");
+  assert.equal(parseUsageInSidebar(undefined, true), "meters");
+  assert.equal(parseUsageInSidebar(undefined, false), "off");
+  assert.equal(parseUsageInSidebar(undefined), "button");
+  assert.equal(parseUsageInSidebar("bogus"), "button");
 });

@@ -10,6 +10,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SidebarUsage } from "/src/components/usage/SidebarUsage";
+import { UsageButton } from "/src/components/usage/UsageButton";
 import { useUsage } from "/src/components/usage/useUsage";
 import { applyThemeNow, getSettings, updateSettings } from "/src/lib/settings";
 import "/src/fonts.css";
@@ -81,6 +82,27 @@ function Fixture() {
 }
 const root = createRoot(document.getElementById("root"));
 root.render(<Fixture />);
+// Settings › General › Plan usage › Button: the footer's one button, beside a stand-in for Filters, and its popover.
+window.showUsageButton = () => {
+  window.usageStaleReads = 0;
+  function ButtonFixture() {
+    const [collapsed, setCollapsed] = useState(false);
+    window.setButtonCollapsed = setCollapsed;
+    const snapshot = { providers: [
+      { provider: "claude", account: { id: "work", label: "Work" }, status: "ok", updatedAt: new Date().toISOString(), windows: [{ ...session, usedPercent: 0 }, { ...weekly, usedPercent: 82 }] },
+      { provider: "codex", account: { id: "personal", label: "Personal", email: "victor@example.test" }, status: "error", updatedAt: new Date().toISOString(), windows: [weekly] },
+      { provider: "antigravity", account: { id: "default", label: "Default account" }, status: "ok", updatedAt: new Date().toISOString(), windows: [{ id: "gemini:weekly", label: "Gemini weekly", shortLabel: "wk", usedPercent: 25, resetsAt: null }] },
+      { provider: "kiro", status: "unavailable", updatedAt: new Date().toISOString(), windows: [] },
+    ] };
+    return <aside className="bg-page" data-sidebar-collapsed={collapsed} style={{ position: "absolute", left: 0, bottom: 0, width: collapsed ? 48 : 240, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div className={collapsed ? "mx-auto flex w-8 flex-col-reverse items-center gap-1 py-1.5" : "mx-2 flex items-center gap-1 py-1.5"}>
+        <span className="size-8 rounded-control bg-field" data-filters-stand-in />
+        <UsageButton usage={{ snapshot, loading: false, refresh: async () => {}, refreshIfStale: () => { window.usageStaleReads++; } }} />
+      </div>
+    </aside>;
+  }
+  root.render(<ButtonFixture />);
+};
 window.showLiveUsage = () => {
   const remote = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
   const first = remote + "|/projects/work";
@@ -333,6 +355,112 @@ async function browserChecks() {
     await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
     assert.equal(await evaluate('getComputedStyle(document.querySelectorAll(".sidebar-usage-row")[1].querySelector(".sidebar-copy")).display'), "none");
     assert.equal(await evaluate('document.querySelectorAll(".sidebar-usage-rail")[1].firstElementChild.getBoundingClientRect().width'), 16);
+    // The footer button: hover opens every provider's usage in one popover; Escape and a press outside close it.
+    await resize(560, 520);
+    await evaluate("window.setTheme('dark'); window.showUsageButton()");
+    const usageButton = 'document.querySelector("[data-usage-button]")';
+    const popover = 'document.querySelector("[data-usage-popover]")';
+    await waitFor(`Boolean(${usageButton})`);
+    assert.equal(await evaluate(`${usageButton}.getAttribute("aria-label")`), "Plan usage");
+    assert.equal(await evaluate(`${usageButton}.getBoundingClientRect().width`), 32, "The same 32px as Add Project and Filters");
+    assert.equal(
+      await evaluate(`getComputedStyle(${usageButton}.querySelector("svg")).color === getComputedStyle(${usageButton}).color`),
+      true,
+      "The button keeps the footer's ink even with Codex at 96%: the popover's bars carry the tone",
+    );
+    assert.equal(
+      await evaluate(
+        `(() => { const red = document.body.appendChild(Object.assign(document.createElement("span"), { className: "text-red" })); const color = getComputedStyle(red).color; red.remove(); return getComputedStyle(${usageButton}.querySelector("svg")).color !== color; })()`,
+      ),
+      true,
+      "The glyph is never drawn in red",
+    );
+    assert.equal(await evaluate(`${usageButton}.getAttribute("aria-expanded")`), "false");
+    const hover = (target, related = null) =>
+      evaluate(`${target}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse", relatedTarget: ${related} })); true`);
+    // React derives enter and leave from pointerout (with where the pointer went) and from pointerover when it came from outside the window.
+    const unhover = (target, to = "document.body") =>
+      evaluate(`${target}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse", relatedTarget: ${to} })); true`);
+    await hover(usageButton);
+    await waitFor(`Boolean(${popover})`);
+    assert.equal(await evaluate(`${usageButton}.getAttribute("aria-expanded")`), "true");
+    assert.equal(await evaluate("window.usageStaleReads"), 1, "Opening refreshes numbers older than a minute");
+    assert.deepEqual(
+      await evaluate(`[...${popover}.querySelectorAll("[data-usage-provider]")].map((section) => section.dataset.usageProvider)`),
+      ["claude", "codex", "antigravity"],
+      "Every provider with numbers, in one popover; an unavailable one stays out",
+    );
+    const popoverText = await evaluate(`${popover}.textContent`);
+    assert.match(popoverText, /ClaudeWork/);
+    assert.match(popoverText, /victor@example\.test/);
+    assert.match(popoverText, /Gemini weekly/);
+    assert.match(popoverText, /Weekly82% used/);
+    assert.equal(
+      await evaluate(
+        `![${popover}, ...${popover}.querySelectorAll("*")].some((node) => getComputedStyle(node).overflowY !== "visible" && node.scrollHeight > node.clientHeight + 1)`,
+      ),
+      true,
+      "Three providers fit without scrolling",
+    );
+    assert.match(popoverText, /Updated just now/);
+    assert.equal(await evaluate(`Boolean(${popover}.querySelector("[data-usage-provider=codex] [data-usage-error]"))`), true, "A failed read is marked");
+    assert.equal(
+      await evaluate(
+        `(() => { const panel = ${popover}.getBoundingClientRect(); const button = ${usageButton}.getBoundingClientRect(); return panel.bottom <= button.top && panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0; })()`,
+      ),
+      true,
+      "The popover opens above the footer, inside the window",
+    );
+    await screenshot("button-popover-dark");
+    // Moving from the button onto the popover keeps it open.
+    await unhover(usageButton, popover);
+    await delay(300);
+    assert.equal(await evaluate(`Boolean(${popover})`), true, "The pointer on the popover keeps it open");
+    await unhover(popover);
+    await waitFor(`!${popover}`);
+    // Click opens it too, and never toggles it shut; Escape closes it.
+    await evaluate(`${usageButton}.click()`);
+    await waitFor(`Boolean(${popover})`);
+    await evaluate(`${usageButton}.click()`);
+    await delay(50);
+    assert.equal(await evaluate(`Boolean(${popover})`), true, "A second click keeps it open");
+    await evaluate(
+      'window.escapeReachedApp = false; window.addEventListener("keydown", (event) => { if (event.key === "Escape") window.escapeReachedApp = true; }, { once: true }); true',
+    );
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor(`!${popover}`);
+    assert.equal(await evaluate("window.escapeReachedApp"), false, "Escape closes the popover and goes no further");
+    await evaluate(`${usageButton}.click()`);
+    await waitFor(`Boolean(${popover})`);
+    await evaluate('document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); true');
+    await waitFor(`!${popover}`);
+    await evaluate("window.setTheme('light')");
+    await evaluate(`${usageButton}.click()`);
+    await waitFor(`Boolean(${popover})`);
+    await screenshot("button-popover-light");
+    await evaluate('document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); true');
+    await waitFor(`!${popover}`);
+    await evaluate("window.setButtonCollapsed(true)");
+    await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
+    assert.equal(
+      await evaluate(
+        '(() => { const filters = document.querySelector("[data-filters-stand-in]").getBoundingClientRect(); const button = document.querySelector("[data-usage-button]").getBoundingClientRect(); return button.bottom <= filters.top && button.left === filters.left; })()',
+      ),
+      true,
+      "Collapsed, the button stacks above Filters in the rail",
+    );
+    await evaluate(`${usageButton}.click()`);
+    await waitFor(`Boolean(${popover})`);
+    assert.equal(
+      await evaluate(`(() => { const panel = ${popover}.getBoundingClientRect(); return panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0; })()`),
+      true,
+      "Collapsed, the popover still fits the window",
+    );
+    await screenshot("button-popover-collapsed");
+    await evaluate('document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); true');
+    await waitFor(`!${popover}`);
+    await evaluate("window.setTheme('dark')");
+    await resize(320, 180);
     // The hook routes reads and live signals to the computer on screen, without touching this Mac's usage.
     await evaluate("window.showLiveUsage()");
     await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("34%")');
@@ -379,7 +507,7 @@ async function browserChecks() {
     assert.equal(await evaluate("window.localUsageReads"), 0, "The chosen Account refreshes usage on its owning computer");
     await screenshot("remote-live-usage");
     console.log(
-      "PASS: weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, compact one-line mode, collapsed rail, account email and name fallback, account picker",
+      "PASS: usage button popover (hover, click, Escape, collapsed, tone), weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, compact one-line mode, collapsed rail, account email and name fallback, account picker",
     );
     app.exit(0);
   } catch (error) {

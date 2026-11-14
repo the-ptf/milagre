@@ -21,7 +21,10 @@ import {
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  AlarmClockIcon,
+  AlarmClockOffIcon,
   AlertCircleIcon,
+  ArrowRight01Icon,
   Delete02Icon,
   BubbleChatIcon,
   BubbleChatQuestionIcon,
@@ -74,6 +77,7 @@ import { WorkspaceIcon } from "../WorkspaceIcon";
 import { fileManager } from "@/lib/shortcut-hints";
 import { useOutboxWaiting } from "../../lib/outbox";
 import { useSettings } from "../../lib/settings";
+import { snoozeChoices, snoozeDurationLabel, snoozeTimeLabel } from "@milagre/shared/snooze";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
@@ -152,6 +156,8 @@ export type SidebarRecent = {
   pinOrder?: number;
   /** When the chat was marked Done: it leaves the list for the Done section at the bottom (done.mjs). */
   doneAt?: number;
+  /** While the chat is snoozed, when it wakes (ms): it leaves the list for the Snoozed section (snooze.mjs). */
+  snoozedUntil?: number;
   /** The id of the Chat whose Delegation reached this one, in the same scope: the row shows under it (subchat-rows.ts). */
   parent?: string;
   /** An enabled heartbeat checks back on this Chat: its hover-card line, "Heartbeat · every 15 min · next 10:45". */
@@ -172,6 +178,10 @@ export type ChatRowActions = {
   onDone?: (id: string) => void;
   /** Takes a Done chat back to the list. */
   onReopen?: (id: string) => void;
+  /** Snoozes the chat until `until` (ms): the hover Snooze button (Settings' default) and the menu's Snooze choices. */
+  onSnooze?: (id: string, until: number) => void;
+  /** Takes a snoozed chat back to the list now. */
+  onWake?: (id: string) => void;
   onReveal?: (id: string) => void;
   onOpenInEditor?: (id: string) => void;
   /** The chat is on another Mac: the menu leaves out what only acts on this one (Finder, the editor). */
@@ -247,6 +257,10 @@ const HOVER_CARD_GRACE = 250;
 const ROW_PR_LIMIT = 1;
 const HOVER_CARD_WIDTH = 256;
 const MENU_WIDTH = 240;
+/** When a snooze of `minutes` from now ends: the hover Snooze button's wake time. */
+const snoozeEnd = (minutes: number) => Date.now() + minutes * 60_000;
+/** Wide enough for "This evening" and "Tue 9:00" on one line. */
+const SUB_MENU_WIDTH = 200;
 
 type MenuEntry = {
   key: string;
@@ -258,6 +272,8 @@ type MenuEntry = {
   onSelect: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /** Choices in a submenu beside the menu (Snooze's times), each with a dim detail at its right. */
+  sub?: { key: string; label: string; detail?: string; onSelect: () => void }[];
 };
 
 /* ─────────────────────────────────────────────────────────
@@ -428,6 +444,8 @@ function InboxTitleLine({
   now,
   hideTime,
   doneable,
+  snoozable = false,
+  menuOpen = false,
 }: {
   item: SidebarRecent;
   linked: LinkedEnd[];
@@ -437,6 +455,10 @@ function InboxTitleLine({
   hideTime: boolean;
   /** The hover "Done" button takes the mark's place while the pointer is on the row. */
   doneable: boolean;
+  /** The hover Snooze (or Wake) icon sits left of Done, so the title stops further in. */
+  snoozable?: boolean;
+  /** The row's menu is open: its hover icons stay shown, so the title keeps clear of them. */
+  menuOpen?: boolean;
 }) {
   const status = inboxStatus(item);
   // A read Chat with nothing going on steps back to ink-2; one that is unread, working, waiting or failed stays ink.
@@ -444,7 +466,9 @@ function InboxTitleLine({
   return (
     <span className="sidebar-copy flex min-w-0 flex-col">
       {/* The hover "Done" button sits over the state's place: the title stops before it instead of running under it. */}
-      <span className={`flex h-5 min-w-0 items-center gap-1.5 ${doneable && !hideTime ? "group-focus-within/row:pr-[56px] group-hover/row:pr-[56px]" : ""}`}>
+      <span
+        className={`flex h-5 min-w-0 items-center gap-1.5 ${doneable && menuOpen ? (snoozable ? "pr-[78px]" : "pr-[56px]") : doneable && !hideTime ? (snoozable ? "group-focus-within/row:pr-[78px] group-hover/row:pr-[78px]" : "group-focus-within/row:pr-[56px] group-hover/row:pr-[56px]") : ""}`}
+      >
         {item.pinned && (
           <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-4">
             <HugeiconsIcon icon={PinIcon} size={12} strokeWidth={1.8} color="currentColor" />
@@ -676,6 +700,8 @@ function ClassicInboxTitleLine({
   now,
   hideTime,
   doneable,
+  snoozable = false,
+  menuOpen = false,
 }: {
   item: SidebarRecent;
   linked: LinkedEnd[];
@@ -685,13 +711,17 @@ function ClassicInboxTitleLine({
   hideTime: boolean;
   /** The hover "Done" button takes the mark's place while the pointer is on the row. */
   doneable: boolean;
+  /** The hover Snooze (or Wake) icon sits left of Done, so the title stops further in. */
+  snoozable?: boolean;
+  /** The row's menu is open: its hover icons stay shown, so the title keeps clear of them. */
+  menuOpen?: boolean;
 }) {
   const status = inboxStatus(item);
   return (
     <span className="sidebar-copy flex min-w-0 flex-1 flex-col">
       {/* The hover "Done" button sits over the mark's place: the title stops before it instead of running under it. */}
       <span
-        className={`flex h-[18px] min-w-0 items-center gap-1.5 ${doneable && !hideTime ? "group-focus-within/row:pr-[48px] group-hover/row:pr-[48px]" : ""}`}
+        className={`flex h-[18px] min-w-0 items-center gap-1.5 ${doneable && menuOpen ? (snoozable ? "pr-[70px]" : "pr-[48px]") : doneable && !hideTime ? (snoozable ? "group-focus-within/row:pr-[70px] group-hover/row:pr-[70px]" : "group-focus-within/row:pr-[48px] group-hover/row:pr-[48px]") : ""}`}
       >
         {item.pinned && (
           <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-3">
@@ -985,7 +1015,10 @@ export const ChatRow = memo(function ChatRow({
   // The One list's rows: see `project`.
   const inbox = projectName !== undefined;
   // Settings › Appearance › Sidebar rows: Title first (design Alt A) or Classic, in the One list only.
-  const rowStyle = useSettings().appearance.sidebarRows;
+  const {
+    appearance: { sidebarRows: rowStyle },
+    snoozeMinutes,
+  } = useSettings();
   const edge = inbox && rowStyle === "edge";
   const shownFamily = collapsed ? undefined : family;
   const factLine = Boolean(projectName) || facts.length > 0 || Boolean(branch || diff || lastAt !== undefined) || hasChips;
@@ -1041,6 +1074,16 @@ export const ChatRow = memo(function ChatRow({
     if (!doneable || archivePending.current) return;
     hideCard();
     actions.onDone?.(item.id);
+  };
+  // Snooze sits beside Done on hover, for Settings' default time; a snoozed row offers Wake there instead (snooze.mjs).
+  const snoozed = Boolean(item.snoozedUntil);
+  const snoozable = doneable && Boolean(snoozed ? actions.onWake : actions.onSnooze);
+  const snoozeLabel = snoozed ? "Wake" : `Snooze for ${snoozeDurationLabel(snoozeMinutes)}`;
+  const snoozeNow = () => {
+    if (!snoozable || archivePending.current) return;
+    hideCard();
+    if (snoozed) actions.onWake?.(item.id);
+    else actions.onSnooze?.(item.id, snoozeEnd(snoozeMinutes));
   };
   const markDoneRef = useRef(markDone);
   markDoneRef.current = markDone;
@@ -1197,7 +1240,9 @@ export const ChatRow = memo(function ChatRow({
                 lastAt={lastAt}
                 now={now}
                 hideTime={Boolean(shortcutHint) || Boolean(menu)}
+                menuOpen={Boolean(menu)}
                 doneable={doneable && !archiving}
+                snoozable={snoozable}
               />
             ) : (
               <>
@@ -1208,7 +1253,9 @@ export const ChatRow = memo(function ChatRow({
                   lastAt={lastAt}
                   now={now}
                   hideTime={Boolean(shortcutHint) || Boolean(menu)}
+                  menuOpen={Boolean(menu)}
                   doneable={doneable && !archiving}
+                  snoozable={snoozable}
                 />
               </>
             )}
@@ -1248,7 +1295,7 @@ export const ChatRow = memo(function ChatRow({
             )}
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />
             <span
-              className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : doneable ? "group-hover/row:pr-[76px]" : "group-hover/row:pr-6"} ${menu ? (doneable ? "pr-[76px]" : "pr-6") : ""} ${
+              className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : snoozable ? "group-hover/row:pr-[98px]" : doneable ? "group-hover/row:pr-[76px]" : "group-hover/row:pr-6"} ${menu ? (snoozable ? "pr-[98px]" : doneable ? "pr-[76px]" : "pr-6") : ""} ${
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
               }`}
             >
@@ -1366,26 +1413,41 @@ export const ChatRow = memo(function ChatRow({
         )}
 
         {doneable && !renaming && !shortcutHint && !archiving && (
-          <Tooltip
-            label="Mark Done"
-            keyHint="E"
-            align="end"
-            className={`absolute z-30 ${edge ? "right-4 top-2" : inbox ? "right-4 top-[7px]" : `${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} right-10`} opacity-0 transition-opacity duration-100 focus-within:opacity-100 group-hover/row:opacity-100 ${menu ? "opacity-100" : ""}`}
+          <div
+            className={`absolute z-30 flex items-center gap-0.5 ${edge ? "right-4 top-2" : inbox ? "right-4 top-[7px]" : `${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} right-10`} opacity-0 transition-opacity duration-100 focus-within:opacity-100 group-hover/row:opacity-100 ${menu ? "opacity-100" : ""}`}
           >
-            <button
-              type="button"
-              data-chat-done
-              aria-label={`Mark ${item.label} Done`}
-              onClick={(event) => {
-                event.stopPropagation();
-                markDone();
-              }}
-              className={`flex h-5 items-center gap-1 rounded-inline px-1 text-ink-2 transition-colors hover:text-ink focus-visible:text-ink ${edge ? "text-[length:calc(12px+var(--sidebar-delta))] font-medium" : "text-[length:calc(11.5px+var(--sidebar-delta))] font-semibold"}`}
-            >
-              <HugeiconsIcon icon={Tick02Icon} size={edge ? 14 : 12} strokeWidth={edge ? 1.8 : 2.5} color="currentColor" />
-              Done
-            </button>
-          </Tooltip>
+            {snoozable && (
+              <Tooltip label={snoozeLabel} align="end" asChild>
+                <button
+                  type="button"
+                  data-chat-snooze={snoozed ? "wake" : "snooze"}
+                  aria-label={snoozed ? `Wake ${item.label}` : `Snooze ${item.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    snoozeNow();
+                  }}
+                  className="flex size-5 items-center justify-center rounded-inline text-ink-2 transition-colors hover:text-ink focus-visible:text-ink"
+                >
+                  <HugeiconsIcon icon={snoozed ? AlarmClockOffIcon : AlarmClockIcon} size={edge ? 14 : 13} strokeWidth={edge ? 1.8 : 2} color="currentColor" />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip label="Mark Done" keyHint="E" align="end">
+              <button
+                type="button"
+                data-chat-done
+                aria-label={`Mark ${item.label} Done`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  markDone();
+                }}
+                className={`flex h-5 items-center gap-1 rounded-inline px-1 text-ink-2 transition-colors hover:text-ink focus-visible:text-ink ${edge ? "text-[length:calc(12px+var(--sidebar-delta))] font-medium" : "text-[length:calc(11.5px+var(--sidebar-delta))] font-semibold"}`}
+              >
+                <HugeiconsIcon icon={Tick02Icon} size={edge ? 14 : 12} strokeWidth={edge ? 1.8 : 2.5} color="currentColor" />
+                Done
+              </button>
+            </Tooltip>
+          </div>
         )}
         {shortcutHint && !renaming && !menu && (
           <ShortcutKeys
@@ -1975,7 +2037,18 @@ function ChatMenu({
     // Checked once per opening; the menu remounts each time it opens.
   }, []);
 
-  useDismiss(true, onClose, (target) => !!(menuRef.current?.contains(target) || trigger.current?.contains(target)));
+  // The open submenu (Snooze's times), beside its row: hovered open, or opened from the keyboard with focus in it.
+  const subRef = useRef<HTMLDivElement>(null);
+  const [sub, setSub] = useState<{ key: string; top: number; focus: boolean } | null>(null);
+  useLayoutEffect(() => {
+    if (sub?.focus) subRef.current?.querySelector<HTMLElement>("[data-menu-row]")?.focus();
+  }, [sub]);
+  const openSub = (key: string, row: HTMLElement, focus: boolean) => {
+    const top = row.getBoundingClientRect().top - 6;
+    setSub((current) => (current?.key === key && !focus ? current : { key, top, focus }));
+  };
+
+  useDismiss(true, onClose, (target) => !!(menuRef.current?.contains(target) || subRef.current?.contains(target) || trigger.current?.contains(target)));
 
   const run = (action: () => void) => () => {
     onClose();
@@ -1985,7 +2058,40 @@ function ChatMenu({
   const copy = (text: string) => run(() => void navigator.clipboard.writeText(text).catch(() => {}));
 
   const deletionPlan = plan ?? HIDE_ONLY;
+  // Read once per opening (the menu remounts each time), so the times beside Snooze's choices hold still.
+  const [openedAt] = useState(() => Date.now());
+  const snoozeItems: MenuEntry[] = item.doneAt
+    ? []
+    : item.snoozedUntil
+      ? actions.onWake
+        ? [
+            {
+              key: "wake",
+              label: "Wake",
+              icon: AlarmClockOffIcon,
+              hint: `Snoozed until ${snoozeTimeLabel(item.snoozedUntil, openedAt)}`,
+              onSelect: run(() => actions.onWake?.(item.id)),
+            },
+          ]
+        : []
+      : actions.onSnooze
+        ? [
+            {
+              key: "snooze",
+              label: "Snooze",
+              icon: AlarmClockIcon,
+              onSelect: () => {},
+              sub: snoozeChoices(openedAt).map((choice) => ({
+                key: choice.id,
+                label: choice.label,
+                detail: snoozeTimeLabel(choice.until, openedAt),
+                onSelect: run(() => actions.onSnooze?.(item.id, choice.until)),
+              })),
+            },
+          ]
+        : [];
   const archiveItems: MenuEntry[] = [
+    ...snoozeItems,
     ...(actions.onDone && !item.doneAt
       ? [
           {
@@ -2186,7 +2292,11 @@ function ChatMenu({
   const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
     const index = rows.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    const active = document.activeElement as HTMLElement | null;
+    if (event.key === "ArrowRight" && active?.dataset.sub) {
+      event.preventDefault();
+      openSub(active.dataset.sub, active, true);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       rows[(index + step + rows.length) % rows.length]?.focus();
@@ -2199,48 +2309,109 @@ function ChatMenu({
     }
   };
 
+  const subEntry = sub ? items.find((entry): entry is MenuEntry => entry !== "divider" && entry.key === sub.key) : undefined;
+  const subKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const rows = [...(subRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
+    const index = rows.indexOf(document.activeElement as HTMLElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      rows[(index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]?.focus();
+    } else if (event.key === "ArrowLeft" || event.key === "Escape") {
+      // Back to the row it opened from; Escape closes the submenu alone.
+      event.preventDefault();
+      event.stopPropagation();
+      const key = sub?.key;
+      setSub(null);
+      menuRef.current?.querySelector<HTMLElement>(`[data-sub="${key}"]`)?.focus();
+    } else if (event.key === "Tab") event.preventDefault();
+  };
+  // Beside the menu, on the left when the window has no room on the right.
+  const subLeft = position.x + MENU_WIDTH + SUB_MENU_WIDTH + 12 > window.innerWidth ? position.x - SUB_MENU_WIDTH - 6 : position.x + MENU_WIDTH + 6;
+
   return createPortal(
-    <div
-      ref={menuRef}
-      role="menu"
-      aria-label={`Actions for ${item.label}`}
-      data-chat-menu
-      onKeyDown={moveFocus}
-      className="fixed z-[70] flex max-h-[calc(100vh-16px)] flex-col overflow-hidden rounded-card bg-surface p-1.5 shadow-overlay"
-      style={{
-        top,
-        left: position.x,
-        width: MENU_WIDTH,
-        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
-        transformOrigin: "top left",
-      }}
-    >
-      <ScrollArea className="min-h-0">
-        <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover-2">
-          {items.map((entry, index) =>
-            entry === "divider" ? (
-              <div key={`divider-${index}`} className="my-1 h-px bg-line" />
-            ) : (
+    <>
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label={`Actions for ${item.label}`}
+        data-chat-menu
+        onKeyDown={moveFocus}
+        className="fixed z-[70] flex max-h-[calc(100vh-16px)] flex-col overflow-hidden rounded-card bg-surface p-1.5 shadow-overlay"
+        style={{
+          top,
+          left: position.x,
+          width: MENU_WIDTH,
+          animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+          transformOrigin: "top left",
+        }}
+      >
+        <ScrollArea className="min-h-0">
+          <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover-2">
+            {items.map((entry, index) =>
+              entry === "divider" ? (
+                <div key={`divider-${index}`} className="my-1 h-px bg-line" />
+              ) : (
+                <button
+                  key={entry.key}
+                  data-menu-row
+                  data-sub={entry.sub ? entry.key : undefined}
+                  role="menuitem"
+                  type="button"
+                  aria-haspopup={entry.sub ? "menu" : undefined}
+                  aria-expanded={entry.sub ? sub?.key === entry.key : undefined}
+                  disabled={entry.disabled}
+                  title={entry.hint}
+                  onPointerEnter={(event) => (entry.sub ? openSub(entry.key, event.currentTarget, false) : setSub(null))}
+                  onClick={entry.sub ? (event) => openSub(entry.key, event.currentTarget, true) : entry.onSelect}
+                  // The row whose submenu is open keeps the highlight.
+                  className={`relative z-10 flex w-full items-center gap-2 rounded-control px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 h-8 ${entry.danger ? "text-red-ink" : "text-ink"} ${entry.sub && sub?.key === entry.key ? "bg-hover-2" : ""}`}
+                >
+                  <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
+                    {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-13">{entry.label}</span>
+                  {entry.sub && <HugeIcon icon={ArrowRight01Icon} size={14} />}
+                </button>
+              ),
+            )}
+          </GlideMenu>
+        </ScrollArea>
+      </div>
+      {sub && subEntry?.sub && (
+        <div
+          ref={subRef}
+          role="menu"
+          aria-label={subEntry.label}
+          data-chat-submenu={subEntry.key}
+          onKeyDown={subKeys}
+          className="fixed z-[71] flex flex-col overflow-hidden rounded-card bg-surface p-1.5 shadow-overlay"
+          style={{
+            top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - (subEntry.sub.length * 33 + 12))),
+            left: subLeft,
+            width: SUB_MENU_WIDTH,
+            animation: "pop-in var(--duration-fast) var(--ease-enter) both",
+            transformOrigin: "top left",
+          }}
+        >
+          <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover-2">
+            {subEntry.sub.map((choice) => (
               <button
-                key={entry.key}
+                key={choice.key}
                 data-menu-row
+                data-sub-choice={choice.key}
                 role="menuitem"
                 type="button"
-                disabled={entry.disabled}
-                title={entry.hint}
-                onClick={entry.onSelect}
-                className={`relative z-10 flex w-full items-center gap-2 rounded-control px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 h-8 ${entry.danger ? "text-red-ink" : "text-ink"}`}
+                onClick={choice.onSelect}
+                className="relative z-10 flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-ink outline-none focus-visible:bg-hover-2"
               >
-                <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
-                  {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-13">{entry.label}</span>
+                <span className="min-w-0 flex-1 truncate text-13">{choice.label}</span>
+                {choice.detail && <span className="shrink-0 text-12 tabular-nums text-ink-3">{choice.detail}</span>}
               </button>
-            ),
-          )}
-        </GlideMenu>
-      </ScrollArea>
-    </div>,
+            ))}
+          </GlideMenu>
+        </div>
+      )}
+    </>,
     document.body,
   );
 }

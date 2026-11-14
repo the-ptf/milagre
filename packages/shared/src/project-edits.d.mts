@@ -3,6 +3,9 @@ import type { AgentSession, CoordinatorState, DiffStat, Subagent } from "./model
 export type SessionPatch = Partial<Pick<AgentSession, "title" | "unread" | "archived" | "pinned" | "pin_order">> & {
   /** Marks the chat Done (the host stamps `done_at` with its own clock) or reopens it. */
   done?: boolean;
+  /** Snoozes the Chat until this time (ms), or wakes it (false). The host clears it on Done, archive, a sent message,
+   * a question, approval or failed turn, and once the time passes (snooze.mjs). */
+  snoozed_until?: number | false;
   /**
    * The user took the Chat over: a hidden Run Chat stays in the lists from then on. Pins are this device's own
    * (chat-pins.ts) and never reach the host, so pinning one says so with this instead. Nothing is saved for it.

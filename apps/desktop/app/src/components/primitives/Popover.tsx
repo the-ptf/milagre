@@ -43,6 +43,8 @@ export function Popover({
   role = "menu",
   label,
   onClose,
+  onPointerEnter,
+  onPointerLeave,
   className = "",
   children,
   ...data
@@ -55,6 +57,9 @@ export function Popover({
   role?: "menu" | "dialog" | "listbox";
   label?: string;
   onClose: () => void;
+  /** For a panel that opens on hover (the sidebar's usage button): the pointer reaching it keeps it open. */
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
   className?: string;
   children: ReactNode;
 } & { [key: `data-${string}`]: string | boolean | undefined }) {
@@ -122,6 +127,8 @@ export function Popover({
       aria-label={label}
       {...data}
       onKeyDown={onKeyDown}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
       className={`fixed z-50 flex min-w-48 flex-col rounded-card bg-surface p-1.5 shadow-raised ${className}`}
       style={{
         left: position?.left ?? 0,

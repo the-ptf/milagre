@@ -123,9 +123,10 @@ async function browserChecks() {
     await delay(300);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const click = async (selector) => {
+  // `across` is where along the element to click: a row's middle is its hover icons' place in a narrow sidebar.
+  const click = async (selector, across = 0.5) => {
     const point = await evaluate(
-      `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`,
+      `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width * ${across}), y: Math.round(r.y + r.height / 2) }; })()`,
     );
     window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
     window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
@@ -340,7 +341,8 @@ async function browserChecks() {
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-filters-panel]")`);
 
-    await click('[data-sidebar-scope="/work/shop"] [data-chat-id] [data-row]');
+    // The title's side of the row: at this width, the hover Snooze and Done icons cover its middle.
+    await click('[data-sidebar-scope="/work/shop"] [data-chat-id] [data-row]', 0.25);
     assert.equal(await evaluate("window.opened"), "/work/shop#7", "Another Project's chat opens through onOpenScopeChat");
 
     // Delete acts on one click against the row's Project, without a confirmation surface.

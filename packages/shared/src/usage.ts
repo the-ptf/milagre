@@ -68,6 +68,29 @@ export function overviewUpdatedAt(snapshot: UsageSnapshot | null): string | null
   return times.length ? new Date(Math.min(...times)).toISOString() : null;
 }
 
+/** What the sidebar shows for plan usage: one footer button that opens every provider's limits, a meter per provider, or nothing. */
+export type UsageInSidebar = "button" | "meters" | "off";
+
+export const USAGE_IN_SIDEBAR_CHOICES: readonly { id: UsageInSidebar; label: string; hint: string }[] = [
+  { id: "button", label: "Button", hint: "A button beside Filters shows every provider's limits" },
+  { id: "meters", label: "Meters", hint: "A meter per provider; hover one for its limits and reset times" },
+  { id: "off", label: "Off", hint: "Plan usage stays in Settings › Usage" },
+];
+
+/** The footer button's name, and the title of what it opens, on desktop and phone. */
+export const USAGE_BUTTON_LABEL = "Plan usage";
+
+/**
+ * The saved choice; before it existed the sidebar had an on/off `showUsageInSidebar`, whose meters an `on` keeps.
+ * Nothing saved is the new default, the button.
+ */
+export function parseUsageInSidebar(value: unknown, legacyShow?: unknown): UsageInSidebar {
+  if (value === "button" || value === "meters" || value === "off") return value;
+  if (legacyShow === true) return "meters";
+  if (legacyShow === false) return "off";
+  return "button";
+}
+
 /** The providers the sidebar shows: those with numbers. One in error keeps showing its last-known windows. */
 export function visibleProviders(snapshot: UsageSnapshot) {
   return snapshot.providers.filter((item) => item.status !== "unavailable" && item.windows.length > 0);

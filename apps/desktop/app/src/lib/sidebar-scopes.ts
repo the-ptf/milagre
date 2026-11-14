@@ -2,6 +2,7 @@ import { bridgeForKey } from "./computer-bridge.ts";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import type { CoordinatorState, LinkState, OpenProject, Routine } from "@milagre/shared/model";
 import { clock, triggerText } from "@milagre/shared/routines";
+import { isSnoozed } from "@milagre/shared/snooze";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { seedHeldState, stateEvents } from "./state-events.ts";
@@ -119,6 +120,7 @@ export function scopeChats(
       pinned: Boolean(session.pinned),
       pinOrder: session.pin_order,
       ...(session.done_at ? { doneAt: session.done_at } : {}),
+      ...(isSnoozed(session) ? { snoozedUntil: session.snoozed_until } : {}),
       ...("parent" in session && session.parent !== undefined ? { parent: String(session.parent) } : {}),
       unread: Boolean(session.unread),
       mark: chatMark({

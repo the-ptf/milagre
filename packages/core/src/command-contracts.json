@@ -2205,6 +2205,20 @@
         }
       ]
     },
+    "folder-repos:detect:read": {
+      "parameters": []
+    },
+    "folder-repos:detect:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
     "project:known": {
       "parameters": []
     },
@@ -4062,20 +4076,6 @@
           "optional": false,
           "schema": {
             "type": "string"
-          }
-        }
-      ]
-    },
-    "folder-repos:detect:read": {
-      "parameters": []
-    },
-    "folder-repos:detect:save": {
-      "parameters": [
-        {
-          "name": "value",
-          "optional": false,
-          "schema": {
-            "enum": [false, true]
           }
         }
       ]
@@ -8356,6 +8356,17 @@
         "done": {
           "enum": [false, true],
           "description": "Marks the chat Done (the host stamps `done_at` with its own clock) or reopens it."
+        },
+        "snoozed_until": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "const": false
+            }
+          ],
+          "description": "Snoozes the Chat until this time (ms), or wakes it (false). The host clears it on Done, archive, a sent message,\na question, approval or failed turn, and once the time passes (snooze.mjs)."
         },
         "kept": {
           "enum": [true],

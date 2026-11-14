@@ -76,6 +76,8 @@ export function attentionContext(state, projectName, sessionId) {
     chatTitle: titled(session),
     ...(parent ? { parentTitle: titled(parent) } : {}),
     provider: session.provider,
+    // A snoozed Chat's end of work sends no notice (snooze.mjs); a question or failure wakes it first.
+    ...(session.snoozed_until ? { snoozedUntil: session.snoozed_until } : {}),
   };
 }
 

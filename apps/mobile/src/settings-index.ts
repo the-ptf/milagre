@@ -192,6 +192,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "compact full detail",
   },
   {
+    page: "chat-display",
+    title: "Snooze for",
+    group: "Snooze",
+    keywords: "snooze later remind wake default duration quiet",
+  },
+  {
     page: "voice",
     title: "Keyboard shortcut",
     keywords: "dictate voice keyboard alt space ipad",

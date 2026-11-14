@@ -150,6 +150,7 @@ const stubs = {
   "./usage-section": "export const UsageSection = () => null;",
   "./project-icon": "export const ProjectIcon = () => null; export const ChatsHomeIcon = () => null; export const ProjectIcons = () => null;",
   "./project-search": "export const ProjectSearch = () => null;",
+  "./snooze-setting": "export const useSnoozeMinutes = () => [60, () => {}];",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
   // The swipe row is Reanimated and the gesture handler, native-only: a row here renders without it.
   "./chat-swipe-row":

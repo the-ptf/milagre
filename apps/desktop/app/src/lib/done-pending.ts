@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { SessionPatch } from "@milagre/shared/project-edits";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { bridgeForKey } from "./computer-bridge.ts";
+import { dropSnoozePending } from "./snooze-pending.ts";
 
 /*
  * DONE, AT ONCE
@@ -43,6 +44,8 @@ export function patchChatShowingDone(scopeKey: string, sessionId: number, patch:
   const chatKey = `${scopeKey}#${sessionId}`;
   const doneAt = done ? Date.now() : null;
   set(chatKey, doneAt);
+  // Done and Reopen both end a snooze on the host (runtime sessionPatch), so a Snooze still on its way stops showing.
+  dropSnoozePending(scopeKey, sessionId);
   return bridgeForKey(scopeKey)
     .patchChat(scopeKey, sessionId, patch)
     .catch((error: unknown) => {

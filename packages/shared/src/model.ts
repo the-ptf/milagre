@@ -189,6 +189,8 @@ export interface AgentSession {
   pin_order?: number;
   /** When the user marked the chat Done (host clock, ms): it sits in the Done list until the host archives it (done.mjs). */
   done_at?: number;
+  /** While ahead (ms): the chat is snoozed, in the Snoozed list and quiet, until then or until it needs the user (snooze.mjs). */
+  snoozed_until?: number;
   /** Legacy (before in-place handoff): the chat this one was handed over to, on the other provider. Read, never written. */
   handedOverTo?: number;
   /** Legacy (before in-place handoff): the chat this one was handed over from. Read, never written. */

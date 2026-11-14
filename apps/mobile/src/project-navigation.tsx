@@ -4,6 +4,9 @@ import { type } from "./design-tokens";
 import { ChatSwipeRow, hideRevealed } from "./chat-swipe-row";
 import { retentionOf, useDoneRetention } from "./done-retention";
 import { doneCountdown } from "@milagre/shared/done";
+import { bySnoozedUntil, isSnoozed, snoozeWakeLabel } from "@milagre/shared/snooze";
+import { settleSnooze, snoozeAt, snoozeMarkFor, withSnoozeMark, WAKE, type SnoozeMark } from "./snooze-actions";
+import { useSnoozeMinutes } from "./snooze-setting";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
@@ -25,7 +28,7 @@ import type { Href } from "expo-router";
 import {
   Add01Icon,
   ArrowDown01Icon,
-  CheckmarkCircle02Icon,
+  AlarmClockIcon,
   HourglassIcon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
@@ -203,6 +206,16 @@ type Row = { key: string; path: string } & (
     } & HostTag)
   /** The one quiet line for every computer that isn't answering; Retry reads those computers again. */
   | { kind: "offline"; hostIds: string[] }
+  /** The Snoozed section's header, above Done: a tap folds it. */
+  | { kind: "snoozedHeader"; count: number; expanded: boolean }
+  /** A snoozed Chat: a tap opens it, a swipe right wakes it, and it counts down to when its computer wakes it. */
+  | ({
+      kind: "snoozed";
+      chat: AgentSession;
+      title: string;
+      many: boolean;
+      home?: boolean;
+    } & HostTag)
   /** The Done section's header at the bottom of the list: a tap folds it. */
   | { kind: "doneHeader"; count: number; expanded: boolean }
   /** A Done Chat: a tap opens it, a swipe right reopens it, and it counts down to its Mac's archive. `many`: name its computer. */
@@ -248,6 +261,8 @@ type ProjectBuild = {
   chats: ChatEntry[];
   /** Its Done Chats, for the Done section at the bottom of the list. */
   done: ChatEntry[];
+  /** Its snoozed Chats, for the Snoozed section above Done. */
+  snoozed: ChatEntry[];
   failure?: string;
 };
 /** `home`: the computer's Chats without a Project, once its Chats home exists. */
@@ -266,6 +281,8 @@ type BuildContext = {
   hidden: (projectPath: string, chatId: number) => boolean;
   /** Marked Done (a time) or reopened (null) from here, before its computer has answered: the row moves at once. */
   doneMark: (projectPath: string, chatId: number) => DoneMark | undefined;
+  /** Snoozed (a wake time) or woken (null) from here, before its computer has answered. */
+  snoozeMark: (projectPath: string, chatId: number) => SnoozeMark | undefined;
   fallback: (path: string) => ProjectCopy | undefined;
   show: Show;
   /** This phone's pins on the computer: the Mac's own never show here (chat-pins-store.ts). */
@@ -354,7 +371,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     byChat.set(message.session_id, list);
   }
   const entries = Object.values(copy ? sessionsWithPins(copy.project.state.sessions, copy.project.path, ctx.pins) : {}).map((saved) => {
-    const chat = withDoneMark(saved, ctx.doneMark(project.path, saved.id));
+    const chat = withSnoozeMark(withDoneMark(saved, ctx.doneMark(project.path, saved.id)), ctx.snoozeMark(project.path, saved.id));
     const run = copy?.runs.runs[`${copy.project.path}#${chat.id}`];
     const pending = pendingById.get(chat.id);
     const messages = byChat.get(chat.id);
@@ -390,6 +407,15 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
           .filter(({ chat }) => !ctx.hidden(copy?.project.path ?? project.path, chat.id))
           .map(toEntry)
       : [];
+  // Snoozed Chats leave it too, for the Snoozed section above Done, until they wake.
+  const now = Date.now();
+  const snoozed =
+    ctx.show === "all"
+      ? entries
+          .filter(({ chat }) => isSnoozed(chat, now) && !ctx.archiving(copy?.project.path ?? project.path, chat.id))
+          .filter(({ chat }) => !ctx.hidden(copy?.project.path ?? project.path, chat.id))
+          .map(toEntry)
+      : [];
   const all: ChatEntry[] = entries
     // Like desktop's sidebar, a worktree's empty starter Chat stays out until it has a message or a turn is starting.
     // A Chat stays in its place while its archive runs, under the progress, until the archive ends.
@@ -399,6 +425,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
       if (chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id)) return false;
       if (!shownChat(chat, run, count, { archived: false })) return false;
       if (chat.done_at && !chat.archived) return false;
+      if (isSnoozed(chat, now)) return false;
       if (ctx.show === "needs") return NEEDS.has(mark);
       if (ctx.show === "running") return mark === "running" || mark === "background";
       return true;
@@ -419,6 +446,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     all,
     chats,
     done,
+    snoozed,
     failure: view.errors.get(project.path),
   };
 }
@@ -463,6 +491,13 @@ const CHATS_GROUP_MENU = [{ items: [{ id: "new", title: "New Chat", systemImage:
 const DONE_MENU = [
   {
     items: [{ id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }],
+  },
+];
+
+/** A snoozed row's menu: Wake, or Mark Done on a computer that keeps Done. */
+const snoozedMenu = (doneable: boolean) => [
+  {
+    items: [{ id: WAKE, title: "Wake", systemImage: "alarm" }, ...(doneable ? [{ id: "done", title: "Mark Done", systemImage: "checkmark.circle" }] : [])],
   },
 ];
 
@@ -531,8 +566,11 @@ const NavigationBody = memo(function NavigationBody({
   // Last activity reads "5m"; the clock ticks only while the rows show it, which a Chats group row always does.
   // The Done section starts folded and stays as the user left it while the app runs.
   const [doneOpen, setDoneOpen] = useState(false);
-  // An open Done section counts down to each Chat's archive, so the clock ticks then too.
-  const now = useActivityClock(rowShow.lastActivity || doneOpen || views.some((view) => view.home?.exists));
+  // The Snoozed section starts folded too.
+  const [snoozedOpen, setSnoozedOpen] = useState(false);
+  const [snoozeMinutes] = useSnoozeMinutes();
+  // An open Done or Snoozed section counts down to each Chat's archive or wake, so the clock ticks then too.
+  const now = useActivityClock(rowShow.lastActivity || doneOpen || snoozedOpen || views.some((view) => view.home?.exists));
   // The Chats group folds for as long as the app runs; it isn't one computer's, so the per-computer folds don't hold it.
   const [chatsFolded, setChatsFolded] = useState(false);
   // Opened subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts): a family starts
@@ -551,6 +589,8 @@ const NavigationBody = memo(function NavigationBody({
   }, [openRoot, currentHostId, activeChatId]);
   // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
   const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
+  // Snooze and Wake asked from this list, by the same key: the row moves before its computer answers.
+  const [snoozeMarks, setSnoozeMarks] = useState<ReadonlyMap<string, SnoozeMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
   const [addHostId, setAddHostId] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -614,6 +654,7 @@ const NavigationBody = memo(function NavigationBody({
         archives.chats,
         archives.hidden,
         doneMarks,
+        snoozeMarks,
         savedChatPins.pins(view.hostId),
         current ? snapshot : null,
         current ? cachedProject : null,
@@ -629,6 +670,7 @@ const NavigationBody = memo(function NavigationBody({
         archiving: archiving(view.hostId),
         hidden: (projectPath, chatId) => archives.hidden.has(deletionKey(view.hostId, `${projectPath}#${chatId}`)),
         doneMark: (projectPath, chatId) => (doneMarks.size ? doneMarks.get(`${view.hostId}|${projectPath}#${chatId}`) : undefined),
+        snoozeMark: (projectPath, chatId) => (snoozeMarks.size ? snoozeMarks.get(`${view.hostId}|${projectPath}#${chatId}`) : undefined),
         fallback: cachedProject,
         show,
         pins: savedChatPins.pins(view.hostId),
@@ -648,6 +690,7 @@ const NavigationBody = memo(function NavigationBody({
     archives.chats,
     archives.hidden,
     doneMarks,
+    snoozeMarks,
     snapshot,
     cachedProject,
     currentHostId,
@@ -754,7 +797,12 @@ const NavigationBody = memo(function NavigationBody({
           hostId: head.build.hostId,
           hostName: head.build.hostName,
           reach: head.build.reach,
-          message: show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
+          message:
+            show !== "all"
+              ? "No matching Chats"
+              : copies.some(({ project }) => project.snoozed.length || project.done.length)
+                ? "All caught up. Snoozed and Done Chats are below."
+                : "No Chats yet. Start one with +.",
         });
       return listed;
     };
@@ -901,7 +949,13 @@ const NavigationBody = memo(function NavigationBody({
             rows.push({
               ...base,
               key: `${build.hostId}|${project.path}:notice`,
-              message: !project.copy ? "Loading Chats..." : show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
+              message: !project.copy
+                ? "Loading Chats..."
+                : show !== "all"
+                  ? "No matching Chats"
+                  : project.snoozed.length || project.done.length
+                    ? "All caught up. Snoozed and Done Chats are below."
+                    : "No Chats yet. Start one with +.",
             });
           return rows;
         };
@@ -951,6 +1005,37 @@ const NavigationBody = memo(function NavigationBody({
             })),
         )
       : [];
+    // Every computer's snoozed Chats in one section above Done, the one waking soonest first.
+    if (!needle && show === "all") {
+      const snoozed = builds
+        .flatMap((build) =>
+          build.projects.concat(build.home ? [build.home] : []).flatMap((project) =>
+            project.snoozed.map((entry): Extract<Row, { kind: "snoozed" }> => ({
+              key: `snoozed:${build.hostId}|${project.path}#${entry.chat.id}`,
+              path: project.path,
+              kind: "snoozed",
+              hostId: build.hostId,
+              hostName: build.hostName,
+              reach: build.reach,
+              chat: entry.chat,
+              title: entry.title,
+              many: manyHosts,
+              ...(project === build.home ? { home: true } : {}),
+            })),
+          ),
+        )
+        .sort((a, b) => bySnoozedUntil(a.chat, b.chat));
+      if (snoozed.length) {
+        result.push({
+          key: "snoozed-header",
+          path: "",
+          kind: "snoozedHeader",
+          count: snoozed.length,
+          expanded: snoozedOpen,
+        });
+        if (snoozedOpen) result.push(...snoozed);
+      }
+    }
     // Every computer's Done Chats in one section under the list, most recently marked first.
     if (!needle && show === "all") {
       const done = builds
@@ -995,7 +1080,7 @@ const NavigationBody = memo(function NavigationBody({
       searchable: found,
       projectHits: hits,
     };
-  }, [builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, subchatFolds]);
+  }, [builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds]);
   // Projects held without their messages (a preview, or a host that keeps them by Chat) are searched on their own
   // computer's host.
   const [hostMatches, setHostMatches] = useState<{
@@ -1259,6 +1344,27 @@ const NavigationBody = memo(function NavigationBody({
         undo: run("done"),
         redo: run("reopen"),
       };
+    // A snooze arrives here settled ("snooze-at:<ms>"), so Redo snoozes to the same time.
+    const snooze = snoozeMarkFor(action);
+    if (snooze?.until)
+      return {
+        text: "Snoozed",
+        undoneText: "Back in Chats",
+        place: "list",
+        undo: run(WAKE),
+        redo: run(action),
+      };
+    // Undoing a Wake snoozes it again until the time it had, while that is still ahead.
+    const wakeAt = row.chat.snoozed_until;
+    if (action === WAKE && wakeAt && wakeAt > Date.now())
+      return {
+        text: "Back in Chats",
+        kind: "undone",
+        undoneText: "Snoozed",
+        place: "list",
+        undo: run(snoozeAt(wakeAt)),
+        redo: run(WAKE),
+      };
     if (action === "pin" || action === "unpin") {
       const other = action === "pin" ? "unpin" : "pin";
       return {
@@ -1274,8 +1380,10 @@ const NavigationBody = memo(function NavigationBody({
   // A Chat's ⋯ choice runs against its own computer's client and its own Project's copy, which is reread afterwards.
   // Archive stays in this sidebar, including when its Chat is open behind it, so the row's progress and the list's
   // scroll position stay in place.
-  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string, record = true) {
+  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, choice: string, record = true) {
     const { hostId, path: projectPath, chat } = row;
+    // A Snooze choice takes its wake time now, when it is picked.
+    const action = settleSnooze(choice, snoozeMinutes);
     if (action === "open-beside") {
       openBeside({ hostId, projectPath, chatId: chat.id });
       return;
@@ -1302,6 +1410,18 @@ const NavigationBody = memo(function NavigationBody({
         return next;
       });
     if (doneMark) setDoneMarks((marks) => new Map(marks).set(archiveKey, doneMark));
+    // Snooze and Wake move the row now too.
+    const snoozeMark = snoozeMarkFor(action);
+    const settleSnoozeMark = () =>
+      snoozeMark &&
+      alive.current &&
+      setSnoozeMarks((marks) => {
+        if (marks.get(archiveKey) !== snoozeMark) return marks;
+        const next = new Map(marks);
+        next.delete(archiveKey);
+        return next;
+      });
+    if (snoozeMark) setSnoozeMarks((marks) => new Map(marks).set(archiveKey, snoozeMark));
     // Done, Reopen and pins join the undo history: the toast's Undo and Redo (and an iPad's ⌘Z / ⇧⌘Z) run their opposite
     // through here again, unrecorded.
     const step = record ? undoStep(row, action) : undefined;
@@ -1347,6 +1467,7 @@ const NavigationBody = memo(function NavigationBody({
     } finally {
       archiveRequests.delete(archiveKey);
       settleDone();
+      settleSnoozeMark();
     }
   }
   /** A Chat as the Link picker names it, or undefined when it can't join a Link (no Worktree, not a local Project). */
@@ -1683,6 +1804,7 @@ const NavigationBody = memo(function NavigationBody({
         onNavigate(find ? { pathname: `/${page}`, params: { find, findAt: String(Date.now()) } } : (`/${page}` as Href), page === "routines" ? true : "sheet"),
       foldChats: () => setChatsFolded((folded) => !folded),
       foldDone: () => setDoneOpen((open) => !open),
+      foldSnoozed: () => setSnoozedOpen((open) => !open),
       foldSubchats: (key) =>
         setSubchatOpen((open) => {
           const next = new Set(open);
@@ -1709,6 +1831,7 @@ const NavigationBody = memo(function NavigationBody({
       openSetting: (...args) => latestActions.current!.openSetting(...args),
       foldChats: () => latestActions.current!.foldChats(),
       foldDone: () => latestActions.current!.foldDone(),
+      foldSnoozed: () => latestActions.current!.foldSnoozed(),
       foldSubchats: (key) => latestActions.current!.foldSubchats(key),
       load: (...args) => latestActions.current!.load(...args),
       registerHeader: (...args) => latestActions.current!.registerHeader(...args),
@@ -1738,11 +1861,13 @@ const NavigationBody = memo(function NavigationBody({
       clientOf,
       worktreeForLinks,
       doneHours,
+      snoozeMinutes,
       background,
       actions,
     }),
     [
       doneHours,
+      snoozeMinutes,
       background,
       currentHostId,
       currentPath,
@@ -1993,6 +2118,7 @@ type RowActions = {
   openSetting: (page: SettingsRoute, find?: string) => void;
   foldChats: () => void;
   foldDone: () => void;
+  foldSnoozed: () => void;
   /** Folds or unfolds the subchats under the parent row `key`. */
   foldSubchats: (key: string) => void;
   load: (hostId: string, projectPath: string) => Promise<unknown>;
@@ -2025,6 +2151,8 @@ type RowView = {
   worktreeForLinks: (projectPath: string, worktreePath?: string) => { project_id: string; worktree_path: string } | undefined;
   /** Each computer's Done retention in hours (done-retention.ts); a computer missing from it can't keep Done. */
   doneHours: Record<string, number>;
+  /** This phone's default snooze in minutes (snooze-setting.ts), for the row menus' Snooze for. */
+  snoozeMinutes: number;
   /** The list's own color, under every row. */
   background: string;
   actions: RowActions;
@@ -2170,6 +2298,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     clientOf,
     worktreeForLinks,
     doneHours,
+    snoozeMinutes,
     background,
     actions: {
       enter,
@@ -2180,6 +2309,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       openSetting,
       foldChats,
       foldDone,
+      foldSnoozed,
       foldSubchats,
       load,
       registerHeader,
@@ -2239,13 +2369,14 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         <IconButton label="New Chat without a Project" icon={Add01Icon} size={44} disabled={busy} onPress={() => void startWithoutProject()} />
       </View>
     );
-  if (item.kind === "doneHeader")
+  if (item.kind === "doneHeader" || item.kind === "snoozedHeader") {
+    const name = item.kind === "doneHeader" ? "Done" : "Snoozed";
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Done, ${item.count} ${item.count === 1 ? "chat" : "chats"}`}
+        accessibilityLabel={`${name}, ${item.count} ${item.count === 1 ? "chat" : "chats"}`}
         accessibilityState={{ expanded: item.expanded }}
-        onPress={foldDone}
+        onPress={item.kind === "doneHeader" ? foldDone : foldSnoozed}
         style={[
           s.project,
           {
@@ -2257,16 +2388,32 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       >
         <View style={s.projectTitle}>
           <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
-          <Text style={[s.secondary, { fontWeight: "600", color: colors.ink2 }]}>Done</Text>
+          <Text style={[s.secondary, { fontWeight: "600", color: colors.ink2 }]}>{name}</Text>
           <Text style={[s.secondary, { color: colors.ink3, fontVariant: ["tabular-nums"] }]}>{item.count}</Text>
         </View>
       </Pressable>
     );
-  if (item.kind === "done") {
+  }
+  // A Done or snoozed Chat: its title with the time left beside it (to its archive, or to when it wakes), and its computer
+  // under it when several are listed.
+  if (item.kind === "done" || item.kind === "snoozed") {
     const offline = item.reach === "offline";
-    const countdown = doneCountdown(item.chat, retentionOf(doneHours, item.hostId), now);
+    const done = item.kind === "done";
+    const countdown = done
+      ? doneCountdown(item.chat, retentionOf(doneHours, item.hostId), now)
+      : item.chat.snoozed_until
+        ? snoozeWakeLabel(item.chat.snoozed_until, now)
+        : "";
+    const menu = done ? DONE_MENU : snoozedMenu(doneHours[item.hostId] !== undefined);
     return (
-      <ChatSwipeRow done unread={false} disabled={offline || !copyOf(item.hostId, item.path)} background={background} onAction={(action) => act(item, action)}>
+      <ChatSwipeRow
+        done={done}
+        snoozed={!done}
+        unread={false}
+        disabled={offline || !copyOf(item.hostId, item.path)}
+        background={background}
+        onAction={(action) => act(item, action)}
+      >
         <View
           style={{
             flexDirection: "row",
@@ -2274,34 +2421,34 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             opacity: offline ? 0.6 : 1,
           }}
         >
-          {/* A long press or the ⋯ button offers Reopen, so leaving Done needn't be found by swiping. */}
+          {/* A long press or the ⋯ button offers Reopen or Wake, so leaving the section needn't be found by swiping. */}
           <PullDown
-            label={`${item.title}, Done${item.many ? `, on ${item.hostName}` : ""}${countdown ? `, archived in ${countdown}` : ""}`}
+            label={`${item.title}, ${done ? "Done" : "Snoozed"}${item.many ? `, on ${item.hostName}` : ""}${countdown ? `, ${done ? "archived" : "wakes"} in ${countdown}` : ""}`}
             title={item.title}
-            sections={offline ? [] : DONE_MENU}
+            sections={offline ? [] : menu}
             onSelect={(action) => void act(item, action)}
             onPress={() => void enter(item.hostId, item.path, item.chat.id)}
             style={{ flex: 1 }}
           >
             <View style={[s.doneRow, { paddingRight: 0 }]}>
-              <Icon icon={CheckmarkCircle02Icon} tone="ink4" size={18} />
-              {/* With two or more computers, the one the Chat lives on goes under its title, so both stay readable. */}
               <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                <Text numberOfLines={1} style={{ fontSize: 16, color: colors.ink3 }}>
-                  {item.title}
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, color: colors.ink3 }}>
+                    {item.title}
+                  </Text>
+                  {countdown ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Icon icon={done ? HourglassIcon : AlarmClockIcon} tone="ink3" size={12} />
+                      <Text style={[s.detail, { fontWeight: "500", fontVariant: ["tabular-nums"] }]}>{countdown}</Text>
+                    </View>
+                  ) : null}
+                </View>
                 {item.many && <ComputerTag name={item.hostName} offline={offline} />}
               </View>
-              {countdown && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Icon icon={HourglassIcon} tone="ink3" size={12} />
-                  <Text style={[s.detail, { fontWeight: "500", fontVariant: ["tabular-nums"] }]}>{countdown}</Text>
-                </View>
-              )}
             </View>
           </PullDown>
           {!offline && (
-            <PullDown label={`Actions for ${item.title}`} title={item.title} sections={DONE_MENU} onSelect={(action) => void act(item, action)}>
+            <PullDown label={`Actions for ${item.title}`} title={item.title} sections={menu} onSelect={(action) => void act(item, action)}>
               <View
                 style={{
                   width: 40,
@@ -2643,6 +2790,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     offerBeside,
     !item.home,
     doneable,
+    snoozeMinutes,
   );
   // While it archives, the row stays put under the progress and takes no taps.
   const archiving =

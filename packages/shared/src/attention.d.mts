@@ -15,6 +15,8 @@ export interface AttentionContext {
   /** The nearest Chat above a Subchat that is still listed. */
   parentTitle?: string;
   provider?: ModelProvider;
+  /** When a snoozed Chat wakes, in ms; its completions send no notice until then. */
+  snoozedUntil?: number;
 }
 
 /** A compact plain-text preview for desktop and phone notifications. */

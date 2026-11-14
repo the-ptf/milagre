@@ -201,13 +201,7 @@ export function PullDown({
     id: `section-${index}`,
     title: section.title || "",
     displayInline: true,
-    subactions: section.items.map((item) => ({
-      id: item.id,
-      title: item.subtitle ? `${item.title}\n${item.subtitle}` : item.title,
-      image: item.systemImage as MenuAction["image"],
-      state: item.checked ? "on" : undefined,
-      attributes: { destructive: item.destructive, disabled: item.disabled },
-    })),
+    subactions: section.items.map(menuAction),
   }));
   return (
     <MenuView
@@ -224,6 +218,18 @@ export function PullDown({
       {trigger}
     </MenuView>
   );
+}
+
+/** One Android menu row; a submenu item opens its own choices. */
+function menuAction(item: MenuSection["items"][number]): MenuAction {
+  return {
+    id: item.id,
+    title: item.subtitle ? `${item.title}\n${item.subtitle}` : item.title,
+    image: item.systemImage as MenuAction["image"],
+    state: item.checked ? "on" : undefined,
+    attributes: { destructive: item.destructive, disabled: item.disabled },
+    ...(item.submenu ? { subactions: item.submenu.map(menuAction) } : {}),
+  };
 }
 
 // The trigger gives way when `style` lets the menu shrink (a chip truncating its name in a full row).

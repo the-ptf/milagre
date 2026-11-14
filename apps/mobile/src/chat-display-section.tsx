@@ -1,4 +1,7 @@
 import { DoneRetention } from "./mac-settings-sections";
+import { SNOOZE_DURATION_OPTIONS, snoozeDurationLabel } from "@milagre/shared/snooze";
+import { useSnoozeMinutes } from "./snooze-setting";
+import { Findable } from "./settings-find";
 import { useContextSettings } from "./context-settings";
 import { FOLLOW_UP_OPTIONS, type FollowUps } from "@milagre/shared/queued-messages";
 import { Text, View } from "react-native";
@@ -17,13 +20,13 @@ import {
   SampleChatRow,
   TreePreview,
 } from "./chat-display-choices";
-import { ListRow, Toggle, showActions, useStyles } from "./ui";
+import { CheckRow, ListRow, Toggle, showActions, useStyles } from "./ui";
 import { radius } from "./design-tokens";
 
 // What a Chat row can show under its title; the computer is always on the phone's rows.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
 
-/** Settings › Chat: desktop's Chat page, kept on this phone, plus the Mac's Done retention. Each choice shows a sketch of how it looks. */
+/** Settings › Chat: desktop's Chat page, kept on this phone, plus the Mac's Done retention and this phone's Snooze for. Each choice shows a sketch of how it looks. */
 export function ChatDisplaySection() {
   const styles = useStyles();
   const [expandReasoning, setExpandReasoning] = useExpandReasoning();
@@ -82,8 +85,32 @@ export function ChatDisplaySection() {
           { value: "full", title: "Full detail", description: "Each call on its own row.", preview: <FullToolsPreview /> },
         ]}
       />
+      <SnoozeFor />
       <DoneRetention />
     </View>
+  );
+}
+
+/** How long a row's "Snooze for" snoozes a Chat. Kept on this phone; the Snooze until choices stay in the row menu. */
+function SnoozeFor() {
+  const styles = useStyles();
+  const [minutes, setMinutes] = useSnoozeMinutes();
+  return (
+    <>
+      <Text style={[styles.section, { marginTop: 14 }]}>Snooze</Text>
+      <Findable title="Snooze for">
+        {/* One choice of five: a checkmark list, as iOS Settings picks one value. */}
+        <View accessibilityRole="radiogroup" accessibilityLabel="Snooze for" style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
+          {SNOOZE_DURATION_OPTIONS.map((option, index) => (
+            <View key={option}>
+              {index > 0 && <View style={styles.separator} />}
+              <CheckRow title={snoozeDurationLabel(option)} checked={minutes === option} onPress={() => setMinutes(option)} />
+            </View>
+          ))}
+        </View>
+      </Findable>
+      <Text style={styles.muted}>Snooze for, in a Chat&apos;s menu, snoozes it this long. A question, an approval or a failed turn wakes it sooner.</Text>
+    </>
   );
 }
 

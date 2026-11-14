@@ -83,6 +83,7 @@ import type { ModelOption, PermissionMode } from "../model";
 import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import type { ClaudeReplies, OpenLinksIn, UsageDisplay } from "../lib/settings";
+import { USAGE_IN_SIDEBAR_CHOICES, type UsageInSidebar } from "@milagre/shared/usage";
 import { DICTATION_FIX_MODELS, DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
@@ -102,6 +103,7 @@ import { Group, Row } from "./settings/SettingsGroup";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { useDoneSettings } from "../lib/done-settings";
 import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
+import { normalizeSnoozeMinutes, SNOOZE_DURATION_OPTIONS, snoozeDurationLabel } from "@milagre/shared/snooze";
 import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { SimlockSettings } from "./settings/SimlockSettings";
@@ -781,6 +783,24 @@ function DoneRetentionSetting() {
   );
 }
 
+/** How long a Chat row's hover Snooze button puts it away; the row menu's Snooze offers set times too. Kept per device. */
+function SnoozeSetting() {
+  const { snoozeMinutes } = useSettings();
+  return (
+    <Group title="Snooze">
+      <Row label="Snooze for" description="How long a Chat's Snooze button puts it away">
+        <Select
+          label="Snooze for"
+          width={140}
+          value={String(snoozeMinutes)}
+          options={SNOOZE_DURATION_OPTIONS.map((minutes) => ({ value: String(minutes), label: snoozeDurationLabel(minutes) }))}
+          onChange={(value) => updateSettings({ snoozeMinutes: normalizeSnoozeMinutes(Number(value)) })}
+        />
+      </Row>
+    </Group>
+  );
+}
+
 /** Host-kept: what a message sent while a turn runs does, on this computer's Chats from desktop and phone. */
 function FollowUpSetting() {
   const host = useContextSettings();
@@ -1143,6 +1163,7 @@ function GeneralSettings() {
         />
       </ChoiceGroup>
       <DoneRetentionSetting />
+      <SnoozeSetting />
       <Group title="Plan usage">
         <Row label="Show" description="Claude, Codex and Antigravity plan limits">
           <Select<UsageDisplay>
@@ -1155,11 +1176,12 @@ function GeneralSettings() {
             ]}
           />
         </Row>
-        <Row label="Show in sidebar" description="Hover a provider for its limits and reset times">
-          <SettingCheckbox
+        <Row label="Show in sidebar" description={USAGE_IN_SIDEBAR_CHOICES.find((choice) => choice.id === settings.usageInSidebar)?.hint}>
+          <Select<UsageInSidebar>
             label="Show usage in sidebar"
-            checked={settings.showUsageInSidebar}
-            onChange={(showUsageInSidebar) => updateSettings({ showUsageInSidebar })}
+            value={settings.usageInSidebar}
+            onChange={(usageInSidebar) => updateSettings({ usageInSidebar })}
+            options={USAGE_IN_SIDEBAR_CHOICES.map((choice) => ({ value: choice.id, label: choice.label }))}
           />
         </Row>
       </Group>

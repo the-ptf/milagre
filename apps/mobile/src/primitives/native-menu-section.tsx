@@ -1,4 +1,4 @@
-import { Button as IOSButton, Label as IOSLabel, Picker as IOSPicker, Section as IOSSection, Toggle as IOSToggle } from "@expo/ui/swift-ui";
+import { Button as IOSButton, Label as IOSLabel, Menu as IOSMenu, Picker as IOSPicker, Section as IOSSection, Toggle as IOSToggle } from "@expo/ui/swift-ui";
 import { disabled as nativeDisabled, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import { NativePickerIcon } from "../native-picker-icon";
 import type { MenuSection } from "./menu";
@@ -27,7 +27,21 @@ export function NativeMenuSection({ section, onSelect }: { section: MenuSection;
   return (
     <IOSSection title={section.title}>
       {section.items.map((item) =>
-        item.checked !== undefined ? (
+        item.submenu ? (
+          // A nested Menu is SwiftUI's submenu: the item opens its own list of choices.
+          <IOSMenu key={item.id} label={item.title} systemImage={item.systemImage as never} modifiers={[nativeDisabled(!!item.disabled)]}>
+            {item.submenu.map((choice) => (
+              <IOSButton
+                key={choice.id}
+                label={rowLabel(choice)}
+                systemImage={choice.systemImage as never}
+                role={choice.destructive ? "destructive" : undefined}
+                onPress={() => onSelect(choice.id)}
+                modifiers={[nativeDisabled(!!choice.disabled)]}
+              />
+            ))}
+          </IOSMenu>
+        ) : item.checked !== undefined ? (
           <IOSToggle
             key={item.id}
             label={rowLabel(item)}

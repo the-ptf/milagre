@@ -2,7 +2,8 @@
 // Project in one list, latest first. Its rows are inbox rows: the Project's icon, the title with its time (a spinner
 // while it runs, a dot when unread), and one line naming the Project, what the Chat is doing and its diff, with no
 // branch and no ⋯ button (the menu opens on a right-click). Settings › General's By Project brings the Project groups back,
-// and One list takes them away again. The bridge is stubbed; no agent calls.
+// and One list takes them away again. Snoozed Chats sit in their own section above Done, with how long until they wake,
+// and the hover Snooze button, the menu's Snooze times and Wake move rows at once. The bridge is stubbed; no agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -31,6 +32,7 @@ const states = {
     session(8, "Shop chat", 5),
     session(9, "Pinned shop chat", 400, { pinned: true, pin_order: 1 }),
     session(6, "Done shop chat", 90, { done_at: minutes(60) }),
+    session(5, "Snoozed shop chat", 20, { snoozed_until: Date.now() + 45 * 60000 }),
   ]),
   "/work/api": state([session(4, "API chat", 30, { unread: true })]),
 };
@@ -250,6 +252,73 @@ async function browserChecks() {
     await undoKey(true);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
     await waitFor(`!${row(7)} && document.querySelector("[data-chat-toast]")?.textContent.includes("Moved to Done")`);
+    // Done rows: no leading check, the countdown on the title's line at its right, and Reopen an icon alone.
+    const done7 = `document.querySelector('[data-done-row="7"]')`;
+    assert.equal(await evaluate(`${done7}.querySelector("button").firstElementChild.tagName`), "SPAN", "no icon leads a Done row");
+    assert.equal(await evaluate(`${done7}.querySelector("button > span > svg")`), null, "no leading check-circle");
+    assert.equal(
+      await evaluate(
+        `Math.abs(${done7}.querySelector("[data-done-countdown]").getBoundingClientRect().top - ${done7}.querySelector("[data-chat-title]").getBoundingClientRect().top) < 6`,
+      ),
+      true,
+      "the countdown sits on the title's line",
+    );
+    assert.equal(await evaluate(`${done7}.querySelector("[data-done-reopen]").textContent`), "", "Reopen is icon-only");
+    assert.match(await evaluate(`${done7}.querySelector("[data-done-reopen]").getAttribute("aria-label")`), /^Reopen /);
+
+    // Snoozed: out of the list, in its own open section above Done, the one waking soonest first, with its time left.
+    assert.equal(await evaluate(`!!${row(5)}`), false, "A snoozed Chat leaves the list");
+    assert.equal(await evaluate(`document.querySelector("[data-snoozed-count]")?.textContent`), "1");
+    assert.match(await evaluate(`document.querySelector('[data-snoozed-row="5"] [data-snoozed-label]').textContent`), /^4[45]m$/);
+    assert.equal(
+      await evaluate(
+        `document.querySelector("[data-snoozed-section]").getBoundingClientRect().bottom <= document.querySelector("[data-done-section]").getBoundingClientRect().top`,
+      ),
+      true,
+      "Snoozed sits above Done",
+    );
+    // The hover Snooze button, beside Done, snoozes for Settings' default (1 hour) and moves the row at once.
+    assert.equal(await evaluate(`${row(8)}.querySelector("[data-chat-snooze]")?.getAttribute("aria-label")`), "Snooze Shop chat");
+    const beforeSnooze = Date.now();
+    await evaluate(`${row(8)}.querySelector("[data-chat-snooze]").click()`);
+    const snoozePatch = await evaluate(`window.patches.at(-1)`);
+    assert.deepEqual(snoozePatch.slice(0, 2), ["/work/shop", 8]);
+    assert.ok(Math.abs(snoozePatch[2].snoozed_until - (beforeSnooze + 3_600_000)) < 10_000, `an hour from now: ${JSON.stringify(snoozePatch)}`);
+    await waitFor(`!${row(8)} && !!document.querySelector('[data-snoozed-row="8"]')`);
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll("[data-snoozed-row]")].map((node) => node.dataset.snoozedRow)`),
+      ["5", "8"],
+      "soonest wake first",
+    );
+    await waitFor(`document.querySelector("[data-chat-toast]")?.textContent.includes("Snoozed")`);
+    await screenshot("one-list-snoozed");
+    // Wake from the section brings it back at once.
+    assert.equal(await evaluate(`document.querySelector('[data-snoozed-row="8"] [data-snoozed-wake]').textContent`), "", "Wake is icon-only");
+    await evaluate(`document.querySelector('[data-snoozed-row="8"] [data-snoozed-wake]').click()`);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 8, { snoozed_until: false }]);
+    await waitFor(`!!${row(8)} && !document.querySelector('[data-snoozed-row="8"]')`);
+    // The menu's Snooze opens its times beside it, each with the time it wakes at; picking one snoozes until then.
+    await evaluate(
+      `(() => { const r = ${row(8)}.querySelector("[data-row]").getBoundingClientRect(); ${row(8)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
+    );
+    await waitFor(`!!document.querySelector('[data-chat-menu] [data-sub="snooze"]')`);
+    await evaluate(`document.querySelector('[data-chat-menu] [data-sub="snooze"]').click()`);
+    await waitFor(`!!document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice="3h"]')`);
+    assert.equal(
+      await evaluate(`document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice]').textContent.startsWith("In 1 hour")`),
+      true,
+      "the soonest choice comes first",
+    );
+    await screenshot("one-list-snooze-menu");
+    const beforeMenu = Date.now();
+    await evaluate(`document.querySelector('[data-chat-submenu="snooze"] [data-sub-choice="3h"]').click()`);
+    const menuPatch = await evaluate(`window.patches.at(-1)`);
+    assert.ok(Math.abs(menuPatch[2].snoozed_until - (beforeMenu + 3 * 3_600_000)) < 10_000, `three hours from now: ${JSON.stringify(menuPatch)}`);
+    await waitFor(`!document.querySelector("[data-chat-menu]") && !${row(8)} && !!document.querySelector('[data-snoozed-row="8"]')`);
+    // ⌘Z wakes it again.
+    await undoKey(false);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 8, { snoozed_until: false }]);
+    await waitFor(`!!${row(8)} && !document.querySelector('[data-snoozed-row="8"]')`);
     // Diff stats are off by default; the branch is on but never shows here.
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
     assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");

@@ -43,7 +43,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
 
 /** Other words for a section, so the search finds it by what it holds. */
 export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
-  general: "editor sidebar chat order chat list done archive plan usage keep awake",
+  general: "editor sidebar chat order chat list done archive snooze plan usage keep awake",
   worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
@@ -112,6 +112,14 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Done",
     keywords: "retention days hours cleanup",
   },
+  { page: "general", title: "Snooze" },
+  {
+    page: "general",
+    title: "Snooze for",
+    group: "Snooze",
+    description: "How long a Chat's Snooze button puts it away",
+    keywords: "snooze later remind wake hide hour",
+  },
   { page: "general", title: "Plan usage" },
   {
     page: "general",
@@ -124,8 +132,8 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     page: "general",
     title: "Show in sidebar",
     group: "Plan usage",
-    description: "Hover a provider for its limits and reset times",
-    keywords: "usage limits",
+    description: "A button beside Filters, or a meter per provider",
+    keywords: "usage limits button meters bars off hide popover",
   },
   { page: "general", title: "System" },
   {
