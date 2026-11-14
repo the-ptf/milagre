@@ -44,6 +44,7 @@ test("a question, an approval or a failed turn wakes a snoozed Chat; a finished 
 test("the wake label reads minutes, hours or days left", () => {
   assert.equal(snoozeWakeLabel(45 * MINUTE, 0), "45m");
   assert.equal(snoozeWakeLabel(10_000, 0), "1m");
+  assert.equal(snoozeWakeLabel(30 * MINUTE + 25_000, 0), "30m", "a row clock up to 30 s behind still reads the duration picked");
   assert.equal(snoozeWakeLabel(3 * HOUR, 0), "3h");
   assert.equal(snoozeWakeLabel(50 * HOUR, 0), "2d");
 });

@@ -33,9 +33,12 @@ export const snoozeDue = (session, now = Date.now()) => Boolean(session?.snoozed
 /** Whether an agent event wakes a snoozed Chat: the Chat needs the user (a question, an approval) or its turn failed. */
 export const wakesSnoozed = (event) => ["permission-request", "question-request", "turn-failed"].includes(event?.type);
 
-/** How long until a snoozed Chat wakes, as its row shows it: "45m", "3h", "2d". */
+/**
+ * How long until a snoozed Chat wakes, as its row shows it: "45m", "3h", "2d". To the nearest minute: the rows' clocks
+ * tick every 30 seconds, and rounding up made a Chat just snoozed for 30 minutes read "31m".
+ */
 export function snoozeWakeLabel(until, now = Date.now()) {
-  const minutes = Math.max(1, Math.ceil((until - now) / MINUTE));
+  const minutes = Math.max(1, Math.round((until - now) / MINUTE));
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours}h`;
