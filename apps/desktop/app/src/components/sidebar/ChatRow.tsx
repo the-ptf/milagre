@@ -445,6 +445,7 @@ function InboxTitleLine({
   hideTime,
   doneable,
   snoozable = false,
+  menuOpen = false,
 }: {
   item: SidebarRecent;
   linked: LinkedEnd[];
@@ -456,6 +457,8 @@ function InboxTitleLine({
   doneable: boolean;
   /** The hover Snooze (or Wake) icon sits left of Done, so the title stops further in. */
   snoozable?: boolean;
+  /** The row's menu is open: its hover icons stay shown, so the title keeps clear of them. */
+  menuOpen?: boolean;
 }) {
   const status = inboxStatus(item);
   // A read Chat with nothing going on steps back to ink-2; one that is unread, working, waiting or failed stays ink.
@@ -464,7 +467,7 @@ function InboxTitleLine({
     <span className="sidebar-copy flex min-w-0 flex-col">
       {/* The hover "Done" button sits over the state's place: the title stops before it instead of running under it. */}
       <span
-        className={`flex h-5 min-w-0 items-center gap-1.5 ${doneable && !hideTime ? (snoozable ? "group-focus-within/row:pr-[78px] group-hover/row:pr-[78px]" : "group-focus-within/row:pr-[56px] group-hover/row:pr-[56px]") : ""}`}
+        className={`flex h-5 min-w-0 items-center gap-1.5 ${doneable && menuOpen ? (snoozable ? "pr-[78px]" : "pr-[56px]") : doneable && !hideTime ? (snoozable ? "group-focus-within/row:pr-[78px] group-hover/row:pr-[78px]" : "group-focus-within/row:pr-[56px] group-hover/row:pr-[56px]") : ""}`}
       >
         {item.pinned && (
           <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-4">
@@ -698,6 +701,7 @@ function ClassicInboxTitleLine({
   hideTime,
   doneable,
   snoozable = false,
+  menuOpen = false,
 }: {
   item: SidebarRecent;
   linked: LinkedEnd[];
@@ -709,13 +713,15 @@ function ClassicInboxTitleLine({
   doneable: boolean;
   /** The hover Snooze (or Wake) icon sits left of Done, so the title stops further in. */
   snoozable?: boolean;
+  /** The row's menu is open: its hover icons stay shown, so the title keeps clear of them. */
+  menuOpen?: boolean;
 }) {
   const status = inboxStatus(item);
   return (
     <span className="sidebar-copy flex min-w-0 flex-1 flex-col">
       {/* The hover "Done" button sits over the mark's place: the title stops before it instead of running under it. */}
       <span
-        className={`flex h-[18px] min-w-0 items-center gap-1.5 ${doneable && !hideTime ? (snoozable ? "group-focus-within/row:pr-[70px] group-hover/row:pr-[70px]" : "group-focus-within/row:pr-[48px] group-hover/row:pr-[48px]") : ""}`}
+        className={`flex h-[18px] min-w-0 items-center gap-1.5 ${doneable && menuOpen ? (snoozable ? "pr-[70px]" : "pr-[48px]") : doneable && !hideTime ? (snoozable ? "group-focus-within/row:pr-[70px] group-hover/row:pr-[70px]" : "group-focus-within/row:pr-[48px] group-hover/row:pr-[48px]") : ""}`}
       >
         {item.pinned && (
           <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-3">
@@ -1234,6 +1240,7 @@ export const ChatRow = memo(function ChatRow({
                 lastAt={lastAt}
                 now={now}
                 hideTime={Boolean(shortcutHint) || Boolean(menu)}
+                menuOpen={Boolean(menu)}
                 doneable={doneable && !archiving}
                 snoozable={snoozable}
               />
@@ -1246,6 +1253,7 @@ export const ChatRow = memo(function ChatRow({
                   lastAt={lastAt}
                   now={now}
                   hideTime={Boolean(shortcutHint) || Boolean(menu)}
+                  menuOpen={Boolean(menu)}
                   doneable={doneable && !archiving}
                   snoozable={snoozable}
                 />

@@ -1470,7 +1470,7 @@ export default memo(function SidebarNav({
         ))}
       {groups.length > 0 && flatChats.length === 0 && !anyPinned && (
         <p data-one-list-empty className="mx-2 h-8 pl-2 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
-          {loadingScopes ? "Loading Chats…" : "No Chats yet"}
+          {loadingScopes ? "Loading Chats…" : snoozedEntries.length || doneEntries.length ? "All caught up" : "No Chats yet"}
         </p>
       )}
     </>

@@ -797,7 +797,12 @@ const NavigationBody = memo(function NavigationBody({
           hostId: head.build.hostId,
           hostName: head.build.hostName,
           reach: head.build.reach,
-          message: show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
+          message:
+            show !== "all"
+              ? "No matching Chats"
+              : copies.some(({ project }) => project.snoozed.length || project.done.length)
+                ? "All caught up. Snoozed and Done Chats are below."
+                : "No Chats yet. Start one with +.",
         });
       return listed;
     };
@@ -944,7 +949,13 @@ const NavigationBody = memo(function NavigationBody({
             rows.push({
               ...base,
               key: `${build.hostId}|${project.path}:notice`,
-              message: !project.copy ? "Loading Chats..." : show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
+              message: !project.copy
+                ? "Loading Chats..."
+                : show !== "all"
+                  ? "No matching Chats"
+                  : project.snoozed.length || project.done.length
+                    ? "All caught up. Snoozed and Done Chats are below."
+                    : "No Chats yet. Start one with +.",
             });
           return rows;
         };
