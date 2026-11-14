@@ -12,7 +12,6 @@ import SidebarNav from "/src/components/SidebarNav";
 import { SettingsNav } from "/src/components/Settings";
 import { SettingsModal } from "/src/components/settings/SettingsModal";
 import { DotBackground } from "/src/components/DotBackground";
-import { DesignPageEditor } from "/src/components/agents/DesignPageEditor";
 import { createExampleDesign, designHtml } from "@milagre/shared/design";
 import { DiffBar } from "/src/components/changes/ChangesChrome";
 import { PanelToggles, useSidePanel } from "/src/components/agents/PanelToggles";
@@ -44,7 +43,6 @@ function Fixture() {
   const [diff, setDiff] = useState(false);
   const [terminal, setTerminal] = useState(false);
   const [settings, setSettings] = useState(false);
-  const [editor, setEditor] = useState(false);
   const [browserAvailable, setBrowserAvailable] = useState(false);
   const [browser, setBrowser] = useState(false);
   const [prAvailable, setPrAvailable] = useState(false);
@@ -55,7 +53,6 @@ function Fixture() {
   window.prOpen = pr;
   useSidePanel("browser", browserAvailable ? {open: browser, toggle: () => setBrowser(v => !v)} : null);
   window.showSettings = setSettings;
-  window.showEditor = setEditor;
   window.showDiff = setDiff;
   useSidePanel("terminal", { open: terminal, toggle: () => setTerminal(v => !v) });
   return <><DotBackground><div style={{ width: "100%", height: "100vh", background: "#141820", color: "#ddd" }}>
@@ -74,7 +71,6 @@ function Fixture() {
     </div>}
   </div></DotBackground>
     {settings && <SettingsModal onClose={() => window.settingsCloseCalls = (window.settingsCloseCalls ?? 0) + 1} nav={<SettingsNav section="appearance" onSelect={() => {}} onSelectProject={() => {}} showProjectSettings={false} />}><p>Settings page</p></SettingsModal>}
-    {editor && <DesignPageEditor chatId="/chrome#1" artifact={artifact} onClose={() => setEditor(false)} />}
   </>;
 }
 document.documentElement.classList.add("dark");
@@ -219,8 +215,6 @@ async function browserChecks() {
         await capture(integrated ? "integrated-diff" : "native-diff");
         await click("[data-diff-back]");
         await waitFor('!document.querySelector("[data-diff-back]")');
-        const toggleBefore = await bounds("[data-sidebar-toggle] button");
-        const collapsedBefore = await evaluate('document.querySelector("aside[data-sidebar-collapsed]").dataset.sidebarCollapsed');
         // Settings is a modal over the window, inset below the top bar so the window controls stay clear; its × closes it.
         await evaluate("window.showSettings(true)");
         await waitFor(`!!document.querySelector('dialog[data-settings-modal]')?.open`);
@@ -230,34 +224,7 @@ async function browserChecks() {
         clickAt(settingsClose.x + settingsClose.width / 2, settingsClose.y + settingsClose.height / 2);
         await waitFor("window.settingsCloseCalls === 1");
         await capture(integrated ? "integrated-settings-modal" : "native-settings-modal");
-        await evaluate("window.showSettings(false); window.showEditor(true)");
-        await waitFor('!!document.querySelector("[data-slot=design-editor]")');
-        let previewReady = false;
-        for (let attempt = 0; attempt < 80 && !previewReady; attempt++) {
-          for (const frame of win.webContents.mainFrame.framesInSubtree) {
-            if (frame === win.webContents.mainFrame) continue;
-            previewReady = await frame.executeJavaScript("document.fonts.ready.then(() => !!document.querySelector('[data-design-node]'))").catch(() => false);
-            if (previewReady) break;
-          }
-          if (!previewReady) await delay(25);
-        }
-        assert.ok(previewReady, "the real editor's design preview loaded before checking stacking");
-        const toggleX = toggleBefore.x + toggleBefore.width / 2;
-        const toggleY = toggleBefore.y + toggleBefore.height / 2;
-        assert.equal(
-          await evaluate(`!!document.elementFromPoint(${toggleX}, ${toggleY})?.closest('[data-slot="design-editor"]')`),
-          true,
-          "the real Designs editor covers the underlying sidebar toggle",
-        );
-        clickAt(toggleX, toggleY);
-        await delay(100);
-        assert.equal(
-          await evaluate('document.querySelector("aside[data-sidebar-collapsed]").dataset.sidebarCollapsed'),
-          collapsedBefore,
-          "a click in the editor cannot toggle the sidebar behind it",
-        );
-        await capture(integrated ? "integrated-editor-stacking" : "native-editor-stacking");
-        await evaluate("window.showEditor(false)");
+        await evaluate("window.showSettings(false)");
         // Leading controls (including Linux decorations on the left) and fullscreen disappearance.
         await evaluate('window.simulateGeometry("leading", 80, innerWidth - 80)');
         await waitFor('document.querySelector("[data-sidebar-toggle]").getBoundingClientRect().x === 80');
@@ -275,7 +242,7 @@ async function browserChecks() {
       }
     }
     console.log(
-      "PASS: native and integrated chrome, sidebar collapse, panels, diff clearance, Settings Back clicks, hidden sidebar, real editor stacking, geometry events and fullscreen geometry",
+      "PASS: native and integrated chrome, sidebar collapse, panels, diff clearance, Settings Back clicks, hidden sidebar, geometry events and fullscreen geometry",
     );
   } catch (error) {
     console.error(error);

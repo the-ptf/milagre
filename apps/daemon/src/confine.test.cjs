@@ -686,14 +686,6 @@ test("a confined phone reads Routines but can't switch, create, change, delete o
   await assert.rejects(confine.checkCall("routines:run-now", ["r1"]), { status: 403, message: REFUSED });
 });
 
-test("a confined phone reviews designs but cannot apply edits even in its own Project", async () => {
-  const confine = createConfinement({ allowedRoot: os.tmpdir() });
-  await assert.rejects(confine.checkCall("artifact:apply", [{ chatId: `${os.tmpdir()}#1`, id: "welcome", expectedVersion: 1, operations: [] }]), {
-    status: 403,
-    message: REFUSED,
-  });
-});
-
 test("even a Chat inside the demo Project cannot publish, revoke or enumerate owner publications", async () => {
   const confine = createConfinement({ allowedRoot: os.tmpdir() });
   const chatId = `${os.tmpdir()}#1`;

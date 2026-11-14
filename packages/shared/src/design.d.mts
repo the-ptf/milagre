@@ -1,13 +1,10 @@
 import type { z } from "zod";
-export { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 /** Lucide icon name to SVG inner markup. */
 export const designIcons: Record<string, string>;
 /** The color text and icons draw in when they name no fill. */
 export const DESIGN_INK: "#202720";
 /** The grey a shape, or an image still to add, paints when it names no fill. */
 export const DESIGN_PLACEHOLDER: "#d8ded8";
-/** Build-time only: regenerate the checked-in controller after editing its source. */
-export function buildDesignControllerScript(): string;
 
 /** An editable screen. Nodes are stored flat and ordered back to front within each parent. */
 export interface DesignDocument {
@@ -167,7 +164,7 @@ export function designUsesInter(fontFamily?: string): boolean;
 export function designDefaultFill(node: Pick<DesignNode, "type" | "src">): string;
 /** Whether the bundled Inter subset has a glyph for this character; whitespace always counts as drawable. */
 export function designInterHasGlyph(character: string): boolean;
-export function designHtml(document: DesignDocument, options?: { interactive?: boolean; selectedId?: string | null }): string;
+export function designHtml(document: DesignDocument): string;
 /** The parts of designHtml's page, for a page that swaps them in place: root markup, background, font faces and layer bounds. */
 export function designLiveParts(document: DesignDocument): {
   width: number;

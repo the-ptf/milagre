@@ -1,6 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon, Download04Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
   ARTIFACT_ESCAPE,
@@ -15,7 +15,6 @@ import {
   type Artifact,
   type ArtifactAsset,
   type ArtifactPageMessage,
-  type DesignArtifact,
   type PagePin,
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
@@ -26,8 +25,9 @@ import { InlineError } from "../primitives/InlineError";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
-import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
-import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
+import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
+import { DesignExportDialog } from "./DesignExportDialog";
+import { MenuRow, Popover } from "../primitives/Popover";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
@@ -508,7 +508,7 @@ export const ArtifactCanvas = forwardRef<
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[data-slot=design-editor]")) return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
       // Leaves the design, not the canvas.
       event.preventDefault();
       setActive(null);
@@ -720,26 +720,11 @@ const DesignFrame = memo(function DesignFrame({
   const { live, hold } = useLiveDesign(chatId, design, version === null);
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
   const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
-  const [editing, setEditing] = useState<DesignArtifact | null>(null);
-  const [openingEditor, setOpeningEditor] = useState(false);
   const [editError, setEditError] = useState("");
-  const edit = async () => {
-    setOpeningEditor(true);
-    setEditError("");
-    try {
-      // Versions remain immutable; an editor always begins at the newest saved document.
-      const latest = await bridgeForKey(chatId).artifacts.get({
-        chatId,
-        id: design.id,
-      });
-      if (latest.format !== "design" || !latest.document) throw new Error("The latest version has no editable layers.");
-      setEditing({ ...latest, document: latest.document });
-    } catch (cause) {
-      setEditError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setOpeningEditor(false);
-    }
-  };
+  // The shown version's export: the dialog renders it as JSON, SVG or PNG.
+  const moreAnchor = useRef<HTMLSpanElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   // Delete asks once more in place: the first press arms it, the second deletes every version.
   const [deleting, setDeleting] = useState<"confirm" | "busy" | null>(null);
   const remove = async () => {
@@ -829,9 +814,32 @@ const DesignFrame = memo(function DesignFrame({
         </>
       )}
       {artifact?.format === "design" && (
-        <Button variant="secondary" size={24} data-slot="artifact-edit" aria-label={`Edit ${shown.title}`} disabled={openingEditor} onClick={() => void edit()}>
-          {openingEditor ? "Opening…" : "Edit"}
-        </Button>
+        <span ref={moreAnchor} className="inline-flex">
+          <Tooltip label="More" asChild>
+            <IconButton
+              data-slot="artifact-more"
+              label={`More actions for ${shown.title}`}
+              icon={MoreHorizontalIcon}
+              size={24}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((open) => !open)}
+            />
+          </Tooltip>
+          {moreOpen && (
+            <Popover anchor={moreAnchor} label={`${shown.title} actions`} onClose={() => setMoreOpen(false)}>
+              <MenuRow
+                data-slot="artifact-export"
+                icon={Download04Icon}
+                title="Export…"
+                onClick={() => {
+                  setMoreOpen(false);
+                  setExporting(true);
+                }}
+              />
+            </Popover>
+          )}
+        </span>
       )}
       {design.format === "design" &&
         (deleting ? (
@@ -992,7 +1000,9 @@ const DesignFrame = memo(function DesignFrame({
       <InlineError size={12} className="max-w-full px-2">
         {editError}
       </InlineError>
-      {editing && <DesignEditor chatId={chatId} artifact={editing} latestVersion={last} onClose={() => setEditing(null)} />}
+      {exporting && artifact?.format === "design" && artifact.document && (
+        <DesignExportDialog designs={[{ id: artifact.id, title: artifact.title, document: artifact.document }]} onClose={() => setExporting(false)} />
+      )}
     </div>
   );
 });

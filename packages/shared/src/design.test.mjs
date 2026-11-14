@@ -5,7 +5,6 @@ import {
   DESIGN_PLACEHOLDER,
   designDefaultFill,
   applyDesignOperations,
-  buildDesignControllerScript,
   createExampleDesign,
   designColor,
   designFontFaces,
@@ -13,7 +12,6 @@ import {
   designLayout,
   designNodeAt,
   designSvg,
-  DESIGN_CONTROLLER_SCRIPT,
   diffDesignDocuments,
   validateDesignDocument,
 } from "./design.mjs";
@@ -103,34 +101,16 @@ test("unknown tokens and style/URL injection are rejected before rendering", () 
   assert.equal(designColor(document, document.background), "#345678");
 });
 
-test("preview escapes text and script delimiters while JSON remains editable", () => {
+test("preview escapes text and script delimiters and carries no script", () => {
   const document = applyDesignOperations(screen(), [{ op: "update", id: "title", patch: { height: 120, text: '</script><script>alert("x")</script>' } }]);
-  const preview = designHtml(document, { interactive: true, selectedId: "title" });
-  assert.equal((preview.match(/<script>/g) ?? []).length, 1);
+  const preview = designHtml(document);
+  assert.doesNotMatch(preview, /<script/);
   assert.match(preview, /&lt;\/script&gt;/);
-  assert.match(preview, /milagre:design-update/);
   const svg = designSvg(document);
   assert.match(svg, /<svg xmlns=/);
   const svgText = [...svg.matchAll(/<tspan\b[^>]*>(.*?)<\/tspan>/g)].map((match) => match[1]).join("");
   assert.match(svgText, /&lt;script&gt;alert/);
   assert.doesNotMatch(svg, /<(?:script|foreignObject)\b/);
-});
-
-test("the CSP-approved controller is stable and design content stays outside executable scripts", () => {
-  assert.equal(
-    DESIGN_CONTROLLER_SCRIPT,
-    buildDesignControllerScript(),
-    "run node packages/shared/scripts/generate-design-controller.mjs after changing the controller",
-  );
-  const first = designHtml(screen(), { interactive: true, selectedId: "title" });
-  const changed = applyDesignOperations(screen(), [{ op: "update", id: "title", patch: { text: '</script><script>alert("x")</script>' } }]);
-  const second = designHtml(changed, { interactive: true, selectedId: "button" });
-  assert.equal(/<script>([\s\S]*?)<\/script>/.exec(first)?.[1], DESIGN_CONTROLLER_SCRIPT);
-  assert.equal(/<script>([\s\S]*?)<\/script>/.exec(second)?.[1], DESIGN_CONTROLLER_SCRIPT);
-  const data = JSON.parse(/<script type="application\/json" id="design-config">([\s\S]*?)<\/script>/.exec(second)[1]);
-  assert.equal(data[0].nodes.find((node) => node.id === "title").text, '</script><script>alert("x")</script>');
-  assert.equal(data[1], "button");
-  assert.deepEqual(data[2].button, designLayout(changed).get("button"));
 });
 
 test("the bundled example is a valid editable document without remote assets", () => {

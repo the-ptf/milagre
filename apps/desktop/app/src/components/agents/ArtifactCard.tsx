@@ -54,7 +54,7 @@ import { Select } from "../primitives/Select";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
-import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } from "./DesignEditor";
+import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
 import { ZoomBar } from "../primitives/ZoomBar";
 import { COMMENT_KEY, useCommentKey } from "./comment-key";
@@ -594,7 +594,7 @@ export function ArtifactsProvider({
   useEffect(() => {
     if (savedDesigns.chatId) remember(lastSavedDesigns, savedDesigns.chatId, savedDesigns);
   }, [savedDesigns]);
-  // Direct edits create versions without a new Chat reply. Read their metadata on open and when agent versions change.
+  // Read the catalog on open and when agent versions change.
   useEffect(() => {
     if (!chatId || !window.milagre) return;
     const list = bridgeForKey(chatId).artifacts?.list;
@@ -635,22 +635,6 @@ export function ArtifactsProvider({
     };
   }, [chatId, revisionKey, enabled]);
   useEffect(() => {
-    const changed = (event: Event) => {
-      const detail = (event as CustomEvent<DesignSaved>).detail;
-      if (!enabled || detail.chatId !== chatId || detail.artifact.format !== "design") return;
-      const ref: ArtifactRef = {
-        id: detail.artifact.id,
-        title: detail.artifact.title,
-        version: detail.artifact.version,
-        format: "design",
-        ...(detail.artifact.group ? { group: detail.artifact.group } : {}),
-      };
-      setSavedDesigns((current) =>
-        current.chatId === chatId
-          ? { ...current, refs: [...current.refs.filter((item) => item.id !== ref.id), ref] }
-          : { chatId, refs: [ref], htmlAliases: [] },
-      );
-    };
     const deleted = (event: Event) => {
       const detail = (event as CustomEvent<DesignDeleted>).detail;
       if (detail.chatId !== chatId) return;
@@ -660,10 +644,8 @@ export function ArtifactsProvider({
           : { chatId, refs: [], htmlAliases: [], deleted: [detail.id] },
       );
     };
-    window.addEventListener(DESIGN_SAVED, changed);
     window.addEventListener(DESIGN_DELETED, deleted);
     return () => {
-      window.removeEventListener(DESIGN_SAVED, changed);
       window.removeEventListener(DESIGN_DELETED, deleted);
     };
   }, [chatId, enabled]);

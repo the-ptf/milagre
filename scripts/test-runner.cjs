@@ -17,7 +17,6 @@ const MANIFEST = {
   // Twelve Lighthouse runs on a site build: three mobile and three desktop on /, one each on /docs, /docs/cli and /design.
   "test-site-lighthouse.cjs": { seconds: 135 },
   "test-theming-gallery.cjs": { seconds: 38 },
-  "test-design-editor.cjs": { seconds: 35 },
   "test-design-live.cjs": { seconds: 32 },
   "test-simulators.cjs": { seconds: 29 },
   "test-update-flow.cjs": { seconds: 25 },
