@@ -13,7 +13,9 @@ import {
 } from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
-import { FilterIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { DashboardSpeed02Icon, FilterIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { router } from "expo-router";
+import { USAGE_BUTTON_LABEL } from "@milagre/shared/usage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
 import { EdgeFade } from "./bottom-fade";
@@ -28,6 +30,7 @@ import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
+import { useUsageButtonShown } from "./usage-button-setting";
 
 /** How tall the floating controls are, and the room the list keeps under its last row. */
 const CONTROLS_HEIGHT = 48;
@@ -78,7 +81,7 @@ export function useControlsVisibility() {
 }
 
 /**
- * Filters, search and New Chat floating over the list on Liquid Glass. The search field ends in a dictation mic where the
+ * Filters, Plan usage, search and New Chat floating over the list on Liquid Glass. The search field ends in a dictation mic where the
  * phone can transcribe. A take ends when the list hides.
  * While a take is under way or the search field is focused the controls stay up, whatever the list scrolls: the mic is the
  * only way to stop a take, and the field is being typed in.
@@ -106,6 +109,7 @@ export function ChatListControls({
   visible?: boolean;
 }) {
   const { colors } = useTheme();
+  const [usageButton] = useUsageButtonShown();
   // Where the caret is in the search field, to dictate at; unknown until the field has reported one.
   const caret = useRef<{ start: number; end: number } | null>(null);
   const latest = useRef(query);
@@ -167,6 +171,17 @@ export function ChatListControls({
               <Icon icon={FilterIcon} tone="ink" size={20} />
             </View>
           </PullDown>
+          {/* Settings › Plan usage › Show in sidebar: every provider's limits in a sheet, as desktop's footer button. */}
+          {usageButton ? (
+            <View style={s.circle}>
+              <GlassIconButton
+                label={USAGE_BUTTON_LABEL}
+                systemImage="gauge.with.dots.needle.33percent"
+                icon={DashboardSpeed02Icon}
+                onPress={() => router.push("/usage-sheet")}
+              />
+            </View>
+          ) : null}
           <View style={s.search}>
             <LiquidGlassView
               pointerEvents="none"

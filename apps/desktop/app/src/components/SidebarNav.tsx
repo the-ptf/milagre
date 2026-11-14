@@ -97,11 +97,13 @@ import {
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { DoneSection, type DoneEntry } from "./sidebar/DoneSection";
+import { SnoozedSection, type SnoozedEntry } from "./sidebar/SnoozedSection";
 import { SidebarToast } from "./sidebar/SidebarToast";
 import { undoHistory, type UndoAction } from "../lib/undo-history";
 import { DELETE_UNDO_MS } from "@milagre/shared/archive";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
+import { inSnoozed, settleSnoozePending, snoozeChat, useSnoozePending, withSnoozePending } from "../lib/snooze-pending";
 import {
   activeFamilyRoot,
   useUnfoldActiveFamily,
@@ -206,6 +208,8 @@ type SidebarNavProps = {
   scopeChatActions?: (scopeKey: string, gitless: boolean) => ChatRowActions;
   /** Plan usage, shown above the footer buttons in both the expanded and collapsed sidebar. */
   usage?: ReactNode;
+  /** Plan usage as one footer button after Filters, its popover listing every provider (Settings › General › Plan usage). */
+  usageButton?: ReactNode;
   variant?: string;
   /** Chat keys with a turn streaming, and with one waiting on the user, joined by newlines (one string keeps memo cheap). */
   runningKeys?: string;
@@ -582,6 +586,7 @@ export default memo(function SidebarNav({
   chatActions = NO_CHAT_ACTIONS,
   scopeChatActions,
   usage,
+  usageButton,
   runningKeys = "",
   waitingKeys = "",
   askingKeys = "",
@@ -597,9 +602,14 @@ export default memo(function SidebarNav({
   const currentKey = selectedLink ? `milagre-link:${selectedLink.id}` : (projectPath ?? "");
   // A Chat marked Done or reopened moves at once; its host's rows catch up (done-pending.ts).
   const donePending = useDonePending();
-  const listedRecents = useMemo(() => withDonePending(currentKey, hostRecents, donePending), [currentKey, hostRecents, donePending]);
-  // Done chats leave the open scope's list for the Done section at the bottom (DoneSection).
-  const recents = useMemo(() => (listedRecents.some((row) => row.doneAt) ? listedRecents.filter((row) => !row.doneAt) : listedRecents), [listedRecents]);
+  // So does a Chat snoozed or woken (snooze-pending.ts).
+  const snoozePending = useSnoozePending();
+  const listedRecents = useMemo(
+    () => withSnoozePending(currentKey, withDonePending(currentKey, hostRecents, donePending), snoozePending),
+    [currentKey, hostRecents, donePending, snoozePending],
+  );
+  // Done and snoozed chats leave the open scope's list for the Done and Snoozed sections at the bottom.
+  const recents = useMemo(() => withoutSetAside(listedRecents), [listedRecents]);
   const { settings: doneSettings } = useDoneSettings();
   const { chatOrder, chatRowShow, chatList } = useSettings();
   // This Mac's pins: another computer's or the phone's never show here (chat-pins.ts).
@@ -875,6 +885,8 @@ export default memo(function SidebarNav({
         },
         onDone: (id) => void patchChatShowingDone(key, Number(id), { done: true, unread: false }).catch(() => {}),
         onReopen: (id) => void patchChatShowingDone(key, Number(id), { done: false }).catch(() => {}),
+        onSnooze: (id, until) => void snoozeChat(key, Number(id), until).catch(() => {}),
+        onWake: (id) => void snoozeChat(key, Number(id), null).catch(() => {}),
         ...(archivable
           ? {
               onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
@@ -908,17 +920,18 @@ export default memo(function SidebarNav({
     }
     return hover;
   };
-  // Each scope's rows as its host sent them, so the pending Done marks they already agree with are dropped after render.
+  // Each scope's rows as its host sent them, so the pending Done and Snooze marks they already agree with are dropped after render.
   const hostRows: [string, SidebarRecent[]][] = [[currentKey, hostRecents]];
   const pendingDone = (key: string, rows: SidebarRecent[]) => {
     hostRows.push([key, rows]);
-    return withDonePending(key, rows, donePending);
+    return withSnoozePending(key, withDonePending(key, rows, donePending), snoozePending);
   };
   useEffect(() => {
     if (donePending.size) for (const [key, rows] of hostRows) settleDonePending(key, rows);
+    if (snoozePending.size) for (const [key, rows] of hostRows) settleSnoozePending(key, rows);
   });
   const unarchived = (key: string, rows: SidebarRecent[]) => (archivingChats?.size ? rows.filter((row) => !archivingChats.has(`${key}#${row.id}`)) : rows);
-  const withoutDone = (rows: SidebarRecent[]) => (rows.some((row) => row.doneAt) ? rows.filter((row) => !row.doneAt) : rows);
+  const withoutDone = withoutSetAside;
   // Canvas Links join this Mac's Projects: a Named Link's shared chats and another computer's take none.
   const linkProjectIdOf = (key: string | undefined) =>
     key && !key.startsWith("milagre-link:") && !isRemoteKey(key) ? (registeredProjects.find((project) => project.path === key)?.id ?? null) : null;
@@ -965,6 +978,7 @@ export default memo(function SidebarNav({
           pinned: rows.filter((row) => row.pinned),
           rest: rows.filter((row) => !row.pinned),
           done: all.filter((row) => row.doneAt),
+          snoozed: all.filter(inSnoozed),
         };
       })
     : [];
@@ -999,6 +1013,7 @@ export default memo(function SidebarNav({
           pinned: rows.filter((row) => row.pinned),
           rest: rows.filter((row) => !row.pinned),
           done: all.filter((row) => row.doneAt),
+          snoozed: all.filter(inSnoozed),
         };
       })
     : [];
@@ -1125,6 +1140,25 @@ export default memo(function SidebarNav({
       done.map((item) => ({ key, item, onPick: list.onPick, onReopen: list.actions.onReopen && reopenFromDone(list.actions), computer: list.computer })),
     )
     .sort((a, b) => (b.item.doneAt ?? 0) - (a.item.doneAt ?? 0));
+  // Every shown scope's snoozed chats in the section above Done, the one waking soonest first.
+  const snoozedEntries: SnoozedEntry[] = (
+    showAll
+      ? [
+          ...homeGroups.map(({ key, list, snoozed }) => ({ key, list, snoozed })),
+          ...groups.map(({ scope, list, snoozed }) => ({ key: scope.key, list, snoozed })),
+        ]
+      : [
+          {
+            key: currentKey,
+            list: { onPick: pickChat, actions: chatActions, computer: rowComputer(currentKey) },
+            snoozed: listedRecents.filter(inSnoozed),
+          },
+        ]
+  )
+    .flatMap(({ key, list, snoozed }) =>
+      snoozed.map((item) => ({ key, item, onPick: list.onPick, onWake: list.actions.onWake && wakeFromSnoozed(list.actions), computer: list.computer })),
+    )
+    .sort((a, b) => (a.item.snoozedUntil ?? 0) - (b.item.snoozedUntil ?? 0));
   // Each group's slot in the Pinned section, for its list's portal; one ref callback per key, so slots don't remount.
   const [pinSlots, setPinSlots] = useState<Record<string, HTMLElement | null>>({});
   const pinSlotRefs = useRef(new Map<string, (node: HTMLDivElement | null) => void>());
@@ -1858,6 +1892,8 @@ export default memo(function SidebarNav({
             </SidebarLinksProvider>
           </ScrollArea>
 
+          <SnoozedSection entries={snoozedEntries} collapsed={collapsed} />
+
           <DoneSection entries={doneEntries} retentionHours={doneSettings.retentionHours} collapsed={collapsed} />
 
           <SidebarToast collapsed={collapsed} />
@@ -1884,6 +1920,7 @@ export default memo(function SidebarNav({
                 collapsed={collapsed}
                 className={FILTERS_BUTTON}
               />
+              {usageButton}
             </div>
             <Tooltip label="Settings" shortcut={keys.settings} align={collapsed ? "start" : "end"}>
               <IconButton size={32} data-update-settings="" label="Settings" onClick={onOpenSettings}>
@@ -2076,6 +2113,30 @@ function reopenFromDone(actions: ChatRowActions) {
   return reopen;
 }
 
+/** Snooze as a step in the undo history: ⌘Z wakes the Chat, ⇧⌘Z snoozes it again until the same time. */
+const snoozeStep = (actions: () => ChatRowActions, id: string, until: number): UndoAction => ({
+  text: "Snoozed",
+  undoneText: "Back in Chats",
+  undo: () => actions().onWake?.(id),
+  redo: () => actions().onSnooze?.(id, until),
+});
+
+/** The Snoozed section's Wake for a list; one function per set of actions, so rows keep their memo. */
+const wakers = new WeakMap<ChatRowActions, (id: string) => void>();
+function wakeFromSnoozed(actions: ChatRowActions) {
+  let wake = wakers.get(actions);
+  if (!wake) {
+    wake = (id) => actions.onWake?.(id);
+    wakers.set(actions, wake);
+  }
+  return wake;
+}
+
+/** Rows left in a chat list: Done and snoozed ones sit in their own sections at the bottom (DoneSection, SnoozedSection). */
+function withoutSetAside(rows: SidebarRecent[]): SidebarRecent[] {
+  return rows.some((row) => row.doneAt || inSnoozed(row)) ? rows.filter((row) => !row.doneAt && !inSnoozed(row)) : rows;
+}
+
 /**
  * A scope's row actions: pinning, Done, Reopen and deletion that can be undone from a toast or with ⌘Z, and the Link items that open the shared "Link with…"
  * and "Remove Link with…" lists. `now` reads the latest state, so one object serves every render.
@@ -2116,6 +2177,14 @@ function chatRowActions(actions: ChatRowActions, linkProjectId: string | null, s
         if (!latest.onReopen) return;
         latest.onReopen(id);
         undoHistory.record(reopenStep(() => now().actions, id));
+      }),
+    onSnooze:
+      actions.onSnooze &&
+      ((id, until) => {
+        const latest = now().actions;
+        if (!latest.onSnooze) return;
+        latest.onSnooze(id, until);
+        undoHistory.record(snoozeStep(() => now().actions, id, until));
       }),
     onArchive:
       actions.onArchive &&

@@ -6,6 +6,7 @@ import { DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, resolveThemeSetting
 import type { CustomTheme, ThemeChoice } from "@milagre/shared/themes";
 import type { ChatOrder } from "./chat-list";
 import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
+import { normalizeSnoozeMinutes, SNOOZE_DEFAULTS } from "@milagre/shared/snooze";
 import {
   parseChatList,
   parseCompactButtonDisplay,
@@ -18,6 +19,7 @@ import { DEFAULT_NOTIFICATION_CHIME, parseNotificationChime, type NotificationCh
 import { applyPalette } from "./theme-sheet.ts";
 import { applyAppearance } from "./appearance.ts";
 import { DEFAULT_APPEARANCE, parseAppearance, type Appearance } from "@milagre/shared/appearance";
+import { parseUsageInSidebar, type UsageInSidebar } from "@milagre/shared/usage";
 
 import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
 import {
@@ -49,7 +51,8 @@ export interface AppSettings {
   defaultModelId: string;
   defaultPermissionMode: PermissionMode;
   usageDisplay: UsageDisplay;
-  showUsageInSidebar: boolean;
+  /** Settings › General › Plan usage: the footer button, a meter per provider, or nothing. */
+  usageInSidebar: UsageInSidebar;
   /** Show a system notification when a chat waits on an approval or question while Milagre is in the background. */
   notifyWhenWaiting: boolean;
   notifyOnCompletion: boolean;
@@ -73,6 +76,8 @@ export interface AppSettings {
   chatList: ChatList;
   /** What a sidebar chat row's second line shows (the Filters menu's Show). */
   chatRowShow: ChatRowShow;
+  /** Settings › General › Chat list: how long a row's hover Snooze button puts a Chat away, in minutes (snooze.mjs). */
+  snoozeMinutes: number;
   /** Settings › Chat: a reply's tool calls fold into one line, or show one row each with the text between them. */
   toolCallDisplay: ToolCallDisplay;
   /** Settings › Chat: thinking rows start open. */
@@ -120,7 +125,7 @@ const DEFAULTS: AppSettings = {
   defaultModelId: MODEL_CATALOG[0].id,
   defaultPermissionMode: "ask",
   usageDisplay: "used",
-  showUsageInSidebar: true,
+  usageInSidebar: "button",
   notifyWhenWaiting: true,
   notifyOnCompletion: true,
   showDockBadge: true,
@@ -134,6 +139,7 @@ const DEFAULTS: AppSettings = {
   chatOrder: "created",
   chatList: "list",
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
+  snoozeMinutes: SNOOZE_DEFAULTS.minutes,
   toolCallDisplay: "compact",
   expandReasoning: false,
   newChatGlance: false,
@@ -155,7 +161,7 @@ const DEFAULTS: AppSettings = {
 
 function load(): AppSettings {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<AppSettings> & { muriloMode?: unknown };
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<AppSettings> & { muriloMode?: unknown; showUsageInSidebar?: unknown };
     const legacyTheme = localStorage.getItem(LEGACY_THEME_KEY);
     const theme = saved.theme ?? legacyTheme;
     const customTheme = parseCustomTheme(saved.customTheme);
@@ -171,7 +177,7 @@ function load(): AppSettings {
         ? saved.defaultPermissionMode!
         : DEFAULTS.defaultPermissionMode,
       usageDisplay: USAGE_DISPLAYS.has(saved.usageDisplay as UsageDisplay) ? saved.usageDisplay! : DEFAULTS.usageDisplay,
-      showUsageInSidebar: typeof saved.showUsageInSidebar === "boolean" ? saved.showUsageInSidebar : DEFAULTS.showUsageInSidebar,
+      usageInSidebar: parseUsageInSidebar(saved.usageInSidebar, saved.showUsageInSidebar),
       notifyWhenWaiting: typeof saved.notifyWhenWaiting === "boolean" ? saved.notifyWhenWaiting : DEFAULTS.notifyWhenWaiting,
       notifyOnCompletion: typeof saved.notifyOnCompletion === "boolean" ? saved.notifyOnCompletion : DEFAULTS.notifyOnCompletion,
       showDockBadge: typeof saved.showDockBadge === "boolean" ? saved.showDockBadge : DEFAULTS.showDockBadge,
@@ -185,6 +191,7 @@ function load(): AppSettings {
       chatOrder: CHAT_ORDERS.has(saved.chatOrder as ChatOrder) ? saved.chatOrder! : DEFAULTS.chatOrder,
       chatList: parseChatList(saved.chatList),
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
+      snoozeMinutes: normalizeSnoozeMinutes(saved.snoozeMinutes),
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
       newChatGlance: typeof saved.newChatGlance === "boolean" ? saved.newChatGlance : DEFAULTS.newChatGlance,

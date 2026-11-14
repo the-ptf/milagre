@@ -16,6 +16,7 @@ import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
 import type { LinkState, NamedLinkDeleted, NamedProjectLink, OpenLink } from "@milagre/shared/model";
+import { isSnoozed } from "@milagre/shared/snooze";
 import { deletedLinkText, isDeletedLinkState, isLinkGone, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { scopeKey, isLinkScopeKey, scopeFromKey, LOCAL_COMPUTER, computerOfKey, qualifyKey } from "@milagre/shared/chat-scopes";
 import { isChatsHomeProject, type ChatsHome } from "@milagre/shared/chats-home";
@@ -81,6 +82,7 @@ import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId
 import { chatMark, chatTitle, fullChatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import type { SessionPatch } from "@milagre/shared/project-edits";
 import { patchChatShowingDone } from "./lib/done-pending.ts";
+import { snoozeChat } from "./lib/snooze-pending.ts";
 import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
@@ -141,6 +143,7 @@ import { InlineError } from "./components/primitives/InlineError";
 import { openInEditor } from "./lib/editors";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
 import { SidebarUsage } from "./components/usage/SidebarUsage";
+import { UsageButton } from "./components/usage/UsageButton";
 import { visibleProviders } from "./components/usage/format";
 import { useUsage } from "./components/usage/useUsage";
 import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences";
@@ -884,7 +887,7 @@ function App() {
   const usage = useUsage(accountScope);
   const {
     chatOrder,
-    showUsageInSidebar,
+    usageInSidebar,
     keepAwake,
     defaultModelId,
     defaultPermissionMode,
@@ -1323,6 +1326,7 @@ function App() {
         pinned: Boolean(session.pinned),
         pinOrder: session.pin_order,
         ...(session.done_at ? { doneAt: session.done_at } : {}),
+        ...(isSnoozed(session) ? { snoozedUntil: session.snoozed_until } : {}),
         ...(session.parent !== undefined ? { parent: String(session.parent) } : {}),
         mark: chatMark({
           asking: asking.has(session.id),
@@ -1386,6 +1390,7 @@ function App() {
     patchChat,
     pinChatHere,
     markChatDone,
+    snoozeChatHere,
     revealChat,
     openChatInEditor,
     openGitDialog,
@@ -1401,6 +1406,7 @@ function App() {
     patchChat,
     pinChatHere,
     markChatDone,
+    snoozeChatHere,
     revealChat,
     openChatInEditor,
     openGitDialog,
@@ -1415,6 +1421,11 @@ function App() {
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
   function patchChat(sessionId: number, patch: SessionPatch, path = projectRef.current?.path) {
     if (path) void reportChatAction(patchChatShowingDone(path, sessionId, patch), "Could not update Chat", setNotice);
+  }
+  // Snooze (until a time) or Wake (null): the row moves to or from the Snoozed section at once (snooze-pending.ts). The
+  // open Chat stays open: it keeps working, just out of the way.
+  function snoozeChatHere(sessionId: number, until: number | null, path = projectRef.current?.path) {
+    if (path) void reportChatAction(snoozeChat(path, sessionId, until), until ? "Could not snooze Chat" : "Could not wake Chat", setNotice);
   }
   // Pins stay on this Mac (chat-pins.ts); pinning a hidden Run Chat still tells its host the user took it over.
   function pinChatHere(sessionId: number, order: number | null) {
@@ -1751,7 +1762,8 @@ function App() {
         if (link && chatInProject(scopeKey({ kind: "link", linkId: link.link.id }), chatId)) {
           const latest = linkStatesRef.current[link.link.id] ?? link.state;
           const session = latest.sessions[sessionIdFromKey(chatId)];
-          if (session && !session.archived && (event.type === "turn-completed" || event.type === "turn-failed"))
+          // A snoozed Chat's finished turn stays quiet; a failed one wakes it (snooze.mjs).
+          if (session && !session.archived && ((event.type === "turn-completed" && !isSnoozed(session)) || event.type === "turn-failed"))
             void window.milagre
               .notifyCompletion({
                 chatId,
@@ -1768,7 +1780,8 @@ function App() {
         if (!current || !latest || !chatInProject(current.path, chatId)) return;
         const session = latest.sessions[sessionIdFromKey(chatId)];
         if (!session || session.archived) return;
-        if (event.type === "turn-completed" || event.type === "turn-failed") {
+        // A snoozed Chat's finished turn stays quiet; a failed one wakes it (snooze.mjs).
+        if ((event.type === "turn-completed" && !isSnoozed(session)) || event.type === "turn-failed") {
           void window.milagre
             .notifyCompletion({
               chatId,
@@ -2799,6 +2812,8 @@ function App() {
     onRename: (id, title) => latest.current.patchChat(Number(id), { title }, path),
     onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }, path),
     onReload: (id) => void latest.current.reloadChat(Number(id), path),
+    onSnooze: (id, until) => latest.current.snoozeChatHere(Number(id), until, path),
+    onWake: (id) => latest.current.snoozeChatHere(Number(id), null, path),
     onArchiveCheck: (id) => latest.current.checkArchive(Number(id), path),
     onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, path),
     onUndoArchive: (id) => undoDelete(chatKey(path, Number(id))),
@@ -2822,6 +2837,8 @@ function App() {
       onPin: (id, order) => latest.current.pinChatHere(Number(id), order ?? null),
       onDone: (id) => latest.current.markChatDone(Number(id)),
       onReopen: (id) => latest.current.patchChat(Number(id), { done: false }),
+      onSnooze: (id, until) => latest.current.snoozeChatHere(Number(id), until),
+      onWake: (id) => latest.current.snoozeChatHere(Number(id), null),
       ...(remoteProject
         ? { remote: true }
         : {
@@ -3144,12 +3161,14 @@ function App() {
   useEffect(() => {
     closeRunPane();
   }, [routineId, view]);
+  const hasSidebarUsage = Boolean(usage.snapshot && visibleProviders(usage.snapshot).length > 0);
   const sidebarUsage = useMemo(
-    () =>
-      showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? (
-        <SidebarUsage usage={usage} scope={accountScope} chatsHome={accountScopeIsHome} />
-      ) : undefined,
-    [showUsageInSidebar, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
+    () => (usageInSidebar === "meters" && hasSidebarUsage ? <SidebarUsage usage={usage} scope={accountScope} chatsHome={accountScopeIsHome} /> : undefined),
+    [usageInSidebar, hasSidebarUsage, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
+  );
+  const sidebarUsageButton = useMemo(
+    () => (usageInSidebar === "button" && hasSidebarUsage ? <UsageButton usage={usage} /> : undefined),
+    [usageInSidebar, hasSidebarUsage, usage.snapshot, usage.loading],
   );
   const mentionKey = JSON.stringify(state && !isLinkScopeKey(project?.path ?? "") ? chatMentionChoices(state) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
@@ -3427,6 +3446,7 @@ function App() {
       linkedWork={linkedWork}
       onCanvasChat={(path, id) => void openCanvasChat(path, id)}
       usage={sidebarUsage}
+      usageButton={sidebarUsageButton}
       onNewChatInScope={newChatInScope}
       onNewChat={startNewChatOnThisMac}
       onPickChat={() => setSettingsOpen(false)}
@@ -3905,6 +3925,7 @@ function App() {
                   onOpenProjectSettings={surfaces.settings ? openProjectSettings : undefined}
                   onNewChatInScope={newChatInScope}
                   usage={sidebarUsage}
+                  usageButton={sidebarUsageButton}
                   runningKeys={sidebarRunKeys.running}
                   waitingKeys={sidebarRunKeys.waiting}
                   askingKeys={sidebarRunKeys.asking}

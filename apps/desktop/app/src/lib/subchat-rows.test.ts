@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeFamilyRoot, chatFamily, rowKeys, shownChats, standInRow } from "./subchat-rows.ts";
+import { activeFamilyRoot, chatFamily, jumpChatRows, rowKeys, shownChats, standInRow } from "./subchat-rows.ts";
 
 const row = (id: string, parent?: string) => ({ id, label: id, ...(parent ? { parent } : {}) });
 
@@ -126,5 +126,13 @@ test("standInRow: a folded family's parent stands in for its open subchat, at an
   assert.equal(
     standInRow(folded, rows, keys, () => false),
     undefined,
+  );
+});
+
+test("the ⌘1–9 shortcuts skip Done and snoozed Chats, pins first", () => {
+  const rows = [row("1"), { ...row("2"), doneAt: 5 }, { ...row("3"), snoozedUntil: 9 }, { ...row("4"), pinned: true }];
+  assert.deepEqual(
+    jumpChatRows(rows, "/p", new Set()).map((item) => item.id),
+    ["4", "1"],
   );
 });

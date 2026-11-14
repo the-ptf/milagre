@@ -106,14 +106,14 @@ export const rowKeys = (scope: string) => ({
   parent: (row: Pick<SidebarRecent, "parent">) => (row.parent === undefined ? undefined : `${scope}#${row.parent}`),
 });
 
-/** The current scope's numbered shortcuts: pins first, Done omitted, nesting only in expanded lists. */
-export function jumpChatRows<T extends Pick<SidebarRecent, "id" | "parent" | "pinned" | "doneAt">>(
+/** The current scope's numbered shortcuts: pins first, Done and snoozed omitted, nesting only in expanded lists. */
+export function jumpChatRows<T extends Pick<SidebarRecent, "id" | "parent" | "pinned" | "doneAt" | "snoozedUntil">>(
   rows: readonly T[],
   scope: string,
   folded: SubchatFolds,
   collapsed = false,
 ): T[] {
-  const live = rows.filter((row) => !row.doneAt);
+  const live = rows.filter((row) => !row.doneAt && !row.snoozedUntil);
   const rest = live.filter((row) => !row.pinned);
   return [...live.filter((row) => row.pinned), ...(collapsed ? rest : shownChats(rest, { ...rowKeys(scope), folded }).map(({ item }) => item))];
 }

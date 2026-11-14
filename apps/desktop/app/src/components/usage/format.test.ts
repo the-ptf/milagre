@@ -11,6 +11,8 @@ import {
   formatResetsIn,
   formatResetsAt,
   overviewUpdatedAt,
+  parseUsageInSidebar,
+  peakUsageTone,
   formatTokens,
   formatUpdatedAgo,
   mergeSnapshot,
@@ -240,4 +242,22 @@ test("overview freshness uses the oldest last-good window, ignoring empty or inv
     overviewUpdatedAt({ providers: [claude({ updatedAt: at(-HOUR) }), claude({ updatedAt: at(0) }), claude({ windows: [], updatedAt: at(-DAY) })] }),
     at(-HOUR),
   );
+});
+
+test("the sidebar usage choice keeps an old on/off setting and defaults to the button", () => {
+  assert.equal(parseUsageInSidebar("meters", false), "meters");
+  assert.equal(parseUsageInSidebar("off"), "off");
+  assert.equal(parseUsageInSidebar(undefined, true), "meters");
+  assert.equal(parseUsageInSidebar(undefined, false), "off");
+  assert.equal(parseUsageInSidebar(undefined), "button");
+  assert.equal(parseUsageInSidebar("bogus"), "button");
+});
+
+test("the usage button takes the tone of the fullest window across providers", () => {
+  const low = claude({ windows: [{ id: "five", label: "5 hours", shortLabel: "5h", usedPercent: 10, resetsAt: null }] });
+  const near = { ...low, provider: "codex" as const, windows: [{ id: "week", label: "Week", shortLabel: "wk", usedPercent: 82, resetsAt: null }] };
+  assert.equal(peakUsageTone([]), "normal");
+  assert.equal(peakUsageTone([low]), "normal");
+  assert.equal(peakUsageTone([low, near]), "warning");
+  assert.equal(peakUsageTone([{ ...near, windows: [{ ...near.windows[0], usedPercent: 96 }] }]), "critical");
 });

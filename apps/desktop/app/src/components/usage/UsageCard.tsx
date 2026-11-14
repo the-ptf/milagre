@@ -86,6 +86,53 @@ function AccountPicker({
   );
 }
 
+/**
+ * A provider's windows: label, bar, percent and reset time. The usage card and the sidebar's usage button share it;
+ * `dense` (the button's popover, which lists every provider) puts the label, reset and percent on one line over the bar.
+ */
+export function UsageWindows({ usage, now, dense = false, className = "" }: { usage: ProviderUsage; now: number; dense?: boolean; className?: string }) {
+  const { usageDisplay } = useSettings();
+  if (dense)
+    return (
+      <div className={`flex flex-col gap-2 ${className}`}>
+        {usage.windows.map((item) => {
+          const resets = formatResetsIn(item.resetsAt, now);
+          return (
+            <div key={item.id} className="flex flex-col gap-1">
+              <p className="flex min-w-0 items-baseline gap-2 text-12 tabular-nums">
+                <span className="shrink-0 font-medium text-ink">{item.label}</span>
+                <span className="min-w-0 flex-1 truncate text-ink-3">{[item.detail, resets].filter(Boolean).join(" · ")}</span>
+                <span className="shrink-0 text-ink-2">
+                  {formatPercent(shownPercent(item.usedPercent, usageDisplay))} {shownSuffix(usageDisplay)}
+                </span>
+              </p>
+              <UsageBar usedPercent={item.usedPercent} display={usageDisplay} className="h-1 w-full" />
+            </div>
+          );
+        })}
+      </div>
+    );
+  return (
+    <div className={`flex flex-col gap-3 ${className}`}>
+      {usage.windows.map((item) => (
+        <div key={item.id} className="flex flex-col gap-1.5">
+          <p className="flex items-baseline justify-between gap-2 text-13 font-medium">
+            {item.label}
+            {item.detail && <span className="text-12 font-normal tabular-nums text-ink-3">{item.detail}</span>}
+          </p>
+          <UsageBar usedPercent={item.usedPercent} display={usageDisplay} className="h-1.5 w-full" />
+          <div className="flex items-center justify-between text-12 tabular-nums text-ink-2">
+            <span>
+              {formatPercent(shownPercent(item.usedPercent, usageDisplay))} {shownSuffix(usageDisplay)}
+            </span>
+            <span>{formatResetsIn(item.resetsAt, now)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function UsageCard({
   id,
   usage,
@@ -102,7 +149,6 @@ export function UsageCard({
   const [now, setNow] = useState(() => Date.now());
   const name = PROVIDER_NAMES[usage.provider];
   const account = usage.account?.email || usage.account?.label;
-  const { usageDisplay } = useSettings();
   const spin = useRefreshSpin(onRefresh, loading);
 
   useEffect(() => {
@@ -164,25 +210,7 @@ export function UsageCard({
 
       {usage.message && <p className="mx-4 mb-3 rounded-control bg-field px-3 py-1.5 text-12 text-ink">{usage.message}</p>}
 
-      {usage.windows.length > 0 && (
-        <div className="flex flex-col gap-3 border-t border-line px-4 pb-4 pt-3">
-          {usage.windows.map((item) => (
-            <div key={item.id} className="flex flex-col gap-1.5">
-              <p className="flex items-baseline justify-between gap-2 text-13 font-medium">
-                {item.label}
-                {item.detail && <span className="text-12 font-normal tabular-nums text-ink-3">{item.detail}</span>}
-              </p>
-              <UsageBar usedPercent={item.usedPercent} display={usageDisplay} className="h-1.5 w-full" />
-              <div className="flex items-center justify-between text-12 tabular-nums text-ink-2">
-                <span>
-                  {formatPercent(shownPercent(item.usedPercent, usageDisplay))} {shownSuffix(usageDisplay)}
-                </span>
-                <span>{formatResetsIn(item.resetsAt, now)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {usage.windows.length > 0 && <UsageWindows usage={usage} now={now} className="border-t border-line px-4 pb-4 pt-3" />}
 
       {/* Only when the account has some: a "0 left" row would read as something used up. */}
       {usage.bankedResets ? (

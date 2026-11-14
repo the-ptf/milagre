@@ -1,14 +1,14 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, Text } from "react-native";
 import Swipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
-import { Archive02Icon, CircleIcon, Tick02Icon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { AlarmClockIcon, Archive02Icon, CircleIcon, Tick02Icon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { Icon, type IconData } from "./icons";
 import { type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { ReduceMotion, useDerivedValue, type SharedValue } from "react-native-reanimated";
 import { useReducedMotion } from "./motion";
 
-export type SwipeAction = "done" | "archive" | "reopen" | "read" | "unread";
+export type SwipeAction = "done" | "archive" | "reopen" | "wake" | "read" | "unread";
 
 /**
  * The list sits in the slide-over sidebar, which a leftward drag closes. A drag meant to close it lands on a row more often
@@ -28,7 +28,7 @@ export function hideRevealed() {
 
 /**
  * A released swipe commits one action: left marks the Chat Done (in the sidebar, reveals it), right marks it read or unread. A Done Chat swipes right
- * to reopen and has nothing on the left. A Mac too old to keep Done (`doneable` false) archives on the left swipe, as
+ * to reopen and has nothing on the left; a snoozed Chat swipes right to wake, the same way. A Mac too old to keep Done (`doneable` false) archives on the left swipe, as
  * before Done. The row's ⋯ menu stays the accessible alternative.
  *
  * Every prop handed to the Swipeable keeps its identity across renders: a changed callback, style or option rebuilds the
@@ -38,6 +38,7 @@ export function ChatSwipeRow({
   children,
   unread,
   done = false,
+  snoozed = false,
   doneable = true,
   disabled,
   background,
@@ -47,6 +48,8 @@ export function ChatSwipeRow({
   unread: boolean;
   /** The row is in the Done section. */
   done?: boolean;
+  /** The row is in the Snoozed section. */
+  snoozed?: boolean;
   /** The Chat's Mac can mark it Done; an older one archives instead. */
   doneable?: boolean;
   disabled: boolean;
@@ -69,10 +72,15 @@ export function ChatSwipeRow({
   const latest = useRef({
     disabled,
     onAction,
-    left: (done ? "reopen" : unread ? "read" : "unread") as SwipeAction,
+    left: (done ? "reopen" : snoozed ? "wake" : unread ? "read" : "unread") as SwipeAction,
     right: (doneable ? "done" : "archive") as SwipeAction,
   });
-  latest.current = { disabled, onAction, left: done ? "reopen" : unread ? "read" : "unread", right: doneable ? "done" : "archive" };
+  latest.current = {
+    disabled,
+    onAction,
+    left: done ? "reopen" : snoozed ? "wake" : unread ? "read" : "unread",
+    right: doneable ? "done" : "archive",
+  };
   const commit = useCallback((direction: "left" | "right") => {
     if (revealed === swipeable.current) revealed = null;
     swipeable.current?.close();
@@ -99,11 +107,11 @@ export function ChatSwipeRow({
       <Text style={{ color: solid ? colors.onAccent : colors.accentInk, fontSize: type.caption1, fontWeight: "600" }}>{label}</Text>
     </Pressable>
   );
-  const leftLabel = done ? "Reopen" : unread ? "Mark as read" : "Mark as unread";
+  const leftLabel = done ? "Reopen" : snoozed ? "Wake" : unread ? "Mark as read" : "Mark as unread";
   const renderLeft = useCallback(
-    () => action(leftLabel, done ? Undo02Icon : unread ? Tick02Icon : CircleIcon),
+    () => action(leftLabel, done ? Undo02Icon : snoozed ? AlarmClockIcon : unread ? Tick02Icon : CircleIcon),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `action` only reads the theme's colors.
-    [leftLabel, done, unread, colors],
+    [leftLabel, done, snoozed, unread, colors],
   );
   const renderRight = useCallback(
     () => {
@@ -139,7 +147,7 @@ export function ChatSwipeRow({
       overshootRight={false}
       childrenContainerStyle={childrenContainerStyle}
       renderLeftActions={renderLeft}
-      renderRightActions={done ? undefined : renderRight}
+      renderRightActions={done || snoozed ? undefined : renderRight}
       onSwipeableOpen={onOpen}
     >
       {children}
