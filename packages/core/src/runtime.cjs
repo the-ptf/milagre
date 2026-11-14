@@ -2264,7 +2264,9 @@ function createRuntime(options) {
     if (rest.sessionId != null) {
       await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
       await reopenDoneChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't reopen a Done Chat:", error.message));
-      await wakeSnoozedChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't wake a snoozed Chat:", error.message));
+      await wakeSnoozedChat(rest.projectPath, sessionId, { byUser: true }).catch((error) =>
+        console.warn("Milagre couldn't wake a snoozed Chat:", error.message),
+      );
     }
     return { sessionId };
   }
@@ -2414,7 +2416,8 @@ function createRuntime(options) {
   }
   // Waking a snoozed Chat: back in its list, unread so it shows it came back. `due` (the sweep's) only wakes one whose time
   // has passed, read again in the queue; an agent's question, approval or failure wakes it whenever it is snoozed.
-  async function wakeSnoozedChat(projectPath, sessionId, { due = false } = {}) {
+  // `byUser` (a message the user sent it) wakes it as read: they are looking at it.
+  async function wakeSnoozedChat(projectPath, sessionId, { due = false, byUser = false } = {}) {
     if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.snoozed_until) return false;
     let woke = false;
     await editProject(
@@ -2423,7 +2426,7 @@ function createRuntime(options) {
         const session = state.sessions[sessionId];
         if (!session?.snoozed_until || (due && session.snoozed_until > Date.now())) return state;
         woke = true;
-        return patchSession(state, sessionId, { snoozed_until: undefined, unread: true });
+        return patchSession(state, sessionId, byUser ? { snoozed_until: undefined } : { snoozed_until: undefined, unread: true });
       },
       { chats: [] },
     );
