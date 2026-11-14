@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
-import { Pressable, Text } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import Swipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { AlarmClockIcon, Archive02Icon, CircleIcon, Tick02Icon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { Icon, type IconData } from "./icons";
@@ -8,7 +8,7 @@ import { useTheme } from "./theme";
 import { ReduceMotion, useDerivedValue, type SharedValue } from "react-native-reanimated";
 import { useReducedMotion } from "./motion";
 
-export type SwipeAction = "done" | "archive" | "reopen" | "wake" | "read" | "unread";
+export type SwipeAction = "done" | "archive" | "reopen" | "wake" | "snooze-for" | "read" | "unread";
 
 /**
  * The list sits in the slide-over sidebar, which a leftward drag closes. A drag meant to close it lands on a row more often
@@ -27,7 +27,9 @@ export function hideRevealed() {
 }
 
 /**
- * A released swipe commits one action: left marks the Chat Done (in the sidebar, reveals it), right marks it read or unread. A Done Chat swipes right
+ * A released swipe commits one action: left marks the Chat Done (in the sidebar, reveals it), right marks it read or unread.
+ * Where the Chat's computer keeps Done, the left swipe reveals Snooze (for the default in Settings › Chat) beside Done
+ * instead, and a tap picks one. A Done Chat swipes right
  * to reopen and has nothing on the left; a snoozed Chat swipes right to wake, the same way. A Mac too old to keep Done (`doneable` false) archives on the left swipe, as
  * before Done. The row's ⋯ menu stays the accessible alternative.
  *
@@ -81,27 +83,35 @@ export function ChatSwipeRow({
     left: done ? "reopen" : snoozed ? "wake" : unread ? "read" : "unread",
     right: doneable ? "done" : "archive",
   };
-  const commit = useCallback((direction: "left" | "right") => {
+  // `direction` is the swipe's (left reveals the right-hand actions); `choice` a revealed button's own action.
+  const commit = useCallback((direction: "left" | "right", choice?: SwipeAction) => {
     if (revealed === swipeable.current) revealed = null;
     swipeable.current?.close();
     const { disabled: off, onAction: run, left, right } = latest.current;
     if (off || inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    void run(direction === "left" ? right : left).finally(() => {
+    void run(choice ?? (direction === "left" ? right : left)).finally(() => {
       inFlight.current = false;
       setBusy(false);
     });
   }, []);
   // A revealed action commits on a tap; the row's ⋯ menu stays the accessible way, so it is hidden from screen readers.
-  const action = (label: string, icon: IconData, solid = false, onPress?: () => void) => (
+  const action = (label: string, icon: IconData, solid = false, onPress?: () => void, tint?: string) => (
     <Pressable
       disabled={!onPress}
       onPress={onPress}
       accessible={false}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{ width: 96, minHeight: 44, alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: solid ? colors.green : colors.accentTint }}
+      style={{
+        width: 96,
+        minHeight: 44,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
+        backgroundColor: tint ?? (solid ? colors.green : colors.accentTint),
+      }}
     >
       <Icon icon={icon} tone={solid ? "onAccent" : "accentInk"} size={20} />
       <Text style={{ color: solid ? colors.onAccent : colors.accentInk, fontSize: type.caption1, fontWeight: "600" }}>{label}</Text>
@@ -113,20 +123,32 @@ export function ChatSwipeRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `action` only reads the theme's colors.
     [leftLabel, done, snoozed, unread, colors],
   );
+  // Snooze beside Done: the swipe only reveals them, so a tap picks which.
+  const twoActions = doneable;
+  // Read on release, so the open callback (and the row's gestures) keeps its identity.
+  const reveals = useRef(twoActions);
+  reveals.current = twoActions;
   const renderRight = useCallback(
     () => {
+      if (twoActions)
+        return (
+          <View style={{ flexDirection: "row" }}>
+            {action("Snooze", AlarmClockIcon, true, () => commit("left", "snooze-for"), colors.orange)}
+            {action("Done", Tick02Icon, true, () => commit("left", "done"))}
+          </View>
+        );
       const tap = closesLeft ? () => commit("left") : undefined;
-      return doneable ? action("Done", Tick02Icon, true, tap) : action("Archive", Archive02Icon, false, tap);
+      return action("Archive", Archive02Icon, false, tap);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `action` only reads the theme's colors.
-    [doneable, colors, closesLeft, commit],
+    [twoActions, colors, closesLeft, commit],
   );
   const animationOptions = useMemo(() => ({ reduceMotion: reduced ? ReduceMotion.Always : ReduceMotion.System }), [reduced]);
   const childrenContainerStyle = useMemo(() => ({ backgroundColor: background }), [background]);
   const onOpen = useCallback(
     (direction: "left" | "right") => {
-      // In the sidebar, Done stays revealed until it is tapped or the row is touched again.
-      if (direction === "left" && closesLeft) {
+      // Snooze and Done (and, in the sidebar, Archive) stay revealed until one is tapped or the row is touched again.
+      if (direction === "left" && (closesLeft || reveals.current)) {
         if (revealed !== swipeable.current) hideRevealed();
         revealed = swipeable.current;
         return;

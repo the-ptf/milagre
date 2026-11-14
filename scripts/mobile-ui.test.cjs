@@ -6412,7 +6412,7 @@ async function passUndo(t) {
   await settleAll();
 }
 
-test("Chat swipe directions mark Done or read status once and block unavailable rows", async () => {
+test("Chat swipe directions reveal Snooze and Done or mark read status once and block unavailable rows", async () => {
   const react = hookHost();
   const calls = [];
   let closes = 0;
@@ -6450,21 +6450,29 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
     },
   };
   row.props.onSwipeableOpen("right");
-  row.props.onSwipeableOpen("left");
-  assert.deepEqual(calls, ["read"], "another swipe cannot mark Done while a read is pending");
+  row.props.renderRightActions().props.children[1].props.onPress();
+  assert.deepEqual(calls, ["read"], "a revealed Done can't run while a read is pending");
   assert.equal(render(true).props.enabled.get(), false);
   pending.resolve();
   await settle();
   row = render(false);
   row.props.onSwipeableOpen("right");
   await settle();
+  // A left swipe reveals Snooze beside Done and commits nothing; a tap picks one.
   row = render(true);
   row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread"], "a revealed Snooze and Done wait for a tap");
+  const [snoozeButton, doneButton] = row.props.renderRightActions().props.children;
+  snoozeButton.props.onPress();
+  await settle();
+  assert.equal(calls.pop(), "snooze-for", "Snooze uses the default in Settings › Chat");
+  doneButton.props.onPress();
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done"]);
   row = render(false, true);
   assert.equal(row.props.enabled.get(), false);
-  row.props.onSwipeableOpen("left");
+  row.props.renderRightActions().props.children[1].props.onPress();
   assert.deepEqual(calls, ["read", "unread", "done"]);
   // A Done row reopens with a swipe right and has nothing to swipe left to.
   row = render(false, false, true);
@@ -6490,8 +6498,8 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   assert.ok(closes >= 3, "rows close after the action");
   assert.equal(row.props.hitSlop, undefined, "outside the sidebar a row swipes across its whole width");
 
-  // In the slide-over sidebar a left swipe only reveals Done, which a tap commits; the row leaves its right edge to the
-  // sidebar's close, and takes no swipe while the sidebar slides.
+  // In the slide-over sidebar a left swipe reveals too; the row leaves its right edge to the sidebar's close, and takes no
+  // swipe while the sidebar slides.
   let open = true;
   react.useContext = () => ({ get: () => open });
   row = render(true);
@@ -6504,7 +6512,7 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   row.props.onSwipeableOpen("left");
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"], "a revealed Done waits for its tap");
-  const done = row.props.renderRightActions();
+  const done = row.props.renderRightActions().props.children[1];
   assert.equal(done.type, "Pressable");
   done.props.onPress();
   await settle();
