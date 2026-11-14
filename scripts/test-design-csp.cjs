@@ -66,9 +66,36 @@ async function check() {
       "HTML artifact cannot read the parent app",
     );
     assert.equal(await htmlFrame.executeJavaScript("fetch('https://example.com').then(()=>false,()=>true)"), true, "artifact script requests remain blocked");
+    // An interactive design: its own inline scripts and Babel's evaluation run, scripts off the pinned CDNs and its
+    // own requests don't, and it can't reach the app.
+    const { DESIGN_CODE_CSP } = require("@milagre/shared/artifact-document");
+    const code = previews.register(
+      window.webContents.id,
+      '<!doctype html><html><head><script>window.blocked=[];addEventListener("securitypolicyviolation",e=>blocked.push(e.blockedURI))</script><script src="https://evil.example/x@1.0.0/a.js"></script></head><body><button id="go" onclick="this.textContent=eval(\'1+1\')">0</button><script>window.designScriptRan=true</script></body></html>',
+      { code: true },
+    );
+    await window.webContents.executeJavaScript(
+      `(() => { const frame=document.createElement('iframe');frame.sandbox='allow-scripts';frame.setAttribute('csp',${JSON.stringify(DESIGN_CODE_CSP)});frame.src=${JSON.stringify(code)};document.body.append(frame); })()`,
+    );
+    let codeFrame;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      codeFrame = window.webContents.mainFrame.frames.find((item) => item.url === code);
+      if (codeFrame && (await codeFrame.executeJavaScript("!!document.getElementById('go')"))) break;
+      await delay(20);
+    }
+    assert.ok(codeFrame, "an interactive design loads under production frame-src");
+    assert.equal(await codeFrame.executeJavaScript("window.designScriptRan"), true, "an interactive design's inline scripts run");
+    await codeFrame.executeJavaScript("document.getElementById('go').click()");
+    assert.equal(await codeFrame.executeJavaScript("document.getElementById('go').textContent"), "2", "evaluation runs, for Babel");
+    assert.ok(
+      (await codeFrame.executeJavaScript("window.blocked")).some((uri) => uri.includes("evil.example")),
+      "scripts off the pinned CDNs are blocked",
+    );
+    assert.equal(await codeFrame.executeJavaScript("fetch('https://unpkg.com/').then(()=>false,()=>true)"), true, "the design's own requests are blocked");
+    assert.equal(await codeFrame.executeJavaScript("!!window.require || !!window.milagre"), false, "interactive designs have no host bridge");
     previews.clear(window.webContents.id);
     window.webContents.debugger.detach();
-    console.log("PASS: production CSP isolates interactive HTML artifacts and keeps design previews inert");
+    console.log("PASS: production CSP isolates interactive HTML artifacts and interactive designs, and keeps layer previews inert");
   } finally {
     window.destroy();
     app.quit();
