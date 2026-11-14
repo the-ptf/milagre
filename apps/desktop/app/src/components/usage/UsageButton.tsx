@@ -4,7 +4,7 @@ import { IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { Popover } from "../primitives/Popover";
 import { ProviderLogo } from "../ProviderLogo";
-import { PROVIDER_NAMES, USAGE_BUTTON_LABEL, formatUpdatedAgo, overviewUpdatedAt, peakUsageTone, visibleProviders } from "./format";
+import { PROVIDER_NAMES, USAGE_BUTTON_LABEL, formatUpdatedAgo, overviewUpdatedAt, visibleProviders } from "./format";
 import { USAGE_CARD_WIDTH, UsageWindows } from "./UsageCard";
 import type { UsageState } from "./useUsage";
 
@@ -12,7 +12,6 @@ const OPEN_DELAY_MS = 120;
 const CLOSE_DELAY_MS = 150;
 const STALE_AFTER_MS = 60_000;
 // The glyph takes the status colour once any provider's window nears its limit (80% orange, 95% red), as the meters do.
-const TONE_CLASS = { normal: "", warning: "text-orange", critical: "text-red" } as const;
 
 /**
  * Settings › General › Plan usage › Show in sidebar › Button: one footer button beside Filters. Hovering it (or focusing
@@ -28,7 +27,6 @@ export function UsageButton({ usage }: { usage: UsageState }) {
   // The pointer is over the button or the popover: a click there moves focus off the button, which mustn't close it.
   const pointerInside = useRef(false);
   const providers = usage.snapshot ? visibleProviders(usage.snapshot) : [];
-  const tone = peakUsageTone(providers);
   const updatedAt = overviewUpdatedAt(usage.snapshot);
 
   function clearTimers() {
@@ -103,7 +101,6 @@ export function UsageButton({ usage }: { usage: UsageState }) {
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         data-usage-button=""
-        data-usage-tone={tone}
         onPointerEnter={scheduleShow}
         onPointerLeave={leave}
         onFocus={(event) => {
@@ -115,9 +112,7 @@ export function UsageButton({ usage }: { usage: UsageState }) {
         // Opens, never toggles: the pointer that clicks it has usually opened it already.
         onClick={show}
       >
-        <span className={`flex ${TONE_CLASS[tone]}`}>
-          <Icon icon={DashboardSpeed02Icon} size={16} />
-        </span>
+        <Icon icon={DashboardSpeed02Icon} size={16} />
       </IconButton>
       {open && (
         <Popover

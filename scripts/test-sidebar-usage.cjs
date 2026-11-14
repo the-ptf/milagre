@@ -363,13 +363,17 @@ async function browserChecks() {
     await waitFor(`Boolean(${usageButton})`);
     assert.equal(await evaluate(`${usageButton}.getAttribute("aria-label")`), "Plan usage");
     assert.equal(await evaluate(`${usageButton}.getBoundingClientRect().width`), 32, "The same 32px as Add Project and Filters");
-    assert.equal(await evaluate(`${usageButton}.dataset.usageTone`), "critical", "Codex's last-known weekly window at 96% tints the button red");
+    assert.equal(
+      await evaluate(`getComputedStyle(${usageButton}.querySelector("svg")).color === getComputedStyle(${usageButton}).color`),
+      true,
+      "The button keeps the footer's ink even with Codex at 96%: the popover's bars carry the tone",
+    );
     assert.equal(
       await evaluate(
-        `(() => { const red = document.body.appendChild(Object.assign(document.createElement("span"), { className: "text-red" })); const color = getComputedStyle(red).color; red.remove(); return getComputedStyle(${usageButton}.querySelector("svg")).color === color; })()`,
+        `(() => { const red = document.body.appendChild(Object.assign(document.createElement("span"), { className: "text-red" })); const color = getComputedStyle(red).color; red.remove(); return getComputedStyle(${usageButton}.querySelector("svg")).color !== color; })()`,
       ),
       true,
-      "The glyph is drawn in red",
+      "The glyph is never drawn in red",
     );
     assert.equal(await evaluate(`${usageButton}.getAttribute("aria-expanded")`), "false");
     const hover = (target, related = null) =>

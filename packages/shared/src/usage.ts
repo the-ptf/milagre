@@ -91,12 +91,6 @@ export function parseUsageInSidebar(value: unknown, legacyShow?: unknown): Usage
   return "button";
 }
 
-/** The closest any provider is to a limit, for the footer button's tint: one window at 80% makes it orange. */
-export function peakUsageTone(providers: readonly ProviderUsage[]): UsageTone {
-  const peak = providers.reduce((most, item) => item.windows.reduce((max, entry) => Math.max(max, entry.usedPercent), most), 0);
-  return usageTone(peak);
-}
-
 /** The providers the sidebar shows: those with numbers. One in error keeps showing its last-known windows. */
 export function visibleProviders(snapshot: UsageSnapshot) {
   return snapshot.providers.filter((item) => item.status !== "unavailable" && item.windows.length > 0);
