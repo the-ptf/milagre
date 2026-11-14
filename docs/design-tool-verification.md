@@ -1,5 +1,7 @@
 # Design tool live verification
 
+> **Editing is agent-only (2026-11).** The desktop layer editor and the `artifact:apply` client command are gone: users view designs on the canvas (comments, Choose, Versions, Share, Export in the frame's ⋯ menu, Delete) and agents change them through `design_show` and `design_apply`. The sections below that mention the editor, manual edits or `artifact:apply` are a record of earlier verification runs.
+
 The real-provider workflow passed on October 12, 2026 with Codex CLI 0.160.0, `gpt-6.1-sol`, low reasoning effort and normal speed. It used the production daemon, Chat runtime, MCP server, provider adapter and artifact store.
 
 1. The model called `design_show` and created version 1 with a Chat card.

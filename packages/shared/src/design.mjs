@@ -27,8 +27,6 @@ export { DESIGN_INK, DESIGN_PLACEHOLDER, designDefaultFill } from "./design-pain
 import { renderDesignSvg } from "./design-svg.mjs";
 import { designDefaultFill } from "./design-paint.mjs";
 import { synchronizeDesignComponents, designInstanceRoot, detachDesignInstance } from "./design-components.mjs";
-import { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
-export { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 export { designLayout, designTextLayout } from "./design-layout.mjs";
 export { designWarnings, designWarningText, designDiagnostics } from "./design-lint.mjs";
 export { createDesignInstance, detachDesignInstance, designInstanceRoot } from "./design-components.mjs";
@@ -498,7 +496,6 @@ export function designNodeAt(document, x, y) {
 
 const escape = (value) =>
   String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
-const safeJson = (value) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
 function nodeStyles(document, node, box, parentBox, parentNode) {
   // Transparent images (icons, cut-outs) show what is behind them; the grey placeholder marks an image still to add.
@@ -591,24 +588,18 @@ function designMarkup(document, bounds, textLayout, take) {
   return parts.join("");
 }
 
-export function designHtml(value, options = {}) {
+export function designHtml(value) {
   const document = validateDesignDocument(value);
   const textLayout = cachedTextLayout();
   const bounds = designLayout(document, textLayout);
-  const selected = options.selectedId && document.nodes.some((node) => node.id === options.selectedId) ? options.selectedId : null;
-  const box = selected && bounds.get(selected);
-  const interactive = options.interactive === true;
-  const selection = `<div id="design-selection" style="position:absolute;box-sizing:border-box;pointer-events:none;border:2px solid #367bf5;z-index:2147483646;${box ? `left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px` : "display:none"}">${interactive ? '<span id="design-resize" style="position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;border:1px solid #367bf5;background:white;pointer-events:auto;cursor:nwse-resize"></span>' : ""}</div>`;
   const fontFaces = designFontFaces(document);
   const take = designRenderBudget("HTML");
   return (
     take(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=${document.width}, initial-scale=1"><style>html,body{margin:0;padding:0;width:${document.width}px;height:${document.height}px;overflow:hidden}body{background:${escape(designColor(document, document.background, "#ffffff"))}}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%;${interactive ? "touch-action:none;user-select:none;cursor:default" : ""}}</style>${fontFaces ? `<style>${fontFaces}</style>` : ""}</head><body><main id="design-root">`,
+      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=${document.width}, initial-scale=1"><style>html,body{margin:0;padding:0;width:${document.width}px;height:${document.height}px;overflow:hidden}body{background:${escape(designColor(document, document.background, "#ffffff"))}}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%}</style>${fontFaces ? `<style>${fontFaces}</style>` : ""}</head><body><main id="design-root">`,
     ) +
     designMarkup(document, bounds, textLayout, take) +
-    take(
-      `${selection}</main>${interactive ? `<script type="application/json" id="design-config">${safeJson([document, selected, Object.fromEntries(bounds)])}</script><script>${DESIGN_CONTROLLER_SCRIPT}</script>` : ""}</body></html>`,
-    )
+    take("</main></body></html>")
   );
 }
 
@@ -628,270 +619,6 @@ export function designLiveParts(value) {
     markup: designMarkup(document, bounds, textLayout, designRenderBudget("HTML")),
     bounds,
   };
-}
-
-/** Build-time only. The checked-in literal keeps the controller's CSP hash stable through bundling. */
-export function buildDesignControllerScript() {
-  return `(${previewController.toString()})(...JSON.parse(document.getElementById("design-config").textContent));`;
-}
-
-/** Runs only in the design iframe. It can report edits, never persist them or access the application. */
-function previewController(design, selected, bounds) {
-  const nodes = new Map(design.nodes.map((node) => [node.id, node]));
-  const elements = new Map([...document.querySelectorAll("[data-design-node]")].map((element) => [element.dataset.designNode, element]));
-  const root = document.getElementById("design-root");
-  const outline = document.getElementById("design-selection");
-  const handle = document.getElementById("design-resize");
-  const multiple = document.createElement("div");
-  multiple.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:2147483645";
-  root.appendChild(multiple);
-  const guides = document.createElement("div");
-  guides.id = "design-guides";
-  guides.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:2147483647";
-  root.appendChild(guides);
-  let selection = selected ? [selected] : [];
-  let dragging = null;
-  const send = (message) => parent.postMessage(message, "*");
-  function instanceRoot(id) {
-    let node = nodes.get(id);
-    while (node) {
-      if (node.componentId) return node.id;
-      node = nodes.get(node.parentId);
-    }
-    return id;
-  }
-  function normalize(ids) {
-    const unique = [...new Set(ids.filter((id) => nodes.has(id) && bounds[id]).map(instanceRoot))];
-    return unique.filter((id) => {
-      let parentId = nodes.get(id).parentId;
-      while (parentId) {
-        if (unique.includes(parentId)) return false;
-        parentId = nodes.get(parentId)?.parentId;
-      }
-      return true;
-    });
-  }
-  function union(boxes) {
-    const x = Math.min(...boxes.map((box) => box.x)),
-      y = Math.min(...boxes.map((box) => box.y));
-    return { x, y, width: Math.max(...boxes.map((box) => box.x + box.width)) - x, height: Math.max(...boxes.map((box) => box.y + box.height)) - y };
-  }
-  function show(overrides = new Map()) {
-    multiple.replaceChildren();
-    const boxes = selection.map((id) => overrides.get(id) ?? bounds[id]).filter(Boolean);
-    if (!boxes.length) {
-      outline.style.display = "none";
-      return;
-    }
-    const box = union(boxes);
-    Object.assign(outline.style, { display: "block", left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px` });
-    const node = nodes.get(selection[0]);
-    handle.style.display = selection.length === 1 && unlocked(node.id) && !node.componentId ? "block" : "none";
-    if (selection.length > 1)
-      for (const rectangle of boxes) {
-        const item = document.createElement("div");
-        item.style.cssText = `position:absolute;box-sizing:border-box;border:1px solid #367bf5;left:${rectangle.x}px;top:${rectangle.y}px;width:${rectangle.width}px;height:${rectangle.height}px`;
-        multiple.appendChild(item);
-      }
-  }
-  function select(ids) {
-    selection = normalize(ids);
-    show();
-    send({ type: "milagre:design-select", ids: selection, id: selection.at(-1) ?? null });
-  }
-  function unlocked(id) {
-    let node = nodes.get(id);
-    if (!node || !bounds[id]) return false;
-    while (node) {
-      if (node.locked) return false;
-      node = nodes.get(node.parentId);
-    }
-    return true;
-  }
-  function movable(id) {
-    const parentNode = nodes.get(nodes.get(id)?.parentId);
-    return unlocked(id) && (!parentNode?.layout || parentNode.layout === "free");
-  }
-  show();
-  window.addEventListener("message", (event) => {
-    if (event.source !== parent || event.data?.type !== "milagre:design-selection" || dragging) return;
-    selection = normalize(Array.isArray(event.data.ids) ? event.data.ids : typeof event.data.id === "string" ? [event.data.id] : []);
-    show();
-  });
-  root.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
-    const resizing = event.target === handle;
-    const hit = resizing ? selection[0] : event.target.closest("[data-design-node]")?.dataset.designNode;
-    const id = hit ? instanceRoot(hit) : null;
-    if (!resizing && (event.shiftKey || event.metaKey || event.ctrlKey)) {
-      select(id ? (selection.includes(id) ? selection.filter((item) => item !== id) : [...selection, id]) : selection);
-      return;
-    }
-    select(id ? (selection.includes(id) ? selection : [id]) : []);
-    const targets = (resizing ? selection : selection.filter(movable))
-      .map((nodeId) => ({ node: nodes.get(nodeId), box: bounds[nodeId], element: elements.get(nodeId) }))
-      .filter((target) => target.element && target.box);
-    if (!targets.length || (resizing && (!unlocked(targets[0].node.id) || targets[0].node.componentId))) return;
-    dragging = {
-      targets,
-      resizing,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      moved: false,
-      dx: 0,
-      dy: 0,
-      box: union(targets.map((target) => target.box)),
-    };
-    root.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  });
-  function snap(axis, values, excluded) {
-    let best = { delta: 0, distance: 6, line: null };
-    const candidates = [0, (axis === "x" ? design.width : design.height) / 2, axis === "x" ? design.width : design.height];
-    for (const [id, box] of Object.entries(bounds)) {
-      let node = nodes.get(id),
-        skip = false;
-      while (node) {
-        if (excluded.has(node.id)) {
-          skip = true;
-          break;
-        }
-        node = nodes.get(node.parentId);
-      }
-      if (skip) continue;
-      candidates.push(box[axis], box[axis] + box[axis === "x" ? "width" : "height"] / 2, box[axis] + box[axis === "x" ? "width" : "height"]);
-    }
-    for (const candidate of candidates)
-      for (const value of values) {
-        const delta = candidate - value;
-        if (Math.abs(delta) < best.distance) best = { delta, distance: Math.abs(delta), line: candidate };
-      }
-    return best;
-  }
-  function guide(axis, position) {
-    if (position === null) return;
-    const line = document.createElement("div");
-    line.style.cssText =
-      axis === "x"
-        ? `position:absolute;left:${position}px;top:0;height:100%;border-left:1px solid #f25fa8`
-        : `position:absolute;top:${position}px;left:0;width:100%;border-top:1px solid #f25fa8`;
-    guides.appendChild(line);
-  }
-  root.addEventListener("pointermove", (event) => {
-    if (!dragging) return;
-    const drag = dragging;
-    drag.dx = Math.round(event.clientX - drag.clientX);
-    drag.dy = Math.round(event.clientY - drag.clientY);
-    drag.moved ||= Math.abs(drag.dx) + Math.abs(drag.dy) > 2;
-    if (!drag.moved) return;
-    guides.replaceChildren();
-    if (!event.altKey) {
-      const excluded = new Set(drag.targets.map((target) => target.node.id));
-      const box = drag.box;
-      const sx = snap(
-        "x",
-        drag.resizing ? [box.x + box.width + drag.dx] : [box.x + drag.dx, box.x + box.width / 2 + drag.dx, box.x + box.width + drag.dx],
-        excluded,
-      );
-      const sy = snap(
-        "y",
-        drag.resizing ? [box.y + box.height + drag.dy] : [box.y + drag.dy, box.y + box.height / 2 + drag.dy, box.y + box.height + drag.dy],
-        excluded,
-      );
-      drag.dx += sx.delta;
-      drag.dy += sy.delta;
-      guide("x", sx.line);
-      guide("y", sy.line);
-    }
-    const overrides = new Map();
-    for (const target of drag.targets) {
-      const box = { ...target.box };
-      if (drag.resizing) {
-        box.width = Math.max(target.node.minWidth ?? 1, Math.min(16000, box.width + drag.dx));
-        box.height = Math.max(target.node.minHeight ?? 1, Math.min(16000, box.height + drag.dy));
-        target.element.style.width = `${box.width}px`;
-        target.element.style.height = `${box.height}px`;
-      } else {
-        box.x += drag.dx;
-        box.y += drag.dy;
-        const parentBox = bounds[target.node.parentId] ?? { x: 0, y: 0 };
-        const parentNode = nodes.get(target.node.parentId);
-        const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
-        target.element.style.left = `${box.x - parentBox.x - parentStroke}px`;
-        target.element.style.top = `${box.y - parentBox.y - parentStroke}px`;
-      }
-      overrides.set(target.node.id, box);
-    }
-    show(overrides);
-  });
-  function finish(cancelled) {
-    if (!dragging) return;
-    const drag = dragging;
-    dragging = null;
-    guides.replaceChildren();
-    if (cancelled || !drag.moved) {
-      for (const target of drag.targets) {
-        const parentBox = bounds[target.node.parentId] ?? { x: 0, y: 0 };
-        const parentNode = nodes.get(target.node.parentId);
-        const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
-        Object.assign(target.element.style, {
-          left: `${target.box.x - parentBox.x - parentStroke}px`,
-          top: `${target.box.y - parentBox.y - parentStroke}px`,
-          width: `${target.box.width}px`,
-          height: `${target.box.height}px`,
-        });
-      }
-      show();
-      return;
-    }
-    const operations = drag.targets.map((target) => ({
-      op: "update",
-      id: target.node.id,
-      patch: drag.resizing
-        ? {
-            width: Math.max(1, target.node.minWidth ?? 1, Math.min(16000, target.box.width + drag.dx)),
-            height: Math.max(1, target.node.minHeight ?? 1, Math.min(16000, target.box.height + drag.dy)),
-            widthMode: "fixed",
-            heightMode: "fixed",
-          }
-        : { x: Math.max(-32000, Math.min(32000, (target.node.x ?? 0) + drag.dx)), y: Math.max(-32000, Math.min(32000, (target.node.y ?? 0) + drag.dy)) },
-    }));
-    send({ type: "milagre:design-update", operations });
-  }
-  root.addEventListener("pointerup", () => finish(false));
-  root.addEventListener("pointercancel", () => finish(true));
-  window.addEventListener("keydown", (event) => {
-    const command =
-      (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z"
-        ? event.shiftKey
-          ? "redo"
-          : "undo"
-        : (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d"
-          ? "duplicate"
-          : ["Backspace", "Delete"].includes(event.key)
-            ? "delete"
-            : null;
-    if (command) {
-      event.preventDefault();
-      send({ type: "milagre:design-command", command });
-      return;
-    }
-    if (!/^Arrow(Left|Right|Up|Down)$/.test(event.key)) return;
-    event.preventDefault();
-    const step = event.shiftKey ? 10 : 1;
-    const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
-    const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
-    const operations = selection.filter(movable).map((id) => ({
-      op: "update",
-      id,
-      patch: { x: Math.max(-32000, Math.min(32000, (nodes.get(id).x ?? 0) + dx)), y: Math.max(-32000, Math.min(32000, (nodes.get(id).y ?? 0) + dy)) },
-    }));
-    if (operations.length) {
-      // Key repeats can arrive before the parent replaces the preview. Accumulate them locally.
-      for (const operation of operations) Object.assign(nodes.get(operation.id), operation.patch);
-      send({ type: "milagre:design-update", operations });
-    }
-  });
 }
 
 /**

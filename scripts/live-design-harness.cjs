@@ -369,7 +369,6 @@ async function startHarness(settings, alternatives = []) {
         }
       },
       artifact: (id, version) => client.call("artifact:get", [{ chatId, id, ...(version === undefined ? {} : { version }) }]),
-      edit: (id, expectedVersion, operations) => client.call("artifact:apply", [{ chatId, id, expectedVersion, operations }]),
     };
   } catch (error) {
     await close();

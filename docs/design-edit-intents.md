@@ -1,5 +1,7 @@
 # Actionable design diagnostics and edit intents
 
+> Only agents edit designs now (2026-11): intents apply to `design_validate` and `design_apply`. The desktop layer editor mentioned in older notes was removed.
+
 The shared design engine now returns measured shortages and candidate repair operations. Agents can attach a per-batch intent to both `design_validate` and `design_apply`. The host validates the resolved result, including component propagation and automatic layout, before saving. Rejected batches create no version.
 
 ## Diagnostics
