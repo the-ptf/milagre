@@ -25,11 +25,12 @@ const {
   designInstanceRoot,
   loadDesignFonts,
 } = require("@milagre/shared/design");
-const { artifactDocument, hasDiagrams } = require("@milagre/shared/artifact-document");
+const { artifactDocument, hasDiagrams, checkDesignCode } = require("@milagre/shared/artifact-document");
 const { ASSET_NAME, ASSET_HASH, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, assetType, mentionsAsset } = require("@milagre/shared/artifact-assets");
 const { openAttachment } = require("./attachment-preview.cjs");
 const { diagramScript } = require("@milagre/shared/diagram-script");
 const { renderDesignPng } = require("./design-raster.cjs");
+const { screenshotDesign } = require("./html-render.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
 // The tool descriptions carry what an agent needs to design here, for subagents too: they don't see the parent
 // agent's system prompt (events.cjs milagreInstructions), only the tools.
@@ -41,6 +42,39 @@ const MAX_VERSIONS = 50;
 const MAX_HTML = 1_000_000;
 const VIEWPORT = { width: 1280, height: 800 };
 const formatOf = (entry) => (entry?.format === "design" ? "design" : "html");
+// A design is layers (a document Milagre draws) or, `interactive`, the agent's own HTML that runs in the viewers.
+const interactiveOf = (entry) => entry?.format === "design" && entry.interactive === true;
+const KIND_MISMATCH =
+  "A design stays layers or interactive HTML for all its versions. Use a new id for the other kind, such as an interactive version of a layer design.";
+/**
+ * An interactive design's HTML, checked: its size, and its scripts from the allowed CDNs at exact versions.
+ */
+function checkDesignHtml(html) {
+  if (typeof html !== "string" || !html.trim()) throw Error("An interactive design needs its HTML.");
+  if (html.length > MAX_HTML) throw Error(`An interactive design's HTML is limited to ${MAX_HTML} characters.`);
+  const problems = checkDesignCode(html);
+  if (problems.length) throw Error(problems.join(" "));
+  return html;
+}
+/**
+ * The design's HTML with `edits` made in order, each replacing text that occurs once (or every time, with `all`).
+ * An edit whose text is missing or ambiguous changes nothing.
+ */
+function editDesignHtml(html, edits) {
+  if (!Array.isArray(edits) || !edits.length) throw Error("Send at least one edit.");
+  let next = html;
+  edits.forEach((edit, index) => {
+    const find = edit?.find;
+    if (typeof find !== "string" || !find) throw Error(`Edit ${index + 1} needs the text to find.`);
+    if (typeof edit.replace !== "string") throw Error(`Edit ${index + 1} needs the text to replace it with.`);
+    const count = next.split(find).length - 1;
+    if (!count) throw Error(`Edit ${index + 1}: its text isn't in the design (after the edits before it). Read the design again with design_read.`);
+    if (count > 1 && !edit.all)
+      throw Error(`Edit ${index + 1}: its text occurs ${count} times. Include more of the text around it, or set all to replace every one.`);
+    next = edit.all ? next.split(find).join(edit.replace) : next.replace(find, () => edit.replace);
+  });
+  return next;
+}
 /**
  * A published page with Mermaid blocks carries Pele and the page helper, so its diagrams draw on the public page as
  * they do here, while it stays within the page limit; past it the blocks show their text.
@@ -120,6 +154,7 @@ const summary = (artifact, entry) => ({
   width: entry.width ?? VIEWPORT.width,
   height: entry.height ?? VIEWPORT.height,
   format: formatOf(entry),
+  ...(interactiveOf(entry) ? { interactive: true } : {}),
   ...(entry.inline ? { inline: true } : {}),
   ...(entry.group ? { group: entry.group } : {}),
   ...(entry.kit ? { kit: entry.kit } : {}),
@@ -306,7 +341,7 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     for (const item of previous) {
       if (kept.has(item.version) || (formatOf(item) === "html" && !item.livePage)) continue;
       expired.push(htmlFile(folder, id, item.version));
-      if (formatOf(item) === "design") expired.push(documentFile(folder, id, item.version));
+      if (formatOf(item) === "design" && !interactiveOf(item)) expired.push(documentFile(folder, id, item.version));
       else if (item.tabs) expired.push(tabsFile(folder, id, item.version));
     }
     await Promise.all(expired.map((file) => fs.rm(file, { force: true }).catch(() => {})));
@@ -317,7 +352,8 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     const entry = version === undefined ? artifact.versions.at(-1) : artifact.versions.find((item) => item.version === version);
     if (!entry) throw Error(`Version ${version} of this design is no longer kept.`);
     const html = await readVersionFile(htmlFile(folder, artifact.id, entry.version));
-    const document = formatOf(entry) === "design" ? JSON.parse(await readVersionFile(documentFile(folder, artifact.id, entry.version))) : undefined;
+    const document =
+      formatOf(entry) === "design" && !interactiveOf(entry) ? JSON.parse(await readVersionFile(documentFile(folder, artifact.id, entry.version))) : undefined;
     const tabs = formatOf(entry) === "html" && entry.tabs ? JSON.parse(await readVersionFile(tabsFile(folder, artifact.id, entry.version))) : undefined;
     const assets = formatOf(entry) === "html" && entry.assets?.length ? entry.assets : undefined;
     return {
@@ -444,8 +480,14 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         const designs = [];
         for (const entry of entries) {
           const latest = entry.versions.at(-1);
+          const group = latest.group ? { group: latest.group } : {};
+          if (interactiveOf(latest)) {
+            const html = await readVersionFile(htmlFile(folder, entry.id, latest.version));
+            designs.push({ title: latest.title, ...group, interactive: { html, width: latest.width, height: latest.height } });
+            continue;
+          }
           const source = await readVersionFile(documentFile(folder, entry.id, latest.version));
-          designs.push({ title: latest.title, ...(latest.group ? { group: latest.group } : {}), document: JSON.parse(source) });
+          designs.push({ title: latest.title, ...group, document: JSON.parse(source) });
         }
         return { schemaVersion: 1, title: request.title, designs };
       }),
@@ -514,12 +556,39 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         // A variant starts from a copy of a saved design and changes it with operations, instead of drawing it again.
         let source = null;
         if (request.from !== undefined) {
-          if (request.document !== undefined) throw Error("Send document OR from, not both.");
+          if (request.document !== undefined || request.html !== undefined) throw Error("Send document, html OR from, not two of them.");
           const from = await load(folder, request.from?.id);
           if (!from) throw Error(`The design ${request.from?.id} to start from is no longer available.`);
           editable(from);
           source = await readVersion(folder, from, request.from.version);
-        } else if (request.operations !== undefined) throw Error("operations go with from; to revise a design in place, use design_apply.");
+        } else if (request.operations !== undefined || request.edits !== undefined)
+          throw Error("operations and edits go with from; to revise a design in place, use design_apply.");
+        if (request.html !== undefined && request.document !== undefined) throw Error("Send document OR html, not both.");
+        const interactive = request.html !== undefined || source?.interactive === true;
+        if (existing && interactiveOf(existing.versions.at(-1)) !== interactive) throw Error(KIND_MISMATCH);
+        const previous = existing?.versions ?? [];
+        // A revision stays in its group unless it names one; an empty group takes it out. A variant joins its source's.
+        const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : (previous.at(-1)?.group ?? source?.group);
+        if (interactive) {
+          if (source && request.operations !== undefined) throw Error("This design is interactive HTML: change the copy with edits, not layer operations.");
+          const html = checkDesignHtml(source ? (request.edits?.length ? editDesignHtml(source.html, request.edits) : source.html) : request.html);
+          const screen = previous.at(-1) ?? source;
+          if (!screen && (request.width === undefined || request.height === undefined))
+            throw Error("An interactive design needs its screen width and height, such as 390 by 844 for a phone.");
+          const entry = {
+            version: (previous.at(-1)?.version ?? 0) + 1,
+            title: request.title.trim().slice(0, 120),
+            ...(group ? { group } : {}),
+            width: size(request.width, screen?.width ?? VIEWPORT.width),
+            height: size(request.height, screen?.height ?? VIEWPORT.height),
+            format: "design",
+            interactive: true,
+            createdAt: Date.now(),
+          };
+          const artifact = await writeVersion(folder, id, previous, entry, html, undefined, assertActive);
+          return summary(artifact, entry);
+        }
+        if (request.edits !== undefined) throw Error("This design is made of layers: change the copy with operations. edits are for interactive designs.");
         const inheritedConsistency = existing ? (await readVersion(folder, existing)).document?.consistency : undefined;
         const document = source
           ? request.operations?.length
@@ -531,9 +600,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
             });
         await verifyKit(request.chatId, document);
         validateDesignConsistency(document);
-        const previous = existing?.versions ?? [];
-        // A revision stays in its group unless it names one; an empty group takes it out. A variant joins its source's.
-        const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : (previous.at(-1)?.group ?? source?.group);
         const entry = {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
@@ -559,6 +625,24 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         editable(existing);
         checkVersion(request, existing, true);
         const current = await readVersion(folder, existing);
+        if (current.interactive) {
+          if (request.operations !== undefined || request.intent !== undefined)
+            throw Error("This design is interactive HTML: change it with edits (the text to find and its replacement), not layer operations.");
+          const html = checkDesignHtml(editDesignHtml(current.html, request.edits));
+          const entry = {
+            version: current.version + 1,
+            title: current.title,
+            ...(current.group ? { group: current.group } : {}),
+            width: current.width,
+            height: current.height,
+            format: "design",
+            interactive: true,
+            createdAt: Date.now(),
+          };
+          const artifact = await writeVersion(folder, existing.id, existing.versions, entry, html, undefined, assertActive);
+          return { ...summary(artifact, entry), latest: entry.version, html };
+        }
+        if (request.edits !== undefined) throw Error("This design is made of layers: change it with operations. edits are for interactive designs.");
         const document = applyDesignOperations(current.document, request.operations, request.intent);
         await verifyKit(request.chatId, document);
         validateDesignConsistency(document);
@@ -611,7 +695,11 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         if (!artifact) throw Error("This design is no longer available.");
         editable(artifact);
         const current = await readVersion(folder, artifact, request.version);
-        if (request.format !== "json" && request.format !== "svg") throw Error("Choose json or svg for the design export.");
+        // An interactive design is its HTML; a layer design's HTML is the page Milagre draws from its layers.
+        if (request.format === "html")
+          return { id: current.id, version: current.version, filename: `${current.id}-v${current.version}.html`, mimeType: "text/html", content: current.html };
+        if (current.interactive) throw Error("An interactive design exports as html.");
+        if (request.format !== "json" && request.format !== "svg") throw Error("Choose json, svg or html for the design export.");
         const svg = request.format === "svg";
         return {
           id: current.id,
@@ -864,12 +952,53 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
   return { text: notes.join("\n"), images };
 }
 
-function artifactToolDefinitions(chatId, api, authorization, { renderPng = renderDesignPng, warnings = designWarnings } = {}) {
+// The libraries an interactive design loads, pinned with their integrity hashes: the start of every React design.
+const DESIGN_CODE_STARTER = [
+  '<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>',
+  '<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>',
+  '<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>',
+].join("");
+const INTERACTIVE_GUIDE = `For an interactive prototype (taps that change state, navigation between screens, tabs, forms, menus, animation), send html with width and height instead of document: one self-contained HTML page, run live in the viewers at that screen size. For React, load exactly ${DESIGN_CODE_STARTER} and write the app in <script type="text/babel">, rendering into a root element. Scripts load only from unpkg.com, cdn.jsdelivr.net, cdnjs.cloudflare.com or esm.sh, each at an exact version (Tailwind's browser build: https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.17); write the design's own code inline. The design runs sandboxed: no fetch, forms to servers, localStorage or cookies, so keep state in memory and use realistic sample data. Put a flow's screens in one design and switch them with state; set data-screen-label on each screen's root. Revise it with design_apply edits (exact text to find and its replacement), or design_show with the whole html.`;
+
+// What the agent sees after saving an interactive design: the summary on the first line, then the first screen drawn
+// in headless Chrome as the viewers run it, with what its console logged. Drawing never fails the call: it's saved.
+async function interactiveFeedback(saved, html, { screenshot, crop }) {
+  const notes = [JSON.stringify(saved)];
+  let images = [];
+  try {
+    const shot = await screenshot({ html, width: saved.width, height: saved.height, crop });
+    images = [{ mime: "image/png", base64: shot.png }];
+    notes.push(
+      "Look at the image: the design's first screen before anyone interacts. Check layout, spacing, type, icons and contrast against the brief, fix what looks wrong with design_apply edits, then reply.",
+    );
+    if (shot.blank) notes.push("The screen is blank: the design's scripts probably failed. Read the console below.");
+    if (shot.contentWidth > saved.width + 1)
+      notes.push(`The content is ${shot.contentWidth}px wide on a ${saved.width}px screen, so it scrolls sideways. Fix the overflow.`);
+    if (shot.contentHeight > saved.height + 1) notes.push(`The content is ${shot.contentHeight}px tall on a ${saved.height}px screen; below that it scrolls.`);
+    if (shot.consoleMessages.length) notes.push(`Console:\n${shot.consoleMessages.map((message) => `${message.level}: ${message.text}`).join("\n")}`);
+  } catch (error) {
+    notes.push(`The preview could not be drawn: ${error?.message ?? String(error)}. The design is saved and the user sees it.`);
+  }
+  return { text: notes.join("\n"), images };
+}
+
+const editsInput = z
+  .array(
+    z.object({
+      find: z.string().min(1).describe("Exact text in the design's HTML, enough of it to occur once."),
+      replace: z.string().describe("The text that takes its place."),
+      all: z.boolean().optional().describe("Replace every occurrence instead of exactly one."),
+    }),
+  )
+  .min(1)
+  .max(200);
+
+function artifactToolDefinitions(chatId, api, authorization, { renderPng = renderDesignPng, warnings = designWarnings, screenshot = screenshotDesign } = {}) {
   const feedback = { renderPng, warnings };
   return [
     {
       name: "design_show",
-      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews and chooses. Create an editable design from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill (${DESIGN_SKILL}) for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations that differ, instead of a whole document: Milagre copies it and applies them. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.`,
+      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews, comments and chooses on desktop and phone, and asks for changes through Chat. Only agents change designs. A static design is a document of named layers, with frames, text, shapes, icons, images, layout and color tokens; the document sets the screen size (390 by 844 for a phone). ${INTERACTIVE_GUIDE} Read the bundled design skill (${DESIGN_SKILL}) for both formats. A new id creates a design; revising an existing id requires expectedVersion from design_read. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. For a variant of a saved design, send from (its id and version) and only the operations (layers) or edits (interactive) that differ, instead of the whole design: Milagre copies it and applies them. When the user names another design tool, use that tool instead. The result includes the rendered design as an image, with layout warnings or console messages; check them before replying.`,
       input: {
         title: z.string().min(1).max(120),
         group: z
@@ -879,23 +1008,37 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
           .describe(
             "The part of the app this screen belongs to, such as Onboarding or Settings. The canvas lays out one row per group. A revision keeps its group unless you pass one; an empty string removes it.",
           ),
-        document: designDocumentInputSchema.optional().describe("The whole design. Leave it out when you send from."),
+        document: designDocumentInputSchema.optional().describe("A static design's layers. Send document, html OR from."),
+        html: z
+          .string()
+          .min(1)
+          .max(MAX_HTML)
+          .optional()
+          .describe("An interactive design: one self-contained HTML page. Send document, html OR from; give width and height with a new one."),
+        width: z.number().int().min(240).max(3840).optional().describe("An interactive design's screen width, such as 390 for a phone."),
+        height: z.number().int().min(240).max(3840).optional().describe("An interactive design's screen height, such as 844 for a phone."),
         from: z
           .object({ id: z.string().regex(ID), version: z.number().int().positive().optional() })
           .optional()
-          .describe("A saved design to copy (its latest version unless you name one), for a variant. Send this OR document."),
+          .describe("A saved design to copy (its latest version unless you name one), for a variant. Send document, html OR from."),
         operations: z
           .array(designOperationInputSchema)
           .max(1000)
           .optional()
-          .describe("With from: the design_apply operations that turn the copy into the variant."),
+          .describe("With from, for a layer design: the design_apply operations that turn the copy into the variant."),
+        edits: editsInput.optional().describe("With from, for an interactive design: the edits that turn the copy into the variant."),
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().nonnegative().optional(),
       },
       readOnly: false,
       run: async (args) => {
-        if ((args.document === undefined) === (args.from === undefined)) throw Error("Send document OR from (with operations).");
+        if ([args.document, args.html, args.from].filter((value) => value !== undefined).length !== 1)
+          throw Error("Send document (layers), html (interactive) OR from (with operations or edits).");
         const design = await api.showDesign({ chatId, ...args }, authorization);
+        if (design.interactive)
+          return interactiveFeedback(design, args.html ?? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).html, {
+            screenshot,
+          });
         const document =
           args.from || (!args.document.consistency && design.consistency)
             ? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).document
@@ -906,22 +1049,26 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_read",
       description:
-        "Read a structured design document and its layer ids, with the latest version unless you name one. Read before editing and send its version as expectedVersion to design_apply or design_show. User edits also create versions.",
+        "Read a design, the latest version unless you name one: a layer design's document and layer ids, or an interactive design's html. Read before editing and send its version as expectedVersion to design_apply or design_show.",
       input: { id: z.string().regex(ID), version: z.number().int().positive().optional() },
       readOnly: true,
       run: async (args) => {
-        const { html: _html, ...design } = await api.get({ chatId, ...args, format: "design" });
-        return JSON.stringify(design);
+        const { html, ...design } = await api.get({ chatId, ...args, format: "design" });
+        return JSON.stringify(design.interactive ? { ...design, html } : design);
       },
     },
     {
       name: "design_inspect",
       description:
-        "Inspect a saved design without creating a version. Returns its image, computed layer bounds, contrast coverage and preview limitations. Use this when taking over from another model or reviewing user edits. nodeId crops the image to a visible layer; diagnostics still cover the whole screen.",
+        "Inspect a saved design without creating a version. Returns its image; for a layer design also computed layer bounds, contrast coverage and preview limitations, for an interactive design its console messages. Use this when taking over from another model or checking a design before you change it. nodeId crops a layer design's image to a visible layer; diagnostics still cover the whole screen.",
       input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), nodeId: z.string().regex(LAYER_ID).optional() },
       readOnly: true,
       run: async ({ nodeId, ...args }) => {
-        const { html: _html, document, ...saved } = await api.get({ chatId, ...args, format: "design" });
+        const { html, document, ...saved } = await api.get({ chatId, ...args, format: "design" });
+        if (saved.interactive) {
+          if (nodeId) throw Error("An interactive design has no layers; inspect it without nodeId.");
+          return interactiveFeedback(saved, html, { screenshot });
+        }
         const bounds = designLayout(document, designTextLayout);
         const crop = nodeId ? bounds.get(nodeId) : undefined;
         if (nodeId && !crop) throw Error(`Layer "${nodeId}" is missing or hidden.`);
@@ -958,9 +1105,12 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_validate",
       description:
-        "Preflight a proposed document, or a batch against a saved design and expectedVersion, without saving. Optional intent is enforced exactly as on design_apply. Returns validation errors with field paths, measured layout shortages, candidate repair operations (validate before applying) and the resulting document. Use before a complex edit. Send document OR id, expectedVersion and operations.",
+        "Preflight a proposed document, or a batch against a saved design and expectedVersion, without saving. Optional intent is enforced exactly as on design_apply. Returns validation errors with field paths, measured layout shortages, candidate repair operations (validate before applying) and the resulting document. Use before a complex edit. Send document OR id, expectedVersion and operations. For an interactive design, send html with width and height: it returns the first screen drawn and the console messages, without saving.",
       input: {
         document: designDocumentInputSchema.optional(),
+        html: z.string().min(1).max(MAX_HTML).optional(),
+        width: z.number().int().min(240).max(3840).optional(),
+        height: z.number().int().min(240).max(3840).optional(),
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().positive().optional(),
         operations: z.array(designOperationInputSchema).min(1).max(1000).optional(),
@@ -968,6 +1118,12 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       },
       readOnly: true,
       run: async (args) => {
+        if (args.html !== undefined) {
+          if (args.document || args.id || args.operations || !args.width || !args.height) throw Error("Send html with width and height, and nothing else.");
+          const problems = checkDesignCode(args.html);
+          if (problems.length) return JSON.stringify({ valid: false, errors: problems });
+          return interactiveFeedback({ valid: true, width: args.width, height: args.height }, args.html, { screenshot });
+        }
         let document;
         try {
           if (args.document !== undefined) {
@@ -996,24 +1152,27 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_apply",
       description:
-        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants. To replace the whole document, use design_show with its id and expectedVersion. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. Optional intent enforces text-only preservation or fit-text within declared textIds/layoutIds. Rejected intent saves nothing. One successful batch creates one immutable version and shows its design card.",
+        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Change a layer design with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants; use stable layer ids. Change an interactive design with edits: each the exact text to find in its HTML (once, unless all) and its replacement, applied in order. To replace the whole design, use design_show with its id and expectedVersion. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. Optional intent (layer designs) enforces text-only preservation or fit-text within declared textIds/layoutIds. Rejected intent or an edit that doesn't match saves nothing. One successful batch creates one immutable version and shows its design card.",
       input: {
         id: z.string().regex(ID),
         expectedVersion: z.number().int().positive(),
-        operations: z.array(designOperationInputSchema).min(1).max(1000),
+        operations: z.array(designOperationInputSchema).min(1).max(1000).optional().describe("For a layer design."),
+        edits: editsInput.optional().describe("For an interactive design."),
         intent: designEditIntentSchema.optional(),
       },
       readOnly: false,
       run: async (args) => {
-        const { html: _html, document, ...design } = await api.apply({ chatId, ...args }, authorization);
+        if ((args.operations === undefined) === (args.edits === undefined)) throw Error("Send operations (layer design) OR edits (interactive design).");
+        const { html, document, ...design } = await api.apply({ chatId, ...args }, authorization);
+        if (design.interactive) return interactiveFeedback(design, html, { screenshot });
         return designFeedback(design, document, { ...feedback, intent: args.intent });
       },
     },
     {
       name: "design_export",
       description:
-        "Export an editable design version as its source JSON document or a standalone SVG. The SVG names its fonts without embedding them. Returns the filename, MIME type and file content. Save the content to a file when the user requests a downloadable export.",
-      input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), format: z.enum(["json", "svg"]) },
+        "Export a design version: a layer design as its source JSON document, a standalone SVG or its HTML page; an interactive design as its HTML. The SVG names its fonts without embedding them. Returns the filename, MIME type and file content. Save the content to a file when the user requests a downloadable export.",
+      input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), format: z.enum(["json", "svg", "html"]) },
       readOnly: true,
       run: async (args) => JSON.stringify(await api.exportDesign({ chatId, ...args })),
     },

@@ -370,7 +370,7 @@ test("editable design tool schemas expose layer fields and version checks to MCP
     schemas.design_apply.properties.operations.items.oneOf.map((item) => item.properties.op.const),
     ["document", "detach", "duplicate", "unset", "update", "insert", "delete"],
   );
-  assert.deepEqual(schemas.design_export.properties.format.enum, ["json", "svg"]);
+  assert.deepEqual(schemas.design_export.properties.format.enum, ["json", "svg", "html"]);
   assert.equal(tools.design_show.readOnly, false);
   assert.equal(tools.design_apply.readOnly, false);
   assert.equal(tools.design_read.readOnly, true);
@@ -520,7 +520,8 @@ test("JSON and SVG exports use the requested immutable design version", async (t
   assert.match(svg.content, /New title/);
   assert.doesNotMatch(svg.content, /@font-face/, "fonts are not embedded in the agent's export");
   assert.ok(svg.content.length < 20_000, `the agent's SVG stays small (${svg.content.length} characters)`);
-  await assert.rejects(api.exportDesign({ chatId: CHAT, id: "welcome", format: "html" }), /Choose json or svg/);
+  await assert.rejects(api.exportDesign({ chatId: CHAT, id: "welcome", format: "png" }), /Choose json, svg or html/);
+  assert.equal((await api.exportDesign({ chatId: CHAT, id: "welcome", format: "html" })).mimeType, "text/html");
 });
 
 test("retention removes source and preview together and keeps version numbers increasing", async (t) => {
@@ -1007,8 +1008,134 @@ test("design_show from copies a saved design, applies only the differing operati
   assert.equal((await api.get({ chatId: CHAT, id: "home-v1", format: "design" })).document.nodes.find((node) => node.id === "heading").text, "Welcome");
   // The source is untouched.
   assert.equal((await api.get({ chatId: CHAT, id: "home", format: "design" })).document.background, "#f5f4ef");
-  await assert.rejects(tools.design_show.run({ title: "Both", document: designDocument(), from: { id: "home" } }), /document OR from/);
-  await assert.rejects(tools.design_show.run({ title: "Neither" }), /document OR from/);
+  await assert.rejects(
+    tools.design_show.run({ title: "Both", document: designDocument(), from: { id: "home" } }),
+    /Send document \(layers\), html \(interactive\) OR from/,
+  );
+  await assert.rejects(tools.design_show.run({ title: "Neither" }), /Send document \(layers\), html \(interactive\) OR from/);
   await assert.rejects(tools.design_show.run({ title: "Gone", from: { id: "missing" } }), /no longer available/);
-  await assert.rejects(api.showDesign({ chatId: CHAT, title: "Ops", document: designDocument(), operations: [] }), /operations go with from/);
+  await assert.rejects(api.showDesign({ chatId: CHAT, title: "Ops", document: designDocument(), operations: [] }), /operations and edits go with from/);
+});
+
+const REACT = '<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>';
+const interactiveHtml = (label = "Start") => `<!doctype html><html><head>${REACT}</head><body><button>${label}</button></body></html>`;
+async function interactiveFixture(t) {
+  const shots = [];
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "chat-artifacts-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const api = createChatArtifacts({ directory, validateChat: async () => {} });
+  const screenshot = async (request) => {
+    shots.push(request);
+    return { png: "iVBORw0KGgo=", consoleMessages: [{ level: "error", text: "Boom" }], contentWidth: request.width, contentHeight: 900, blank: false };
+  };
+  const tools = Object.fromEntries(artifactToolDefinitions(CHAT, api, undefined, { screenshot }).map((tool) => [tool.name, tool]));
+  return { api, tools, shots, directory };
+}
+
+test("an interactive design saves its HTML, draws its first screen and reports the console", async (t) => {
+  const { api, tools, shots, directory } = await interactiveFixture(t);
+  const result = await tools.design_show.run({ id: "flow", title: "Onboarding flow", html: interactiveHtml(), width: 390, height: 844, group: "Onboarding" });
+  const saved = firstLine(result);
+  assert.deepEqual(
+    {
+      id: saved.id,
+      version: saved.version,
+      format: saved.format,
+      interactive: saved.interactive,
+      width: saved.width,
+      height: saved.height,
+      group: saved.group,
+    },
+    { id: "flow", version: 1, format: "design", interactive: true, width: 390, height: 844, group: "Onboarding" },
+  );
+  assert.deepEqual(result.images, [{ mime: "image/png", base64: "iVBORw0KGgo=" }]);
+  assert.match(result.text, /error: Boom/);
+  assert.match(result.text, /900px tall on a 844px screen/);
+  assert.deepEqual(shots[0], { html: interactiveHtml(), width: 390, height: 844, crop: undefined });
+  const read = JSON.parse(await tools.design_read.run({ id: "flow" }));
+  assert.equal(read.html, interactiveHtml());
+  assert.equal(read.document, undefined);
+  // No layer document beside it; listing and restarting keep it interactive.
+  const files = await fs.readdir(path.join(directory, (await fs.readdir(directory))[0], "flow"));
+  assert.deepEqual(files.toSorted(), ["meta.json", "v1.html"]);
+  assert.equal((await api.list({ chatId: CHAT, format: "design" }))[0].interactive, true);
+});
+
+test("an interactive design needs a screen size and pinned scripts from the allowed CDNs", async (t) => {
+  const { tools } = await interactiveFixture(t);
+  await assert.rejects(tools.design_show.run({ id: "a", title: "A", html: interactiveHtml() }), /screen width and height/);
+  await assert.rejects(
+    tools.design_show.run({ id: "b", title: "B", width: 390, height: 844, html: '<script src="https://unpkg.com/react@18/umd/react.js"></script>' }),
+    /no exact version/,
+  );
+  await assert.rejects(
+    tools.design_show.run({ id: "c", title: "C", width: 390, height: 844, html: '<script src="https://evil.example/react@18.3.1/x.js"></script>' }),
+    /allowed CDN/,
+  );
+  await assert.rejects(tools.design_show.run({ id: "d", title: "D", width: 390, height: 844, html: '<script src="app.js"></script>' }), /full address/);
+  await assert.rejects(tools.design_show.run({ id: "e", title: "E", html: interactiveHtml(), document: designDocument() }), /Send document \(layers\), html/);
+  // cdnjs and jsdelivr addresses pin their version in the path.
+  await tools.design_show.run({
+    id: "f",
+    title: "F",
+    width: 390,
+    height: 844,
+    html: '<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.17"></script>',
+  });
+});
+
+test("an interactive design changes by exact text edits, keeps its kind, size and group, and refuses layer operations", async (t) => {
+  const { api, tools } = await interactiveFixture(t);
+  await tools.design_show.run({ id: "flow", title: "Flow", html: interactiveHtml("Start start"), width: 390, height: 844, group: "Onboarding" });
+  await assert.rejects(tools.design_apply.run({ id: "flow", expectedVersion: 1, edits: [{ find: "Missing", replace: "x" }] }), /isn't in the design/);
+  await assert.rejects(tools.design_apply.run({ id: "flow", expectedVersion: 1, edits: [{ find: "tart", replace: "x" }] }), /occurs 2 times/);
+  await assert.rejects(
+    tools.design_apply.run({ id: "flow", expectedVersion: 1, operations: [{ op: "delete", id: "x" }] }),
+    /interactive HTML: change it with edits/,
+  );
+  const applied = firstLine(await tools.design_apply.run({ id: "flow", expectedVersion: 1, edits: [{ find: "Start start", replace: "Begin $& now" }] }));
+  assert.equal(applied.version, 2);
+  assert.equal(applied.group, "Onboarding");
+  // Replacement text is literal: $& is not a pattern.
+  assert.equal((await api.get({ chatId: CHAT, id: "flow" })).html, interactiveHtml("Begin $& now"));
+  await tools.design_apply.run({ id: "flow", expectedVersion: 2, edits: [{ find: "$&", replace: "&", all: true }] });
+  // A whole new page keeps the screen size it had.
+  const replaced = firstLine(await tools.design_show.run({ id: "flow", title: "Flow", expectedVersion: 3, html: interactiveHtml("Again") }));
+  assert.deepEqual([replaced.version, replaced.width, replaced.height, replaced.interactive], [4, 390, 844, true]);
+  // The kind stays: layers can't replace it, nor HTML a layer design.
+  await assert.rejects(tools.design_show.run({ id: "flow", title: "Flow", expectedVersion: 4, document: designDocument() }), /stays layers or interactive/);
+  await tools.design_show.run({ id: "screen", title: "Screen", document: designDocument() });
+  await assert.rejects(
+    tools.design_show.run({ id: "screen", title: "Screen", expectedVersion: 1, html: interactiveHtml(), width: 390, height: 844 }),
+    /stays layers or interactive/,
+  );
+  await assert.rejects(tools.design_apply.run({ id: "screen", expectedVersion: 1, edits: [{ find: "a", replace: "b" }] }), /made of layers/);
+});
+
+test("an interactive variant copies its source with edits, and exports and publishes as HTML", async (t) => {
+  const { api, tools } = await interactiveFixture(t);
+  await tools.design_show.run({ id: "flow", title: "Flow", html: interactiveHtml(), width: 390, height: 844, group: "Onboarding" });
+  const variant = firstLine(
+    await tools.design_show.run({ id: "flow-dark", title: "Flow, dark", from: { id: "flow" }, edits: [{ find: "Start", replace: "Go" }] }),
+  );
+  assert.deepEqual([variant.interactive, variant.group, variant.width], [true, "Onboarding", 390]);
+  assert.equal((await api.get({ chatId: CHAT, id: "flow-dark" })).html, interactiveHtml("Go"));
+  await assert.rejects(tools.design_show.run({ id: "x", title: "X", from: { id: "flow" }, operations: [] }), /edits, not layer operations/);
+  const exported = JSON.parse(await tools.design_export.run({ id: "flow", format: "html" }));
+  assert.deepEqual(exported, { id: "flow", version: 1, filename: "flow-v1.html", mimeType: "text/html", content: interactiveHtml() });
+  await assert.rejects(tools.design_export.run({ id: "flow", format: "svg" }), /exports as html/);
+  const snapshot = await api.pageSnapshot({ chatId: CHAT, title: "Shared" });
+  assert.deepEqual(snapshot.designs[0], { title: "Flow", group: "Onboarding", interactive: { html: interactiveHtml(), width: 390, height: 844 } });
+});
+
+test("design_validate draws an interactive design without saving it", async (t) => {
+  const { api, tools, shots } = await interactiveFixture(t);
+  const result = await tools.design_validate.run({ html: interactiveHtml(), width: 1280, height: 800 });
+  assert.deepEqual(firstLine(result), { valid: true, width: 1280, height: 800 });
+  assert.equal(shots.length, 1);
+  assert.deepEqual(await api.list({ chatId: CHAT, format: "design" }), []);
+  const refused = JSON.parse(
+    await tools.design_validate.run({ html: '<script src="https://unpkg.com/react/umd/react.js"></script>', width: 390, height: 844 }),
+  );
+  assert.equal(refused.valid, false);
 });

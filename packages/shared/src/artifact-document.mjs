@@ -16,12 +16,53 @@ export const ARTIFACT_CSP = [
 ].join("; ");
 
 /**
- * The policy with `assets` (a source, such as the desktop's preview scheme or the phone's file:) also allowed for
- * images, media and fonts: where the viewer keeps the page's files.
+ * The CDNs an interactive design loads its libraries from (React, Babel, Tailwind's browser build, icons), each script
+ * by an exact version (checkDesignCode). Nothing else on the network runs in a design.
  */
-export function artifactCsp(assets = "") {
-  if (!assets) return ARTIFACT_CSP;
-  return ARTIFACT_CSP.replace(/(^|; )(img-src|media-src|font-src) ([^;]*)/g, `$1$2 $3 ${assets}`);
+export const DESIGN_CODE_HOSTS = ["https://unpkg.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "https://esm.sh"];
+
+/**
+ * An interactive design's policy: ARTIFACT_CSP, with scripts also from DESIGN_CODE_HOSTS and evaluation allowed, since
+ * Babel compiles the design's JSX in the page. Still no requests of its own (fetch, forms), and the viewers sandbox it
+ * with no same origin.
+ */
+export const DESIGN_CODE_CSP = ARTIFACT_CSP.replace("script-src 'unsafe-inline'", `script-src 'unsafe-inline' 'unsafe-eval' ${DESIGN_CODE_HOSTS.join(" ")}`);
+
+/**
+ * The policy with `assets` (a source, such as the desktop's preview scheme or the phone's file:) also allowed for
+ * images, media and fonts: where the viewer keeps the page's files. `code` is an interactive design's (DESIGN_CODE_CSP).
+ */
+export function artifactCsp(assets = "", { code = false } = {}) {
+  const policy = code ? DESIGN_CODE_CSP : ARTIFACT_CSP;
+  if (!assets) return policy;
+  return policy.replace(/(^|; )(img-src|media-src|font-src) ([^;]*)/g, `$1$2 $3 ${assets}`);
+}
+
+// A version in a CDN address: package@1.2.3 (unpkg, jsdelivr, esm.sh) or /ajax/libs/name/1.2.3/ (cdnjs).
+const PINNED = /@\d+\.\d+\.\d+|\/ajax\/libs\/[^/]+\/\d+\.\d+\.\d+/;
+const SCRIPT_SOURCE = /<script\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
+/**
+ * The scripts an interactive design loads, checked: each from DESIGN_CODE_HOSTS over HTTPS, at an exact version, so
+ * the design draws the same tomorrow. Returns the problems, empty when there are none.
+ */
+export function checkDesignCode(html) {
+  const problems = [];
+  for (const match of html.matchAll(SCRIPT_SOURCE)) {
+    const source = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    let url;
+    try {
+      url = new URL(source);
+    } catch {
+      problems.push(
+        `${source || "A script"} isn't a full address. Load libraries from ${DESIGN_CODE_HOSTS.join(", ")}, and write the design's own code inline.`,
+      );
+      continue;
+    }
+    if (!DESIGN_CODE_HOSTS.includes(url.origin)) problems.push(`${source} isn't on an allowed CDN (${DESIGN_CODE_HOSTS.join(", ")}).`);
+    else if (!PINNED.test(url.pathname)) problems.push(`${source} has no exact version. Pin it, such as react@18.3.1.`);
+  }
+  return problems;
 }
 
 /**
@@ -31,10 +72,10 @@ export function artifactCsp(assets = "") {
  *
  * An Artifact page (`page`) also gets ARTIFACT_PAGE_SCRIPT, which its viewer drives for pins, comments and zoom; with
  * `diagrams` (Pele's browser build, pele/global) a page that has Mermaid blocks gets it too, and they render in place.
- * `assets` is the source its files load from (artifactCsp).
+ * `assets` is the source its files load from (artifactCsp). An interactive design (`code`) runs under DESIGN_CODE_CSP.
  */
-export function artifactDocument(html, { page = false, diagrams = "", assets = "" } = {}) {
-  const policy = `<meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets)}">`;
+export function artifactDocument(html, { page = false, diagrams = "", assets = "", code = false } = {}) {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets, { code })}">`;
   // Leading comments and whitespace, then the doctype; without one the design gets standards mode.
   const doctype = /^(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(html);
   const at = doctype ? doctype[0].length : 0;

@@ -7,6 +7,7 @@ const { pathToFileURL } = require("node:url");
 const { setTimeout: delay } = require("node:timers/promises");
 const { createBrowserAdapter } = require("./browsers-cdp.cjs");
 const { htmlRenderShell, htmlRenderHeight, HTML_RENDER_THEMES, HTML_RENDER_MIN_HEIGHT, HTML_RENDER_MAX_HEIGHT } = require("@milagre/shared/html-render");
+const { artifactDocument } = require("@milagre/shared/artifact-document");
 
 const htmlInput = z
   .string()
@@ -83,13 +84,15 @@ async function chromeExecutable() {
 }
 
 // Dedicated temporary profile: preview never opens or reads the user's browser session. Always torn down on error.
-async function previewHtml({ html, width = 720, appearance = "light" }) {
+// `run(page)` drives the headless page: `page.session` (CDP), `page.open(html)` navigates to the document, and
+// `page.messages` collects what its console logged and threw. `deadline` is when it gives up.
+async function withPreviewPage(run, { timeout = 20_000 } = {}) {
   const executable = await chromeExecutable();
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-html-preview-"));
   const adapter = createBrowserAdapter();
   let child, session, failure;
   const messages = [];
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + timeout;
   try {
     child = spawn(
       executable,
@@ -135,43 +138,20 @@ async function previewHtml({ html, width = 720, appearance = "light" }) {
         });
       if (method === "Runtime.exceptionThrown")
         messages.push({ level: "error", text: String(params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? "").slice(0, 2000) });
+      if (method === "Log.entryAdded" && params.entry?.level === "error")
+        messages.push({ level: "error", text: `${params.entry.text ?? ""}${params.entry.url ? ` ${params.entry.url}` : ""}`.slice(0, 2000) });
     });
     await session.send("Runtime.enable");
     await session.send("Page.enable");
-    await session.send("Emulation.setDeviceMetricsOverride", { width, height: 120, deviceScaleFactor: 1, mobile: false });
+    await session.send("Log.enable");
     // Navigate normally: document.write through setDocumentContent can stall when Chromium creates the sandboxed child frame.
-    const documentFile = path.join(directory, "preview.html");
-    await fs.writeFile(documentFile, htmlRenderShell(html, HTML_RENDER_THEMES[appearance]), { mode: 0o600 });
-    await session.send("Page.navigate", { url: pathToFileURL(documentFile).href });
-    let height;
-    while (!height) {
-      const { result } = await session.send("Runtime.evaluate", { expression: "window.htmlRenderContentHeight", returnByValue: true });
-      height = result?.value;
-      if (Date.now() > deadline) {
-        const state = await session.send("Runtime.evaluate", {
-          expression:
-            "JSON.stringify({ready:document.readyState,visibility:document.visibilityState,protocol:location.protocol,frames:window.frames.length,height:window.htmlRenderContentHeight})",
-          returnByValue: true,
-        });
-        throw Error(`The HTML page did not finish rendering. Check its scripts. Browser state: ${state.result?.value}`);
-      }
-      if (!height) await delay(100);
-    }
-    // Allow image/font layout and scheduled interaction setup to settle, then measure again.
-    await delay(300);
-    const measured = await session.send("Runtime.evaluate", { expression: "window.htmlRenderContentHeight", returnByValue: true });
-    height = htmlRenderHeight(measured.result?.value ?? height);
-    await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
-    const { data } = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-    const diagnostics = await session.send("Runtime.evaluate", { expression: "window.htmlRenderConsole", returnByValue: true });
-    const overflow = await session.send("Runtime.evaluate", { expression: "window.htmlRenderOverflow", returnByValue: true });
-    return {
-      width,
-      contentHeight: height,
-      ...overflow.result?.value,
-      consoleMessages: [...messages, ...(diagnostics.result?.value ?? [])].slice(0, 50),
-      png: data,
+    const open = async (html) => {
+      const documentFile = path.join(directory, "preview.html");
+      await fs.writeFile(documentFile, html, { mode: 0o600 });
+      await session.send("Page.navigate", { url: pathToFileURL(documentFile).href });
     };
+    const evaluate = async (expression) => (await session.send("Runtime.evaluate", { expression, returnByValue: true })).result?.value;
+    return await run({ session, open, evaluate, messages, deadline });
   } finally {
     session?.close();
     await adapter.stop();
@@ -183,4 +163,77 @@ async function previewHtml({ html, width = 720, appearance = "light" }) {
     await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
   }
 }
-module.exports = { htmlRenderToolDefinitions, previewHtml };
+
+async function previewHtml({ html, width = 720, appearance = "light" }) {
+  return withPreviewPage(async ({ session, open, evaluate, messages, deadline }) => {
+    await session.send("Emulation.setDeviceMetricsOverride", { width, height: 120, deviceScaleFactor: 1, mobile: false });
+    await open(htmlRenderShell(html, HTML_RENDER_THEMES[appearance]));
+    let height;
+    while (!height) {
+      height = await evaluate("window.htmlRenderContentHeight");
+      if (Date.now() > deadline) {
+        const state = await evaluate(
+          "JSON.stringify({ready:document.readyState,visibility:document.visibilityState,protocol:location.protocol,frames:window.frames.length,height:window.htmlRenderContentHeight})",
+        );
+        throw Error(`The HTML page did not finish rendering. Check its scripts. Browser state: ${state}`);
+      }
+      if (!height) await delay(100);
+    }
+    // Allow image/font layout and scheduled interaction setup to settle, then measure again.
+    await delay(300);
+    height = htmlRenderHeight((await evaluate("window.htmlRenderContentHeight")) ?? height);
+    await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    const { data } = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    const diagnostics = await evaluate("window.htmlRenderConsole");
+    const overflow = await evaluate("window.htmlRenderOverflow");
+    return {
+      width,
+      contentHeight: height,
+      ...overflow,
+      consoleMessages: [...messages, ...(diagnostics ?? [])].slice(0, 50),
+      png: data,
+    };
+  });
+}
+
+/**
+ * An interactive design drawn at its screen size, as its viewers run it (DESIGN_CODE_CSP, libraries from the CDNs):
+ * a PNG of the first screen, what the console logged or threw, and how far the content runs past the screen. Waits
+ * for the page to load and its scripts (Babel compiling JSX) to settle; `crop` is a region of the screen.
+ */
+async function screenshotDesign({ html, width, height, crop }) {
+  return withPreviewPage(
+    async ({ session, open, evaluate, messages, deadline }) => {
+      // Not a phone viewport: the viewers draw the design in a frame its own size, so it lays out at that width.
+      await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+      await open(artifactDocument(html, { code: true }));
+      while ((await evaluate("document.readyState")) !== "complete") {
+        if (Date.now() > deadline) throw Error("The design did not finish loading. Check its scripts and the CDN addresses.");
+        await delay(100);
+      }
+      // Scripts that render after load (React, Babel) settle: wait until the DOM stops changing, up to 3 seconds.
+      await evaluate(
+        "window.__milagreQuiet=0;new MutationObserver(function(){window.__milagreQuiet=0}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,characterData:true})",
+      );
+      for (let waited = 0, quiet = 0; waited < 3000 && quiet < 400; waited += 100) {
+        await delay(100);
+        quiet = (await evaluate("window.__milagreQuiet++")) ? quiet + 100 : 0;
+      }
+      const extent = (await evaluate(
+        "({w:Math.max(document.documentElement.scrollWidth,document.body?document.body.scrollWidth:0),h:Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0),text:(document.body&&document.body.innerText||'').trim().length,nodes:document.body?document.body.getElementsByTagName('*').length:0})",
+      )) ?? { w: width, h: height, text: 0, nodes: 0 };
+      const clip = crop ? { x: crop.x, y: crop.y, width: crop.width, height: crop.height, scale: 1 } : undefined;
+      const { data } = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false, ...(clip ? { clip } : {}) });
+      return {
+        png: data,
+        // Babel's reminder to precompile is expected here: the design compiles its JSX in the page on purpose.
+        consoleMessages: messages.filter((message) => !message.text.includes("in-browser Babel transformer")).slice(0, 50),
+        contentWidth: extent.w,
+        contentHeight: extent.h,
+        blank: !extent.text && extent.nodes < 3,
+      };
+    },
+    { timeout: 30_000 },
+  );
+}
+module.exports = { htmlRenderToolDefinitions, previewHtml, screenshotDesign };
