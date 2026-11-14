@@ -46,7 +46,6 @@ export const SHEETS_OVER_CHAT = new Set([
   "activity",
   "background",
   "handoff-brief",
-  "usage-sheet",
   "routine-form",
   "viewer",
 ]);

@@ -377,13 +377,6 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "install restart upgrade version",
   },
 
-  // Plan usage
-  {
-    page: "usage",
-    title: "Show in sidebar",
-    description: "A button beside Filters shows every provider's limits.",
-    keywords: "plan usage limits button gauge hide chats list",
-  },
   // Token usage
   { page: "token-usage", title: "Period", keywords: "range days week month" },
   { page: "token-usage", title: "Show", keywords: "cost tokens metric" },
