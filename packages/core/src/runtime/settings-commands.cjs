@@ -6,7 +6,6 @@ const { createBabysitSettings } = require("../babysit-settings.cjs");
 const { createDoneSettings } = require("../done-settings.cjs");
 
 function registerSettingsCommands({ commands, dataDir, emit, worktreeRoot, chatsHome, projectRegistry, chats, scopeStates, heldState, routines }) {
-  // Auto update: the switch, and what a restart to install an update would stop (desktop app-updates.cjs).
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
@@ -16,15 +15,12 @@ function registerSettingsCommands({ commands, dataDir, emit, worktreeRoot, chats
     chatsHome: chatsHome.path,
     chatFolders: async () => (await projectRegistry().list()).map((project) => path.join(project.path, ".milagre")),
   });
-  // `{ fresh: true }` measures the folders again now (after a cleanup) instead of waiting out the half hour.
   commands.handle("computer:resources:read", (_event, options) => computerResources.read(options));
-  // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
   commands.handle("keybindings:read", () => keybindings.read());
   commands.handle("keybindings:set-command", (_event, command, rules) => keybindings.setCommand(command, rules));
   commands.handle("keybindings:reset-command", (_event, command) => keybindings.resetCommand(command));
   commands.handle("keybindings:reset", () => keybindings.resetAll());
-  // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
   const contextSettings = require("../context-settings.cjs").createContextSettings({ file: path.join(dataDir, "context-settings.json"), emit });
   commands.handle("context:settings:read", () => contextSettings.read());
   commands.handle("context:settings:save", (_event, patch) => contextSettings.save(patch));
@@ -32,7 +28,6 @@ function registerSettingsCommands({ commands, dataDir, emit, worktreeRoot, chats
   const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
   commands.handle("babysit:settings:read", () => babysitSettings.read());
   commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
-  // Done: how long a Chat stays in the Done list before the sweep below archives it.
   const doneSettings = createDoneSettings({ file: path.join(dataDir, "done.json"), emit });
   commands.handle("done:settings:read", () => doneSettings.read());
   commands.handle("done:settings:save", (_event, patch) => doneSettings.save(patch));

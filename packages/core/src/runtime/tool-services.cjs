@@ -4,10 +4,8 @@ const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs")
 const { createChatSimulators } = require("../chat-simulators.cjs");
 
 function createDeviceTools({ options, dataDir, emit, commands, existingChat, chatWorktrees, agents, scopeStates }) {
-  // Experimental: agents operate desktop apps through agent-desktop, asking once per app per Chat.
   const { createComputerUseSettings, createComputerUse, agentDesktopBinary, runCli } = require("../computer-use.cjs");
   const computerUseSettings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json"), emit });
-  // The Chat's live screen: the window its agent last used, captured while it works.
   let desktopCli;
   const computerUseScreen = require("../computer-use-screen.cjs").createScreenFeed({
     exec: (args, runOptions) => runCli({ ...(desktopCli ??= agentDesktopBinary()), home: path.join(dataDir, "agent-desktop") }, args, runOptions),
@@ -19,7 +17,6 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
       dataDir,
       settings: computerUseSettings,
       approve: (chatId, request) => agents().askApproval(chatId, request),
-      // The desktop app on this computer draws the agent cursor (apps/desktop/electron/agent-cursor.cjs).
       emit,
       onAction: ({ chatId, app, data }) => {
         void existingChat("capturing its screen")(chatId)
@@ -27,7 +24,6 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
           .catch(() => {});
       },
     });
-  // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
   const { createSimlockSettings, createSimlockHost } = require("../simlock.cjs");
   const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
   const simlock =
@@ -50,7 +46,6 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
   for (const method of ["list", "attach", "detach"])
     commands.handle(`simulator:${method}`, async (context, request) => {
       if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");
-      // Detaching a Chat's own Simlock lease returns it, so a phone or older desktop doesn't keep it until its maximum age.
       const lease = method === "detach" ? simlock.get(request?.deviceId) : null;
       if (lease && lease.chatId === request?.chatId) await simlock.release(lease.deviceId).catch(() => {});
       return simulators[method](request);
@@ -61,11 +56,9 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
       return simulators[method === "close" ? "closeViewer" : method](request, context.clientId);
     });
   }
-  /** Leases a Simlock device for a Chat and attaches it there; installs are accepted from the Chat's folder. */
   async function leaseSimlock(request) {
     const chatId = request?.chatId;
     await existingChat("leasing a Simlock device")(chatId);
-    // Installs come from the Chat's own Worktree (a shared Chat's workspace), the folder its agent works in.
     const roots = await chatWorktrees(chatId);
     const session = (await scopeStates().get(projectOfKey(chatId))).sessions[sessionIdFromKey(chatId)];
     const installDirectory = isLinkScopeKey(projectOfKey(chatId)) ? (session?.workspacePath ?? roots[0]?.path) : roots[0]?.path;
@@ -92,7 +85,6 @@ function createDeviceTools({ options, dataDir, emit, commands, existingChat, cha
   commands.handle("computer-use:frame", async (_context, request) => {
     await existingChat("viewing its screen")(request?.chatId);
     const frame = await computerUseScreen.next({ chatId: request.chatId, after: Number(request.after) || 0 });
-    // The Chat may have been deleted while this viewer was waiting for a frame.
     await existingChat("viewing its screen")(request.chatId);
     return frame;
   });
@@ -127,7 +119,6 @@ function createDesignTools({ options, dataDir, commands, existingChat, scopeStat
     readKit: (request) => designKits.read(request),
   });
   let pageSharing;
-  // Public-page validation imports the renderer too; create the service on its first request.
   const designPageSharing = () =>
     (pageSharing ??= require("../design-page-sharing.cjs").createDesignPageSharing({
       directory: path.join(dataDir, "design-page-shares"),
@@ -145,7 +136,6 @@ function createDesignTools({ options, dataDir, commands, existingChat, scopeStat
   commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing().revokeSaved(request));
   commands.handle("artifact:share-page", (_context, request) => designPageSharing().publish(request));
   commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing().revoke(request));
-  // Designs are always on. Older apps and paired computers still read the switch, and saving it changes nothing.
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
   commands.handle("artifact:get", (_context, request) => artifacts.get(request));
@@ -161,9 +151,7 @@ const PAGE_COMMENTS_PER_SEND = 50;
 
 function pageCommentRequest(request) {
   const chatId = typeof request?.chatId === "string" ? request.chatId : "";
-  // `comments`: the phone's queued comments on its own page views, sent as one message. Older phones send one.
   const batch = Array.isArray(request?.comments) ? request.comments : null;
-  // Refused whole rather than cut short: a comment the user queued is never dropped without a word.
   if (batch && batch.length > PAGE_COMMENTS_PER_SEND) throw new Error(`Send at most ${PAGE_COMMENTS_PER_SEND} page comments at once.`);
   const items = (batch ?? [request]).map((item) => ({
     page: item?.page,
@@ -178,7 +166,6 @@ function pageCommentRequest(request) {
 }
 
 function createPageComments({ dataDir, commands, existingChat, scopeStates, chats, agents, browsers, sendAsUser }) {
-  // Comments the user left on Browser panel pages.
   const { commentAtPoint, createChatPageComments, pageElement } = require("../chat-page-comments.cjs");
   const pageComments = createChatPageComments({
     directory: path.join(dataDir, "page-comments"),
@@ -186,8 +173,6 @@ function createPageComments({ dataDir, commands, existingChat, scopeStates, chat
   });
   commands.handle("browser-comments:add", (_context, request) => pageComments.add(request));
   commands.handle("browser-comments:list", (_context, request) => pageComments.list(request));
-  // A comment from the phone's view of a Browser panel page: the element at the tapped point (as fractions of the page),
-  // its screenshot, and the message, sent as the user's in the Chat's own provider, model and mode, then recorded.
   commands.handle("browser-comments:send-from-page", async (_context, request) => {
     const { chatId, batch, items, point } = pageCommentRequest(request);
     const scope = projectOfKey(chatId);
@@ -198,7 +183,6 @@ function createPageComments({ dataDir, commands, existingChat, scopeStates, chat
     const comments = [];
     let shot = null;
     for (const item of items) {
-      // A native page describes its own element. Never read coordinates from a different page on the computer.
       const local = item.page;
       const remote = local ? null : await browsers().devtools({ chatId, page: typeof request.targetId === "string" ? request.targetId : undefined });
       const target = local ? { url: String(local.url ?? "").slice(0, 2000), title: String(local.title ?? "").slice(0, 200) } : remote.target;
@@ -207,10 +191,8 @@ function createPageComments({ dataDir, commands, existingChat, scopeStates, chat
       shot = read.shot;
       comments.push({ id: pageCommentId(), url: target.url, title: target.title, element: read.element, text: item.text });
     }
-    // Recorded first: a comment the store refuses is never sent, and the agent can resolve every one it reads.
     await pageComments.add({ chatId, comments });
     const settings = chats().turnSettings(chatId) ?? {};
-    // The phone user's own message, so a Run Chat treats it like one typed in the composer.
     try {
       await sendAsUser({
         ...settings,
@@ -249,9 +231,6 @@ function createBrowserTools({ options, emit, commands, agents, advisors }) {
     if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
     return require("../browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
   });
-  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint. A paired
-  // desktop's pages for this host's Chats (#832) come `via: "peer"`: the endpoint is on that desktop's loopback, reached
-  // through a forwarder here that carries each connection back over its channel.
   const panelForwarders = require("../panel-forwarders.cjs").createPanelForwarders();
   commands.handle("browser:panel-pages", async (context, request) => {
     if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
@@ -274,8 +253,6 @@ function createBrowserTools({ options, emit, commands, agents, advisors }) {
 }
 
 function createToolServices({ options, dataDir, emit, commands, existingChat, agents, scopeStates, chats, ports, advisors, sendAsUser }) {
-  // A Chat's Terminals start in its Worktree, or in one of a shared Chat's Worktrees. The host resolves them from the
-  // saved Chat: a client never names a folder it could not otherwise reach.
   async function chatWorktrees(chatId) {
     const scope = projectOfKey(chatId),
       id = sessionIdFromKey(chatId);
@@ -286,8 +263,6 @@ function createToolServices({ options, dataDir, emit, commands, existingChat, ag
     if (session.archived) throw new Error("This Chat is archived.");
     if (isLinkScopeKey(scope)) {
       const worktrees = (session.worktrees ?? []).map((member) => ({ path: member.worktreePath, label: member.alias }));
-      // Shared Chats create Worktrees on demand. Before the first one exists, the user can still open a shell
-      // in the Chat's own workspace, just as its agent does, without creating branches in every linked Project.
       return worktrees.length ? worktrees : session.workspacePath ? [{ path: session.workspacePath, label: "Workspace" }] : [];
     }
     const worktree = state.worktrees?.[session.worktree_id];

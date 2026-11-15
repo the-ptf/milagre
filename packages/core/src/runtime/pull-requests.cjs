@@ -2,9 +2,6 @@ const { createPullRequestReader, listOpenPullRequests, readPullRequests } = requ
 const { createPullRequestWatch } = require("../pull-request-watch.cjs");
 
 function registerPullRequests({ commands, options, states, emit, environmentReady }) {
-  // Branch and Chat PRs are polled here for every client (pull-request-watch.cjs, spec 2026-10-30-daemon-pr-polling):
-  // a read answers from the last poll, and `pull-requests:changed` tells clients when a Project's PRs changed. A
-  // harness that injects its own readers gets them called directly instead.
   const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
   const readPullRequest = options.readPullRequest ?? createPullRequestReader();
   const pullRequestWatch = injectedPullRequests
@@ -24,7 +21,6 @@ function registerPullRequests({ commands, options, states, emit, environmentRead
     await environmentReady;
     return pullRequestWatch ? pullRequestWatch.refs(worktreePath, refs) : (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
   });
-  // A Project's Worktrees with Chats, and the PRs those Chats named, as the sidebar and the phone's list show them.
   async function pullRequestTargets(projectPath) {
     const state = await states.get(projectPath);
     const byPath = new Map();
@@ -37,7 +33,6 @@ function registerPullRequests({ commands, options, states, emit, environmentRead
     }
     return [...byPath].map(([folder, refs]) => ({ path: folder, refs: [...refs] }));
   }
-  /** Every PR the Project's Worktrees and Chats have, from the last poll: it never waits on GitHub. */
   commands.handle("pull-requests:snapshot", async (_event, projectPath) => {
     if (typeof projectPath !== "string" || !states.has(projectPath)) return { worktrees: {}, chats: {}, pending: false };
     await environmentReady;
@@ -56,7 +51,6 @@ function registerPullRequests({ commands, options, states, emit, environmentRead
     );
     return { worktrees, chats, pending: false };
   });
-  // The repository's open PRs for a new Chat's card, read once a minute at most per Project; a failed read answers [].
   const openPullRequests = new Map();
   const OPEN_PULL_REQUESTS_MS = 60_000;
   commands.handle("pull-requests:open", async (_event, projectPath) => {
