@@ -811,6 +811,8 @@ const DesignFrame = memo(function DesignFrame({
   // The actions float over the frame's top edge while the pointer or focus is on it. Zoomed out too far for the chips,
   // the row keeps the letter, the title and a chosen tick.
   const compact = width * scale < 200;
+  // Narrow on screen, the interactive chip keeps only its dot so the title has the room.
+  const tight = width * scale < 320;
   const controls = (
     <>
       {design.format !== "html" && (
@@ -924,11 +926,12 @@ const DesignFrame = memo(function DesignFrame({
       {isInteractiveDesign(artifact) && (
         <span
           data-slot="artifact-interactive"
-          title={active ? "Clicks go to the design. Click outside it to let go." : "Click the design to try it"}
-          className="flex h-5 shrink-0 items-center gap-1 rounded-chip bg-field px-1.5 text-11 font-medium text-ink-2"
+          title={active ? "Live: clicks go to the design. Click outside it to let go." : "Interactive: click the design to try it"}
+          aria-label={active ? "Live" : "Interactive"}
+          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip bg-field text-11 font-medium text-ink-2 ${tight ? "w-5 justify-center" : "px-1.5"}`}
         >
           <span aria-hidden className={`size-1.5 rounded-full ${active ? "bg-green" : "bg-ink-4"}`} />
-          {active ? "Live" : "Interactive"}
+          {!tight && (active ? "Live" : "Interactive")}
         </span>
       )}
       {last > 1 && (
