@@ -16,6 +16,8 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { RunTextContext, createRunTextStore } from "/src/lib/run-text";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const unsubscribe = () => () => {};
 // The sidebar's first read of another Project answers a little later, as the main process does.
 const beta = { worktrees: {}, sessions: { 7: { id: 7, title: "Unread in beta", unread: true } }, messages: [] };
@@ -61,7 +63,7 @@ function FocusedChat({ chatKey }) {
   <ChatComposer messages={state.messages.filter((item) => item.session_id === 1)} chatId={Number(chatKey.split("#")[1])} agentChatId={chatKey}
     quotes={quotes} onQuotesChange={setQuotes}
     imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-    projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
+    projectPath="/fixture" store={draftStore} onSend={noop} isSending={false} sendBlocked={false}
     models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
     capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
     fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}

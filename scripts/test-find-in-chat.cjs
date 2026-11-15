@@ -34,7 +34,8 @@ messages.push({ id: 100, session_id: 1, context: null, role: "assistant", body: 
 function Fixture() {
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
-  const [draft, setDraft] = useState("");
+  const draft = useDraftText(draftStore);
+  const setDraft = draftStore.setText;
   const [model] = useState(MODEL_CATALOG[0]);
   // Stands in for App's shortcut handler, which owns the find state in the real app.
   useEffect(() => {
@@ -47,7 +48,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={false} sendBlocked={false} subagents={[]}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={false} sendBlocked={false} subagents={[]}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}
@@ -63,6 +64,8 @@ const appFixture = `
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";
+import { createDraftStore, useDraftText } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 // A project's state as the main process reads it.
 const state = { next_id: 1, projects: { 1: { id: 1, name: "Fixture" } }, worktrees: {}, sessions: {}, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 state.worktrees = { 1: { id: 1, name: "main", path: "/fixture", project_id: 1 } };

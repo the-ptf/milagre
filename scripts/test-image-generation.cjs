@@ -20,6 +20,8 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { ScopeContext } from "/src/lib/computer-bridge";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 window.imageCalls = [];
 window.milagre = { listEditors: async () => [], copyImage: async (file) => { window.imageCalls.push(["copy", file]); }, saveImage: async (file) => { window.imageCalls.push(["save", file]); return null; }, showImageMenu: async (file) => { window.imageCalls.push(["menu", file]); } };
@@ -55,7 +57,7 @@ function Fixture() {
   return <ScopeContext.Provider value={state === "viewed-remote" ? "fixture-remote|/fixture" : null}><div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={running} sendBlocked={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={running} sendBlocked={false}
       streamingText="" streamingSteps={running ? [thought, image("running")] : undefined} asking={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}

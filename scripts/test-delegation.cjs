@@ -15,6 +15,8 @@ import { PermissionCard } from "/src/components/agents/PermissionCard";
 import { CanvasView } from "/src/components/CanvasView";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 const card = { requestId: "d-1", kind: "delegation", tool: "Delegation", title: "Open a Negotiation with web / main / Health client?", allowForChat: true,
   delegation: { target: "web / main / Health client", message: "Agree on the /health payload: I propose { ok: boolean, version: string }.", negotiation: true } };
@@ -55,7 +57,7 @@ function Fixture() {
       approval={view === "approval" ? <PermissionCard request={card} waiting={0} answering={answer} onAnswer={setAnswer} /> : undefined}
       onOpenLinkedChat={setOpened}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={false} sendBlocked={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="ask" onPermissionModeChange={noop}

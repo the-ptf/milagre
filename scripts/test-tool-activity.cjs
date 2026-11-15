@@ -10,6 +10,8 @@ import { useStepApprovalScope } from "/src/components/agents/step-approval";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { applyRunEvent, startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 document.documentElement.classList.add("dark");
 document.body.style.background = "var(--page)";
 window.milagre = { listEditors: async () => [] };
@@ -37,7 +39,7 @@ function Fixture() {
  return <main style={{ height: "100%", padding: 12 }}>
   <ChatComposer messages={[{ id: 1, session_id: 1, role: "user", body: "Review the tool calls.", context: null }]} messageScope="/fixture" projectPath="/fixture"
    imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-   draft="" onDraftChange={noop} onSend={noop} isSending sendBlocked={false}
+   store={draftStore} onSend={noop} isSending sendBlocked={false}
    streamingText="I'll review the tool calls and run their checks." streamingSteps={liveSteps}
    waitingStepIds={waiting ? ["push"] : []}
    stepApproval={scope.value}

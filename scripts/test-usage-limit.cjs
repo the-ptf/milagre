@@ -20,6 +20,8 @@ import { SettingsPanel } from "/src/components/Settings";
 import { BridgeContext, ScopeContext } from "/src/lib/computer-bridge";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 const params = new URLSearchParams(location.search);
 const scenario = params.get("scenario") || "running";
@@ -101,7 +103,7 @@ function Fixture() {
         limitSourceMessageId={["resume", "queued", "unknown-reset", "remote-resume"].includes(scenario) ? 2 : undefined}
         limitPending={pending} limitResumeBlocked={scenario === "queued"}
         imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-        projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={scenario === "running"} sendBlocked={false}
+        projectPath="/fixture" store={draftStore} onSend={noop} isSending={scenario === "running"} sendBlocked={false}
         onOpenAccounts={() => { window.accountsOpened++; }}
         models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
         capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
