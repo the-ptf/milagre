@@ -245,7 +245,7 @@ export const DESIGNS_CANVAS_SCRIPT = `(function(){
 var port=document.getElementById("port"),world=document.getElementById("world"),marks=document.getElementById("marks");
 var still=matchMedia("(prefers-reduced-motion: reduce)");
 var GAP=80,EDGE=48,PAD=16,HOLD=450;
-var boards=new Map(),fonts=new Map(),order=[],rows=[],W=1,H=1,pins=[],pinNodes=new Map(),labels=[];
+var boards=new Map(),early=new Map(),fonts=new Map(),order=[],rows=[],W=1,H=1,pins=[],pinNodes=new Map(),labels=[];
 var x=0,y=0,s=1,pad={top:0,bottom:0},ink="#888",accent="#888",current=null,mode="design",sent="",placed=false,commenting=false,playing=null,chosenId=null;
 var flight=0,glide=0,points=new Map(),track=[],down=null,lastTap=null,hold=0,pinched=false;
 var ring=document.createElement("div");ring.className="ring";marks.appendChild(ring);
@@ -261,6 +261,7 @@ if(!b){var el=document.createElement("div");el.className="board";el.innerHTML=DR
 b.w=Math.max(1,+d.w||1);b.h=Math.max(1,+d.h||1);b.x=left;left+=b.w+GAP;items.push(b);order.push(b);seen.add(id)});
 rows.push({group:row.group?String(row.group):"",items:items});width=Math.max(width,left-GAP)});
 boards.forEach(function(b,id){if(!seen.has(id)){b.el.remove();boards.delete(id)}});
+early.forEach(function(a,id){if(boards.has(id)){early.delete(id);setDoc(id,a[0],a[1],a[2])}});
 W=Math.max(1,width);var gap=Math.max(160,44*W/Math.max(1,pw()-2*PAD)),top=0;
 rows.forEach(function(row){var tall=0;row.y=top;row.items.forEach(function(b){b.y=top;tall=Math.max(tall,b.h);
 b.el.style.left=b.x+"px";b.el.style.top=b.y+"px";b.el.style.width=b.w+"px";b.el.style.height=b.h+"px";
@@ -269,7 +270,7 @@ H=Math.max(1,top-gap);
 labels.forEach(function(l){l.el.remove()});labels=[];
 rows.forEach(function(row){if(!row.group)return;var el=document.createElement("div");el.className="label";el.textContent=row.group;el.style.color=ink;marks.insertBefore(el,ring);labels.push({el:el,row:row})});
 if(current&&!boards.has(current))current=null;markChosen()}
-function setDoc(id,doc,font,run){var b=boards.get(id);if(!b)return;
+function setDoc(id,doc,font,run){var b=boards.get(id);if(!b){early.set(id,[doc,font,run]);return}
 if(font){var at=doc.toLowerCase().indexOf("</head>");if(!fonts.has(font)||at<0)return;doc=doc.slice(0,at)+"<style>"+fonts.get(font)+"</style>"+doc.slice(at)}
 if(!b.frame){var f=document.createElement("iframe");f.setAttribute("referrerpolicy","no-referrer");f.setAttribute("tabindex","-1");f.width=b.w;f.height=b.h;f.style.width=b.w+"px";f.style.height=b.h+"px";f.addEventListener("load",function(){if(!b.doc)return;b.el.classList.add("ready");post({t:"painted",id:b.id})});b.el.appendChild(f);b.frame=f}
 var box=run?"allow-scripts":"";if(b.frame.getAttribute("sandbox")!==box){b.frame.setAttribute("sandbox",box);b.doc=""}b.frame.style.pointerEvents=playing===b.id?"auto":"none";

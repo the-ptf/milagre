@@ -1,7 +1,7 @@
 import { confirmSheet } from "./confirm-store";
 import { commentActivity } from "./comment-activity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, AppState, Linking, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, BackHandler, Linking, Platform, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CommentBox } from "./viewer-chrome";
@@ -133,7 +133,8 @@ const draftsByChat = new Map<string, Draft[]>();
 let draftKey = 0;
 
 /** The page a Browser view loads, and what its WebView can do. */
-type PageControls = { back(): void; forward(): void; reload(): void; viaMac(): void; viaMacAvailable: boolean };
+/** `backOrLeave`: Android's system back goes back in the page's own history, and calls `leave` when there is none. */
+type PageControls = { back(): void; backOrLeave(leave: () => void): void; forward(): void; reload(): void; viaMac(): void; viaMacAvailable: boolean };
 
 export function BrowserSheet({
   hostId,
@@ -191,6 +192,16 @@ export function BrowserSheet({
   const reachableHost = useReachableHost(source?.url) ?? pairedPageHost(source?.url);
   const [externalUrl, setExternalUrl] = useState<string | null>(null);
   const [controls, setControls] = useState<PageControls | null>(null);
+  // Android: the system back steps back through the page first, as a browser does, and closes the sheet only at the
+  // first page. Docked beside the Chat (an iPad) there is no system back.
+  useEffect(() => {
+    if (Platform.OS !== "android" || docked || !visible || !controls) return;
+    const back = BackHandler.addEventListener("hardwareBackPress", () => {
+      controls.backOrLeave(onClose);
+      return true;
+    });
+    return () => back.remove();
+  }, [controls, docked, visible, onClose]);
   const [loaded, setLoaded] = useState(false);
 
   const chatKey = `${source?.url}|${chatId}`;
@@ -326,7 +337,7 @@ export function BrowserSheet({
         {
           items: [
             { id: "copy", title: "Copy link", systemImage: "link" },
-            { id: "safari", title: "Open in Safari", systemImage: "safari", disabled: !externalUrl },
+            { id: "safari", title: Platform.OS === "ios" ? "Open in Safari" : "Open in browser", systemImage: "safari", disabled: !externalUrl },
             ...(controls?.viaMacAvailable ? [{ id: "mac", title: "Load through computer", systemImage: "desktopcomputer" }] : []),
           ],
         },
@@ -647,6 +658,7 @@ function BrowserWebView({
   const [attempt, setAttempt] = useState(0);
   const [forceProxy, setForceProxy] = useState(false);
   const ready = useRef(false);
+  const leaving = useRef<(() => void) | null>(null);
   const armedAt = useRef("");
   const latest = useRef({
     onPage,
@@ -764,6 +776,14 @@ function BrowserWebView({
   useEffect(() => {
     onControls({
       back: () => view.current?.injectJavaScript("history.back();true;"),
+      backOrLeave: (leave) => {
+        if (!view.current || error || !ready.current) return leave();
+        leaving.current = leave;
+        // A page that can't go back stays where it is; a cross-document back unloads it before the check runs.
+        view.current.injectJavaScript(
+          "(() => { const at = location.href; history.back(); setTimeout(() => { if (location.href === at) window.ReactNativeWebView.postMessage(JSON.stringify({kind:'nohistory'})); }, 300); })();true;",
+        );
+      },
       forward: () => view.current?.injectJavaScript("history.forward();true;"),
       reload: () => (error ? retry() : view.current?.reload()),
       viaMac,
@@ -857,6 +877,9 @@ function BrowserWebView({
               armedAt.current = message.url;
               arm();
             }
+          } else if (message.kind === "nohistory") {
+            leaving.current?.();
+            leaving.current = null;
           } else if (message.kind === "pick" && latest.current.picking && message.element?.selector && message.element?.box) {
             latest.current.onPick(message.element);
           } else if (message.kind === "positions" && Array.isArray(message.positions)) {

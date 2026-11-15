@@ -1,5 +1,4 @@
 import { outbox } from "./outbox";
-import { Alert } from "react-native";
 import { createClient } from "./client";
 import { nativeActivity } from "./live-activity-native";
 import { savedHosts } from "./hosts-native";
@@ -10,6 +9,7 @@ import { seenAgo } from "./seen-ago";
 import type { SavedHost } from "./hosts-store";
 import type { usePush } from "./push";
 import type { useSession } from "./session";
+import { promptText } from "./text-prompt";
 
 export type Reachability = "online" | "checking" | "offline";
 
@@ -92,5 +92,5 @@ export function renameComputer(host: SavedHost, { onRenamed, onError }: { onRena
       onError((e as Error).message);
     }
   };
-  Alert.prompt("Rename computer", undefined, (name) => void save(name), "plain-text", host.name);
+  void promptText("Rename computer", { value: host.name }).then((name) => (name === null ? undefined : save(name)));
 }

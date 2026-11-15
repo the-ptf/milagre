@@ -29,6 +29,7 @@ export const SHEETS_OVER_CHAT = new Set([
   "update-sheet",
   "update-notes",
   "confirm-sheet",
+  "prompt-sheet",
   "choice-sheet",
   "chime-sheet",
   "add-computer",

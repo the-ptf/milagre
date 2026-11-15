@@ -504,7 +504,7 @@ export function DesignsSheet({
                 items: Array.from({ length: latest }, (_, index) => latest - index).map((number) => ({
                   id: `version:${number}`,
                   title: `Version ${number}${number === latest ? " (latest)" : ""}`,
-                  systemImage: number === shown.version ? "checkmark" : undefined,
+                  checked: number === shown.version,
                 })),
               },
             ]

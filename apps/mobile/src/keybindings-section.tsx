@@ -21,6 +21,7 @@ import { useSession } from "./session";
 import { lineHeight, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { ErrorNotice, showActions } from "./ui";
+import { promptText } from "./text-prompt";
 
 // Settings › Keybindings on an iPad: the connected Mac's keybindings.json, which the Mac and this iPad's keyboard both
 // run (desktop's Settings › Keybindings edits the same file). A key is typed as text, `cmd+shift+k`, as in the file.
@@ -89,13 +90,8 @@ export function KeybindingsSection() {
       ],
       onSelect: (id) => {
         if (id === "add") {
-          Alert.prompt(
-            `A key for ${command.title}`,
-            "Type it as cmd+shift+k, alt+left or f5.",
-            (typed) => void addKey(command.id, typed ?? ""),
-            "plain-text",
-            "",
-            "default",
+          void promptText(`A key for ${command.title}`, { message: "Type it as cmd+shift+k, alt+left or f5.", action: "Add", plain: true }).then((typed) =>
+            typed === null ? undefined : addKey(command.id, typed),
           );
         } else if (id === "reset") {
           void store

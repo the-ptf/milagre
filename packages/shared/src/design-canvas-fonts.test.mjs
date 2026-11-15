@@ -34,7 +34,7 @@ const element = () => {
   };
 };
 
-function page() {
+function page({ laidOut = true } = {}) {
   const nodes = { port: element(), world: element(), marks: element() };
   const posted = [];
   const window = { ReactNativeWebView: { postMessage: (data) => posted.push(JSON.parse(data)) } };
@@ -47,7 +47,7 @@ function page() {
     },
   });
   const run = (message) => window.milagreCanvas.run(message);
-  run({ t: "set", rows: [{ designs: [{ id: "home", w: 390, h: 844 }] }] });
+  if (laidOut) run({ t: "set", rows: [{ designs: [{ id: "home", w: 390, h: 844 }] }] });
   return { run, posted, world: nodes.world, frame: () => nodes.world.children[0].children[0] };
 }
 
@@ -128,4 +128,18 @@ test("the chosen design is outlined and the other options in its row step back",
     [board(0), board(1)].map((b) => [...b.classes]),
     [[], []],
   );
+});
+
+test("a design that arrives before its layout is drawn once the layout makes its board", () => {
+  // On a slow phone the document can land before the row it sits in (Android did): it waits instead of being dropped.
+  const p = page({ laidOut: false });
+  const doc = artifactDocument("<p>Early</p>");
+  p.run({ t: "html", id: "home", doc });
+  assert.equal(p.world.children.length, 0);
+  p.run({ t: "set", rows: [{ designs: [{ id: "home", w: 390, h: 844 }] }] });
+  assert.equal(p.frame().srcdoc, doc);
+  // Laid out again, it is not drawn a second time from the held copy.
+  const frame = p.frame();
+  p.run({ t: "set", rows: [{ designs: [{ id: "home", w: 390, h: 844 }] }] });
+  assert.equal(p.frame(), frame);
 });

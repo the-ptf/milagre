@@ -158,7 +158,9 @@ test("a sheet over the Chat keeps it viewed; other pages and another computer do
 
 test("the sheets that keep a Chat viewed are the layout's sheets and transparent modals", () => {
   const layout = readFileSync(new URL("./app/_layout.tsx", import.meta.url), "utf8");
-  const overlays = [...layout.matchAll(/name="([\w-]+)"\s*options=\{\{\s*(?:\.\.\.sheet|presentation: "transparentModal")/g)].map((match) => match[1]);
+  const overlays = [...layout.matchAll(/name="([\w-]+)"\s*options=\{(?:\{\s*(?:\.\.\.(?:sheet|fullSheet)|presentation: "transparentModal")|fullSheet\})/g)].map(
+    (match) => match[1],
+  );
   assert.ok(overlays.includes("permission-sheet"));
   // Every sheet either opens over the Chat, keeping it viewed, or over a full-screen page that already hides it.
   assert.deepEqual([...SHEETS_OVER_CHAT, ...SHEETS_OVER_PAGES].sort(), overlays.sort());
