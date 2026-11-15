@@ -1,6 +1,6 @@
 const { spawnSync } = require("node:child_process");
 
-const file = process.argv[2];
+const [file, ...apps] = process.argv.slice(2);
 const credentials = ["--apple-id", process.env.APPLE_ID, "--password", process.env.APPLE_APP_SPECIFIC_PASSWORD, "--team-id", process.env.APPLE_TEAM_ID];
 const transient =
   /NSURLErrorDomain[^\n]*Code=-(?:1001|1003|1004|1005|1006|1009)\b|No network route|ECONNRESET|ETIMEDOUT|EAI_AGAIN|Network\.NWError error (?:50|60)\b|HTTP(?: status code:|Error\(statusCode:)\s*(?:Optional\()?5\d\d/i;
@@ -34,8 +34,9 @@ try {
     const status = ["Invalid", "Rejected", "In Progress"].includes(result.status) ? result.status : "unexpected status";
     throw new Error(`Apple notarization failed: ${status} (submission ${submission.id})`);
   }
-  request("stapling", ["stapler", "staple", file]);
-  console.log(`Apple accepted and stapled ${file}.`);
+  // Apple's ticket for the disk image also covers the app inside it, so the built app staples without a submission.
+  for (const target of [file, ...apps]) request("stapling", ["stapler", "staple", target]);
+  console.log(`Apple accepted and stapled ${[file, ...apps].join(", ")}.`);
 } catch (error) {
   // Never print raw tool arguments or responses containing credentials.
   console.error(error instanceof SyntaxError ? "Apple returned invalid notarization JSON." : error.message);

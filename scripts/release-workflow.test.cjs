@@ -13,7 +13,7 @@ const buildWorkflow = YAML.parse(fs.readFileSync(path.join(__dirname, "../.githu
 const candidateWorkflow = YAML.parse(fs.readFileSync(path.join(__dirname, "../.github/workflows/package-candidates.yml"), "utf8"));
 const credentials = ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"];
 const credentialStep = buildWorkflow.jobs["package-macos"].steps.find((step) => step.name === "Check Apple release credentials");
-const notarizeStep = buildWorkflow.jobs["package-macos"].steps.find((step) => step.name === "Notarize and staple disk images");
+const notarizeStep = buildWorkflow.jobs["package-macos"].steps.find((step) => step.name === "Notarize and staple the disk image and app");
 const verifyStep = buildWorkflow.jobs["package-macos"].steps.find((step) => step.name === "Verify macOS signatures, notarization and disk images");
 const authStep = buildWorkflow.jobs["package-macos"].steps.find((step) => step.name === "Check Apple notarization authentication");
 const publishStep = publishWorkflow.jobs.publish.steps.find((step) => step.name === "Publish the release");
@@ -130,12 +130,23 @@ test("notarytool failure stops before stapling", (t) => {
   assert.doesNotMatch(f.calls(), /stapler staple/);
 });
 
-test("an accepted disk image is stapled", (t) => {
+test("one accepted submission staples both the disk image and the app it carries", (t) => {
   const f = fixture(t);
   const result = runStep(notarizeStep, f.root, f.env);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(f.calls(), /xcrun notarytool submit/);
-  assert.match(f.calls(), /xcrun stapler staple/);
+  assert.equal((f.calls().match(/xcrun notarytool submit/g) || []).length, 1);
+  assert.match(f.calls(), /xcrun stapler staple release\/Milagre-arm64\.dmg/);
+  assert.match(f.calls(), /xcrun stapler staple release\/mac-arm64\/Milagre\.app/);
+});
+
+test("each architecture builds in parallel and notarizes once, as a disk image", () => {
+  const job = buildWorkflow.jobs["package-macos"];
+  assert.deepEqual(job.strategy.matrix.arch, ["arm64", "x64"]);
+  const build = job.steps.find((step) => step.name === "Build macOS installers");
+  assert.match(build.run, /--"\$\{ARCH\}"/);
+  assert.match(build.run, /--config\.mac\.notarize=false/, "electron-builder's app submission would double the Apple wait");
+  assert.equal(job.steps.find((step) => step.name === "Exercise signed macOS app").if, "matrix.arch == 'arm64'");
+  assert.deepEqual(buildWorkflow.jobs["merge-feed"].needs, "package-macos");
 });
 
 test("merges cut no release; CI only rewrites the Next beta draft once main passes the required checks", () => {
@@ -260,7 +271,12 @@ test("the macOS build stages its installers on the channel Publish asks for and 
   assert.deepEqual(Object.keys(buildWorkflow.on.workflow_call.inputs), ["ref", "version", "channel"]);
   const steps = buildWorkflow.jobs["package-macos"].steps;
   assert.doesNotMatch(JSON.stringify(steps), /gh release (upload|edit|create)/, "the macOS build never changes the release");
-  assert.equal(steps.at(-1).with.name, "installers-macos");
+  assert.deepEqual(
+    steps.filter((step) => step.uses?.startsWith("actions/upload-artifact")).map((step) => step.with.name),
+    ["installers-macos-${{ matrix.arch }}", "macos-feed-${{ matrix.arch }}"],
+  );
+  assert.equal(buildWorkflow.jobs["merge-feed"].steps.at(-1).with.name, "installers-macos-feed");
+  assert.equal(publishWorkflow.jobs.publish.steps.find((step) => step.name === "Collect installers").with.pattern, "installers-*");
   const build = steps.find((step) => step.name === "Build macOS installers");
   assert.match(build.run, /--config\.publish\.channel="\$\{CHANNEL\}"/);
   assert.doesNotMatch(build.run, /generateUpdatesFilesForAllChannels/, "the flag does nothing for the github provider");
