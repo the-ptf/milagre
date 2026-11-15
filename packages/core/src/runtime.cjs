@@ -275,22 +275,25 @@ function createRuntime(options) {
     validateChat: existingChat("showing a design"),
     readKit: (request) => designKits.read(request),
   });
-  const designPageSharing = require("./design-page-sharing.cjs").createDesignPageSharing({
-    directory: path.join(dataDir, "design-page-shares"),
-    artifacts,
-    validateChat: existingChat("sharing Designs"),
-    chatTitle: async (chatId) => {
-      const session = (await scopeStates.get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
-      return session?.title || session?.generatedTitle || null;
-    },
-    ...options.designSharing,
-  });
-  commands.handle("artifact:page-shares", (_context, request) => designPageSharing.list(request));
-  commands.handle("artifact:sharing-status", (_context, request) => designPageSharing.status(request));
-  commands.handle("artifact:all-page-shares", () => designPageSharing.listAll());
-  commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing.revokeSaved(request));
-  commands.handle("artifact:share-page", (_context, request) => designPageSharing.publish(request));
-  commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing.revoke(request));
+  let pageSharing;
+  // Public-page validation imports the renderer too; create the service on its first request.
+  const designPageSharing = () =>
+    (pageSharing ??= require("./design-page-sharing.cjs").createDesignPageSharing({
+      directory: path.join(dataDir, "design-page-shares"),
+      artifacts,
+      validateChat: existingChat("sharing Designs"),
+      chatTitle: async (chatId) => {
+        const session = (await scopeStates.get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
+        return session?.title || session?.generatedTitle || null;
+      },
+      ...options.designSharing,
+    }));
+  commands.handle("artifact:page-shares", (_context, request) => designPageSharing().list(request));
+  commands.handle("artifact:sharing-status", (_context, request) => designPageSharing().status(request));
+  commands.handle("artifact:all-page-shares", () => designPageSharing().listAll());
+  commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing().revokeSaved(request));
+  commands.handle("artifact:share-page", (_context, request) => designPageSharing().publish(request));
+  commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing().revoke(request));
   // Designs are always on. Older apps and paired computers still read the switch, and saving it changes nothing.
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
@@ -429,8 +432,9 @@ function createRuntime(options) {
   // `agents` is created below; ownership roots are read only once the service polls.
   function agentProcesses() {
     const roots = agents.processes();
+    for (const [chatId, root] of roots) root.active = agents.isTurnActive(chatId) || agents.backgroundWork(chatId) > 0;
     for (const [chatId, children] of advisors?.processes() ?? []) {
-      roots.set(chatId, { cwd: children[0].cwd, ...roots.get(chatId), agents: children.map((child) => child.pid) });
+      roots.set(chatId, { cwd: children[0].cwd, ...roots.get(chatId), agents: children.map((child) => child.pid), active: true });
     }
     return roots;
   }

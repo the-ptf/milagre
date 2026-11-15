@@ -386,6 +386,7 @@
       "types": "./src/design-page.d.mts",
       "default": "./src/design-page.mjs"
     },
+    "./design-schemas": "./src/design-schemas.mjs",
     "./design": {
       "types": "./src/design.d.mts",
       "default": "./src/design.mjs"

@@ -3,28 +3,9 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
-const {
-  designDocumentInputSchema,
-  designOperationInputSchema,
-  designEditIntentSchema,
-  validateDesignDocument,
-  validateDesignConsistency,
-  applyDesignOperations,
-  designHtml,
-  designSvg,
-  designWarnings,
-  designDiagnostics,
-  designErrorIssues,
-  conciseDesignError,
-  designLayout,
-  designTextLayout,
-  designWarningText,
-  designUsesInter,
-  designCatalogFont,
-  designInterHasGlyph,
-  designInstanceRoot,
-  loadDesignFonts,
-} = require("@milagre/shared/design");
+const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema } = require("@milagre/shared/design-schemas");
+// Tool schemas are eager; rendering and validation load only when a Design operation needs them.
+const designImplementation = () => require("@milagre/shared/design");
 const { artifactDocument, hasDiagrams, checkDesignCode } = require("@milagre/shared/artifact-document");
 const { ASSET_NAME, ASSET_HASH, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, assetType, mentionsAsset } = require("@milagre/shared/artifact-assets");
 const { openAttachment } = require("./attachment-preview.cjs");
@@ -540,7 +521,7 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     validateDesign: async ({ chatId, document }) => {
       await chat(chatId);
       await verifyKit(chatId, document);
-      validateDesignConsistency(document);
+      designImplementation().validateDesignConsistency(document);
       return document;
     },
     showDesign: (request, { assertActive } = {}) =>
@@ -592,14 +573,14 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         const inheritedConsistency = existing ? (await readVersion(folder, existing)).document?.consistency : undefined;
         const document = source
           ? request.operations?.length
-            ? applyDesignOperations(source.document, request.operations)
-            : validateDesignDocument(source.document)
-          : validateDesignDocument({
+            ? designImplementation().applyDesignOperations(source.document, request.operations)
+            : designImplementation().validateDesignDocument(source.document)
+          : designImplementation().validateDesignDocument({
               ...request.document,
               ...(!request.document?.consistency && inheritedConsistency ? { consistency: inheritedConsistency } : {}),
             });
         await verifyKit(request.chatId, document);
-        validateDesignConsistency(document);
+        designImplementation().validateDesignConsistency(document);
         const entry = {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
@@ -612,8 +593,8 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
           createdAt: Date.now(),
         };
         // The saved HTML embeds the catalog families the design names, so the desktop and the phone draw them.
-        await loadDesignFonts(document);
-        const artifact = await writeVersion(folder, id, previous, entry, designHtml(document), document, assertActive);
+        await designImplementation().loadDesignFonts(document);
+        const artifact = await writeVersion(folder, id, previous, entry, designImplementation().designHtml(document), document, assertActive);
         return summary(artifact, entry);
       }),
     apply: (request, { assertActive } = {}) =>
@@ -643,9 +624,9 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
           return { ...summary(artifact, entry), latest: entry.version, html };
         }
         if (request.edits !== undefined) throw Error("This design is made of layers: change it with operations. edits are for interactive designs.");
-        const document = applyDesignOperations(current.document, request.operations, request.intent);
+        const document = designImplementation().applyDesignOperations(current.document, request.operations, request.intent);
         await verifyKit(request.chatId, document);
-        validateDesignConsistency(document);
+        designImplementation().validateDesignConsistency(document);
         const entry = {
           version: current.version + 1,
           title: current.title,
@@ -657,8 +638,8 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
           format: "design",
           createdAt: Date.now(),
         };
-        await loadDesignFonts(document);
-        const html = designHtml(document);
+        await designImplementation().loadDesignFonts(document);
+        const html = designImplementation().designHtml(document);
         const artifact = await writeVersion(folder, existing.id, existing.versions, entry, html, document, assertActive);
         return { ...summary(artifact, entry), latest: entry.version, html, document };
       }),
@@ -708,7 +689,7 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
           mimeType: svg ? "image/svg+xml" : "application/json",
           // Agents read this through a tool result, so Inter stays a font-family reference instead of ~250 KB of embedded faces.
           // The desktop download builds its own SVG with the fonts embedded.
-          content: svg ? designSvg(current.document, { embedFonts: false }) : JSON.stringify(current.document, null, 2),
+          content: svg ? designImplementation().designSvg(current.document, { embedFonts: false }) : JSON.stringify(current.document, null, 2),
         };
       }),
     list: (request) =>
@@ -877,7 +858,14 @@ const MAX_SUMMARY_WARNINGS = 20;
 const unbundledFamilies = (document) => {
   const families = new Set();
   for (const node of document.nodes) {
-    if (node.type !== "text" || node.hidden || !node.fontFamily || designUsesInter(node.fontFamily) || designCatalogFont(node.fontFamily)) continue;
+    if (
+      node.type !== "text" ||
+      node.hidden ||
+      !node.fontFamily ||
+      designImplementation().designUsesInter(node.fontFamily) ||
+      designImplementation().designCatalogFont(node.fontFamily)
+    )
+      continue;
     const family = node.fontFamily
       .split(",")[0]
       .trim()
@@ -899,9 +887,9 @@ const undrawableTextLayers = (document) => {
   const ids = new Set();
   for (const node of document.nodes) {
     if (node.type !== "text" || !node.text || !visible(node)) continue;
-    if ([...node.text].every(designInterHasGlyph)) continue;
+    if ([...node.text].every(designImplementation().designInterHasGlyph)) continue;
     // Name the editable instance, never one of its generated children.
-    ids.add((designInstanceRoot(document, node.id, byId) ?? node).id);
+    ids.add((designImplementation().designInstanceRoot(document, node.id, byId) ?? node).id);
   }
   return [...ids];
 };
@@ -945,9 +933,9 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
   }
   notes.push(...problems);
   // Remote images are only placeholders in the agent's image; there is nothing to fix, so they are notes, not warnings.
-  const text = designWarningText(warnings.filter((warning) => warning.kind !== "remote-image"));
+  const text = designImplementation().designWarningText(warnings.filter((warning) => warning.kind !== "remote-image"));
   if (text) notes.push(`Warnings:\n${text}`);
-  const remote = designWarningText(warnings.filter((warning) => warning.kind === "remote-image"));
+  const remote = designImplementation().designWarningText(warnings.filter((warning) => warning.kind === "remote-image"));
   if (remote) notes.push(`Notes:\n${remote}`);
   return { text: notes.join("\n"), images };
 }
@@ -993,7 +981,12 @@ const editsInput = z
   .min(1)
   .max(200);
 
-function artifactToolDefinitions(chatId, api, authorization, { renderPng = renderDesignPng, warnings = designWarnings, screenshot = screenshotDesign } = {}) {
+function artifactToolDefinitions(
+  chatId,
+  api,
+  authorization,
+  { renderPng = renderDesignPng, warnings = (...args) => designImplementation().designWarnings(...args), screenshot = screenshotDesign } = {},
+) {
   const feedback = { renderPng, warnings };
   return [
     {
@@ -1042,7 +1035,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
         const document =
           args.from || (!args.document.consistency && design.consistency)
             ? (await api.get({ chatId, id: design.id, version: design.version, format: "design" })).document
-            : validateDesignDocument(args.document);
+            : designImplementation().validateDesignDocument(args.document);
         return designFeedback(design, document, feedback);
       },
     },
@@ -1069,12 +1062,12 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
           if (nodeId) throw Error("An interactive design has no layers; inspect it without nodeId.");
           return interactiveFeedback(saved, html, { screenshot });
         }
-        const bounds = designLayout(document, designTextLayout);
+        const bounds = designImplementation().designLayout(document, designImplementation().designTextLayout);
         const crop = nodeId ? bounds.get(nodeId) : undefined;
         if (nodeId && !crop) throw Error(`Layer "${nodeId}" is missing or hidden.`);
         let diagnostics;
         try {
-          diagnostics = { status: "checked", ...designDiagnostics(document) };
+          diagnostics = { status: "checked", ...designImplementation().designDiagnostics(document) };
         } catch (error) {
           diagnostics = { status: "failed", error: error.message };
         }
@@ -1128,23 +1121,23 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
         try {
           if (args.document !== undefined) {
             if (args.id || args.operations || args.expectedVersion || args.intent) throw Error("Send document OR id, expectedVersion and operations.");
-            document = validateDesignDocument(args.document);
+            document = designImplementation().validateDesignDocument(args.document);
           } else {
             if (!args.id || !args.expectedVersion || !args.operations) throw Error("Send document OR id, expectedVersion and operations.");
             const current = await api.get({ chatId, id: args.id, format: "design" });
             if (current.version !== args.expectedVersion)
               throw Error(`Design version conflict: expected ${args.expectedVersion}, latest ${current.version}. Read again.`);
-            document = applyDesignOperations(current.document, args.operations, args.intent);
+            document = designImplementation().applyDesignOperations(current.document, args.operations, args.intent);
           }
           await api.validateDesign?.({ chatId, document });
-          return JSON.stringify({ valid: true, document, diagnostics: designDiagnostics(document) });
+          return JSON.stringify({ valid: true, document, diagnostics: designImplementation().designDiagnostics(document) });
         } catch (error) {
           return JSON.stringify({
             valid: false,
-            errors: designErrorIssues(error),
+            errors: designImplementation().designErrorIssues(error),
             ...(error.code ? { code: error.code } : {}),
             ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}),
-            ...(error.code === "DESIGN_KIT_DRIFT" && document ? { diagnostics: designDiagnostics(document) } : {}),
+            ...(error.code === "DESIGN_KIT_DRIFT" && document ? { diagnostics: designImplementation().designDiagnostics(document) } : {}),
           });
         }
       },
@@ -1191,7 +1184,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       try {
         return await tool.run(args);
       } catch (error) {
-        throw conciseDesignError(error);
+        throw designImplementation().conciseDesignError(error);
       }
     },
   }));

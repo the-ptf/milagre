@@ -1,19 +1,8 @@
-import { z } from "zod";
+import { designEditIntentSchema } from "./design-schemas.mjs";
+export { designEditIntentSchema } from "./design-schemas.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { designDiagnostics } from "./design-lint.mjs";
 import { designError } from "./design-errors.mjs";
-
-const ids = z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/)).max(100);
-export const designEditIntentSchema = z
-  .object({
-    mode: z.enum(["text-only", "fit-text"]),
-    textIds: ids.min(1),
-    layoutIds: ids.optional(),
-  })
-  .strict()
-  .describe(
-    "text-only preserves all fields except text and all computed bounds. fit-text permits geometry within textIds and layoutIds subtrees, preserving styles and other copy. Layout must fit before saving. No automatic repair.",
-  );
 
 const geometry = new Set(["x", "y", "width", "height", "widthMode", "heightMode", "minWidth", "minHeight"]);
 const stable = (value) =>

@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
-const { designKitDataSchema, validateDesignKit } = require("@milagre/shared/design");
+const { designKitDataSchema } = require("@milagre/shared/design-schemas");
 const ID = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
 
 /** Project-owned immutable snapshots. No update ever rewrites a screen's pinned kit. */
@@ -35,7 +35,7 @@ function createDesignKits({ directory, projectForChat }) {
         const all = await versions(await file(chatId, id));
         const found = version === undefined ? all.at(-1) : all.find((kit) => kit.version === version);
         if (!found && version !== undefined) throw Error(`Kit "${id}" version ${version} does not exist in this Project.`);
-        return found ? validateDesignKit(found) : null;
+        return found ? require("@milagre/shared/design").validateDesignKit(found) : null;
       }),
     save: ({ chatId, id = "project", expectedVersion, kit }, { assertActive } = {}) =>
       serial(async () => {
@@ -46,7 +46,7 @@ function createDesignKits({ directory, projectForChat }) {
         if (!Number.isInteger(expectedVersion) || expectedVersion !== actual)
           throw Error(`Kit version conflict: expected ${expectedVersion}, latest ${actual}. Read the kit again.`);
         if (all.length >= 100) throw Error("This kit has 100 immutable versions. Create a new kit id.");
-        const saved = validateDesignKit({ ...designKitDataSchema.parse(kit), id, version: actual + 1 });
+        const saved = require("@milagre/shared/design").validateDesignKit({ ...designKitDataSchema.parse(kit), id, version: actual + 1 });
         await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
         const temporary = `${target}.${randomUUID()}.tmp`;
         try {

@@ -1,12 +1,18 @@
 import { assertDesignEditIntent } from "./design-intent.mjs";
-export { designEditIntentSchema } from "./design-intent.mjs";
+import { nodeSchema, designDocumentSchema, designOperationSchema } from "./design-schemas.mjs";
+export {
+  designDocumentSchema,
+  designDocumentInputSchema,
+  designOperationSchema,
+  designOperationInputSchema,
+  designEditIntentSchema,
+} from "./design-schemas.mjs";
 import { designError } from "./design-errors.mjs";
 export { designErrorIssues, conciseDesignError } from "./design-errors.mjs";
-import { designKitSchema, designBindingsSchema, designConsistencySchema, resolveDesignKit } from "./design-kit.mjs";
+import { designKitSchema, resolveDesignKit } from "./design-kit.mjs";
 export { designKitSchema, designKitDataSchema, validateDesignConsistency } from "./design-kit.mjs";
-import { designPaint } from "./design-colors.mjs";
 import { z } from "zod";
-import { designFontFamily, designFontFaces, validDesignFontFamily } from "./design-fonts.mjs";
+import { designFontFamily, designFontFaces } from "./design-fonts.mjs";
 export {
   DESIGN_CATALOG_FAMILIES,
   designCatalogFont,
@@ -30,176 +36,6 @@ import { synchronizeDesignComponents, designInstanceRoot, detachDesignInstance }
 export { designLayout, designTextLayout } from "./design-layout.mjs";
 export { designWarnings, designWarningText, designDiagnostics } from "./design-lint.mjs";
 export { createDesignInstance, detachDesignInstance, designInstanceRoot } from "./design-components.mjs";
-
-const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/, "Use a stable layer id with letters, numbers, dots, underscores or dashes.");
-const literalColor = z
-  .string()
-  .max(100)
-  .refine((value) => designPaint(value) !== null, "Use a valid CSS color.");
-const color = z.union([literalColor, z.string().regex(/^\$[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/)]);
-const coordinate = z.number().finite().min(-32000).max(32000);
-const dimension = z.number().finite().min(1).max(16000);
-const size = z.number().finite().min(0).max(2000);
-
-const nodeSchema = z
-  .object({
-    id,
-    name: z.string().max(160).optional(),
-    type: z.enum(["frame", "text", "rectangle", "ellipse", "image", "icon"]),
-    parentId: id.optional(),
-    x: coordinate.optional(),
-    y: coordinate.optional(),
-    width: dimension,
-    height: dimension,
-    widthMode: z
-      .enum(["fixed", "hug", "fill"])
-      .optional()
-      .describe("Fixed uses width in pixels; hug fits content; fill uses available parent space. Defaults to fixed."),
-    heightMode: z
-      .enum(["fixed", "hug", "fill"])
-      .optional()
-      .describe("Fixed uses height in pixels; hug fits content; fill uses available parent space. Defaults to fixed."),
-    minWidth: z.number().finite().min(0).max(16000).optional(),
-    minHeight: z.number().finite().min(0).max(16000).optional(),
-    fill: color.optional(),
-    stroke: color.optional(),
-    strokeWidth: size.optional(),
-    radius: size.optional(),
-    opacity: z.number().finite().min(0).max(1).optional(),
-    text: z.string().max(20000).optional(),
-    fontSize: z.number().finite().min(1).max(1000).optional(),
-    fontFamily: z.string().max(160).refine(validDesignFontFamily, "Use non-empty font family names separated by commas.").optional(),
-    fontWeight: z.number().int().min(100).max(900).optional(),
-    lineHeight: z.number().finite().min(0.5).max(5).optional().describe("Unitless line-height multiplier, such as 1.35 or 1.5, never pixels. Default 1.35."),
-    textAlign: z.enum(["left", "center", "right"]).optional(),
-    src: z
-      .string()
-      .max(500000)
-      .refine(
-        (value) => /^https:\/\/[^\s<>"']+$/i.test(value) || /^data:image\/(?:png|jpeg|webp|gif|avif);base64,[a-zA-Z0-9+/=]+$/.test(value),
-        "Images need an HTTPS URL or an inline PNG, JPEG, WebP, GIF or AVIF.",
-      )
-      .optional(),
-    icon: z
-      .string()
-      .max(64)
-      .optional()
-      .describe(
-        "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
-      ),
-    layout: z.enum(["free", "horizontal", "vertical"]).optional(),
-    gap: size.optional(),
-    padding: size.optional(),
-    align: z.enum(["start", "center", "end"]).optional(),
-    justify: z.enum(["start", "center", "end", "space-between"]).optional(),
-    hidden: z.boolean().optional(),
-    locked: z.boolean().optional(),
-    component: z.boolean().optional().describe("Mark a frame as a reusable main component. Nested components are not supported."),
-    componentId: id.optional().describe("Link an instance frame to a main component id. Its children are generated and follow the main component."),
-    textStyle: id.optional().describe("Text style name in the pinned design kit."),
-    bindings: designBindingsSchema.optional().describe("Bind spacing fields and radius to named tokens in the pinned kit."),
-    componentProperties: z
-      .record(
-        id,
-        z
-          .object({
-            nodeId: id,
-            field: z.enum(["text", "icon", "hidden", "fill", "opacity"]),
-            options: z
-              .array(z.union([z.string().max(20000), z.boolean(), z.number().finite()]))
-              .min(1)
-              .max(20)
-              .optional(),
-          })
-          .strict(),
-      )
-      .optional()
-      .describe("On a main component, expose named properties bound to a source layer field. options restricts allowed states."),
-    componentValues: z
-      .record(id, z.union([z.string().max(20000), z.boolean(), z.number().finite()]))
-      .optional()
-      .describe("On an instance, values for properties exposed by its main component, such as label or icon."),
-    componentSourceId: id
-      .optional()
-      .describe("Generated reference from an instance descendant to its main layer. Edit the main component or detach the instance."),
-  })
-  .strict();
-
-export const designDocumentSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    width: z.number().int().min(240).max(3840),
-    height: z.number().int().min(240).max(3840),
-    background: color.optional(),
-    kit: designKitSchema.optional(),
-    consistency: designConsistencySchema.optional(),
-    tokens: z
-      .record(id, literalColor)
-      .refine((value) => Object.keys(value).length <= 200, "Use at most 200 color tokens.")
-      .optional(),
-    nodes: z.array(nodeSchema).max(1000),
-  })
-  .strict();
-
-// What agents send to design_show and design_apply. Every tool definition is sent with each request, so these leave out
-// what the saved document is checked against anyway: color patterns, the generated componentSourceId, the node fields
-// repeated in design_apply, and its `replace` (design_show with expectedVersion replaces a whole design). Layers are
-// open objects, so a field these don't list still reaches validateDesignDocument and applyDesignOperations, which
-// reject it.
-const plainColor = z.string().max(100);
-const { componentSourceId: _generated, ...wireNodeShape } = { ...nodeSchema.shape, fill: plainColor.optional(), stroke: plainColor.optional() };
-export const designDocumentInputSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    width: z.number().int().min(240).max(3840),
-    height: z.number().int().min(240).max(3840),
-    background: plainColor.optional(),
-    consistency: designConsistencySchema
-      .optional()
-      .describe(
-        "Strict mode blocks saves with kit drift. Exceptions require nodeId, field, exact diagnostic actual value and a reason. Never disable strict mode or add exceptions unless the user intends that change.",
-      ),
-    kit: designKitSchema.optional().describe("Pinned project kit snapshot returned by design_kit_read. Read the project kit before creating screens."),
-    tokens: z.record(z.string(), z.string()).optional().describe("Color tokens by name. A color field takes a CSS color or a $name token reference."),
-    nodes: z.array(z.looseObject(wireNodeShape)).max(1000),
-  })
-  .strict();
-const documentPatchSchema = designDocumentSchema.omit({ nodes: true, schemaVersion: true }).partial();
-const extraOperations = [
-  z.object({ op: z.literal("document"), patch: documentPatchSchema }).strict(),
-  z.object({ op: z.literal("detach"), id }).strict(),
-  z.object({ op: z.literal("duplicate"), id, newId: id, x: coordinate.optional(), y: coordinate.optional() }).strict(),
-  z
-    .object({
-      op: z.literal("unset"),
-      id,
-      fields: z
-        .array(z.enum(["parentId", "textStyle", "bindings", "componentValues"]))
-        .min(1)
-        .max(4),
-    })
-    .strict(),
-];
-export const designOperationInputSchema = z.discriminatedUnion("op", [
-  ...extraOperations,
-  z.object({ op: z.literal("update"), id, patch: z.looseObject({}).describe("The layer fields to change: any design_show node field except id.") }).strict(),
-  z
-    .object({
-      op: z.literal("insert"),
-      node: z.looseObject({}).describe("The new layer, with the fields of a design_show node."),
-      index: z.number().int().min(0).max(1000).optional(),
-    })
-    .strict(),
-  z.object({ op: z.literal("delete"), id }).strict(),
-]);
-
-export const designOperationSchema = z.discriminatedUnion("op", [
-  ...extraOperations,
-  z.object({ op: z.literal("update"), id, patch: nodeSchema.omit({ id: true }).partial().strict() }).strict(),
-  z.object({ op: z.literal("insert"), node: nodeSchema, index: z.number().int().min(0).max(1000).optional() }).strict(),
-  z.object({ op: z.literal("delete"), id }).strict(),
-  z.object({ op: z.literal("replace"), document: designDocumentSchema }).strict(),
-]);
 
 function checkedDesignDocument(value, synchronize = true) {
   const document = resolveDesignKit(designDocumentSchema.parse(value));
