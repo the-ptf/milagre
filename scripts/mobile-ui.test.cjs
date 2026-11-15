@@ -507,6 +507,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
     setInterval,
     clearInterval,
     queueMicrotask,
+    // React Native's frame timer: a test that runs frames hands its own in as the "frames" module.
+    requestAnimationFrame: (callback) => modules.frames.requestAnimationFrame(callback),
+    cancelAnimationFrame: (id) => modules.frames.cancelAnimationFrame(id),
   });
   return exports;
 }
@@ -3506,6 +3509,7 @@ function chatHost({
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
   // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
   pane: asPane,
+  platform = "ios",
 } = {}) {
   const sending = deferred();
   const calls = [];
@@ -3609,7 +3613,7 @@ function chatHost({
   };
   const native = {
     ...Object.fromEntries(["KeyboardAvoidingView", "Text", "View", "Image", "Pressable"].map((name) => [name, name])),
-    Platform: { OS: "ios" },
+    Platform: { OS: platform },
     Keyboard: { dismiss() {} },
     Alert: { alert },
     Linking: {},
@@ -3634,7 +3638,19 @@ function chatHost({
     },
   };
   const beside = [];
+  // React Native's frame timer: callbacks wait here until a test flushes them.
+  const frames = new Map();
+  let nextFrame = 0;
+  const flushFrames = () => {
+    const due = [...frames.values()];
+    frames.clear();
+    for (const callback of due) callback();
+  };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    frames: {
+      requestAnimationFrame: (callback) => (frames.set(++nextFrame, callback), nextFrame),
+      cancelAnimationFrame: (id) => frames.delete(id),
+    },
     "../split-context": { useSplit: () => split, useSplitLayout: () => split },
     "../split-chats": {
       ...load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }),
@@ -3832,7 +3848,7 @@ function chatHost({
   };
   const send = () =>
     find(render(), (node) => node.type === "IconButton" && ["Send message", "Send now", "Queue message"].includes(node.props.label)).props.onPress();
-  return { session, sending, params, field, send, render, router, calls, choices, panels, undo, beside };
+  return { session, sending, params, field, send, render, router, calls, choices, panels, undo, beside, flushFrames };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -7378,6 +7394,34 @@ test("the transcript follows new content, also after the agent settings sheet op
   find(tree, (node) => node.type === "AgentControls").props.onToggle();
   page.props.onContentSizeChange(0, 1000);
   assert.equal(scrolls, 2);
+});
+
+test("on Android the transcript jumps to its end a frame after it grows", () => {
+  // Android runs view commands before the mount they arrive with: a jump from onContentSizeChange would stop at the old end.
+  const screen = chatHost({ platform: "android" });
+  const page = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  let scrolls = 0;
+  page().props.ref.current = {
+    scrollToEnd() {
+      scrolls++;
+    },
+  };
+  page().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+  page().props.onContentSizeChange(0, 2000);
+  assert.equal(scrolls, 0, "placing waits for the frame that mounts the content");
+  screen.flushFrames();
+  assert.equal(scrolls, 1);
+  page().props.onEndVisible(true);
+  assert.equal(page().props.style.opacity, 1);
+  page().props.onContentSizeChange(0, 2100);
+  page().props.onContentSizeChange(0, 2200);
+  assert.equal(scrolls, 1);
+  screen.flushFrames();
+  assert.equal(scrolls, 2, "growth within one frame shares one jump");
+  page().props.onContentSizeChange(0, 2300);
+  page().props.onScrollBeginDrag();
+  screen.flushFrames();
+  assert.equal(scrolls, 2, "a drag cancels a jump still waiting for its frame");
 });
 
 test("a long Chat opens hidden and jumps to its newest message without animating", () => {

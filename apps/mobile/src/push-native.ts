@@ -33,7 +33,8 @@ const prepareChannel = async () => {
 export const pushNative = {
   available() {
     if (isExpoGo()) return "Install a Milagre build on your phone to enable notifications.";
-    if (!Device.isDevice) return "Notifications can be enabled on your phone. This simulator cannot receive remote push alerts.";
+    if (!Device.isDevice)
+      return `Notifications can be enabled on your phone. This ${Platform.OS === "android" ? "emulator" : "simulator"} cannot receive remote push alerts.`;
     return "";
   },
   async permission() {

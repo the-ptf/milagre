@@ -12,7 +12,7 @@ import {
   type ViewInstance,
 } from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
+import { GlassSurface } from "./primitives/glass-surface";
 import { FilterIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
@@ -157,24 +157,12 @@ export function ChatListControls({
         <Animated.View pointerEvents="box-none" style={[s.row, { paddingBottom: bottom }, slide]}>
           <PullDown label={filters.active ? "Filters, on" : "Filters"} title="Filters" sections={filters.sections} onSelect={filters.onSelect} style={s.circle}>
             <View style={[s.circle, filters.active && { borderWidth: 1, borderColor: colors.ink, borderRadius: radius.full }]}>
-              <LiquidGlassView
-                pointerEvents="none"
-                glassType="regular"
-                isInteractive={false}
-                reducedTransparencyFallbackColor={colors.surface}
-                style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
-              />
+              <GlassSurface />
               <Icon icon={FilterIcon} tone="ink" size={20} />
             </View>
           </PullDown>
           <View style={s.search}>
-            <LiquidGlassView
-              pointerEvents="none"
-              glassType="regular"
-              isInteractive={false}
-              reducedTransparencyFallbackColor={colors.surface}
-              style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
-            />
+            <GlassSurface />
             <Icon icon={Search01Icon} tone="ink3" size={18} />
             <TextInput
               ref={inputRef}

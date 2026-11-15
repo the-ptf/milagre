@@ -49,7 +49,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
+import { GlassSurface } from "./primitives/glass-surface";
 import { chatMarkTone, chatPullRequests, chatTitle, comparePins, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
 import { searchMessages } from "@milagre/shared/message-search";
 import { searchTrail } from "@milagre/shared/settings-search";
@@ -3232,16 +3232,7 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
 
 /** The Liquid Glass behind the header capsule, as the list's floating controls have. */
 function HeaderGlass() {
-  const { colors } = useTheme();
-  return (
-    <LiquidGlassView
-      pointerEvents="none"
-      glassType="regular"
-      isInteractive={false}
-      reducedTransparencyFallbackColor={colors.surface}
-      style={[StyleSheet.absoluteFill, { borderRadius: 20, borderCurve: "continuous" }]}
-    />
-  );
+  return <GlassSurface radius={20} />;
 }
 
 /** "2 computers offline" in ink3 at the end of the list, with Retry reading just those computers again. */

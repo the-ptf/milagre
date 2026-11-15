@@ -31,6 +31,9 @@ export const PageScroll = React.forwardRef<ScrollViewInstance, ScrollViewProps &
   const scroll = (
     <NativeScroll
       ref={ref}
+      // Android: inside a sheet the page only scrolls when it takes part in nested scrolling; otherwise the sheet keeps
+      // every vertical drag for itself and a long Settings page can't be scrolled. Has no effect on iOS.
+      nestedScrollEnabled
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
