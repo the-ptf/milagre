@@ -21,7 +21,7 @@ pre-push:
     typecheck:
       run: npm run typecheck
     lint:
-      run: npm run lint
+      run: npm run lint -- --quiet
     # AGENTS.md: a change under apps/desktop/electron gets the macOS desktop smoke on your Mac; CI runs it only on main.
     desktop-smoke:
       use_stdin: true
