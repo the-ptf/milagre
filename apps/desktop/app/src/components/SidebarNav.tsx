@@ -1,5 +1,4 @@
 import { preferenceStorage as localStorage } from "../lib/preference-storage.ts";
-import { shortcutCommand } from "../lib/keybindings";
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
@@ -58,17 +57,13 @@ import { groupByOrigin } from "@milagre/shared/project-origin";
 import { preferredCopy, rememberProjectComputer } from "../lib/project-copies";
 import { SidebarLinksProvider, type LinkScopeChats } from "./sidebar/SidebarLinks";
 import { updateSettings, useSettings } from "../lib/settings";
-import { pinChat, useChatPins } from "../lib/chat-pins";
-import { keepsOnPin } from "@milagre/shared/chat-pins";
+import { useChatPins } from "../lib/chat-pins";
 import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
-import { useRoutines } from "../lib/routines";
 import {
   cachedProjectCopy,
   cachedScopeState,
   chatsSidebarRows,
-  heartbeatKeys,
-  heartbeatLines,
   isChatsHomeScope,
   mergeScopeChats,
   railLive,
@@ -77,18 +72,20 @@ import {
   useScopeStates,
   type ChatsGroupRow,
   type FlatChat,
-  withHeartbeats,
 } from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
-import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { bridgeFor, isRemoteKey } from "../lib/computer-bridge";
 import { DoneSection, type DoneEntry } from "./sidebar/DoneSection";
 import { SnoozedSection, type SnoozedEntry } from "./sidebar/SnoozedSection";
 import { SidebarToast } from "./sidebar/SidebarToast";
 import { useDoneSettings } from "../lib/done-settings";
-import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
-import { inSnoozed, settleSnoozePending, snoozeChat, useSnoozePending, withSnoozePending } from "../lib/snooze-pending";
+import { settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
+import { inSnoozed, settleSnoozePending, useSnoozePending, withSnoozePending } from "../lib/snooze-pending";
 import { jumpChatRows, useSubchatFolds } from "../lib/subchat-rows";
 import { useSidebarKeys } from "./sidebar/use-sidebar-keys";
+import { useScopeRowHandles } from "./sidebar/use-scope-row-handles";
+import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, useSidebarCollapse } from "./sidebar/use-sidebar-collapse";
+import { sidebarModes, splitGroupRows } from "../lib/sidebar-modes";
 import { ScopeMenuItem, ScopeHeader, ScopeBody } from "./sidebar/ScopeHeader";
 import { ScopeBadge, FlatScope, NO_BADGE, CHATS_BADGE, FlatChatList, ChatList } from "./sidebar/ChatLists";
 import { dragScopeHeader } from "./sidebar/scope-drag";
@@ -234,19 +231,6 @@ const SIDEBAR_MOTION = {
   easing: "var(--ease-enter)",
 };
 
-const SIDEBAR_MIN_WIDTH = SIDEBAR_MOTION.expandedWidth;
-const SIDEBAR_MAX_WIDTH = 420;
-const SIDEBAR_WIDTH_KEY = "milagre.sidebarWidth";
-
-const clampSidebarWidth = (width: number) => Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)));
-
-function readSidebarWidth() {
-  const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
-  return Number.isFinite(saved) && saved > 0 ? clampSidebarWidth(saved) : SIDEBAR_MIN_WIDTH;
-}
-
-const AUTO_COLLAPSE_QUERY = "(max-width: 1024px)";
-
 const FILTERS_BUTTON =
   "flex size-8 items-center justify-center rounded-control text-ink-3 transition-[background-color,color,scale] duration-fast ease-enter hover:bg-hover hover:text-ink active:scale-press";
 
@@ -352,7 +336,7 @@ export default memo(function SidebarNav({
     return () => window.cancelAnimationFrame(frame);
   });
   const [listsChanged, setListsChanged] = useState(0);
-  const [collapsed, setCollapsed] = useState(() => window.matchMedia(AUTO_COLLAPSE_QUERY).matches);
+  const { collapsed, toggle, expandedWidth, setExpandedWidth, saveWidth } = useSidebarCollapse();
   const subchatFolds = useSubchatFolds();
   const jumpIds = useMemo(
     () => jumpChatRows(recents, currentKey, subchatFolds, collapsed).map((row) => row.id),
@@ -361,8 +345,6 @@ export default memo(function SidebarNav({
   useLayoutEffect(() => {
     onJumpChatsChange?.(jumpIds);
   }, [jumpIds, onJumpChatsChange]);
-  const autoCollapsed = useRef(collapsed);
-  const [expandedWidth, setExpandedWidth] = useState(readSidebarWidth);
   const [resizing, setResizing] = useState(false);
   const [demoActiveTitle, setDemoActiveTitle] = useState<string | null>(null);
   const [namedLinks, setNamedLinks] = useState(() => lastLists.links);
@@ -485,8 +467,12 @@ export default memo(function SidebarNav({
     ...registeredProjects.map((project) => project.path),
     ...remote.scopes.filter((scope) => !scope.link).map((scope) => scope.key),
   ]);
-  const showAll = !collapsed;
-  const oneList = chatList === "list" && !!currentKey;
+  const { showAll, oneList, buildGroups, bySection, tree, railByScope, railByChat } = sidebarModes({
+    collapsed,
+    chatList,
+    currentKey,
+    scopeCount: scopes.length,
+  });
   const openHome = projectKind === "chats" && projectPath ? projectPath : undefined;
   const homeScopes = [
     ...(openHome ? [openHome] : []),
@@ -511,76 +497,14 @@ export default memo(function SidebarNav({
     }),
     [runningKeys, waitingKeys, askingKeys],
   );
-  const { routines } = useRoutines();
-  const beatKeys = useMemo(() => heartbeatKeys(routines), [routines]);
-  const beats = useMemo(() => heartbeatLines(beatKeys), [beatKeys]);
-  const markedRows = useRef(new Map<string, { rows: SidebarRecent[]; keys: string; marked: SidebarRecent[] }>());
-  const withBeats = (scopeKey: string, rows: SidebarRecent[]) => {
-    const hit = markedRows.current.get(scopeKey);
-    if (hit && hit.rows === rows && hit.keys === beatKeys) return hit.marked;
-    const marked = withHeartbeats(scopeKey, rows, beats);
-    markedRows.current.set(scopeKey, { rows, keys: beatKeys, marked });
-    return marked;
-  };
-  const scopeActions = useRef(new Map<string, ChatRowActions>());
-  const scopeSessions = useRef(scopeStates);
-  scopeSessions.current = scopeStates;
-  const scopeArchive = useRef({ check: onScopeArchiveCheck, archive: onScopeArchive });
-  scopeArchive.current = { check: onScopeArchiveCheck, archive: onScopeArchive };
-  const actionsFor = (key: string, gitless = false) => {
-    const cacheKey = gitless ? `gitless\n${key}` : key;
-    let actions = scopeActions.current.get(cacheKey);
-    if (!actions) {
-      const archivable = !key.startsWith("milagre-link:") && !!onScopeArchiveCheck && !!onScopeArchive;
-      actions = {
-        ...scopeChatActions?.(key, gitless),
-        remote: isRemoteKey(key),
-        ...(gitless ? { gitless: true } : {}),
-        onPin: (id, order) => {
-          const state = scopeSessions.current[key] ?? cachedProjectCopy(key)?.state;
-          pinChat(key, Object.values(state?.sessions ?? {}), Number(id), order ?? null);
-          if (order != null && keepsOnPin(state?.sessions[Number(id)]))
-            void bridgeForKey(key)
-              .patchChat(key, Number(id), { kept: true })
-              .catch(() => {});
-        },
-        onDone: (id) => void patchChatShowingDone(key, Number(id), { done: true, unread: false }).catch(() => {}),
-        onReopen: (id) => void patchChatShowingDone(key, Number(id), { done: false }).catch(() => {}),
-        onSnooze: (id, until) => void snoozeChat(key, Number(id), until).catch(() => {}),
-        onWake: (id) => void snoozeChat(key, Number(id), null).catch(() => {}),
-        ...(archivable
-          ? {
-              onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
-              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan),
-            }
-          : {}),
-      };
-      scopeActions.current.set(cacheKey, actions);
-    }
-    return actions;
-  };
-  const scopePickers = useRef(new Map<string, (item: SidebarRecent) => void>());
-  const pickerFor = (key: string) => {
-    let pick = scopePickers.current.get(key);
-    if (!pick) {
-      pick = (item) => openScope.current(key, item.id);
-      scopePickers.current.set(key, pick);
-    }
-    return pick;
-  };
-  const openScope = useRef((key: string, id: string) => onOpenScopeChat?.(key, id));
-  openScope.current = (key: string, id: string) => onOpenScopeChat?.(key, id);
-  const hoverScope = useRef((key: string, id: string) => onHoverChat?.(key, id));
-  hoverScope.current = (key: string, id: string) => onHoverChat?.(key, id);
-  const scopeHovers = useRef(new Map<string, (item: SidebarRecent) => void>());
-  const hoverFor = (key: string) => {
-    let hover = scopeHovers.current.get(key);
-    if (!hover) {
-      hover = (item) => hoverScope.current(key, item.id);
-      scopeHovers.current.set(key, hover);
-    }
-    return hover;
-  };
+  const { withBeats, actionsFor, pickerFor, hoverFor } = useScopeRowHandles({
+    scopeStates,
+    scopeChatActions,
+    onScopeArchiveCheck,
+    onScopeArchive,
+    onOpenScopeChat,
+    onHoverChat,
+  });
   const hostRows: [string, SidebarRecent[]][] = [[currentKey, hostRecents]];
   const pendingDone = (key: string, rows: SidebarRecent[]) => {
     hostRows.push([key, rows]);
@@ -594,7 +518,6 @@ export default memo(function SidebarNav({
   const withoutDone = withoutSetAside;
   const linkProjectIdOf = (key: string | undefined) =>
     key && !key.startsWith("milagre-link:") && !isRemoteKey(key) ? (registeredProjects.find((project) => project.path === key)?.id ?? null) : null;
-  const buildGroups = showAll || oneList;
   const groups = buildGroups
     ? scopes.map((scope) => {
         const current = scope.key === currentKey;
@@ -633,10 +556,7 @@ export default memo(function SidebarNav({
           state,
           list,
           dimmed: scope.computerId !== LOCAL_COMPUTER && isDimmed(computers.find((computer) => computer.id === scope.computerId)),
-          pinned: rows.filter((row) => row.pinned),
-          rest: rows.filter((row) => !row.pinned),
-          done: all.filter((row) => row.doneAt),
-          snoozed: all.filter(inSnoozed),
+          ...splitGroupRows(all, rows, inSnoozed),
         };
       })
     : [];
@@ -666,10 +586,7 @@ export default memo(function SidebarNav({
           current,
           list,
           offline,
-          pinned: rows.filter((row) => row.pinned),
-          rest: rows.filter((row) => !row.pinned),
-          done: all.filter((row) => row.doneAt),
-          snoozed: all.filter(inSnoozed),
+          ...splitGroupRows(all, rows, inSnoozed),
         };
       })
     : [];
@@ -680,9 +597,7 @@ export default memo(function SidebarNav({
   const chatsScopes = new Map(
     homeGroups.map(({ key, list, pinned, rest }) => [key, { name: CHATS_GROUP_LABEL, badge: CHATS_BADGE, list, rows: [...pinned, ...rest] }]),
   );
-  const sections =
-    showAll && !oneList ? groupByOrigin(groups.map((group) => ({ ...group, origin: group.scope.origin, computerId: group.scope.computerId }))) : [];
-  const tree = chatList === "tree";
+  const sections = bySection ? groupByOrigin(groups.map((group) => ({ ...group, origin: group.scope.origin, computerId: group.scope.computerId }))) : [];
   const memberPaths = (link: NamedProjectLink) => link.projectIds.map((id) => registeredProjects.find((project) => project.id === id)?.path ?? "");
   const linkOwnerOf = tree
     ? linkOwners(
@@ -736,20 +651,19 @@ export default memo(function SidebarNav({
     }
     return <ProjectAvatar name={scope.name} src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} initial={scope.initial} size={24} />;
   };
-  const railScopes: RailScope[] | null =
-    collapsed && !oneList && scopes.length > 1
-      ? scopes.map((scope) => {
-          const current = scope.key === currentKey;
-          const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-          const rows = current
-            ? recents
-            : state
-              ? withoutDone(unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks, { pins }))))
-              : [];
-          const { status, chats } = railLive(rows);
-          return { key: scope.key, name: scope.name, icon: scopeIcon(scope, current), current, status, chats };
-        })
-      : null;
+  const railScopes: RailScope[] | null = railByScope
+    ? scopes.map((scope) => {
+        const current = scope.key === currentKey;
+        const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
+        const rows = current
+          ? recents
+          : state
+            ? withoutDone(unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks, { pins }))))
+            : [];
+        const { status, chats } = railLive(rows);
+        return { key: scope.key, name: scope.name, icon: scopeIcon(scope, current), current, status, chats };
+      })
+    : null;
   const openRailScope = (key: string) => {
     if (key.startsWith("milagre-link:")) onSwitchLink?.(key.slice("milagre-link:".length));
     else onSwitchProject?.(key);
@@ -928,50 +842,6 @@ export default memo(function SidebarNav({
     ];
   };
 
-  const collapse = () => {
-    setCollapsed(true);
-  };
-
-  const toggle = () => {
-    autoCollapsed.current = false;
-    if (collapsed) setCollapsed(false);
-    else collapse();
-  };
-
-  useEffect(() => {
-    const query = window.matchMedia(AUTO_COLLAPSE_QUERY);
-    const follow = () => {
-      if (query.matches) {
-        setCollapsed((current) => {
-          if (!current) autoCollapsed.current = true;
-          return true;
-        });
-      } else if (autoCollapsed.current) {
-        autoCollapsed.current = false;
-        setCollapsed(false);
-      }
-    };
-    query.addEventListener("change", follow);
-    return () => query.removeEventListener("change", follow);
-  }, []);
-
-  useEffect(() => {
-    function handleToggle(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.isComposing) return;
-      if (shortcutCommand(event) !== "sidebar.toggle") return;
-      event.preventDefault();
-      toggle();
-    }
-    window.addEventListener("keydown", handleToggle);
-    return () => window.removeEventListener("keydown", handleToggle);
-  }, [collapsed]);
-
-  const saveWidth = (width: number) => {
-    const next = clampSidebarWidth(width);
-    setExpandedWidth(next);
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
-  };
-
   const flatScopes = new Map<string, FlatScope>([
     ...chatsScopes,
     ...groups.map(({ scope, current, list, pinned, rest }): [string, FlatScope] => [
@@ -986,28 +856,27 @@ export default memo(function SidebarNav({
         chatOrder,
       ).map((chat) => (offlineHomes.has(chat.scopeKey) ? { ...chat, offline: true } : chat))
     : [];
-  const railItems: RailScope[] | null =
-    collapsed && oneList
-      ? [
-          ...homeGroups.flatMap(({ key, pinned }) => pinned.map((row) => ({ scopeKey: key, row }))),
-          ...groups.flatMap(({ scope, pinned }) => pinned.map((row) => ({ scopeKey: scope.key, row }))),
-          ...flatChats,
-        ].map(({ scopeKey, row }) => {
-          const scope = scopes.find((item) => item.key === scopeKey);
-          const current = scopeKey === currentKey;
-          const hintIndex = current && showHints ? jumpIds.indexOf(row.id) : -1;
-          return {
-            key: `${scopeKey}#${row.id}`,
-            name: scope?.name ?? CHATS_GROUP_LABEL,
-            icon: scope ? scopeIcon(scope, current) : <Icon icon={BubbleChatIcon} size={18} />,
-            current: current && (activeId !== undefined ? row.id === activeId : row.label === selectedTitle),
-            status: railLive([row]).status,
-            chats: [row],
-            chat: { scopeKey, id: row.id },
-            shortcutHint: hintIndex >= 0 && hintIndex < 9 ? keys.jump(hintIndex) : undefined,
-          };
-        })
-      : railScopes;
+  const railItems: RailScope[] | null = railByChat
+    ? [
+        ...homeGroups.flatMap(({ key, pinned }) => pinned.map((row) => ({ scopeKey: key, row }))),
+        ...groups.flatMap(({ scope, pinned }) => pinned.map((row) => ({ scopeKey: scope.key, row }))),
+        ...flatChats,
+      ].map(({ scopeKey, row }) => {
+        const scope = scopes.find((item) => item.key === scopeKey);
+        const current = scopeKey === currentKey;
+        const hintIndex = current && showHints ? jumpIds.indexOf(row.id) : -1;
+        return {
+          key: `${scopeKey}#${row.id}`,
+          name: scope?.name ?? CHATS_GROUP_LABEL,
+          icon: scope ? scopeIcon(scope, current) : <Icon icon={BubbleChatIcon} size={18} />,
+          current: current && (activeId !== undefined ? row.id === activeId : row.label === selectedTitle),
+          status: railLive([row]).status,
+          chats: [row],
+          chat: { scopeKey, id: row.id },
+          shortcutHint: hintIndex >= 0 && hintIndex < 9 ? keys.jump(hintIndex) : undefined,
+        };
+      })
+    : railScopes;
   const loadingScopes = groups.some(({ scope, state, current }) => !state && !current && !failedScopes.has(scope.key));
   const chatsPinned = homeGroups.map(({ key, list, pinned }) =>
     pinned.length > 0 ? (
