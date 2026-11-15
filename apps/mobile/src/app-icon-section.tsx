@@ -7,7 +7,7 @@ import { radius, space } from "./design-tokens";
 import { pressStyle, SectionLabel, tap, useStyles } from "./ui";
 
 /** The alternate icons app.json's expo-alternate-app-icons entry compiles into the build. `id` null is the main icon. */
-export const APP_ICONS: { id: string | null; name: string; thumb: ImageSourcePropType }[] = [
+const APP_ICONS: { id: string | null; name: string; thumb: ImageSourcePropType }[] = [
   { id: null, name: "Milagre", thumb: require("../assets/app-icons/thumbs/default.png") },
   { id: "Dawn", name: "Dawn", thumb: require("../assets/app-icons/thumbs/dawn.png") },
   { id: "MonoDark", name: "Black", thumb: require("../assets/app-icons/thumbs/mono-dark.png") },
@@ -15,6 +15,7 @@ export const APP_ICONS: { id: string | null; name: string; thumb: ImageSourcePro
   { id: "Sunset", name: "Sunset", thumb: require("../assets/app-icons/thumbs/sunset.png") },
   { id: "Aurora", name: "Aurora", thumb: require("../assets/app-icons/thumbs/aurora.png") },
   { id: "Glass", name: "Glass", thumb: require("../assets/app-icons/thumbs/glass.png") },
+  { id: "EightBit", name: "8-bit", thumb: require("../assets/app-icons/thumbs/eight-bit.png") },
 ];
 
 /** Settings › Appearance › App icon: iOS only, where the system swaps the Home Screen icon and confirms with its own alert. */

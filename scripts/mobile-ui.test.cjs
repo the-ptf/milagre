@@ -15408,6 +15408,7 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
       themeSwatch: () => ({}),
     },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
+    "./app-icon-section": { AppIconSection: "AppIconSection" },
     "./theme": {
       useTheme: () => ({
         colors: fakePalette,

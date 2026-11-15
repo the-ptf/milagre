@@ -83,7 +83,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
 
   // Appearance
   { page: "appearance", title: "Mode", keywords: "light dark system theme" },
-  { page: "appearance", title: "App icon", keywords: "home screen icon alternate dawn black white sunset aurora glass" },
+  { page: "appearance", title: "App icon", keywords: "home screen icon alternate dawn black white sunset aurora glass 8-bit pixel" },
   {
     page: "appearance",
     title: "Text size",

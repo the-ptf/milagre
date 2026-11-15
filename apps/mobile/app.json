@@ -124,6 +124,14 @@
             }
           },
           {
+            "name": "EightBit",
+            "ios": "./assets/app-icons/eight-bit.png",
+            "android": {
+              "foregroundImage": "./assets/app-icons/eight-bit.png",
+              "backgroundColor": "#3A6EA5"
+            }
+          },
+          {
             "name": "Glass",
             "ios": "./assets/app-icons/glass.png",
             "android": {
