@@ -54,6 +54,8 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/android/notification-icon.png",
+          "color": "#2563eb",
           "defaultChannel": "chats",
           "sounds": [
             "./assets/sounds/chime_miracle.wav",
@@ -90,7 +92,12 @@
     },
     "android": {
       "package": "com.victorlucas.milagre",
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": ["android.permission.CAMERA"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android/adaptive-foreground.png",
+        "backgroundImage": "./assets/android/adaptive-background.png",
+        "monochromeImage": "./assets/android/adaptive-monochrome.png"
+      }
     },
     "extra": {
       "router": {},
