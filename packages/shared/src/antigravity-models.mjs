@@ -1,4 +1,4 @@
-// Antigravity (docs/adr/0006-antigravity-over-acp.md) reports one model per thinking level, named "<Family> (<Level>)":
+// Antigravity (docs/providers.md) reports one model per thinking level, named "<Family> (<Level>)":
 // "Gemini 3.1 Pro (High)", "Gemini 3.1 Pro (Low)". Milagre shows one model per family and offers the levels as its
 // efforts, like Claude and Codex. The agent's ids are irregular ("gemini-pro-agent" is Pro at High), so each family
 // keeps a table from effort to the agent's own id.

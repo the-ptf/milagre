@@ -11,7 +11,7 @@ const {
 
 // Which Chats' messages a state holds in memory (#321). A Project's state used to hold every message of every Chat; now
 // a Chat nobody has touched for a while is unloaded: its messages leave `state.messages`, and its rows in chats.db
-// (ADR-0007) are the only copy until something needs them again. A Chat is either loaded, with all its messages in the
+// (docs/chat-storage.md) are the only copy until something needs them again. A Chat is either loaded, with all its messages in the
 // state, or unloaded, with none.
 //
 // The set of unloaded Chats travels with each state, tagged on its messages array (states are replaced, never changed

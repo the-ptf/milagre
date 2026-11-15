@@ -18,7 +18,7 @@ Milagre is an agent development environment: one app to run Claude Code, Codex, 
 - `apps/relay`: Cloudflare relay for phones and computers. `apps/site`: the website and its /docs. `apps/design-share`: shared Designs and Artifacts.
 - `scripts/`: the test runner, Electron checks and release helpers.
 
-Before working in an area, read the ADRs in `docs/adr/` that touch it. If your change contradicts one, say so instead of overriding it silently.
+Before working in an area, read the doc in `docs/` that owns it. If your change contradicts it, say so instead of overriding it silently.
 
 ## Ways to hurt yourself
 
@@ -68,22 +68,27 @@ To see a change in the real app, use the `verify-milagre` skill in `.agents/skil
 
 ## Docs
 
-| Doc                      | What's in it                                   |
-| ------------------------ | ---------------------------------------------- |
-| `GLOSSARY.md`            | Domain terms                                   |
-| `docs/adr/`              | Decisions and why                              |
-| `docs/architecture.md`   | How some subsystems work                       |
-| `docs/development.md`    | Dev setup, the local daemon, Windows, releases |
-| `docs/mobile-local.md`   | Phone setup and the shared host                |
-| `docs/desktop-guide.md`  | Desktop features for users                     |
-| `docs/local-mcp.md`      | Milagre's local MCP server                     |
-| `docs/agents/ui.md`      | UI primitives and their checks                 |
-| `docs/agents/release.md` | Packages, signing, distribution                |
+| Doc                      | What's in it                                           |
+| ------------------------ | ------------------------------------------------------ |
+| `GLOSSARY.md`            | Domain terms                                           |
+| `docs/host.md`           | Daemon ownership, locks, Terminals, Git, browser pages |
+| `docs/chat-storage.md`   | chats.db, idle Chats, Chats home, Delete, checkpoints  |
+| `docs/providers.md`      | ACP agents (Antigravity, Kiro) and Accounts            |
+| `docs/links.md`          | Delegation, Named Links, shared Chats                  |
+| `docs/computers.md`      | Remote Browser pages, offline outbox                   |
+| `docs/routines.md`       | Routine Flows                                          |
+| `docs/designs.md`        | Interactive designs, publishing pages                  |
+| `docs/development.md`    | Dev setup, the local daemon, Windows, releases         |
+| `docs/mobile-local.md`   | Phone setup and the shared host                        |
+| `docs/desktop-guide.md`  | Desktop features for users                             |
+| `docs/local-mcp.md`      | Milagre's local MCP server                             |
+| `docs/agents/ui.md`      | UI primitives and their checks                         |
+| `docs/agents/release.md` | Packages, signing, distribution                        |
 
 - Don't commit plans, specs, research notes or agent scratch files. Keep them outside the worktree. The merged PR is the record.
 - Don't document what the code says. Write down what it can't: why it's shaped this way, a constraint across packages, a trap that cost an afternoon.
 - Integrate, don't append: rewrite the part of the doc that is now wrong. One fact lives in one place; other mentions link to it.
-- A new decision is an ADR in `docs/adr/` with the next number.
+- A new decision goes in the subject doc that owns it; rewrite, don't append.
 
 ## Issues
 

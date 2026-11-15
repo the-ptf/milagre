@@ -4,7 +4,7 @@ Thanks for helping improve Milagre. The project is still an early desktop alpha,
 
 ## Before you start
 
-1. Read the [glossary](GLOSSARY.md) and the decisions in [`docs/adr/`](docs/adr/).
+1. Read the [glossary](GLOSSARY.md) and the [`docs/`](docs/) for the area you're changing.
 2. Check existing GitHub Issues before starting a larger change.
 3. Keep local project data, credentials and generated files out of commits.
 

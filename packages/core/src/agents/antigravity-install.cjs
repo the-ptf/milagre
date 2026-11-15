@@ -5,7 +5,7 @@ const path = require("node:path");
 const { Readable, Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
-// Milagre installs Google's Antigravity ACP agent itself (docs/adr/0006-antigravity-over-acp.md): a zip of two files,
+// Milagre installs Google's Antigravity ACP agent itself (docs/providers.md): a zip of two files,
 // the agent (`agy_acp_server.par`, `agy_acp_server.exe` on Windows) and `localharness_external` (`.exe` on
 // Windows), which the agent starts on its own. Each release is pinned here with the size and SHA-256 of its
 // archive, so a download is only ever kept when it is byte for byte the one that was checked. The ACP registry
@@ -27,7 +27,7 @@ const WINDOWS_HARNESS = "localharness_external.exe";
 const memberNames = (platform = process.platform) =>
   platform === "win32" ? { command: WINDOWS_COMMAND, harness: WINDOWS_HARNESS } : { command: COMMAND, harness: HARNESS };
 
-// Linux's agent needs `--uid=` (ADR-0006); the other platforms start it without arguments.
+// Linux's agent needs `--uid=` (docs/providers.md); the other platforms start it without arguments.
 const LINUX_ARGS = Object.freeze(["--uid="]);
 const argsFor = (platform = process.platform) => (platform === "linux" ? LINUX_ARGS : Object.freeze([]));
 

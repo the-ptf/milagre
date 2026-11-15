@@ -619,7 +619,7 @@ function createRuntime(options) {
     }
   }
 
-  // Every project's state goes through here: this runtime is its only writer (see ADR-0001 and ADR-0003).
+  // Every project's state goes through here: this runtime is its only writer (see docs/host.md).
   // A Chat nobody touched for a while leaves memory, unless its turn is busy (see ProjectStates and message-store.cjs).
   // MILAGRE_LAZY_MESSAGES=0 keeps every message in memory, as before #321. MILAGRE_LAZY_MESSAGES_IDLE_MS sets how long a
   // Chat stays idle before it leaves (the sweep runs as often, between 250 ms and a minute): for trying it out and checks.
