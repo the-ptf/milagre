@@ -56,7 +56,7 @@ export function TooltipBubble({
         ...(side === "top" ? { top: rect.top - 6 } : { top: rect.bottom + 6 }),
         ...(align === "start" ? { left: rect.left } : { right: window.innerWidth - rect.right }),
         transform: side === "top" ? "translateY(-100%)" : undefined,
-        animation: "fade-in var(--duration-fast) var(--ease-enter) both",
+        animation: "fade-in var(--duration-fast) var(--ease-enter) backwards",
       }}
     >
       {content ?? label}

@@ -15,7 +15,7 @@ export function Notice({
       data-notice
       {...data}
       className={`${className} flex w-full items-center justify-between gap-3 rounded-card bg-surface px-4 py-2 text-13 text-ink shadow-overlay`}
-      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}
+      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}
     >
       <div className="min-w-0 flex-1 break-words">{children}</div>
       {action}

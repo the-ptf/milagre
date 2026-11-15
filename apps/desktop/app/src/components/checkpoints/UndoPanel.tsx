@@ -100,7 +100,7 @@ export function UndoPanel({
       aria-label={readOnly ? "Checkpoint history" : review.view === "list" ? "Undo a task's changes" : `${intent} changes`}
       onKeyDown={onKeyDown}
       className="promptbar-surface mb-1.5 flex max-h-[min(420px,55vh)] flex-col overflow-hidden rounded-window border border-line-strong text-13 text-ink"
-      style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}
+      style={{ animation: "fade-up var(--duration-base) var(--ease-enter) backwards" }}
     >
       {review.view === "list" ? (
         <>

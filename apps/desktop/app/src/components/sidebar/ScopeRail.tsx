@@ -147,7 +147,7 @@ export function ScopeRail({
               left: shown.left,
               width: POPOVER_WIDTH,
               ...(shown.flip ? { bottom: shown.top } : { top: shown.top }),
-              animation: "pop-in var(--duration-base) var(--ease-enter) both",
+              animation: "pop-in var(--duration-base) var(--ease-enter) backwards",
               transformOrigin: shown.flip ? "bottom left" : "top left",
             }}
           >

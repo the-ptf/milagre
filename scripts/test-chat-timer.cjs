@@ -112,7 +112,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('.spinner-ring circle:last-child').getAttribute('stroke')`), "rgb(255, 0, 0)");
     const targets = `document.getAnimations().filter(a => ['spin', 'running-logo-glow', 'running-logo-twinkle'].includes(a.animationName))`;
     assert.equal(await evaluate(`${targets}.length >= 6 && ${targets}.every(a => a.effect.target instanceof HTMLSpanElement)`), true);
-    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.spinner-ring')).animationTimingFunction`), "steps(24)");
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.spinner-ring')).animationTimingFunction`), "steps(15)");
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector(".spinner-ring")).animationDuration`), "1.2s");
     assert.equal(await evaluate(`document.querySelector('.running-logo').getAttribute('aria-hidden')`), "true");
     assert.equal(await evaluate(`document.querySelectorAll('.running-logo > span > svg > path').length`), 3);
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('.running-logo-leg-right')).animationDelay`), "0.24s");

@@ -600,7 +600,11 @@ const STARTER_ICONS = { explain: MapsIcon, bug: Bug01Icon, tests: TestTube01Icon
 
 export function FirstChatStarters({ starters }: { starters: Starter[] }) {
   return (
-    <section aria-labelledby="first-chat-title" className="mb-3 grid gap-3 px-1" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+    <section
+      aria-labelledby="first-chat-title"
+      className="mb-3 grid gap-3 px-1"
+      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}
+    >
       <h2 id="first-chat-title" className="text-17 font-semibold text-ink">
         What should we make first?
       </h2>

@@ -53,7 +53,7 @@ function MoreMenu({ model }: { model: WhisperModel }) {
         <span
           role="menu"
           className="absolute top-full right-0 z-20 mt-1 rounded-control bg-surface p-1 shadow-overlay"
-          style={{ animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top right" }}
+          style={{ animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) backwards", transformOrigin: "top right" }}
         >
           <button
             type="button"

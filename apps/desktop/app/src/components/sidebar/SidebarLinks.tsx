@@ -432,7 +432,7 @@ function LinkPopover({
         top,
         left: Math.min(anchor.left, window.innerWidth - POPOVER_WIDTH - 8),
         width: POPOVER_WIDTH,
-        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) backwards",
         transformOrigin: "top left",
       }}
     >
@@ -573,7 +573,7 @@ function LinkPicker({
         top,
         left: Math.min(anchor.left, window.innerWidth - PICKER_WIDTH - 8),
         width: PICKER_WIDTH,
-        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) backwards",
         transformOrigin: "top left",
       }}
     >

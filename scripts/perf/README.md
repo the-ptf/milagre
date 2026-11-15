@@ -27,6 +27,10 @@ It reports `windowMs` (spawn to the window's page starting to load: the main pro
 
 Options: `--visible` (show the window, so paint and GPU work count), `--new-chat` (press ⌘N first: a new Chat's page), `--seconds n` (per scenario, or per reply in a soak), `--turns n`, `--settle n` (seconds to wait after the Chat opens), `--out file`, `--state <.milagre>`, `--heap <prefix>` (a soak writes `<prefix>-before.heapsnapshot` and `<prefix>-after.heapsnapshot`, which Chrome DevTools can compare).
 
+For a before and after of the renderer, build each into its own folder and pass `--dist <folder>`; alternate the two runs so both see the same load. `--flag <switch>` adds a Chromium switch (repeat it for several), `--profile <file>` saves a CPU profile of the reply and `--no-frames` leaves out the frame probe, whose `requestAnimationFrame` loop asks for a frame every vsync and hides what an otherwise still window costs. `PERF_INTERVAL_MS=2000` makes the stub stream a chunk every 2 s: an agent at work with little output, where the run indicators are most of the cost.
+
+Debug output, by environment variable: `PERF_LAYERS=1` prints the composited layers with why each exists, the running animations and the elements with a backdrop filter; `PERF_TRACE=<file>` saves a 4 s Chromium trace from the middle of the reply (count `DrawFrame` per process); `PERF_SHOT=<prefix>` saves the window at the end of the reply and scrolled up a little.
+
 `--state` copies a real Project's `.milagre` into the throwaway repository, gives every Worktree its own path and removes the provider session ids, so a soak can run against real transcripts. The run uses the first Chat in the sidebar, which has to be a Claude Chat. Without `--state` it uses one small synthetic Chat. Compare runs made the same way only.
 
 ## What it reports
@@ -39,6 +43,9 @@ Options: `--visible` (show the window, so paint and GPU work count), `--new-chat
 | `domNodes`, `listeners`                                    | Live DOM counters                                                                          |
 | `longTasks`, `longestTaskMs`                               | Main-thread tasks over 50 ms                                                               |
 | `frameP50Ms`, `frameP99Ms`, `framesOver50Ms`               | Gaps between animation frames                                                              |
+| `footprintMb`                                              | Physical footprint per process kind: the GPU process is usually the largest                |
+| `layers`, `layerMegapixels`                                | Composited layers that draw content, and the pixels they cover                             |
+| `mainThreadPerSecond`                                      | Style recalcs, layouts and task time per second while the reply runs                       |
 | `firstTextMs`                                              | From sending to the reply's first text in the DOM                                          |
 | `jsHeapMbPerTurn`, `footprintMbPerTurn`, `domNodesPerTurn` | Soak only: growth per reply. Steady growth means something is retained                     |
 

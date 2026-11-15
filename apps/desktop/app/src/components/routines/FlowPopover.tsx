@@ -105,7 +105,7 @@ export function Popover({
         bottom: position.bottom,
         width,
         maxHeight: position.maxHeight,
-        animation: "fade-in 120ms ease-out both",
+        animation: "fade-in 120ms ease-out backwards",
       }}
       {...data}
     >

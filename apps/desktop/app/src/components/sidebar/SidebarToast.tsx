@@ -66,7 +66,7 @@ function ToastPill({ toast }: { toast: UndoToast }) {
       aria-live="polite"
       data-chat-toast
       className="@container flex min-h-11 w-full items-center gap-2.5 rounded-full bg-ink py-2 pl-3.5 pr-4 text-13 font-semibold text-surface shadow-overlay"
-      style={{ animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
+      style={{ animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) backwards" }}
     >
       {toast.kind && <ToastIcon kind={toast.kind} />}
       <span className="min-w-0 flex-1">{toast.text}</span>

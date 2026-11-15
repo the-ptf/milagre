@@ -81,7 +81,15 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
    * over the transcript.
    */
   onJumpToBottomChange?: (jump: (() => void) | null) => void;
+  /**
+   * Whether the transcript rests at its end (within END_SLACK px), so the bottom pad is empty and nothing of it sits under
+   * what floats over that pad. Reported on scroll; content that grows without scrolling only moves away from the end.
+   */
+  onAtEndChange?: (atEnd: boolean) => void;
 }
+
+/** Below the bottom pad the transcript's column keeps 16px of its own, so this much scroll still leaves the pad empty. */
+const END_SLACK = 16;
 
 /** Whether the scroller around a transcript follows its bottom now: read when it matters, so following renders nothing. */
 export const MessageFollowContext = createContext<{ readonly current: boolean } | null>(null);
@@ -125,6 +133,7 @@ export function MessageScroller({
   children,
   autoScrollKey,
   onJumpToBottomChange,
+  onAtEndChange,
   ...props
 }: MessageScrollerProps) {
   const reduce = useReducedMotion() ?? false;
@@ -345,10 +354,20 @@ export function MessageScroller({
     });
   }, []);
 
+  const atEndRef = useRef<boolean | null>(null);
+  const atEndChangeRef = useRef(onAtEndChange);
+  useEffect(() => {
+    atEndChangeRef.current = onAtEndChange;
+  }, [onAtEndChange]);
   const updateJumpToBottom = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    setShowJumpToBottom(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > followThreshold);
+    const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    setShowJumpToBottom(distance > followThreshold);
+    const atEnd = distance <= END_SLACK;
+    if (atEndRef.current === atEnd) return;
+    atEndRef.current = atEnd;
+    atEndChangeRef.current?.(atEnd);
   }, [followThreshold]);
 
   const handleScroll = useCallback(() => {

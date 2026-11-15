@@ -266,15 +266,15 @@ html[data-floating-inbox] #root {
 }
 
 .link-project-dialog[open] {
-  animation: pop-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: pop-in 180ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
 }
 .link-project-dialog[open]::backdrop {
-  animation: fade-in 140ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: fade-in 140ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .link-project-dialog[open],
   .link-project-dialog[open]::backdrop {
-    animation: fade-in 60ms cubic-bezier(0.23, 1, 0.32, 1) both;
+    animation: fade-in 60ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
   }
 }
 @starting-style {
@@ -801,6 +801,15 @@ a {
     0 3px 9px oklch(0.24 0.008 258 / 0.055);
 }
 
+/* With the transcript at its end the dock floats over the empty bottom pad, where a blur changes nothing on screen. Any
+ * backdrop-filter on screen stops Chromium on macOS from handing layers to Core Animation: it composites the whole window
+ * into its own buffers instead, about 170 MB more in the GPU process (scripts/perf: `stream --visible`, gpu footprint).
+ * An opened pill's panel reaches up over the text, so it keeps its glass. */
+[data-composer-dock][data-at-end] .promptbar-surface,
+[data-composer-dock][data-at-end]:not(:has([data-expanded])) .status-pill {
+  backdrop-filter: none;
+}
+
 /* Film grain (Settings › Appearance › Film grain, on while <html> has data-grain): a static speck texture over the
  * window's background (.window-grain, its own layer) and the side panels (.panel-grain, over their surface), at half the
  * strength there. Black specks on a light page, white on a dark one. Never on the composer or the Details glass. */
@@ -812,9 +821,11 @@ a {
   --grain-window: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.065 0 0 0 -0.03'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
   --grain-panel: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.038 0 0 0 -0.018'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
 }
+/* No background-attachment: fixed here. The layer already covers the window from its origin and never scrolls, and a
+ * fixed background makes Chromium composite it, then give everything painted over it its own layer too (sidebar,
+ * transcript, top bar): about four extra window-sized GPU textures (scripts/perf: `stream --visible`, layers). */
 html[data-grain] .window-grain {
   background-image: var(--grain-window);
-  background-attachment: fixed;
 }
 /* The Chat's top band paints the page over the window; it carries the same specks, pinned to the window, so it blends. */
 html[data-grain] .chat-top-blur > :last-child {
@@ -1736,7 +1747,7 @@ code.step-running.step-sweep {
 }
 /* A Chat's transcript on its way: the splash mark appears only once the wait is long enough to notice. */
 .chat-loading {
-  animation: fade-in 240ms ease-out 300ms both;
+  animation: fade-in 240ms ease-out 300ms backwards;
 }
 .startup-splash-screen[data-leaving] {
   pointer-events: none;
@@ -1753,7 +1764,7 @@ code.step-running.step-sweep {
   animation: app-enter-sidebar 520ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
 }
 .startup-splash-leg {
-  animation: splash-leg 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: splash-leg 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 .startup-splash-leg-right {
   animation-delay: 40ms;
@@ -1854,7 +1865,7 @@ code.step-running.step-sweep {
   animation: chat-title-out 150ms var(--ease-enter) both;
 }
 .chat-title[data-changing] .chat-title-current {
-  animation: chat-title-in 240ms var(--ease-enter) both;
+  animation: chat-title-in 240ms var(--ease-enter) backwards;
 }
 @keyframes chat-title-out {
   to {
@@ -1979,7 +1990,7 @@ code.step-running.step-sweep {
 .welcome-sky {
   --sky-light: color-mix(in srgb, var(--accent) 11%, transparent);
   --sky-sparkle: var(--ink-4);
-  animation: fade-in 1200ms ease-out both;
+  animation: fade-in 1200ms ease-out backwards;
 }
 .dark .welcome-sky {
   --sky-light: rgb(255 255 255 / 0.07);

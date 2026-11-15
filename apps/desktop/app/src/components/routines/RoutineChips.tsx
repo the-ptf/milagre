@@ -90,7 +90,7 @@ export function PopoverChip({
             }}
             // No transform: a Select's list opens inside this panel with position: fixed.
             className="fixed z-[60] space-y-3 rounded-card bg-surface p-3 shadow-raised"
-            style={{ left: position.left, top: position.top, width, animation: "fade-in var(--duration-fast) var(--ease-enter) both" }}
+            style={{ left: position.left, top: position.top, width, animation: "fade-in var(--duration-fast) var(--ease-enter) backwards" }}
           >
             {children}
           </div>,

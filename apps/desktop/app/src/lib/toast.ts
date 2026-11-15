@@ -28,7 +28,7 @@ export function showToast(text: string) {
   const toast = element;
   const line = document.createElement("span");
   line.className = "block leading-6";
-  line.style.animation = "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both";
+  line.style.animation = "fade-up 200ms cubic-bezier(0.23,1,0.32,1) backwards";
   line.textContent = text;
   toast.replaceChildren(line);
   if (toast.matches(":popover-open")) toast.hidePopover();

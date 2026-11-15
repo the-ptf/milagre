@@ -1719,7 +1719,7 @@ function ChatHoverCard({
         left: position.left,
         width: HOVER_CARD_WIDTH,
         ...(position.flip ? { bottom: position.top } : { top: position.top }),
-        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) backwards",
         transformOrigin: position.flip ? "bottom left" : "top left",
       }}
     >
@@ -2341,7 +2341,7 @@ function ChatMenu({
           top,
           left: position.x,
           width: MENU_WIDTH,
-          animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+          animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) backwards",
           transformOrigin: "top left",
         }}
       >
@@ -2389,7 +2389,7 @@ function ChatMenu({
             top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - (subEntry.sub.length * 33 + 12))),
             left: subLeft,
             width: SUB_MENU_WIDTH,
-            animation: "pop-in var(--duration-fast) var(--ease-enter) both",
+            animation: "pop-in var(--duration-fast) var(--ease-enter) backwards",
             transformOrigin: "top left",
           }}
         >
