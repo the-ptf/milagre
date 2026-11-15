@@ -39,20 +39,17 @@ function set(chatKey: string, until: number | null | undefined, ms = PENDING_MS)
 }
 
 /** Snoozes a Chat on its computer until `until` (ms), or wakes it (null); the row moves at once. */
-export function snoozeChat(scopeKey: string, sessionId: number, until: number | null): Promise<void> {
+export async function snoozeChat(scopeKey: string, sessionId: number, until: number | null): Promise<void> {
   const chatKey = `${scopeKey}#${sessionId}`;
   set(chatKey, until);
-  return bridgeForKey(scopeKey)
-    .patchChat(scopeKey, sessionId, { snoozed_until: until ?? false })
-    .then(() => {
-      // Unless a later Snooze or Wake of it took the row since.
-      if (pending.get(chatKey) === until) set(chatKey, until, ANSWERED_MS);
-    })
-    .catch((error: unknown) => {
-      // Unless a later Snooze or Wake of it took the row since.
-      if (pending.get(chatKey) === until) set(chatKey, undefined);
-      throw error;
-    });
+  try {
+    await bridgeForKey(scopeKey).patchChat(scopeKey, sessionId, { snoozed_until: until ?? false });
+  } catch (error) {
+    // Unless a later Snooze or Wake of it took the row since.
+    if (pending.get(chatKey) === until) set(chatKey, undefined);
+    throw error;
+  }
+  if (pending.get(chatKey) === until) set(chatKey, until, ANSWERED_MS);
 }
 
 /** Forgets a Chat's pending Snooze or Wake: Done or a sent message clears its snooze on the host anyway. */
