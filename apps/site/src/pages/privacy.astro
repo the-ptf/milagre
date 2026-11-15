@@ -1,8 +1,8 @@
 ---
 import Legal from "../layouts/Legal.astro";
-// Confirm these with the operator before publishing. Missing facts stay visibly draft.
-const operator = import.meta.env.SITE_OPERATOR_NAME;
-const email = import.meta.env.SITE_CONTACT_EMAIL;
+import { CONTACT_EMAIL, OPERATOR_NAME } from "../links";
+const operator = import.meta.env.SITE_OPERATOR_NAME || OPERATOR_NAME;
+const email = import.meta.env.SITE_CONTACT_EMAIL || CONTACT_EMAIL;
 const draft = !operator || !email;
 ---
 <Legal title="Privacy policy" description="How Milagre handles project data, AI providers, paired devices and notifications." noindex={draft}>
@@ -29,7 +29,7 @@ const draft = !operator || !email;
   <h2>Retention, removal and your choices</h2>
   <p>Project files and Chat history remain on your computer until you remove them. Removing a provider profile from Milagre does not close the provider account or erase data held by that provider. Forgetting a paired computer removes its saved connection from that device; revoke a lost device from the computer's Settings > Phone & sharing as well. Cached media may remain until the app cache or app data is cleared. Secure device credentials can survive an app reinstall on some platforms.</p>
   <p>Use Stop in a Chat to end its agent's work. Stopping does not recall information already sent; contact the relevant provider about data it holds.</p>
-  <p>Relay routing state supports active connections and device pairing. Hosting, update and AI services may retain operational records under their own policies. This draft does not promise a deletion schedule for those services.</p>
+  <p>Relay routing state supports active connections and device pairing. Hosting, update and AI services may retain operational records under their own policies. Milagre does not control the deletion schedule of those services.</p>
   <p>Depending on where you live, you may have rights to access, correct, delete or restrict use of personal information. {email ? <span>Contact <a href={`mailto:${email}`}>{email}</a> for privacy requests. Include only the information needed to identify your request.</span> : <span>A private contact method is required before publication.</span>}</p>
 
   <h2>Policy changes</h2>
