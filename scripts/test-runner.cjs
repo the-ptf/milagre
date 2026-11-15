@@ -268,4 +268,52 @@ function needsShell(command, platform) {
   return platform === "win32" && command === "npm";
 }
 
-module.exports = { needsShell, shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST, UNIT_SECONDS, WORKSPACES };
+/**
+ * Variables an agent's shell carries that CI never has. Inside a Milagre Chat, CLAUDE_CONFIG_DIR / CODEX_HOME /
+ * GEMINI_HOME point at the Chat's account, so tests of the "connected CLI account" read that profile instead of the
+ * default (runtime-project-accounts.test.cjs failed in a dozen agent sessions). ELECTRON_RUN_AS_NODE turns Electron
+ * into Node. Git exports GIT_DIR and friends to hooks, and a fixture's `git init` then re-initialized the hook's own
+ * repository as bare (#1044). The list of git's is `git rev-parse --local-env-vars`.
+ */
+const HOST_ENV = [
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "GEMINI_HOME",
+  "ELECTRON_RUN_AS_NODE",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
+/** The environment every test and check runs in: the caller's, minus HOST_ENV, so a run in an agent shell or a git hook matches CI. */
+function testEnv(env) {
+  const next = { ...env };
+  for (const name of HOST_ENV) delete next[name];
+  return next;
+}
+
+module.exports = {
+  testEnv,
+  HOST_ENV,
+  needsShell,
+  shouldRetry,
+  discoverUnitTests,
+  discoverElectronChecks,
+  selectTests,
+  parseArgs,
+  MANIFEST,
+  UNIT_SECONDS,
+  WORKSPACES,
+};

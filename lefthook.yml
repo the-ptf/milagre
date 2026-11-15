@@ -9,6 +9,11 @@ pre-commit:
       exclude: ["package-lock.json"]
       run: npx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
 
+commit-msg:
+  commands:
+    attribution:
+      run: node scripts/check-attribution.cjs --commit-msg {1}
+
 # Typecheck and lint before a push (about 8 s and 1 s on an M-series Mac). Unit tests stay in CI: `npm test -- --unit`
 # took 84-132 s locally. LEFTHOOK=0 git push skips the hook; CI never pushes with it.
 # Git exports GIT_DIR to hooks: a command here that runs git in another folder (a check's fixture repo) must drop it,

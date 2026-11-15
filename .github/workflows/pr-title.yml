@@ -7,6 +7,7 @@ on:
   merge_group:
     types: [checks_requested]
 permissions:
+  contents: read
   pull-requests: read
 jobs:
   conventional:
@@ -27,3 +28,18 @@ jobs:
             const ok = /^(feat|fix|perf|docs|refactor|chore|ci|test|style|build|revert)(\([a-z0-9-]+\))?!?: \S/.test(title)
             if (!ok) { console.error("PR title must look like `fix: short summary` (feat, fix, perf, docs, refactor, chore, ci, test, style, build, revert). Got: " + title); process.exit(1) }
           '
+      # Main squash-merges with the PR's commit messages as the body, so an AI co-author trailer in any commit lands on
+      # main for good. This job is the required check, so the trailer stops the PR here.
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: scripts/check-attribution.cjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: No AI attribution in the commits or the description
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-attribution.cjs --github-pr

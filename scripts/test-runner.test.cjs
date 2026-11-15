@@ -1,7 +1,18 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { test } = require("node:test");
-const { needsShell, shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST, UNIT_SECONDS } = require("./test-runner.cjs");
+const {
+  testEnv,
+  HOST_ENV,
+  needsShell,
+  shouldRetry,
+  discoverUnitTests,
+  discoverElectronChecks,
+  selectTests,
+  parseArgs,
+  MANIFEST,
+  UNIT_SECONDS,
+} = require("./test-runner.cjs");
 const root = path.join(__dirname, "..");
 
 test("discovers every node:test file and every Electron check", () => {
@@ -159,4 +170,35 @@ test("only npm on Windows runs through a shell", () => {
   assert.equal(needsShell(process.execPath, "win32"), false);
   assert.equal(needsShell("npm", "darwin"), false);
   assert.equal(needsShell("npm", "linux"), false);
+});
+
+test("tests run without the agent shell's account folders, Electron-as-Node or a git hook's repository", () => {
+  const host = {
+    PATH: "/usr/bin",
+    HOME: "/Users/someone",
+    MILAGRE_SCREENSHOT_DIR: "/tmp/shots",
+    CLAUDE_CONFIG_DIR: "/Users/someone/Library/Application Support/Milagre/accounts/work",
+    CODEX_HOME: "/Users/someone/.codex-work",
+    ELECTRON_RUN_AS_NODE: "1",
+    GIT_DIR: "/repo/.git",
+    GIT_INDEX_FILE: "/repo/.git/index",
+  };
+  assert.deepEqual(testEnv(host), { PATH: "/usr/bin", HOME: "/Users/someone", MILAGRE_SCREENSHOT_DIR: "/tmp/shots" });
+  assert.equal(host.GIT_DIR, "/repo/.git", "the caller's environment is left as it was");
+});
+
+test("HOST_ENV clears every repository variable git itself clears for a subprocess", () => {
+  const { execFileSync } = require("node:child_process");
+  const local = execFileSync("git", ["rev-parse", "--local-env-vars"], { encoding: "utf8" }).split("\n").filter(Boolean);
+  assert.deepEqual(
+    local.filter((name) => !HOST_ENV.includes(name)),
+    [],
+    "add these to HOST_ENV in scripts/test-runner.cjs",
+  );
+});
+
+test("npm test spawns every test and check with testEnv", () => {
+  const source = require("node:fs").readFileSync(path.join(__dirname, "test.cjs"), "utf8");
+  const spawns = source.match(/spawnSync\(/g).length - 1; // commandExists only probes PATH
+  assert.equal(source.match(/env: testEnv\(process\.env\)/g).length, spawns, "pass env: testEnv(process.env) to each spawnSync in scripts/test.cjs");
 });
