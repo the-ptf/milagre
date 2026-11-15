@@ -18,7 +18,7 @@ npm test -- --unit
 npm run release:preview
 ```
 
-Repository testing skills live in `.agents/skills`: `test-milagre-app` covers isolated Electron checks and screenshots; `test-milagre-mobile` covers device attachment, disposable hosts and native UI verification. These guide development of Milagre and are discovered as workspace skills. They are not bundled into the installed app.
+Repository testing skills live in `.agents/skills`: `test-milagre-app` covers isolated Electron checks and screenshots; `test-milagre-mobile` covers device attachment, disposable hosts and native UI verification; `verify-milagre` starts its own desktop dev copy (and optionally a phone host, Metro and simulator), drives it over CDP like a user, keeps the evidence and stops exactly what it started, with a per-feature map in `verify-milagre/features/`. These guide development of Milagre and are discovered as workspace skills. They are not bundled into the installed app.
 
 The repo uses npm workspaces with one root lockfile. Run the existing commands from the repository root; `npm ci` installs every workspace. Set `DO_NOT_TRACK=1` in your shell: `@openuidev/lang-core` pings an analytics endpoint at install time otherwise. `npm test -- --only monorepo` checks package resolution and desktop packaging metadata. After building, `npm test -- --only test-desktop` opens the real app against temporary saved Chats and settings. On macOS, run `node scripts/test-desktop.cjs --packaged release/mac-arm64/Milagre.app` to check a local installer build too (use `release/mac/Milagre.app` for Intel).
 
