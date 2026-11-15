@@ -1495,6 +1495,27 @@ export function ChatComposer({
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
   // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
   const isNewChat = messages.length === 0 && !loading && !loadError;
+  // The top band's offset in the window, so its grain tile lines up with the window's (styles.css .chat-top-blur) without
+  // a fixed background, which would make Chromium composite the band and everything over it.
+  const topBandRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const band = topBandRef.current;
+    const parent = band?.parentElement;
+    if (isNewChat || !band || !parent) return;
+    const update = () => {
+      const { left, top } = band.getBoundingClientRect();
+      band.style.setProperty("--chat-top-x", `${left}px`);
+      band.style.setProperty("--chat-top-y", `${top}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(parent);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [isNewChat]);
   // The docked chip row and composer: their height is the transcript's bottom pad, so the last line scrolls clear of them.
   const dockRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -1733,11 +1754,11 @@ export function ChatComposer({
         {/* The top edge under the window-drag strip and the Chat's title: solid under the bar, then the messages fade in. */}
         {!isNewChat && (
           <div
+            ref={topBandRef}
             aria-hidden
-            data-busy={isSending || undefined}
-            className="chat-top-blur progressive-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-[calc(var(--window-chrome-height)+32px)]"
+            className="chat-top-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-[calc(var(--window-chrome-height)+32px)]"
           >
-            <ProgressiveBlurLayers />
+            <div />
           </div>
         )}
         {isNewChat && !offScreen && <WelcomeSky />}
@@ -1807,7 +1828,7 @@ export function ChatComposer({
                   // glass; the bottom pad is the dock's height plus 16, so the last line rests clear of them.
                   // The first message starts where the top fade ends (bar + 32px), fully readable at the top.
                   // At the window's bottom edge (one Chat alone) the text fades out over its last 24px instead of being cut.
-                  viewportClassName={`${findOpen ? "pt-12" : "pt-7"} pb-[calc(var(--composer-dock,0px)+16px)] [mask-image:linear-gradient(to_bottom,black_calc(100%-var(--chat-edge-fade,0px)),transparent)]`}
+                  viewportClassName={`${findOpen ? "pt-12" : "pt-7"} pb-[calc(var(--composer-dock,0px)+16px)] chat-edge-fade`}
                   contentClassName="min-h-full"
                   // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
                   autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
@@ -2402,19 +2423,6 @@ function TranscriptSlots({
     <>
       {element && <div ref={host} className="relative flex min-h-0 flex-1 flex-col" />}
       {next.map((slot) => createPortal(slot.element, nodeFor(slot.id), String(slot.id)))}
-    </>
-  );
-}
-
-/** The four blur layers and the tint of a `.progressive-blur` (styles.css). */
-function ProgressiveBlurLayers() {
-  return (
-    <>
-      <div />
-      <div />
-      <div />
-      <div />
-      <div />
     </>
   );
 }

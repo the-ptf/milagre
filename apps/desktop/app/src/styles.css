@@ -595,8 +595,6 @@ body,
 body {
   background-color: var(--stripe-bg);
   background-image: repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px);
-  /* Pin the stripe pattern to the viewport so it stays put on scroll. */
-  background-attachment: fixed;
   color: var(--ink);
   font-feature-settings: "cv11", "ss01";
   /* The 13/18 body step: text with no size class follows the type scale. Unitless, so text that sets only a size
@@ -827,11 +825,14 @@ a {
 html[data-grain] .window-grain {
   background-image: var(--grain-window);
 }
-/* The Chat's top band paints the page over the window; it carries the same specks, pinned to the window, so it blends. */
+/* The Chat's top band paints the page over the window; it carries the same specks, pinned to the window, so it blends.
+ * Not with a fixed background (see .window-grain): ChatComposer sets --chat-top-x/y to the band's offset in the window,
+ * and the tile starts that far up and left, so its specks land on the window's. */
 html[data-grain] .chat-top-blur > :last-child {
-  background:
-    var(--grain-window) fixed,
-    linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
+  background: var(--grain-window), linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
+  background-position:
+    calc(-1 * var(--chat-top-x, 0px)) calc(-1 * var(--chat-top-y, 0px)),
+    0 0;
   -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
   mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
 }
@@ -983,46 +984,6 @@ a {
 
 /* The sidebar is one persistent 224–420px tree clipped by a 52px shell.
  * Every rail glyph remains centered at x=26 in both states. */
-/* Progressive blur where content scrolls under a window edge. One masked blur leaves a crisp copy showing
- * through wherever its mask is half on, so four blurs that double in strength stack up
- * instead, each switched on a step closer to the edge. The last child is the tint toward the transcript's background.
- * --blur-dir points from the content toward the edge; the blur starts at --blur-start and is at full
- * strength from --blur-end on. */
-.progressive-blur > * {
-  position: absolute;
-  inset: 0;
-}
-.progressive-blur > :not(:last-child) {
-  --blur-step: calc((var(--blur-end) - var(--blur-start)) / 4);
-  backdrop-filter: blur(calc(var(--blur-edge) * var(--blur-scale)));
-  mask-image: linear-gradient(
-    var(--blur-dir),
-    transparent calc(var(--blur-start) + var(--blur-step) * var(--blur-layer)),
-    #000 calc(var(--blur-start) + var(--blur-step) * (var(--blur-layer) + 1))
-  );
-}
-.progressive-blur > :nth-child(1) {
-  --blur-layer: 0;
-  --blur-scale: 0.25;
-}
-.progressive-blur > :nth-child(2) {
-  --blur-layer: 1;
-  --blur-scale: 0.5;
-}
-.progressive-blur > :nth-child(3) {
-  --blur-layer: 2;
-  --blur-scale: 1;
-}
-.progressive-blur > :nth-child(4) {
-  --blur-layer: 3;
-  --blur-scale: 2;
-}
-/* While a turn streams the transcript repaints every batch, and a backdrop blur re-blurs it each time. The
- * fades stay as plain gradients, a touch denser where the blur used to soften the text. */
-.progressive-blur[data-busy] > :not(:last-child) {
-  display: none;
-}
-
 /* The fades tint toward the background the transcript sits on, so an empty area under one shows no band: the page,
  * or the surface of a focused ChatGrid tile (which sets --chat-bg). */
 [data-chat-tile] {
@@ -1030,20 +991,18 @@ a {
 }
 
 /* The top of the chat, under the window-drag strip and the Chat's title: solid under the bar and an 8px band below
- * it, then a 24px fade down to nothing, so a line scrolling under the title fades out instead of being sliced. */
-.chat-top-blur {
-  --blur-dir: to top;
-  --blur-start: 0%;
-  --blur-end: 100%;
-}
+ * it, then a 24px fade down to nothing, so a line scrolling under the title fades out instead of being sliced. A tint,
+ * not a blur: any backdrop-filter on screen makes Chromium composite the whole window itself. */
 .chat-top-blur > :last-child {
+  position: absolute;
+  inset: 0;
   background: linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
 }
 
-/* The bottom has no fade: the transcript runs crisp to the composer and the chip row's glass pills float over it. */
-/* The chat's top edge fades into the background without blurring the text: only the tint layer draws. */
-.chat-top-blur > :not(:last-child) {
-  display: none;
+/* The transcript fades out over its last 24px only where it runs to the window's bottom edge (one Chat alone). A mask
+ * is an offscreen pass every frame, so a transcript that doesn't fade carries none (scripts/perf: GPU footprint). */
+[data-chat-to-edge] .chat-edge-fade {
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--chat-edge-fade, 0px)), transparent);
 }
 
 /* Messages far off screen skip layout and paint; the size of the last render stands in, so scrolling stays steady.
@@ -1310,71 +1269,78 @@ a {
   -webkit-text-fill-color: currentColor;
 }
 
-/* The fixed tile keeps all title spans in phase. Only keyframes own the gradient and text clipping:
- * the sweep loops while the step runs and goes with the class when it finishes or waits. */
-@keyframes step-shimmer {
+/* The sweep over a running title (SweepText): a bright copy of the title sits over the muted one, seen through a
+ * static mask of 100px windows repeating every 320px. The band slides the mask right one tile per loop while its
+ * counter slides the copy left by the same distance, so the text holds still and only the windows move. Both animate
+ * transform alone, which the compositor runs: the old background-position sweep with background-clip: text repainted
+ * the title on the main thread every display frame, about 28% of a core for the app while a tool ran against 9% with
+ * it paused (scripts/perf: `tool`). The tile, ramps and speed are the old band's (--ink peaking 160px into a 320px
+ * tile of --ink-3, 1.2s a tile), so a title of any width sweeps at the same pace; steps(36) holds it to 30fps. The
+ * keyframes spell out 320px: a var() there could keep Chromium from handing them to the compositor. */
+.sweep-band {
+  --sweep-tile: 320px;
+  left: calc(-1 * var(--sweep-tile));
+  width: calc(100% + var(--sweep-tile));
+  -webkit-mask-image: linear-gradient(to right, transparent 110px, black 160px, transparent 210px);
+  mask-image: linear-gradient(to right, transparent 110px, black 160px, transparent 210px);
+  -webkit-mask-size: var(--sweep-tile) 100%;
+  mask-size: var(--sweep-tile) 100%;
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+  animation: sweep-band 1.2s steps(36) infinite;
+}
+
+.sweep-band-counter {
+  width: 100%;
+  animation: sweep-band-counter 1.2s steps(36) infinite;
+}
+
+/* Truncates exactly like the title under it, so the ellipsis and every glyph land on the originals. */
+.sweep-band-copy {
+  width: calc(100% - var(--sweep-tile));
+  margin-left: var(--sweep-tile);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The bright copy: every part of it in full ink, with no chip fill (the chip under it already shows through). */
+.sweep-band-copy,
+.sweep-band-copy * {
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+  background: transparent;
+  text-decoration: none;
+}
+
+@keyframes sweep-band {
   from {
-    background-position: 0 0;
+    transform: translateX(0);
   }
   to {
-    background-position: 320px 0;
-  }
-  from,
-  to {
-    background-image: linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px);
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    transform: translateX(320px);
   }
 }
 
-.step-running.step-sweep {
-  background-size: 320px 100vh;
-  background-repeat: repeat-x;
-  background-attachment: fixed;
-  animation: step-shimmer 1.2s linear infinite;
-}
-
-@keyframes step-shimmer-code {
+@keyframes sweep-band-counter {
   from {
-    background-position:
-      0 0,
-      0 0;
+    transform: translateX(0);
   }
   to {
-    background-position:
-      320px 0,
-      0 0;
-  }
-  from,
-  to {
-    background-image:
-      linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px),
-      linear-gradient(var(--field), var(--field));
-    background-clip: text, border-box;
-    -webkit-text-fill-color: transparent;
+    transform: translateX(-320px);
   }
 }
 
-code.step-running.step-sweep {
-  background-size:
-    320px 100vh,
-    100% 100%;
-  background-repeat: repeat-x, no-repeat;
-  background-attachment: fixed, scroll;
-  animation-name: step-shimmer-code;
-}
-
-/* Collapsed activity keeps its rows mounted. Opacity and clipping hide their
- * pixels but do not stop the text gradients from repainting. Keep the sweep's
- * position while closed; the visible summary continues to animate. */
-[data-slot="activity"] > [inert] .step-sweep {
+/* Collapsed activity keeps its rows mounted, hidden by opacity and clipping. Hold their bands where they are; the
+ * visible summary keeps sweeping, and opening the fold resumes the same loops. */
+[data-slot="activity"] > [inert] .sweep-band,
+[data-slot="activity"] > [inert] .sweep-band-counter {
   animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .step-running.step-sweep,
-  code.step-running.step-sweep {
-    animation: none;
+  .sweep-band {
+    display: none;
   }
 }
 
