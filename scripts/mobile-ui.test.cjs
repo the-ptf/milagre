@@ -682,13 +682,20 @@ test("context settings stay safe and unavailable on both clients without a host 
     assert.equal(value.settings.autoCompact, false, "the desktop composer can read defaults without crashing");
     assert.equal(value.ready, false, "unavailable host settings cannot be edited");
 
-    const mobile = hookHost();
-    const phone = load("context-settings.ts", {
-      react: mobile,
+    // The phone shares one read per computer (context-settings.ts); a host that answers nothing leaves it on defaults.
+    const client = { call: async () => response };
+    const phoneStore = load("context-settings.ts", {
+      react: hookHost(),
+      "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+      "expo-router": { useFocusEffect() {} },
       "@milagre/shared/context-settings": shared,
-      "./session": { useSession: () => ({ client: {} }) },
-      "./use-rpc": { useRpc: () => ({ data: response, error: "" }) },
-    }).useContextSettings();
+      "./session": { useSession: () => ({ client }) },
+      "./use-rpc": { rpcDataKey: (data) => JSON.stringify(data) },
+    }).createContextSettingsStore(client);
+    const stop = phoneStore.subscribe(() => {});
+    await phoneStore.refresh();
+    const phone = phoneStore.getSnapshot();
+    stop();
     assert.deepEqual(value.settings, phone.settings);
     assert.equal(value.ready, phone.ready);
     desktop.unmount();

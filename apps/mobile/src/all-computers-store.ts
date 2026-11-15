@@ -13,12 +13,12 @@ export type StoreClient = Pick<Client, "url" | "call" | "recentScopes" | "previe
 /** A Chat the store lists, with what says how recent it is and which message it ends on. */
 export type RecentChat = { projectPath: string; chatId: number; lastAt: number; lastId: number };
 
-/** Everything the sidebar knows about one computer; replaced, never changed, so it can be compared by identity. */
+/** Sidebar data is immutable; lastSuccess alone is a live timestamp that does not invalidate rows. */
 export type HostView = {
   hostId: string;
   name: string;
   state: Reach;
-  /** When a read of this computer last worked (ms since epoch); 0 before the first. */
+  /** Live time of the last successful read (ms since epoch); changes without a view notification. */
   lastSuccess: number;
   /** Whether the computer has answered with its Project list yet: an empty list before that is not "no Projects". */
   loaded: boolean;
@@ -166,7 +166,9 @@ export function createAllComputersStore(deps: StoreDeps) {
     hostId: entry.id,
     name: entry.name,
     state: entry.state,
-    lastSuccess: entry.lastSuccess,
+    get lastSuccess() {
+      return entry.lastSuccess;
+    },
     loaded: entry.loaded,
     projects: entry.projects,
     copies: entry.copies,
@@ -175,11 +177,40 @@ export function createAllComputersStore(deps: StoreDeps) {
   });
   function publish(entry?: Entry) {
     if (entry) {
+      const previous = entry.view;
+      // Keep unchanged Project copies stable even when another Project on this computer changed.
+      if (entry.copies !== previous.copies) {
+        const copies = new Map(entry.copies);
+        for (const [path, copy] of copies) {
+          const held = previous.copies.get(path);
+          if (held && (held === copy || JSON.stringify(held) === JSON.stringify(copy))) copies.set(path, held);
+        }
+        entry.copies =
+          copies.size === previous.copies.size && [...copies].every(([path, copy]) => previous.copies.get(path) === copy)
+            ? (previous.copies as Map<string, ProjectCopy>)
+            : copies;
+      }
+      if (entry.projects !== previous.projects && JSON.stringify(entry.projects) === JSON.stringify(previous.projects)) entry.projects = previous.projects;
+      const sameErrors = entry.errors.size === previous.errors.size && [...entry.errors].every(([path, error]) => previous.errors.get(path) === error);
+      if (sameErrors) entry.errors = previous.errors as Map<string, string>;
+      if (
+        entry.name === previous.name &&
+        entry.state === previous.state &&
+        entry.loaded === previous.loaded &&
+        entry.projects === previous.projects &&
+        entry.copies === previous.copies &&
+        sameErrors &&
+        JSON.stringify(entry.home) === JSON.stringify(previous.home)
+      )
+        return;
       entry.version++;
       entry.view = buildView(entry);
     }
     const present = order.flatMap((id) => entries.get(id) ?? []);
-    key = present.map((item) => `${item.id}:${item.version}`).join(",");
+    const nextKey = present.map((item) => `${item.id}:${item.version}`).join(",");
+    // sync also runs on session renders; equal membership and versions do not notify.
+    if (nextKey === key && present.every((item, index) => item.view === views[index])) return;
+    key = nextKey;
     views = present.map((item) => item.view);
     listeners.forEach((listener) => listener());
   }
@@ -667,7 +698,10 @@ export function createAllComputersStore(deps: StoreDeps) {
         const copy = await previewOne(entry, client, path, (weight, work) => guarded(entry, client, weight, work));
         entry.copies = new Map(entry.copies).set(path, copy);
         seedSession(entry, client, path, copy);
-        if (entry.errors.delete(path)) entry.errors = new Map(entry.errors);
+        if (entry.errors.has(path)) {
+          entry.errors = new Map(entry.errors);
+          entry.errors.delete(path);
+        }
         publish(entry);
       } catch (error) {
         if (error !== STALE) throw error;

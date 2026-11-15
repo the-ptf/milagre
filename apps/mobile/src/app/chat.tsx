@@ -1150,7 +1150,13 @@ function ChatPane({
   // Polled here, not in the chip: a command serving one of these ports leaves the background line.
   const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
   const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
-  const reachable = useMemo(() => ({ host: reachableHost, loopbackOnly: loopbackOnlyPorts(ports) }), [reachableHost, ports]);
+  // The poll hands over a new array every 5 s; keyed on the loopback-only ports themselves, the value (and every reply's
+  // markdown, which reads it) changes only when they do.
+  const loopbackKey = [...loopbackOnlyPorts(ports)].sort((a, b) => a - b).join(",");
+  const reachable = useMemo(
+    () => ({ host: reachableHost, loopbackOnly: new Set(loopbackKey ? loopbackKey.split(",").map(Number) : []) as ReadonlySet<number> }),
+    [reachableHost, loopbackKey],
+  );
   // The Chat beside waits for its own Project in its pane; it never sends the app back to the computers.
   if (secondary && (!session.client || !session.snapshot || !targetMatches)) {
     return (

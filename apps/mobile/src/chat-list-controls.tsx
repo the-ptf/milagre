@@ -151,8 +151,13 @@ export function ChatListControls({
     <>
       <View ref={frame} pointerEvents="none" onLayout={measure} style={StyleSheet.absoluteFill} />
       <KeyboardStickyView pointerEvents="box-none" offset={{ closed: 0, opened: bottom - KEYBOARD_GAP + below }} style={StyleSheet.absoluteFill}>
-        <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, right: 0, bottom: 0 }, fade]}>
-          <EdgeFade edge="bottom" height={CONTROLS_HEIGHT + bottom + FADE_EXTRA} />
+        {/* The fade keeps the window's width and this box clips it to the list's, so an iPad sidebar sliding open or shut
+            never resizes (and redraws) its blur (bottom-fade.tsx). */}
+        <Animated.View
+          pointerEvents="none"
+          style={[{ position: "absolute", left: 0, right: 0, bottom: 0, height: CONTROLS_HEIGHT + bottom + FADE_EXTRA, overflow: "hidden" }, fade]}
+        >
+          <EdgeFade edge="bottom" height={CONTROLS_HEIGHT + bottom + FADE_EXTRA} width={window.width} />
         </Animated.View>
         <Animated.View pointerEvents="box-none" style={[s.row, { paddingBottom: bottom }, slide]}>
           <PullDown label={filters.active ? "Filters, on" : "Filters"} title="Filters" sections={filters.sections} onSelect={filters.onSelect} style={s.circle}>
