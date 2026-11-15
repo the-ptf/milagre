@@ -3,7 +3,10 @@ export function SpinnerRing({ size, stroke = 2, color = "var(--ink-3)" }: { size
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   return (
-    <span aria-hidden className="spinner-ring inline-flex shrink-0" style={{ width: size, height: size, animation: "spin 1.1s steps(24) infinite" }}>
+    // 15 steps of 80 ms, the running logo's beat (styles.css). Chromium draws a stepped animation only as often as its
+    // steps change, but two indicators on different beats are drawn at every step of either: on the same 80 ms clock a
+    // running agent costs about a third less CPU in the GPU process and renderer (scripts/perf, `PERF_INTERVAL_MS=2000`).
+    <span aria-hidden className="spinner-ring inline-flex shrink-0" style={{ width: size, height: size, animation: "spin 1.2s steps(15) infinite" }}>
       <svg width={size} height={size} className="block">
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--line)" strokeWidth={stroke} />
         <circle
