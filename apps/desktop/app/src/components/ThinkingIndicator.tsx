@@ -5,6 +5,7 @@ import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./primitives/Icon";
 import { useStepTitleSweep } from "../lib/step-sweep";
+import { SweepText } from "./primitives/SweepText";
 
 /** The Milagre mark running: the legs take turns striding while the sparkle bobs and turns a quarter on each step. */
 function RunningLogo() {
@@ -40,12 +41,13 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
   const sweep = useStepTitleSweep(showLabel);
 
   return (
-    <div role="status" aria-label={label} className="flex w-fit items-center gap-2 px-1 py-1">
+    // Starts where the step rows' icons do (StepRow's row inset), so the mark lines up with the tool calls above it.
+    <div role="status" aria-label={label} className="flex w-fit items-center gap-2 py-1 pr-1 pl-[var(--row-inset,0px)]">
       <RunningLogo />
       {showLabel && (
-        <span aria-hidden className={`min-w-0 truncate text-12 text-ink-3 ${sweep.className ?? ""}`}>
+        <SweepText aria-hidden running={sweep.running} className={`min-w-0 truncate text-12 text-ink-3 ${sweep.className ?? ""}`}>
           {label}
-        </span>
+        </SweepText>
       )}
       <span aria-hidden className="text-12 tabular-nums text-ink-3">
         {elapsed}

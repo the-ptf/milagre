@@ -238,6 +238,102 @@ test("detach ends only this Chat's attachment and its viewers of that browser", 
   await assert.rejects(f.service.detach({ chatId: "chat-b", browserId: OTHER }), /not attached/i, "detaching twice fails plainly");
 });
 
+test("lineage polling sleeps for idle roots and resumes for turns and background work", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const { SessionManager } = require("./agents/session-manager.cjs");
+  const agents = new SessionManager({});
+  const entry = { session: { pid: 10, turnActive: false, closed: false }, backgroundTasks: new Set(), backgroundChildren: new Set() };
+  agents.sessions.set("chat-a", entry);
+  const f = fixture(t, {
+    roots: () =>
+      new Map(
+        [...agents.processes()].map(([chatId, root]) => [
+          chatId,
+          {
+            ...root,
+            active: agents.isTurnActive(chatId) || agents.backgroundWork(chatId) > 0,
+          },
+        ]),
+      ),
+  });
+  f.world.browsers = [];
+  const tick = async () => {
+    f.advance(5000);
+    t.mock.timers.tick(5000);
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  await tick();
+  await tick();
+  assert.equal(f.adapter.discovered, 0, "idle sessions with live pids do not scan");
+  entry.session.turnActive = true;
+  await tick();
+  assert.equal(f.adapter.discovered, 1, "starting a turn resumes discovery");
+  entry.session.turnActive = false;
+  await tick();
+  assert.equal(f.adapter.discovered, 1, "ending a turn suspends discovery again");
+  entry.backgroundTasks.add("command");
+  await tick();
+  assert.equal(f.adapter.discovered, 2, "a known background command keeps discovery running");
+  entry.backgroundTasks.clear();
+  entry.backgroundChildren.add("subagent");
+  await tick();
+  assert.equal(f.adapter.discovered, 3, "a background subagent keeps discovery running too");
+  entry.backgroundChildren.clear();
+  await tick();
+  assert.equal(f.adapter.discovered, 3);
+  await f.service.list({ chatId: "chat-a" });
+  assert.equal(f.adapter.discovered, 4, "an idle Chat's on-demand list still discovers immediately");
+});
+
+test("lineage polling tracks last-seen pages after roots exit, then sleeps after they disappear", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = fixture(t);
+  await f.service.list({ chatId: "chat-a" });
+  f.roots.clear();
+  const tick = async () => {
+    f.advance(5000);
+    t.mock.timers.tick(5000);
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  await tick();
+  assert.equal(f.adapter.discovered, 2, "known pages keep polling without any roots");
+  f.world.browsers = [];
+  await tick();
+  assert.equal(f.adapter.discovered, 3, "one more snapshot observes the closed pages");
+  await tick();
+  assert.equal(f.adapter.discovered, 3, "no work or pages remain");
+});
+
+test("an open Browser panel or viewer keeps lineage polling without active roots", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = fixture(t);
+  f.world.browsers = [];
+  f.roots.clear();
+  const tick = async () => {
+    f.advance(5000);
+    t.mock.timers.tick(5000);
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  await f.service.setPanelPages({ port: 51234, prefix: `/${"f".repeat(48)}`, pages: [{ id: PAGE, chatId: "chat-a" }] }, "desktop");
+  await tick();
+  assert.equal(f.adapter.discovered, 1, "a panel page starts polling even with no previous snapshot");
+  await f.service.setPanelPages({ pages: [] }, "desktop");
+  await tick();
+  assert.equal(f.adapter.discovered, 1, "closing the only panel page stops polling");
+
+  f.world.browsers = [{ id: BROWSER, pid: 12, pages: [{ id: PAGE }] }];
+  await f.service.attach({ chatId: "chat-a", browserId: BROWSER });
+  const viewer = await f.service.open({ chatId: "chat-a", targetId: target(PAGE) }, "desktop");
+  f.world.browsers = [];
+  await tick();
+  const discovered = f.adapter.discovered;
+  await tick();
+  assert.equal(f.adapter.discovered, discovered + 1, "the viewer keeps polling even after pages disappear from discovery");
+  await f.service.closeViewer({ viewerId: viewer.viewerId }, "desktop");
+  await tick();
+  assert.equal(f.adapter.discovered, discovered + 1, "closing the last viewer stops polling");
+});
+
 test("lineage is recorded in the background and ends another Chat's earlier attachment", async (t) => {
   const f = fixture(t, { lineagePollMs: 10 });
   // The browser is not under any agent yet: Chat B attaches it.

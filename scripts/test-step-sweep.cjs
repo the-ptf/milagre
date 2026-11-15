@@ -1,4 +1,5 @@
-// Real title components: running titles sweep for the whole call, pause for approval and stop when the call ends.
+// Real title components: running titles sweep for the whole call, pause for approval and stop when the call ends. The
+// sweep is a band (SweepText) animating transform only; the titles keep a static tint.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -43,8 +44,14 @@ async function browserChecks() {
     }
     throw Error(`Timed out: ${source}`);
   }
-  const motion = "document.getAnimations().filter(a => a.effect?.target?.classList.contains('step-running'))";
-  const staticTitles = `document.querySelectorAll('.step-running').length > 0 && ${motion}.length === 0 && [...document.querySelectorAll('.step-running')].every(e => getComputedStyle(e).backgroundImage === 'none' && getComputedStyle(e).webkitTextFillColor === getComputedStyle(e).color)`;
+  // The band and its counter are the only animations a running title has; the titles themselves only carry the tint.
+  const motion = "document.getAnimations().filter(a => a.effect?.target?.matches?.('.sweep-band, .sweep-band-counter'))";
+  const bands = "document.querySelectorAll('.sweep-band')";
+  const titles = "document.querySelectorAll('.step-running:not(.sweep-band *)')";
+  const titleMotion = "document.getAnimations().filter(a => a.effect?.target?.classList?.contains('step-running'))";
+  const staticTitles = `${titles}.length > 0 && ${titleMotion}.length === 0 && [...${titles}].every(e => getComputedStyle(e).backgroundImage === 'none' && getComputedStyle(e).webkitTextFillColor === getComputedStyle(e).color)`;
+  // One band per title: its animations are transform-only, the band slides right and the counter left in lockstep.
+  const oneBandEach = `[...${bands}].every(b => getComputedStyle(b).animationName === 'sweep-band' && getComputedStyle(b.firstElementChild).animationName === 'sweep-band-counter' && b.closest('.relative')?.querySelectorAll('.sweep-band').length === 1)`;
   async function capture(name) {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
     fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
@@ -52,10 +59,46 @@ async function browserChecks() {
   }
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor("!!document.querySelector('code[role=link].step-sweep')");
-    assert.equal(await evaluate(`${motion}.length`), 2, "plain label and FileLink both sweep");
+    await waitFor("!!document.querySelector('code[role=link].step-running') && !!document.querySelector('.sweep-band')");
+    assert.equal(await evaluate(`${bands}.length`), 1, "one band across the whole title, file link included");
+    assert.equal(await evaluate(oneBandEach), true, "the band and its counter run the compositor keyframes");
+    assert.equal(await evaluate(`${motion}.length`), 2, "band and counter");
+    assert.equal(await evaluate(`${titleMotion}.length`), 0, "the titles themselves do not animate");
     assert.equal(await evaluate(`${motion}.every(a => a.effect.getTiming().iterations === Infinity)`), true);
+    assert.equal(
+      await evaluate(
+        `${motion}.every(a => a.effect.getKeyframes().every(k => Object.keys(k).every(p => ['offset', 'easing', 'composite', 'computedOffset', 'transform'].includes(p))))`,
+      ),
+      true,
+      "only transform animates",
+    );
+    // The copy is inert and hidden from assistive tech; it lines up with the title and truncates like it.
+    assert.equal(
+      await evaluate(
+        `(() => { const b = document.querySelector('.sweep-band'); const copy = b.querySelector('.sweep-band-copy'); const title = b.parentElement; const t = title.getBoundingClientRect(); const c = copy.getBoundingClientRect(); return b.inert && b.getAttribute('aria-hidden') === 'true' && Math.abs(t.width - c.width) < 0.5 && getComputedStyle(copy).textOverflow === 'ellipsis' && getComputedStyle(copy).whiteSpace === 'nowrap'; })()`,
+      ),
+      true,
+      "copy is inert, hidden and as wide as the title",
+    );
+    assert.equal(
+      await evaluate("getComputedStyle(document.querySelector('.sweep-band-copy code')).backgroundColor"),
+      "rgba(0, 0, 0, 0)",
+      "the copy's chip carries no fill",
+    );
     await capture("sweeping");
+    // Pause both halves at the same phase, with a window's peak about 40px into the title, so the shot shows it on the text.
+    await evaluate(`${motion}.forEach(a => { a.pause(); a.currentTime = 650; })`);
+    await delay(150);
+    await capture("band");
+    // The copy stays put while the window moves: band + counter cancel out.
+    assert.equal(
+      await evaluate(
+        `(() => { const b = document.querySelector('.sweep-band'); const copy = b.querySelector('.sweep-band-copy'); return Math.abs(copy.getBoundingClientRect().left - b.parentElement.getBoundingClientRect().left) < 1; })()`,
+      ),
+      true,
+      "the copy holds still over the title mid-sweep",
+    );
+    await evaluate(`${motion}.forEach(a => a.play())`);
 
     // Long calls keep sweeping, and ordinary renders do not restart the loop.
     await delay(2600);
@@ -64,9 +107,9 @@ async function browserChecks() {
     await evaluate("window.rerender()");
     assert.ok(await evaluate(`${motion}[0].currentTime >= ${first}`), "ordinary renders do not restart");
 
-    // Approval pauses the sweep; the answer resumes it. Old hosts without a start time sweep too.
+    // Approval stops the sweep; the answer resumes it. Old hosts without a start time sweep too.
     await evaluate("window.wait(true)");
-    await waitFor("!document.querySelector('.step-sweep')");
+    await waitFor(`${bands}.length === 0 && ${titles}.length === 0`);
     await evaluate("window.wait(false)");
     await waitFor(`${motion}.length === 2`);
     await evaluate("window.start(0, false)");
@@ -76,11 +119,12 @@ async function browserChecks() {
     await evaluate("window.folded(true); window.start(3000)");
     await waitFor("!!document.querySelector('[data-slot=activity]')");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");
-    await waitFor(`document.querySelectorAll('.step-running').length === 4 && ${motion}.length === 4`);
+    await waitFor(`${titles}.length === 4 && ${bands}.length === 2 && ${motion}.length === 4`);
+    assert.equal(await evaluate(oneBandEach), true, "summary and row each carry one band");
     // Parked rows retain their DOM and animation phase, but do no hidden sweep
     // work. The summary stays live and opening the fold resumes the same loops.
     await evaluate(`window.rowSweeps = ${motion}.filter(a => a.effect.target.closest('[data-slot=activity-body]'))`);
-    assert.equal(await evaluate("window.rowSweeps.length"), 2, "plain text and file chip in the mounted body");
+    assert.equal(await evaluate("window.rowSweeps.length"), 2, "band and counter in the mounted body");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");
     await waitFor("window.rowSweeps.every(a => a.playState === 'paused')");
     assert.equal(
@@ -99,23 +143,28 @@ async function browserChecks() {
       true,
       "expansion resumes instead of restarting the sweep",
     );
+    await capture("folded");
     await evaluate("window.folded(false)");
 
     await window.webContents.debugger.attach("1.3");
     await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
     await evaluate("window.start()");
     await waitFor(staticTitles);
-    assert.equal(await evaluate("[...document.querySelectorAll('code.step-running')].every(e=>getComputedStyle(e).animationName === 'none')"), true);
+    assert.equal(await evaluate(`[...${bands}].every(b => getComputedStyle(b).display === 'none')`), true, "reduced motion hides the band");
+    assert.equal(await evaluate(`${motion}.length`), 0, "reduced motion runs no sweep");
     const staticCode = await evaluate("getComputedStyle(document.querySelector('code')).backgroundColor");
     assert.notEqual(staticCode, "rgba(0, 0, 0, 0)", "static file chips retain their fill");
     await capture("reduced");
     await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
     await evaluate("window.finish('done')");
-    await waitFor("!document.querySelector('.step-running')");
+    await waitFor(`${titles}.length === 0`);
+    assert.equal(await evaluate(`${bands}.length`), 0, "a finished call has no band");
     assert.equal(await evaluate(`${motion}.length`), 0, "a finished call stops sweeping");
     await evaluate("window.start(); window.finish('failed')");
-    await waitFor("!document.querySelector('.step-running')");
-    console.log("PASS step sweeps: whole-call loop, no restart on render, approval pause, old hosts, parked rows pause and resume, reduced motion and finish");
+    await waitFor(`${titles}.length === 0 && ${bands}.length === 0`);
+    console.log(
+      "PASS step sweeps: one transform-only band per title, whole-call loop, no restart on render, approval pause, old hosts, parked rows pause and resume, reduced motion and finish",
+    );
   } finally {
     window.destroy();
     app.quit();
