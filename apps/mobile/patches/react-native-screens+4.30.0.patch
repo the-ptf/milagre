@@ -1,0 +1,37 @@
+diff --git a/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/SheetDelegate.kt b/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/SheetDelegate.kt
+index 8004079..63c10e4 100644
+--- a/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/SheetDelegate.kt
++++ b/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/SheetDelegate.kt
+@@ -8,6 +8,7 @@ import android.view.WindowManager
+ import android.view.inputmethod.InputMethodManager
+ import androidx.coordinatorlayout.widget.CoordinatorLayout
+ import androidx.core.view.OnApplyWindowInsetsListener
++import androidx.core.view.ViewCompat
+ import androidx.core.view.WindowInsetsCompat
+ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.LifecycleEventObserver
+@@ -393,7 +394,23 @@ class SheetDelegate(
+      * This method tries to resolve the maximum height available for the sheet content,
+      * accounting for the system top inset.
+      */
+-    private fun tryResolveSafeAreaSpaceForSheet(): Int? = tryResolveContainerHeight()?.let { it - lastTopInset }
++    private fun tryResolveSafeAreaSpaceForSheet(): Int? {
++        refreshTopInsetFromWindow()
++        return tryResolveContainerHeight()?.let { it - lastTopInset }
++    }
++
++    // Milagre patch: the decor view holds one insets listener, and react-native-keyboard-controller sets its own there, so
++    // InsetsObserverProxy may never pass insets to this delegate. lastTopInset then stayed 0 and a sheet opened at its
++    // largest detent ran under the status bar. The window's current insets are read directly instead.
++    private fun refreshTopInsetFromWindow() {
++        val decorView = screen.reactContext.currentActivity?.window?.decorView ?: return
++        val insets = ViewCompat.getRootWindowInsets(decorView) ?: return
++        lastTopInset =
++            maxOf(
++                insets.getInsets(WindowInsetsCompat.Type.systemBars()).top,
++                insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
++            )
++    }
+ 
+     /**
+      * This method might return slightly different values depending on code path,
