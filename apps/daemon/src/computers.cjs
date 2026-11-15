@@ -122,7 +122,10 @@ function whenOnline(entry, ms) {
 function moveToLan(entry) {
   const client = entry.client;
   const route = entry.supervisor.current();
-  if (!client || entry.route !== "relay" || route.kind !== "lan" || route.transport.used || route.transport.client.closed) return;
+  // Only a channel the runtime came online on: one still in its first calls could close on the answer to the last of
+  // them, and the runtime would read connected on a closed channel with no reconnect left (ComputerLink model). online()
+  // moves it once it is up.
+  if (!client || client !== entry.live || entry.route !== "relay" || route.kind !== "lan" || route.transport.used || route.transport.client.closed) return;
   client.closeWhenIdle(() => {
     entry.switching = true;
     if (!entry.recovery) {
@@ -289,6 +292,9 @@ function createComputers({
       runtime: null,
       /** @type {any} */
       client: null,
+      /** The channel the runtime last came online on (online()); moveToLan closes no other. */
+      /** @type {any} */
+      live: null,
       route: null,
       /** @type {string | null} */
       address: null,
@@ -423,6 +429,7 @@ function createComputers({
     clearTimeout(entry.offlineTimer);
     if (entry.state !== "online") note(entry, "online", `${entry.route ?? ""}${entry.address ? ` ${entry.address}` : ""}`.trim());
     entry.state = "online";
+    entry.live = entry.client;
     entry.message = null;
     entry.lastError = null;
     entry.failures = 0;
