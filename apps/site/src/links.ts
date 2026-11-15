@@ -9,3 +9,7 @@ export const DOWNLOAD_WINDOWS = "/download/windows";
 export const DOWNLOAD_ANDROID = "https://github.com/the-ptf/milagre/releases/download/v0.232.0-beta.27/Milagre-0.232.0-beta.27-android-beta.apk";
 // The public TestFlight group ("Public") for the iPhone app.
 export const IPHONE_BETA_URL = "https://testflight.apple.com/join/K9ExV7bV";
+// Who runs Milagre and where privacy and support requests go. The privacy policy and support page read these; an
+// SITE_OPERATOR_NAME / SITE_CONTACT_EMAIL build variable overrides them.
+export const OPERATOR_NAME = "Victor Lucas";
+export const CONTACT_EMAIL = "support@milagre.cloud";

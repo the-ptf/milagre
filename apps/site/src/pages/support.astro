@@ -1,7 +1,7 @@
 ---
 import Legal from "../layouts/Legal.astro";
-import { REPO_URL } from "../links";
-const email = import.meta.env.SITE_CONTACT_EMAIL;
+import { CONTACT_EMAIL, REPO_URL } from "../links";
+const email = import.meta.env.SITE_CONTACT_EMAIL || CONTACT_EMAIL;
 ---
 <Legal title="Milagre support" description="Pair your devices, reconnect to your computer and get help with Milagre.">
   <p>Milagre on your phone connects to Milagre running on your computer. Keep the computer online and Milagre available. AI work also needs a supported provider account configured on that computer.</p>
