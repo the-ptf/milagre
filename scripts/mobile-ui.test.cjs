@@ -14217,6 +14217,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
         undefined,
         [
           ["Church", ""],
+          ["Design system", ""],
           ["Privacy policy", ""],
           ["Support", ""],
           ["App update", "Up to date"],
@@ -14226,6 +14227,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
   );
   for (const row of groups.slice(0, 4).flatMap((group) => group.elements)) row.props.onPress();
   groups[5].elements[0].props.onPress();
+  groups[5].elements[1].props.onPress();
   assert.deepEqual(opened, [
     "appearance",
     "chat-display",
@@ -14243,10 +14245,11 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
     "phone-sharing",
     "this-mac",
     "experimental",
+    "design-system",
   ]);
   // Privacy policy and Support open Milagre's site in the browser.
-  groups[5].elements[1].props.onPress();
   groups[5].elements[2].props.onPress();
+  groups[5].elements[3].props.onPress();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(state.urls, ["https://milagre.cloud/privacy", "https://milagre.cloud/support"]);
   // The tiles: the green dot and counts follow the computers' answers; Routines counts what is on once the Mac has them.

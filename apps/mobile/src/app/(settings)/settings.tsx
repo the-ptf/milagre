@@ -26,6 +26,7 @@ import {
   SecurityCheckIcon,
   UserCircleIcon,
   KeyboardIcon,
+  SwatchIcon,
 } from "@hugeicons/core-free-icons";
 import { chatListLabel } from "@milagre/shared/chat-display";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
@@ -375,6 +376,7 @@ export function SettingsView({
       ) : null}
       <Group>
         <Row title="Church" icon={ChurchIcon} selected={selected === "experimental"} onPress={() => onOpen("experimental")} />
+        <Row title="Design system" icon={SwatchIcon} selected={selected === "design-system"} onPress={() => onOpen("design-system")} />
         <Row title="Privacy policy" icon={SecurityCheckIcon} onPress={() => openSite(PRIVACY_URL)} />
         <Row title="Support" icon={HelpCircleIcon} onPress={() => openSite(SUPPORT_URL)} />
         {/* Checks now and shows the update sheet, which follows the check to Up to date or Update now. */}

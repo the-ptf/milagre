@@ -42,6 +42,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   "computer-use": ["app/(settings)/computer-use.tsx", "computer-use-section.tsx"],
   experimental: ["app/(settings)/experimental.tsx", "experimental-section.tsx", shared("device-notes.mjs"), shared("new-chat-glance.ts")],
   keybindings: ["app/(settings)/keybindings.tsx", "keybindings-section.tsx"],
+  "design-system": ["app/(settings)/design-system.tsx", "design-system-catalogue.ts"],
 };
 
 /**
@@ -56,6 +57,8 @@ const NOT_INDEXED: Record<string, string> = {
   "simlock: Simlock devices": "the page's own name",
   "computer-use: Computer use": "the page's own name",
   // A state of the page, not a setting.
+  // Picks which platform's notes the catalogue's pages show; nothing is saved.
+  "design-system: Platform": "a view switch on the catalogue, not a setting",
 };
 
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");

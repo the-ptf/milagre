@@ -242,13 +242,21 @@ function AndroidMenu({
   trigger: (cap: ViewStyle | null) => React.ReactNode;
 }) {
   const [width, setWidth] = React.useState<number | null>(null);
+  // Only a box the layout sizes (a row's flex, a set width) caps its trigger; a trigger sized by its own label, a chip
+  // or a header switcher, keeps that size, as measuring it would only round it down into an ellipsis.
+  const flat = StyleSheet.flatten(style) ?? {};
+  const sized = fill || flat.flex != null || !!flat.flexGrow || flat.width != null || flat.maxWidth != null;
   return (
     <View
       style={style}
-      onLayout={({ nativeEvent }) => {
-        const next = Math.round(nativeEvent.layout.width);
-        setWidth((previous) => (previous === next ? previous : next));
-      }}
+      onLayout={
+        sized
+          ? ({ nativeEvent }) => {
+              const next = Math.round(nativeEvent.layout.width);
+              setWidth((previous) => (previous === next ? previous : next));
+            }
+          : undefined
+      }
     >
       <MenuView
         title={title}
@@ -260,7 +268,7 @@ function AndroidMenu({
         }}
         testID={label}
       >
-        {trigger(width === null ? null : fill ? { width } : { maxWidth: width })}
+        {trigger(width === null || !sized ? null : fill ? { width } : { maxWidth: width })}
       </MenuView>
     </View>
   );
