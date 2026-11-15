@@ -3313,6 +3313,20 @@
         }
       ]
     },
+    "app-icon:get": {
+      "parameters": []
+    },
+    "app-icon:set": {
+      "parameters": [
+        {
+          "name": "icon",
+          "optional": false,
+          "schema": {
+            "enum": ["default", "dawn", "mono-dark", "mono-light", "sunset", "aurora", "glass", "eight-bit"]
+          }
+        }
+      ]
+    },
     "update:install": {
       "parameters": []
     },
@@ -4071,6 +4085,8 @@
     }
   },
   "native": [
+    "app-icon:get",
+    "app-icon:set",
     "app:dictation-cancel",
     "app:dictation-download",
     "app:dictation-open-settings",
