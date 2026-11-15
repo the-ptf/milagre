@@ -4,10 +4,22 @@ import { keepOrder } from "@milagre/shared/stable-order";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import { createClient, type ClientHost, type Client, type OpenProject, type RecentProject, type Runs, type Snapshot, type ProjectPreview } from "./client";
+import {
+  createClient,
+  type ClientHost,
+  type Client,
+  type OpenProject,
+  type RecentProject,
+  type Runs,
+  type RunsReply,
+  type Snapshot,
+  type ProjectPreview,
+} from "./client";
 import { relayRuntime } from "./relay-native";
 import { learnRoutes, lanRoutes } from "./routes-native";
 import { syncProject } from "./live";
+import { mergeRunsReply } from "./runs-reply";
+import { visibleRunChats, watchVisibleRunChats } from "./visible-run-chats";
 import { refreshLinks } from "./use-links";
 import { useDesigns } from "./use-designs";
 import { readPermission, savedChatDefaults, savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
@@ -80,10 +92,9 @@ class RunsStore {
     return key === this.key && this.runs && this.stamp > (this.stamps.get(snapshot) ?? 0) ? this.runs : snapshot.runs;
   }
   /** Runs read on their own while `snapshot` shows; an answer older (by seq) than what shows now is dropped. */
-  update(key: string, snapshot: Snapshot, runs: Runs) {
+  update(key: string, snapshot: Snapshot, runs: RunsReply) {
     const current = this.runsFor(key, snapshot);
-    if ((runs.seq ?? 0) < (current.seq ?? 0)) return false;
-    const next = reconcileState(current, runs);
+    const next = mergeRunsReply(current, runs);
     if (next === current) return false;
     this.key = key;
     this.runs = next;
@@ -661,7 +672,7 @@ function useSessionState() {
     const current = selection.current;
     if (!client || !projectPath || current?.client !== client || current.path !== projectPath) return;
     try {
-      const runs = await client.runs(projectPath);
+      const runs = await client.runs(projectPath, visibleRunChats(client, projectPath));
       const shown = latest.current;
       // A snapshot that landed meanwhile may already hold later runs (the store compares their seq).
       if (current === selection.current && shown?.project.path === projectPath) {
@@ -691,6 +702,7 @@ function useSessionState() {
       connect: (options) => client.live(projectPath ?? "", options),
       snapshot: refresh,
       runs: refreshRuns,
+      watchRuns: (listener) => (projectPath ? watchVisibleRunChats(client, projectPath, listener) : () => {}),
       accounts: () => {
         providerCache.current.clear();
         void refreshProviders();

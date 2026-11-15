@@ -66,29 +66,137 @@ const TWINKLE: Segment[] = [
   { to: 3, duration: 360, easing: twinkleCurve },
 ];
 
+const CYCLE_MS = 2400;
+// running-logo-twinkle's per-segment curves become this many straight steps each: ~12 ms apiece, under a frame.
+const EASED_STEPS = 24;
+// Where the twinkle resets to rest, just after its last keyframe, as the zero-length reset step did.
+const WRAP = 1e-6;
+
+/** The keyframe index (as in useKeyframes) `ms` into one cycle; at `CYCLE_MS` itself, the last keyframe before the reset. */
+function keyframeAt(segments: Segment[], ms: number) {
+  let start = 0;
+  let index = 0;
+  for (const { to, duration, easing } of segments) {
+    if (ms < start + duration) return to === -1 ? index : index + (to - index) * (easing ?? Easing.linear)((ms - start) / duration);
+    start += duration;
+    if (to !== -1) index = to;
+  }
+  return index;
+}
+
+/** The times in a cycle where the index bends: every keyframe, and EASED_STEPS points along each eased segment. */
+function bendsOf(segments: Segment[]) {
+  const bends = [0];
+  let start = 0;
+  for (const { to, duration } of segments) {
+    const steps = to === -1 ? 1 : EASED_STEPS;
+    for (let step = 1; step <= steps; step += 1) bends.push(start + (duration * step) / steps);
+    start += duration;
+  }
+  return bends;
+}
+
+/**
+ * One layer's keyframes over a progress that runs 0..2 (two cycles, so a loop may start anywhere in the first): the
+ * input times in cycles and the keyframe index at each, `delayMs` behind the cycle. Holds are flat stretches, eased
+ * segments straight steps along their curve; an output range over [0, 1, 2, ...] keyframes reads the index, as before.
+ */
+function keyframeTrack(segments: Segment[], delayMs = 0) {
+  const points: [number, number][] = [];
+  const at = (cycles: number) => {
+    const ms = (((cycles * CYCLE_MS - delayMs) % CYCLE_MS) + CYCLE_MS) % CYCLE_MS;
+    return keyframeAt(segments, ms);
+  };
+  points.push([0, at(0)], [2, at(2 - WRAP)]);
+  for (let cycle = -1; cycle <= 2; cycle += 1)
+    for (const ms of bendsOf(segments)) {
+      // A cycle's end is the last keyframe; the next cycle's start (the same instant) is the reset.
+      const x = (cycle * CYCLE_MS + delayMs + ms) / CYCLE_MS - (ms === CYCLE_MS ? WRAP : 0);
+      if (x > 0 && x < 2) points.push([x, keyframeAt(segments, ms)]);
+    }
+  points.sort((a, b) => a[0] - b[0]);
+  const unique = points.filter((point, i) => i === 0 || point[0] > (points[i - 1]?.[0] ?? -1));
+  return { inputRange: unique.map(([x]) => x), index: unique.map(([, index]) => index) };
+}
+
+const valueAt = (values: number[], index: number): number => {
+  const low = Math.min(Math.floor(index), values.length - 1);
+  const from = values[low] ?? 0;
+  return from + ((values[low + 1] ?? from) - from) * (index - low);
+};
+
+let logoTracks: { left: ReturnType<typeof keyframeTrack>; right: ReturnType<typeof keyframeTrack>; star: ReturnType<typeof keyframeTrack> } | undefined;
+// Built on first draw: the curves come from react-native's Easing.
+const tracks = () => (logoTracks ??= { left: keyframeTrack(GLOW), right: keyframeTrack(GLOW, 240), star: keyframeTrack(TWINKLE) });
+
+/**
+ * One native loop drives a RunningLogo: `progress` runs from where it stood to one cycle on, every 2.4s, and each layer
+ * reads its keyframes from it (the right leg 240ms behind), so nothing wakes JS between cycles. It stops where it is
+ * while another screen covers this one or the app is in the background, and stays at rest under reduced motion.
+ */
+function useLogoProgress() {
+  const [clock] = useState(() => ({ progress: new Animated.Value(0), from: 0 }));
+  const active = useScreenActive();
+  useEffect(() => {
+    if (!active) return;
+    let loop: Animated.CompositeAnimation | undefined;
+    let startedAt = 0;
+    let cancelled = false;
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
+      if (cancelled) return null;
+      if (reduced) {
+        clock.from = 0;
+        clock.progress.setValue(0);
+        return null;
+      }
+      startedAt = Date.now();
+      clock.progress.setValue(clock.from);
+      loop = Animated.loop(
+        Animated.timing(clock.progress, { toValue: clock.from + 1, duration: CYCLE_MS, easing: Easing.linear, useNativeDriver: true, isInteraction: false }),
+      );
+      loop.start();
+      return null;
+    });
+    return () => {
+      cancelled = true;
+      if (!loop) return;
+      loop.stop();
+      clock.from = (clock.from + (Date.now() - startedAt) / CYCLE_MS) % 1;
+      clock.progress.setValue(clock.from);
+    };
+  }, [active, clock]);
+  return clock.progress;
+}
+
 /** Desktop's RunningLogo: the legs take turns lighting up while the sparkle swells and turns a quarter. */
 const RunningLogo = memo(function RunningLogo({ size = 16 }: { size?: number }) {
   const { colors } = useTheme();
   const ink = colors.ink;
-  const left = useKeyframes(GLOW);
-  const right = useKeyframes(GLOW, 240);
-  const star = useKeyframes(TWINKLE);
+  const progress = useLogoProgress();
   // Built once so re-renders do not detach and recreate the native animated nodes.
   const motion = useMemo(() => {
-    const glow = (value: Animated.Value) => ({ opacity: value.interpolate({ inputRange: [0, 1, 2], outputRange: [0.15, 0.55, 0.15] }) });
-    const steps = [0, 1, 2, 3];
+    const { left, right, star } = tracks();
+    const read = (track: ReturnType<typeof keyframeTrack>, values: number[]) =>
+      progress.interpolate({ inputRange: track.inputRange, outputRange: track.index.map((index) => valueAt(values, index)) });
+    // running-logo-glow: 0%, 40%, 100% { opacity: 0.15 } 12%, 22% { opacity: 0.55 }.
+    const glow = [0.15, 0.55, 0.15];
     return {
-      left: glow(left),
-      right: glow(right),
+      left: { opacity: read(left, glow) },
+      right: { opacity: read(right, glow) },
       star: {
-        opacity: star.interpolate({ inputRange: steps, outputRange: [0.45, 1, 1, 0.45] }),
+        opacity: read(star, [0.45, 1, 1, 0.45]),
         transform: [
-          { scale: star.interpolate({ inputRange: steps, outputRange: [1, 1.3, 1.12, 1] }) },
-          { rotate: star.interpolate({ inputRange: steps, outputRange: ["0deg", "45deg", "80deg", "90deg"] }) },
+          { scale: read(star, [1, 1.3, 1.12, 1]) },
+          {
+            rotate: progress.interpolate({
+              inputRange: star.inputRange,
+              outputRange: star.index.map((index) => `${valueAt([0, 45, 80, 90], index)}deg`),
+            }),
+          },
         ],
       },
     };
-  }, [left, right, star]);
+  }, [progress]);
   const scale = size / 154;
   const layer = (path: string) => (
     <Svg width={size} height={size} viewBox="-4 -4 154 154">
@@ -207,6 +315,12 @@ function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
 const TILE = 320;
 const SWEEP_PERIOD_MS = 1200;
 const TILES = 4;
+// The TILES tiles as one gradient: one view to draw and move, the same bands at the same places.
+const BAND_STOPS = [
+  0,
+  ...Array.from({ length: TILES }, (_, tile) => [110, 160, 210].map((at) => (tile * TILE + at) / (TILE * TILES))).flat(),
+  1,
+] as number[] as [number, number, ...number[]];
 
 /** Recheck on screen activation and listen while mounted; Reanimated's reduced-motion value is startup-only. */
 export function useShimmerReducedMotion(active: boolean) {
@@ -250,6 +364,16 @@ export function ShimmerText({
   numberOfLines?: number;
 }) {
   const { colors } = useTheme();
+  const band = useMemo(
+    () => ({
+      colors: [colors.ink3, ...Array.from({ length: TILES }, () => [colors.ink3, colors.ink, colors.ink3]).flat(), colors.ink3] as string[] as [
+        string,
+        string,
+        ...string[],
+      ],
+    }),
+    [colors.ink3, colors.ink],
+  );
   const [shift] = useState(() => new Animated.Value(0));
   useEffect(() => {
     // One native loop: the tile slides one width per period and wraps without waking JS.
@@ -281,20 +405,16 @@ export function ShimmerText({
               bottom: 0,
               left: -TILE,
               width: TILE * TILES,
-              flexDirection: "row",
               transform: [{ translateX: shift }],
             }}
           >
-            {Array.from({ length: TILES }, (_, index) => (
-              <LinearGradient
-                key={index}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                colors={[colors.ink3, colors.ink3, colors.ink, colors.ink3, colors.ink3]}
-                locations={[0, 110 / TILE, 160 / TILE, 210 / TILE, 1]}
-                style={{ width: TILE, height: "100%" }}
-              />
-            ))}
+            <LinearGradient
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              colors={band.colors}
+              locations={BAND_STOPS}
+              style={{ width: TILE * TILES, height: "100%" }}
+            />
           </Animated.View>
         </MaskedView>
       </View>

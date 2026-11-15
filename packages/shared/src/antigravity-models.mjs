@@ -1,6 +1,5 @@
 // Antigravity reports one model per thinking level, "<Family> (<Level>)", with irregular ids ("gemini-pro-agent" is Pro
-// at High),
-// so each family keeps a table from effort to the agent's own id.
+// at High), so each family keeps a table from effort to the agent's own id.
 
 /**
  * Personal-account options reported by ACP 1.3.0, in its order. Pro 3.1 and Flash 3.7/3.6 are Enterprise-only:

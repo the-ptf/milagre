@@ -9,6 +9,7 @@ import type { ActivityEntry } from "../../lib/reply-parts";
 import { activityBoundary, earlierStepsLabel } from "../../lib/activity-window";
 import { useSettings } from "../../lib/settings";
 import { useStepTitleSweep } from "../../lib/step-sweep";
+import { SweepText } from "../primitives/SweepText";
 import { CODE_CHIP, Markdown } from "../markdown/Markdown";
 import { HOVER_FILL, StepRow } from "./StepRow";
 import { InlineApproval, useStepApproval, useStepApprovalId, WaitingForApproval } from "./step-approval";
@@ -20,19 +21,20 @@ const NO_WAITING_STEPS: string[] = [];
 function Title({ step, running, waiting = false }: { step: ChatStep; running: boolean; waiting?: boolean }) {
   const sweep = useStepTitleSweep(running);
   return (
-    <>
+    // A block inside the line's truncating span, so the band's copy truncates at the same width.
+    <SweepText running={sweep.running} className="block min-w-0 truncate">
       {titleSpans(stepDisplayTitle({ ...step, description: undefined, detail: undefined }, running, waiting)).map((span, index) =>
         span.code ? (
           <code key={index} className={`${CODE_CHIP} ${sweep.className ?? ""}`}>
             {span.text}
           </code>
         ) : (
-          <span key={index} {...sweep}>
+          <span key={index} className={sweep.className}>
             {span.text}
           </span>
         ),
       )}
-    </>
+    </SweepText>
   );
 }
 

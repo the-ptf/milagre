@@ -2,7 +2,7 @@ import { designError } from "./design-errors.mjs";
 import { z } from "zod";
 import { designPaint } from "./design-colors.mjs";
 import { designDefaultFill } from "./design-paint.mjs";
-import { DESIGN_DEFAULT_FONT_FAMILY, validDesignFontFamily } from "./design-fonts.mjs";
+import { DESIGN_DEFAULT_FONT_FAMILY, validDesignFontFamily } from "./design-font-family.mjs";
 
 const key = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/);
 const color = z

@@ -14,7 +14,7 @@ const MAX_VIEWPORT = 4096;
 // How old a reading of the process table may be. Every window and phone asks for each Chat on screen every 15 s, and
 // a reading starts processes (ps, lsof). A Chat that can own no page now (its agent isn't running, and no browser was
 // attached to it or started by it) only learns of other browsers from one, so it takes one this old; a Chat that can
-// own one, like attach and open, takes one at most FRESH_MS old. While an agent runs the lineage tick reads every 5 s.
+// own one, like attach and open, takes one at most FRESH_MS old. While an agent works or a page is known, the lineage tick reads every 5 s.
 const FRESH_MS = 2000;
 const UNOWNED_MS = 30_000;
 
@@ -339,9 +339,17 @@ function createBrowsers(options = {}) {
     Math.min(5000, ttl),
   );
   expiryTimer.unref();
+  // Idle provider processes can linger for minutes. Only work that can launch a browser, or pages we still
+  // need to track, warrants an OS scan. On-demand paths retain their normal snapshot freshness.
+  function needsLineagePoll() {
+    if (viewers.size || cache?.world.browsers.some((browser) => browser.pages.length)) return true;
+    for (const panel of panels.values()) if (panel.pages.length) return true;
+    for (const root of roots().values()) if (root.active) return true;
+    return false;
+  }
   // Lineage must be seen while the agent's process tree still holds the browser, not only when someone opens the list.
   const lineageTimer = setInterval(() => {
-    if (!closed && supported && roots().size) void snapshot().catch(() => {});
+    if (!closed && supported && needsLineagePoll()) void snapshot().catch(() => {});
   }, options.lineagePollMs ?? 5000);
   lineageTimer.unref();
 

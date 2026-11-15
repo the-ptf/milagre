@@ -7,6 +7,7 @@ import { fileSpanIndex } from "../../lib/file-links";
 import { titleSpans } from "../../lib/reply-parts";
 import { useSettings } from "../../lib/settings";
 import { useStepTitleSweep } from "../../lib/step-sweep";
+import { SweepText } from "../primitives/SweepText";
 import { useFileOpener } from "../editor-links";
 import { StepIcon } from "./ActivitySource";
 import { StepOutput } from "./StepOutput";
@@ -96,7 +97,7 @@ export const StepRow = memo(function StepRow({
       <span aria-hidden className="flex shrink-0 text-ink-2">
         <StepIcon step={step} />
       </span>
-      <span className="min-w-0 flex-1 truncate">
+      <SweepText running={sweep.running} className="min-w-0 flex-1 truncate">
         {titleSpans(title).map((span, index) =>
           index === fileIndex && opener && step.file ? (
             <FileLink key={index} text={span.text} title={opener.title} sweep={sweep} onOpen={() => opener.open(step.file!)} />
@@ -105,12 +106,12 @@ export const StepRow = memo(function StepRow({
               {span.text}
             </code>
           ) : (
-            <span key={index} {...sweep}>
+            <span key={index} className={sweep.className}>
               {span.text}
             </span>
           ),
         )}
-      </span>
+      </SweepText>
       {step.status !== "running" && (step.summary || step.note) && (
         <span className={`max-w-[40%] shrink truncate text-11 ${step.status === "failed" ? "text-red-ink" : "text-ink-3"}`}>{step.summary || step.note}</span>
       )}

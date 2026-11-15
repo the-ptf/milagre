@@ -1,8 +1,8 @@
+import { DESIGN_DEFAULT_FONT_FAMILY, validDesignFontFamily } from "./design-font-family.mjs";
+export { DESIGN_DEFAULT_FONT_FAMILY, validDesignFontFamily } from "./design-font-family.mjs";
 import { designInterFonts, DESIGN_INTER_WEIGHTS } from "./design-font-data.mjs";
 import { DESIGN_ASCII_CHARACTERS, DESIGN_EXTRA_CHARACTERS } from "./design-font-characters.mjs";
 import { DESIGN_FONT_CATALOG, designCatalogFontLoaders } from "./design-font-catalog.mjs";
-
-export const DESIGN_DEFAULT_FONT_FAMILY = "Inter, Arial, sans-serif";
 
 const genericFamilies = new Set([
   "serif",
@@ -19,10 +19,7 @@ const genericFamilies = new Set([
   "fangsong",
 ]);
 
-export function validDesignFontFamily(value) {
-  return value.split(",").every((family) => family.trim().length > 0 && /^[\p{L}\p{N} ._-]+$/u.test(family));
-}
-
+/** The document stores plain family names; quote custom names for every CSS consumer. */
 export function designFontFamily(value = DESIGN_DEFAULT_FONT_FAMILY) {
   if (!validDesignFontFamily(value)) throw new Error("Use non-empty font family names separated by commas.");
   return value

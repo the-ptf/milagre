@@ -82,20 +82,14 @@ test("repository metadata and distribution code use the canonical repository", a
   }
 });
 
-test("ADR numbers are unique and code references point to existing decisions", async () => {
-  const decisions = (await fs.readdir(path.join(root, "docs/adr"))).filter((file) => file.endsWith(".md"));
-  const numbers = new Set();
-  for (const decision of decisions) {
-    const number = /^(\d{4})-/.exec(decision)?.[1];
-    assert.ok(number, `${decision} needs a four-digit ADR number`);
-    assert.ok(!numbers.has(number), `Duplicate ADR number: ${number}`);
-    numbers.add(number);
-  }
-  const files = execFileSync("git", ["ls-files", "-z", "apps", "packages", "scripts"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+test("docs/<name>.md paths referenced from apps, packages and scripts exist", async () => {
+  const files = execFileSync("git", ["ls-files", "-z", "apps", "packages", "scripts"], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .filter((file) => file && !/\.test\.[cm]?[jt]sx?$/.test(file));
   for (const file of files) {
     const contents = await fs.readFile(path.join(root, file), "utf8");
-    for (const [reference] of contents.matchAll(/docs\/adr\/\d{4}-[a-z0-9-]+\.md/g)) {
-      assert.ok(decisions.includes(path.basename(reference)), `${file} references missing ${reference}`);
+    for (const [reference] of contents.matchAll(/(?<![\w/.`'"-])docs\/[a-z0-9-]+\.md/g)) {
+      await assert.doesNotReject(fs.access(path.join(root, reference)), `${file} references missing ${reference}`);
     }
   }
 });

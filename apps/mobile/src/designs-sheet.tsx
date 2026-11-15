@@ -34,6 +34,7 @@ import { markDesignDeleted } from "./use-design-catalog";
 import { onShareAvailability } from "./share-availability";
 import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox } from "./viewer-chrome";
+import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 /** A comment waiting for Send, pinned where the user held the design. */
 type Note = DesignComment & { key: string };
@@ -126,6 +127,8 @@ export function DesignsSheet({
 
   // Finished designs and resolutions refresh the canvas even when it stays docked beside the Chat.
   const revision = commentActivity(snapshot, chatId, "artifact");
+  // Its comment refresh reads the Chat's live steps, so that run comes in full.
+  useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   useEffect(() => {
     if (!source) return;
     let live = true;

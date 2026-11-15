@@ -1065,7 +1065,7 @@ test("an agent's routine_delete of a webhook Routine forgets its URL secret too"
   assert.ok(!(await fs.readFile(hookFile(f), "utf8")).includes(secretOf(hookUrl)));
 });
 
-// Run Chats Victor keeps, and those swept when their Run leaves the store (docs/superpowers/specs/2026-10-18-routine-run-chats-design.md).
+// Run Chats Victor keeps, and those swept when their Run leaves the store.
 const { stateFile } = require("./project-store.cjs");
 // One Run of `routineId`, started now in a Chat of its own and ended acted: its Chat starts hidden.
 async function endedRunChat(f, routineId, reply = "Triaged three issues.") {

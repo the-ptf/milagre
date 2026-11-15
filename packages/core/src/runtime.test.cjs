@@ -39,6 +39,60 @@ async function fixture(t) {
   return { project, dataDir, chatsHome, events, options, make };
 }
 
+test("runtime startup and tool schemas defer the Design implementation until a Design operation", async (t) => {
+  const { options } = await fixture(t);
+  // A fresh process makes this independent of other tests that have already used Designs.
+  const check = async (options) => {
+    const assert = require("node:assert/strict");
+    const { z } = require("zod");
+    const { createRuntime } = require("./runtime.cjs");
+    const design = require.resolve("@milagre/shared/design");
+    assert.ok(!require.cache[design], "requiring runtime is cold");
+    const runtime = createRuntime({ ...options, environmentReady: Promise.resolve() });
+    try {
+      assert.ok(!require.cache[design], "creating the host is cold");
+      const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
+      const { designKitToolDefinitions } = require("./design-kits.cjs");
+      const opened = await runtime.invoke("project:current");
+      const chatId = `${options.cwd}#${Object.values(opened.state.sessions)[0].id}`;
+      const artifacts = createChatArtifacts({ directory: require("node:path").join(options.dataDir, "artifacts"), validateChat: async () => {} });
+      const tools = artifactToolDefinitions(chatId, artifacts, undefined, { renderPng: async () => ({ png: "test" }) });
+      for (const tool of [
+        ...tools,
+        ...htmlArtifactToolDefinitions(chatId, artifacts),
+        ...artifactCommentToolDefinitions(chatId, artifacts),
+        ...designKitToolDefinitions(chatId, {}),
+      ]) {
+        assert.ok(z.toJSONSchema(z.object(tool.input)));
+      }
+      assert.ok(!require.cache[design], "declaring and serializing every tool schema is cold");
+      assert.ok(!Object.keys(require.cache).some((file) => /design-(?:icons|font-data|layout|svg)\.mjs$/.test(file)), "fonts and rendering are cold too");
+      const result = await tools
+        .find((tool) => tool.name === "design_show")
+        .run({
+          id: "lazy-design",
+          title: "Lazy design",
+          document: { schemaVersion: 1, width: 390, height: 844, nodes: [] },
+        });
+      assert.ok(require.cache[design], "the first Design operation loads the implementation");
+      assert.equal(JSON.parse(result.text.split("\n")[0]).id, "lazy-design");
+      assert.equal((await runtime.invoke("artifact:get", [{ chatId, id: "lazy-design" }])).title, "Lazy design");
+      await artifacts.close();
+    } finally {
+      await runtime.close();
+    }
+  };
+  execFileSync(
+    process.execPath,
+    ["-e", `(${check.toString()})(${JSON.stringify(options)}).catch((error) => { console.error(error); process.exitCode = 1; })`],
+    {
+      cwd: __dirname,
+      timeout: 30000,
+      stdio: "pipe",
+    },
+  );
+});
+
 test("the host Designs switch is always on, so saving it off changes nothing", async (t) => {
   const { make, events } = await fixture(t);
   const runtime = make();
