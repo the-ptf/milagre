@@ -18,6 +18,11 @@ import { useInternalBrowser } from "./browser-setting";
 import { openBrowserLink } from "./browser-link";
 import { useChatPanelTabs } from "./side-panels";
 
+/** Whether two answers of the ports poll list the same ports, in the same order. */
+function samePorts(a: readonly AgentPort[], b: readonly AgentPort[]) {
+  return a === b || (a.length === b.length && JSON.stringify(a) === JSON.stringify(b));
+}
+
 /** The host returns only this Chat's proven processes. A Worktree is never an owner. */
 export function useChatPorts(client: Client | null, chatId?: string) {
   const [ports, setPorts] = useState<AgentPort[]>([]);
@@ -39,12 +44,13 @@ export function useChatPorts(client: Client | null, chatId?: string) {
           const result = await client.call<{ chatId: string; ports: AgentPort[] }>("chat:ports", [chatId]);
           if (result.chatId !== chatId) throw new Error("Update Milagre on your computer to view this Chat's ports.");
           if (!disposed && sequence === request) {
-            setPorts(result.ports);
+            // The poll answers every 5 s; an unchanged list keeps its array, so the Chat screen reading it doesn't render again.
+            setPorts((current) => (samePorts(current, result.ports) ? current : result.ports));
             setError("");
           }
         } catch (failure) {
           if (!disposed && sequence === request) {
-            setPorts([]);
+            setPorts((current) => (current.length ? [] : current));
             setError(failure instanceof Error ? failure.message : "Could not list ports.");
           }
         } finally {

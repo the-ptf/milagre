@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Lighthouse scores for apps/site never go down (AGENTS.md, "Landing page Lighthouse budget"). This compares the
+// Lighthouse scores for apps/site never go down (AGENTS.md, Pull requests). This compares the
 // budget file at the PR's base with the PR's copy and fails when a floor drops or skipAudits gains an audit, unless
 // the PR carries the lighthouse-budget-approved label.
 // node scripts/check-lighthouse-budget.cjs <base-budget.json> <head-budget.json>   (LABELS='["label", ...]')

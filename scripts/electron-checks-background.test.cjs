@@ -5,7 +5,7 @@ const { test } = require("node:test");
 const { discoverElectronChecks } = require("./test-runner.cjs");
 
 // Every desktop copy a check starts on a Mac someone is using runs with MILAGRE_BACKGROUND=1: no window, Dock icon,
-// focus change, notification or dialog (AGENTS.md, Checks before a PR). Only the real app (apps/desktop/electron/main.cjs)
+// focus change, notification or dialog (AGENTS.md, Ways to hurt yourself). Only the real app (apps/desktop/electron/main.cjs)
 // reads it; checks that open their own hidden BrowserWindow on a Vite fixture don't start the app and aren't covered.
 const root = path.resolve(__dirname, "..");
 // It requires main.cjs, or hands Electron the app folder as its first argument: [path.join(root, "apps/desktop"), ...].

@@ -6,8 +6,7 @@ const { fromGraphql, readPullRequests, PULL_REQUEST_FIELDS, PR_REF, MAX_REFS } =
 
 // The PR each Worktree's branch opened, and the PRs its Chats named, polled by the host for every client: one GraphQL
 // query per repository answers up to ALIASES branches and PR numbers, and a client's read answers from what the last
-// poll found. A read never waits on GitHub unless nothing was read for it yet. Spec:
-// docs/superpowers/specs/2026-10-30-daemon-pr-polling-design.md.
+// poll found. A read never waits on GitHub unless nothing was read for it yet.
 
 const ALIASES = 25;
 // How often a repository is read: while one of its PRs' checks run, while a client shows it, otherwise.

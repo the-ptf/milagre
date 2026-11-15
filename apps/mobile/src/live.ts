@@ -138,6 +138,8 @@ export type SyncOptions = {
   connect: (options: Pick<LiveOptions, "onSignal" | "onStatus">) => Live;
   snapshot: () => Promise<void>;
   runs: () => Promise<void>;
+  /** Local detail selection changes share the live signals' serialized pull path. */
+  watchRuns?: (listener: () => void) => () => void;
   accounts?: () => void;
   /** A Link was made or removed on the computer. */
   links?: () => void;
@@ -163,6 +165,7 @@ export function syncProject({
   connect,
   snapshot,
   runs,
+  watchRuns,
   accounts,
   links,
   designs,
@@ -290,8 +293,12 @@ export function syncProject({
     start();
     schedule();
   });
+  const unwatchRuns = watchRuns?.(() => {
+    if (!stopped && active()) void pull("runs");
+  });
   return () => {
     stopped = true;
+    unwatchRuns?.();
     unwatch();
     background();
   };

@@ -35,7 +35,6 @@ const BASELINE = path.join(root, ".oxlintrc.size-baseline.json");
 const RULES = ["max-lines", "max-lines-per-function", "complexity"];
 const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
 
-// Test files are exempt from the size rules (see the matching override in .oxlintrc.json).
 function isTest(file) {
   return /\.test\.|\.spec\.|(^|\/)__tests__\//.test(file) || /^scripts\/test-[^/]*\.cjs$/.test(file);
 }
@@ -44,12 +43,10 @@ function git(argv) {
   return execFileSync("git", argv, { cwd: root, encoding: "utf8", maxBuffer: 1 << 30 });
 }
 
-// Reads JSON, allowing the whole-line // comments the generated baseline starts with.
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, ""));
 }
 
-// The global limits live in .oxlintrc.json; this reads them so there is one source of truth.
 function limits() {
   const rules = readJson(CONFIG).rules ?? {};
   const out = {};
@@ -61,7 +58,6 @@ function limits() {
   return out;
 }
 
-// The repo's pinned copy of a dev tool (oxlint, oxfmt), through npx when node_modules is missing.
 function bin(name) {
   const local = path.join(root, "node_modules", ".bin", name);
   if (fs.existsSync(local)) return { cmd: local, pre: [] };
@@ -69,8 +65,6 @@ function bin(name) {
   return { cmd: "npx", pre: ["-y", `${name}@${version.replace(/^[^\d]*/, "")}`] };
 }
 
-// Runs oxlint over everything the real config lints, with every size limit at 0, so each file
-// reports its own numbers counted exactly the way `npm run lint` counts them.
 function measure() {
   const config = readJson(CONFIG);
   const lim = limits();
@@ -117,7 +111,6 @@ function measure() {
   return byFile;
 }
 
-// One git log pass: per file, commits and fix commits.
 function history() {
   const out = git(["log", "--no-merges", "--name-only", "--format=%x00%s", "--no-renames"]);
   const commits = new Map();
@@ -153,7 +146,7 @@ function buildBaseline(metrics, allowRaise) {
       const beforeMax = before ? (typeof before[1] === "number" ? before[1] : before[1].max) : undefined;
       let cap = value;
       if (beforeMax !== undefined && value > beforeMax && !allowRaise) {
-        cap = beforeMax; // keep the old cap: lint goes on failing until the file shrinks back
+        cap = beforeMax;
         raised.push(`${file} ${rule}: ${value} > cap ${beforeMax}`);
       }
       const options = lim[rule].options;
@@ -164,8 +157,6 @@ function buildBaseline(metrics, allowRaise) {
   return { overrides, raised };
 }
 
-// --check: fails when a cap sits above the file's current size (room to grow back unnoticed)
-// or a file under the limits still has an entry. Lint already fails on files over their cap.
 function checkBaseline(metrics) {
   const { overrides } = buildBaseline(metrics, false);
   if (JSON.stringify(overrides) === JSON.stringify(readBaseline())) {
@@ -187,7 +178,7 @@ function writeBaseline(metrics) {
   ];
   fs.writeFileSync(BASELINE, `${header.join("\n")}\n${JSON.stringify({ overrides }, null, 2)}\n`);
   const fmt = bin("oxfmt");
-  execFileSync(fmt.cmd, [...fmt.pre, BASELINE], { cwd: root, stdio: "ignore" }); // match the pre-commit format check
+  execFileSync(fmt.cmd, [...fmt.pre, BASELINE], { cwd: root, stdio: "ignore" });
   process.stdout.write(`Wrote ${path.relative(root, BASELINE)}: ${overrides.length} files over the global limits.\n`);
   if (raised.length > 0) {
     process.stdout.write(`Kept old caps (file grew; shrink it or rerun with --allow-raise):\n  ${raised.join("\n  ")}\n`);

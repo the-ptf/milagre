@@ -11,7 +11,7 @@ import { ComposerTray, OfflineTray } from "../offline-tray";
 import { ComposerGlass } from "../composer-glass";
 import { LINK_CHAT_WORKTREES_TEXT, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
@@ -100,7 +100,7 @@ import { openBrowserLink } from "../browser-link";
 import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import { ChatReply } from "../chat-reply";
+import { ChatReply, type ReplyChat } from "../chat-reply";
 import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
 import { chosenDesign, designActivity } from "@milagre/shared/artifact";
@@ -211,6 +211,7 @@ import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 import { promptText } from "../text-prompt";
+import { useVisibleRunChatKeys } from "../visible-run-chats";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -264,23 +265,138 @@ function HeaderTitleBox({ actionCount, children }: { actionCount: number; childr
   return <View style={{ alignItems: "center", width: "100%", maxWidth: headerTitleWidth(chatAreaWidth(window.width, pinned), actionCount) }}>{children}</View>;
 }
 
+/**
+ * A pane's native header content, kept apart from its screen options. expo-router publishes a Stack.Screen's options and a
+ * Stack.Toolbar's children to the navigator whenever they change, which re-renders the navigator; what changes with every
+ * Chat render goes through this slot instead, and the options stay the same object.
+ */
+type HeaderSlotStore = { get: () => ReactNode; set: (content: ReactNode) => void; subscribe: (listener: () => void) => () => void };
+function headerSlotStore(initial: ReactNode): HeaderSlotStore {
+  let content = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => content,
+    set(next) {
+      if (next === content) return;
+      content = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+/** Draws what the slot holds now, in the header. */
+function HeaderSlot({ slot }: { slot: HeaderSlotStore }) {
+  return <>{useSyncExternalStore(slot.subscribe, slot.get)}</>;
+}
+/** The slot `content` goes through, written as the pane commits, so the header shows it in the same frame. */
+function useHeaderSlot(content: ReactNode) {
+  const [slot] = useState(() => headerSlotStore(content));
+  useLayoutEffect(() => slot.set(content), [slot, content]);
+  return slot;
+}
+
+/** A new Chat has no title until it has a name; the header draws what the slot holds. */
+function chatScreenOptions(title: string, starting: boolean, slot: HeaderSlotStore) {
+  return {
+    title: starting ? "" : title,
+    headerTitle: () => (starting ? null : <HeaderSlot slot={slot} />),
+    headerShown: true,
+    headerBackVisible: false,
+    gestureEnabled: false,
+  };
+}
+/** The routed Chat's native header when it is alone: its options change only with the title, `header` draws through a slot. */
+function ChatStackOptions({ title, starting, header }: { title: string; starting: boolean; header: ReactNode }) {
+  const slot = useHeaderSlot(header);
+  const options = useMemo(() => chatScreenOptions(title, starting, slot), [title, starting, slot]);
+  return <Stack.Screen options={options} />;
+}
+
+/** The routed Chat's route with another Chat beside it: each pane draws its own header, the route keeps only the title. */
+function HiddenHeaderOptions({ title }: { title: string }) {
+  const options = useMemo(() => ({ title, headerShown: false, headerBackVisible: false, gestureEnabled: false }), [title]);
+  return <Stack.Screen options={options} />;
+}
+
+/**
+ * The header's right toolbar: `children` (the actions) draw through a slot, and the toolbar is published again only when
+ * `shape` (which buttons show) changes, so the native bar measures it again exactly when its width can change.
+ */
+function ChatToolbar({ shape, children }: { shape: string; children: ReactNode }) {
+  const slot = useHeaderSlot(children);
+  const items = useMemo(
+    () => (
+      // Keyed on the shape so its options change when a button comes or goes.
+      <Stack.Toolbar.View key={shape} hidesSharedBackground>
+        <HeaderSlot slot={slot} />
+      </Stack.Toolbar.View>
+    ),
+    [shape, slot],
+  );
+  return <Stack.Toolbar placement="right">{items}</Stack.Toolbar>;
+}
+
+/**
+ * The title's family menu (subchat-family.ts). It reads the Project's runs itself, as each member's state follows its turn,
+ * so the Chat screen around it doesn't render again for every step another Chat of the Project streams.
+ */
+function FamilyTitleMenu({
+  sessions,
+  chatKey,
+  members,
+  routines,
+  routinesOn,
+  now,
+  canOpenBeside,
+  label,
+  title,
+  onSelect,
+  children,
+}: {
+  sessions: Parameters<typeof familyMenu>[0]["sessions"];
+  chatKey: string;
+  members: readonly string[];
+  routines: Parameters<typeof familyMenu>[0]["routines"];
+  routinesOn: boolean;
+  now: number;
+  canOpenBeside: boolean;
+  label: string;
+  title: string;
+  onSelect: (id: string) => void;
+  children: ReactNode;
+}) {
+  const runs = useSession().snapshot?.runs.runs;
+  const sectionsKey = JSON.stringify(familyMenu({ sessions, key: chatKey, children: members, routines, routinesOn, runs, now, canOpenBeside }));
+  const sections = useMemo(() => JSON.parse(sectionsKey) as MenuSection[], [sectionsKey]);
+  return (
+    <PullDown label={label} title={title} sections={sections} onSelect={onSelect} style={{ maxWidth: "100%" }}>
+      {children}
+    </PullDown>
+  );
+}
+
 /** The native header's sidebar button: shows or hides the pinned sidebar, or slides the navigation over on a narrower window. */
 function SidebarToolbar({ onOpenNavigation }: { onOpenNavigation: (side: "left") => void }) {
-  const split = useSplit();
-  const label = split.dockable ? (split.pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation";
-  const press = () => (split.dockable ? split.toggle() : onOpenNavigation("left"));
-  // Stack.Toolbar.Button takes SF Symbols only on iOS; Android needs a React child.
-  return (
-    <Stack.Toolbar placement="left">
-      {Platform.OS === "ios" ? (
+  const { dockable, pinned, toggle } = useSplit();
+  const label = dockable ? (pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation";
+  const press = useCallback(() => (dockable ? toggle() : onOpenNavigation("left")), [dockable, toggle, onOpenNavigation]);
+  // Stack.Toolbar.Button takes SF Symbols only on iOS; Android needs a React child. The same children keep the toolbar's
+  // options from being published again on every Chat render.
+  const items = useMemo(
+    () =>
+      Platform.OS === "ios" ? (
         <Stack.Toolbar.Button icon="sidebar.left" accessibilityLabel={label} onPress={press} />
       ) : (
         <Stack.Toolbar.View>
           <HeaderButton label={label} icon={SidebarLeftIcon} onPress={press} />
         </Stack.Toolbar.View>
-      )}
-    </Stack.Toolbar>
+      ),
+    [label, press],
   );
+  return <Stack.Toolbar placement="left">{items}</Stack.Toolbar>;
 }
 
 /** The sidebar button of a Chat with another beside it, which draws its own header. */
@@ -644,8 +760,13 @@ function ChatPane({
   const mentionLink = session.snapshot?.project.link;
   // This Chat's streaming turn, read on its own: a runs read for another Chat of the Project re-renders nothing here.
   const liveRun = useRun(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
+  // Its run's text and steps come in full; other Chats' runs come as summaries (visible-run-chats.ts).
+  useVisibleRunChatKeys(session.client, params.id && projectPath ? [`${projectPath}#${params.id}`] : []);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
+  // What a sent message's @ chips read of them: a Chat's activity moving (`at`, `lastAt`) re-renders no saved reply.
+  const replyChatsKey = JSON.stringify(mentionChats.map(({ id, title, available }) => ({ id, title, available })));
+  const replyChats = useMemo(() => JSON.parse(replyChatsKey) as ReplyChat[], [replyChatsKey]);
   // The computers an @ can name: this Chat's computer first, then the others this phone reaches.
   const computerViews = useComputerViews();
   const mentionHost = connected?.url;
@@ -1157,6 +1278,10 @@ function ChatPane({
     () => ({ host: reachableHost, loopbackOnly: new Set(loopbackKey ? loopbackKey.split(",").map(Number) : []) as ReadonlySet<number> }),
     [reachableHost, loopbackKey],
   );
+  // Every saved reply, note and pill opens a family Chat through this one stable function, so they don't render again with
+  // each Chat render; it calls the openFamilyChat of the latest render.
+  const openFamilyRef = useRef<(key: string) => void>(() => {});
+  const onOpenFamilyChat = useCallback((key: string) => openFamilyRef.current(key), []);
   // The Chat beside waits for its own Project in its pane; it never sends the app back to the computers.
   if (secondary && (!session.client || !session.snapshot || !targetMatches)) {
     return (
@@ -2127,21 +2252,9 @@ function ChatPane({
     if (key === `${project.path}#${chat?.id}`) return;
     openOtherChat(key);
   }
+  openFamilyRef.current = openFamilyChat;
   // "Open beside parent" is the one way into a split from a Subchat, for a wide iPad's second pane.
   const besideParent = bookmark && split.widthClass === "wide" && !secondary ? sessionIdFromKey(bookmark.parent) : undefined;
-  const familyItems: MenuSection[] =
-    family && chat
-      ? familyMenu({
-          sessions: project.state.sessions,
-          key: `${project.path}#${chat.id}`,
-          children: family.children,
-          routines,
-          routinesOn: routinesOn === true,
-          runs: session.snapshot?.runs.runs,
-          now,
-          canOpenBeside: besideParent !== undefined,
-        })
-      : [];
   function selectFamilyItem(id: string) {
     if (id === BESIDE_PARENT) {
       if (besideParent !== undefined) openBeside({ hostId: targetHost, projectPath: project.path, chatId: besideParent });
@@ -2164,16 +2277,21 @@ function ChatPane({
   const header = (
     <>
       <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr)}>
-        {family ? (
-          <PullDown
+        {family && chat ? (
+          <FamilyTitleMenu
+            sessions={project.state.sessions}
+            chatKey={`${project.path}#${chat.id}`}
+            members={family.children}
+            routines={routines}
+            routinesOn={routinesOn === true}
+            now={now}
+            canOpenBeside={besideParent !== undefined}
             label={`${title}, ${family.children.length} Subchat${family.children.length === 1 ? "" : "s"} in this family`}
             title={title}
-            sections={familyItems}
             onSelect={selectFamilyItem}
-            style={{ maxWidth: "100%" }}
           >
             {titleRow}
-          </PullDown>
+          </FamilyTitleMenu>
         ) : (
           titleRow
         )}
@@ -2287,11 +2405,7 @@ function ChatPane({
       </PullDown>
     </HeaderActionGroup>
   );
-  const more = (
-    <Stack.Toolbar placement="right">
-      <Stack.Toolbar.View hidesSharedBackground>{headerActions}</Stack.Toolbar.View>
-    </Stack.Toolbar>
-  );
+  const more = <ChatToolbar shape={`${!!browserShortcut}|${!!pr}`}>{headerActions}</ChatToolbar>;
   const paneHeader = paired ? (
     <View
       pointerEvents="box-none"
@@ -2327,7 +2441,7 @@ function ChatPane({
       <SubchatNoteView
         note={note}
         outcomes={notes.outcomes}
-        onOpenChat={openFamilyChat}
+        onOpenChat={onOpenFamilyChat}
         onSend={(suggestion) => client.call("agent:answer-question", [suggestionArguments(suggestion)])}
         onDismiss={(id) => client.call("agent:dismiss-suggestion", [{ chatId, id }])}
       />
@@ -2406,18 +2520,8 @@ function ChatPane({
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
-            {!paired && (
-              <Stack.Screen
-                options={{
-                  title: startingChat ? "" : title,
-                  headerTitle: () => (startingChat ? null : header),
-                  headerShown: true,
-                  headerBackVisible: false,
-                  gestureEnabled: false,
-                }}
-              />
-            )}
-            {pane === "primary" && <Stack.Screen options={{ title, headerShown: false, headerBackVisible: false, gestureEnabled: false }} />}
+            {!paired && <ChatStackOptions title={title} starting={startingChat} header={header} />}
+            {pane === "primary" && <HiddenHeaderOptions title={title} />}
             {!paired && sidebar}
             {!paired && more}
             <View style={{ flex: 1 }}>
@@ -2616,12 +2720,13 @@ function ChatPane({
                                   {issueRunDivider(message, merged)}
                                   <ChatReply
                                     message={message}
-                                    chats={mentionChats}
+                                    // Only a user message's @ chips and feedback cards read these; an assistant reply keeps its defaults.
+                                    chats={message.role === "user" ? replyChats : undefined}
                                     media={media}
                                     basePath={worktree?.path || project.path}
                                     chatId={chatId}
                                     designChoice={designChoice}
-                                    designsMoved={designsMoved}
+                                    designsMoved={message.role === "user" ? designsMoved : undefined}
                                     // A limit card offers other accounts only on the Chat's last message, with no turn running.
                                     limitPending={message.id === chat?.limitResume?.sourceMessageId ? chat.limitResume : undefined}
                                     limitResumeAvailable={message.id === chat?.limitTurn?.sourceMessageId}
@@ -2633,7 +2738,7 @@ function ChatPane({
                                     }
                                     onActivity={openActivity}
                                     highlighted={message.id === undoHighlight}
-                                    onOpenChat={openFamilyChat}
+                                    onOpenChat={onOpenFamilyChat}
                                   />
                                 </>
                               ))}
@@ -2681,13 +2786,7 @@ function ChatPane({
                 {underHeader && <EdgeFade edge="top" height={topClear} width={window.width} />}
                 {paneHeader}
                 {bookmark && (
-                  <SubchatBookmarkHost
-                    sessions={project.state.sessions}
-                    chatKey={chatId}
-                    runs={session.snapshot?.runs.runs}
-                    top={insets.top + chrome.header + 8}
-                    onBack={openFamilyChat}
-                  />
+                  <SubchatBookmarkHost sessions={project.state.sessions} chatKey={chatId} top={insets.top + chrome.header + 8} onBack={onOpenFamilyChat} />
                 )}
                 {startingChat && (
                   <Animated.View
@@ -2831,7 +2930,9 @@ function ChatPane({
                       failure={project.state.persistence}
                       offline={!!session.error}
                     />
-                    {chat && !chatsHomeOpen && (!question || answering) && <SubchatAsk panel={subchatPanel} messages={messages} onOpenChat={openFamilyChat} />}
+                    {chat && !chatsHomeOpen && (!question || answering) && (
+                      <SubchatAsk panel={subchatPanel} messages={messages} onOpenChat={onOpenFamilyChat} />
+                    )}
                     {(!question || answering) && (
                       // More pills than fit scroll sideways; the spacer still right-aligns them when they fit.
                       <ScrollView
@@ -3440,7 +3541,7 @@ function ChatPane({
               />
             )}
             <PlanPanel panel={planPanel} />
-            <SubchatPanel panel={subchatPanel} messages={messages} onOpenChat={openFamilyChat} />
+            <SubchatPanel panel={subchatPanel} messages={messages} onOpenChat={onOpenFamilyChat} />
           </View>
         </PanelTabsContext>
       </ChatLinkProvider>

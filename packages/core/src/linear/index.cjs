@@ -8,7 +8,7 @@ const { postGraphql, createLinearClient } = require("./client.cjs");
 
 const VIEWER = "query Viewer { viewer { name email } organization { name urlKey } }";
 
-// The Mac's Linear connections, one per workspace (see docs/superpowers/specs/2026-10-08-linear-integration-design.md).
+// The Mac's Linear connections, one per workspace.
 // A workspace is named by its URL key (`acme`), lower case.
 function createLinear({
   dataDir,

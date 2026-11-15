@@ -307,7 +307,7 @@ class ChatHost {
   }
 
   /**
-   * Makes `childKey` a subchat of `parentKey`: a Delegation inside one Project went from the parent to it (ADR-0002).
+   * Makes `childKey` a subchat of `parentKey`: a Delegation inside one Project went from the parent to it (docs/links.md).
    * Saved as `parent` on the child once, the first time: a Chat that already has a parent keeps it. Never across
    * Projects, never on itself, and never when the parent already descends from the child, so the chain can't loop.
    * Resolves true when it saved.

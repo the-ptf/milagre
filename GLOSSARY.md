@@ -23,7 +23,7 @@ A git repository that has been opened in Milagre at least once. Every **Worktree
 _Avoid_: folder, workspace, repo
 
 **Chats home**:
-The internal **Project** that holds a **Computer**'s **Chats** without a **Project**, one **Worktree** per **Chat**. A git repository at `~/.milagre/chats`, made on first use. Never shown as a **Project**: the UI calls it "No project" and lists its **Chats** in a **Chats** group. See ADR-0011.
+The internal **Project** that holds a **Computer**'s **Chats** without a **Project**, one **Worktree** per **Chat**. A git repository at `~/.milagre/chats`, made on first use. Never shown as a **Project**: the UI calls it "No project" and lists its **Chats** in a **Chats** group. See [chat-storage](docs/chat-storage.md).
 _Avoid_: quick chats, default project
 
 **Worktree**:
@@ -41,8 +41,8 @@ _Avoid_: ticket, task (Linear's own word is issue)
 **Chat**:
 One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project**. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
 A **Chat** started with No project is a **Chat** in the **Chats home**, on its own **Worktree**; it has no Git controls.
-A Worktree-to-Worktree **Link** can explicitly adopt its existing isolated Worktrees into a shared **Chat**, one per Project. Earlier Chats stay read-only; returning to separate Chats starts fresh conversations without moving files or branches. See ADR-0019.
-Chats can be marked **Done**, reopened, or archived automatically after their Done retention period. **Delete** immediately removes the conversation. Starting another Chat leaves existing Chats and their menu actions available. See ADR-0012.
+A Worktree-to-Worktree **Link** can explicitly adopt its existing isolated Worktrees into a shared **Chat**, one per Project. Earlier Chats stay read-only; returning to separate Chats starts fresh conversations without moving files or branches. See [links](docs/links.md).
+Chats can be marked **Done**, reopened, or archived automatically after their Done retention period. **Delete** immediately removes the conversation. Starting another Chat leaves existing Chats and their menu actions available. See [chat-storage](docs/chat-storage.md).
 An archived **Chat** stays readable from a linked side but is never chosen to receive a **Delegation**.
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 
@@ -51,11 +51,11 @@ Work that outlives the **Chat**'s turn and reports back to it by itself: a backg
 _Avoid_: job, child (Codex's term for a subagent)
 
 **Browser page**:
-A page in a Chromium browser on the host that a **Chat** may view and control. It belongs to the **Chat** whose agent process started its browser, or to a **Chat** the user attached that browser to. See ADR-0016.
+A page in a Chromium browser on the host that a **Chat** may view and control. It belongs to the **Chat** whose agent process started its browser, or to a **Chat** the user attached that browser to. See [host](docs/host.md).
 _Avoid_: tab (a browser's own UI term), session (the page's sign-in state is part of it, not a separate thing)
 
 **Terminal**:
-An interactive shell the user opens in a **Chat**. It starts in that **Chat**'s **Worktree** (or a shared Chat's workspace folder before its first Worktree is created) with the user's own environment and the shell chosen for that computer. Automatic selection uses installed zsh on Linux or the user's login shell otherwise; changing the choice applies only to new **Terminals**. It belongs to the **Chat**: other **Chats**, even in the same **Worktree**, do not see it, and the **Chat**'s agent neither reads nor types in it. A **Chat** can have several. A **Terminal** keeps running when the desktop app closes, and ends when its shell exits or its **Chat** is archived. See ADR-0008.
+An interactive shell the user opens in a **Chat**. It starts in that **Chat**'s **Worktree** (or a shared Chat's workspace folder before its first Worktree is created) with the user's own environment and the shell chosen for that computer. Automatic selection uses installed zsh on Linux or the user's login shell otherwise; changing the choice applies only to new **Terminals**. It belongs to the **Chat**: other **Chats**, even in the same **Worktree**, do not see it, and the **Chat**'s agent neither reads nor types in it. A **Chat** can have several. A **Terminal** keeps running when the desktop app closes, and ends when its shell exits or its **Chat** is archived. See [host](docs/host.md).
 _Avoid_: console, shell (the program running inside a **Terminal**)
 
 **Task list**:
@@ -67,7 +67,7 @@ Where a **Chat**'s work is (Start, Plan, Build, Test, Review, Merge, Release, Do
 ### Linking
 
 **Named Link**:
-A named, selectable set of two or more **Projects** in the desktop sidebar. Its shared **Chats** each create their own set of isolated **Worktrees**, one per member Project, and have one canonical conversation. The agent can edit all Worktrees owned by that Chat. Editing a Link's members changes only Chats started afterwards. Named Links do not create or replace canvas Links. See ADR-0005.
+A named, selectable set of two or more **Projects** in the desktop sidebar. Its shared **Chats** each create their own set of isolated **Worktrees**, one per member Project, and have one canonical conversation. The agent can edit all Worktrees owned by that Chat. Editing a Link's members changes only Chats started afterwards. Named Links do not create or replace canvas Links. See [links](docs/links.md).
 
 **Link**:
 A symmetric, persistent relationship between two **Link** endpoints, each a **Project** or a **Worktree**. The user draws it on the canvas, or an agent makes one between two **Worktrees** with `worktree_link`. Every **Chat** on either side sees the other side's state and can make a **Delegation** to it. A **Link** reaches one hop only: X–Y and Y–Z do not let X see or delegate to Z. It has no type and lasts until the user removes it or a **Worktree** endpoint stops being active. A **Project** endpoint stands for all of that project's active **Worktrees**, including ones created after the **Link**.
@@ -103,7 +103,7 @@ What fires a **Routine**: a schedule, a Linear event or a webhook. Used loosely 
 One firing of a **Routine**. It acts, is quiet, fails, or is skipped because its **Chat** was busy or the **Computer** missed its time.
 
 **Flow**:
-A **Routine** whose **Runs** go step by step instead of one turn on one prompt: agent steps (each a turn in a **Run Chat** that hands back typed fields), Ifs that pick a path, approvals, waits, and actions (open a pull request, comment on Linear). Edited as a draft and published as numbered revisions; a **Run** keeps the revision it started on (ADR-0014).
+A **Routine** whose **Runs** go step by step instead of one turn on one prompt: agent steps (each a turn in a **Run Chat** that hands back typed fields), Ifs that pick a path, approvals, waits, and actions (open a pull request, comment on Linear). Edited as a draft and published as numbered revisions; a **Run** keeps the revision it started on ([routines](docs/routines.md)).
 
 **Step**:
 One part of a **Flow**. An agent step hands its fields back with `flow_step_output`; later steps read them as `{{step.field}}`.
@@ -138,7 +138,7 @@ _Avoid_: client (any connection to the daemon, this Mac's own window included)
 - A **Link** joins exactly two endpoints; each endpoint is a **Project** or a **Worktree**.
 - A **Delegation** goes from one **Chat** to one other **Chat**, along exactly one **Link**, or along none inside one **Project**.
 - A **Negotiation** involves exactly two **Chats** and is made of **Delegations** along one **Link**, or inside one **Project**.
-- A **Project** lives on exactly one **Computer**, whose daemon is its only writer (ADR-0003).
+- A **Project** lives on exactly one **Computer**, whose daemon is its only writer ([host](docs/host.md)).
 
 ## Example dialogue
 

@@ -1,4 +1,4 @@
-// Source branch sync copy, shared by desktop and phone (see docs/superpowers/specs/2026-10-08-main-branch-sync-design.md).
+// Source branch sync copy, shared by desktop and phone.
 
 export type MainSyncOutcome = "updated" | "up-to-date" | "skipped" | "failed";
 export type MainSyncResult = { at: number; outcome: MainSyncOutcome; branch: string; commit?: string; message?: string };

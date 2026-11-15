@@ -34,7 +34,7 @@
         "max-lines": [
           "error",
           {
-            "max": 1002,
+            "max": 1031,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -42,7 +42,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 559,
+            "max": 560,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -717,7 +717,7 @@
     {
       "files": ["apps/mobile/src/app/activity.tsx"],
       "rules": {
-        "complexity": ["error", 59]
+        "complexity": ["error", 62]
       }
     },
     {
@@ -726,7 +726,7 @@
         "max-lines": [
           "error",
           {
-            "max": 3163,
+            "max": 3234,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -734,12 +734,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2826,
+            "max": 2806,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 654]
+        "complexity": ["error", 652]
       }
     },
     {
@@ -782,7 +782,7 @@
         "max-lines": [
           "error",
           {
-            "max": 879,
+            "max": 881,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -790,12 +790,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 422,
+            "max": 423,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 62]
+        "complexity": ["error", 63]
       }
     },
     {
@@ -804,7 +804,7 @@
         "max-lines": [
           "error",
           {
-            "max": 887,
+            "max": 889,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -812,12 +812,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 425,
+            "max": 426,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 94]
+        "complexity": ["error", 95]
       }
     },
     {
@@ -854,7 +854,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 293,
+            "max": 298,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -867,12 +867,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 547,
+            "max": 548,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 88]
+        "complexity": ["error", 89]
       }
     },
     {
@@ -1016,7 +1016,7 @@
         "max-lines": [
           "error",
           {
-            "max": 875,
+            "max": 887,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1024,7 +1024,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 563,
+            "max": 564,
             "skipBlankLines": true,
             "skipComments": true
           }

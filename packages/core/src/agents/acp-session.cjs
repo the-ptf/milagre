@@ -27,7 +27,7 @@ const { commandRisk } = require("./command-risk.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
-// A chat's session with an Agent Client Protocol agent (docs/adr/0006-antigravity-over-acp.md). The public
+// A chat's session with an Agent Client Protocol agent (docs/providers.md). The public
 // surface matches CodexSession, which SessionManager and ChatHost rely on. What is specific to one agent
 // (command, environment, permission modes, how it says "sign in") comes from `config`; see antigravity-acp.cjs.
 //
