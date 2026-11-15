@@ -12,6 +12,8 @@ import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
 import { AppDialogs, AppSettingsModal, SettingsNav } from "./app/AppDialogs";
 import { useAppDialogs } from "./app/useAppDialogs";
+import { useAppShortcuts, useJumpToChat } from "./app/useAppShortcuts";
+import { useFindInChat } from "./app/useFindInChat";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
@@ -87,7 +89,7 @@ import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from 
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
-import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
+import { setKeyContext } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
 import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
@@ -157,7 +159,6 @@ import { beginChatSwitch, markChatSwitch } from "./lib/chat-switch-timing";
 import { newChatProject, PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
-import { appShortcutsBlocked, isModalOpen } from "./lib/modal";
 import { createDraftStore, draftKey } from "./lib/draft-store";
 import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
@@ -2576,200 +2577,62 @@ function App() {
   };
   const sendRecommendation = useCallback((option: string) => recommendationRef.current(option), []);
 
-  // The find bar belongs to one open chat; ⌘F again while it is open refocuses and selects its text.
-  const [findOpen, setFindOpen] = useState(false);
-  const [findSignal, setFindSignal] = useState(0);
-  // Text the find bar starts with, from a ⌘K message result; ⌘F clears it.
-  const [findSeed, setFindSeed] = useState<string | undefined>();
-  const findRef = useRef({ open: false, canOpen: false });
-  findRef.current = { open: findOpen, canOpen: view === "chat" && chatCount > 0 };
-  function openFind(seed?: string) {
-    if (!findRef.current.canOpen) return;
-    setFindSeed(seed);
-    setFindOpen(true);
-    setFindSignal((current) => current + 1);
-  }
-  useEffect(() => setFindOpen(false), [selectedSession?.id, view]);
-  // A ⌘K message result opens its chat first; the find bar opens once that chat's messages are on screen.
-  const pendingFind = useRef<{ sessionId: number; term: string } | null>(null);
-  useEffect(() => {
-    const pending = pendingFind.current;
-    if (!pending || view !== "chat" || selectedSession?.id !== pending.sessionId || !messages.length) return;
-    pendingFind.current = null;
-    openFind(pending.term);
-  }, [selectedSession?.id, view, messages.length]);
-  function openMessage(sessionId: number, term: string) {
-    if (view === "chat" && selectedSession?.id === sessionId) {
-      openFind(term);
-      return;
-    }
-    pendingFind.current = { sessionId, term };
-    openChat(sessionId);
-  }
-
-  // The main process sends on the app's frame-wide keys (Settings, the theme, the canvas, the grid, the side panels) pressed
-  // in any frame, including an embedded one (a design, an HTML reply, the simulator) the window's listeners never see;
-  // replayed here, every handler takes them as if pressed in the window.
-  useEffect(
-    () =>
-      window.milagre.onAppShortcut?.(({ key, code, meta, control, alt, shift }) =>
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key,
-            code: code ?? "",
-            metaKey: meta,
-            ctrlKey: control,
-            altKey: alt,
-            shiftKey: shift,
-            bubbles: true,
-            cancelable: true,
-          }),
-        ),
-      ),
-    [],
-  );
-  useEffect(() => {
-    function handleShortcut(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.isComposing || appShortcutsBlocked()) return;
-      const command = shortcutCommand(event);
-      if (!command) return;
-      // A Link's workspace takes its own Chat shortcuts (Changes, New Chat, search, New Terminal, Find) and has its own
-      // canvas and grid; the window-wide ones, Settings and the theme, still work over it.
-      const inLink = Boolean(selectedLinkRef.current);
-      if (command === "settings.open") {
-        event.preventDefault();
-        setSettingsOpen(true);
-        return;
-      }
-      if (command === "theme.toggle") {
-        event.preventDefault();
-        toggleTheme();
-        return;
-      }
-      // Over Settings, ⌘K opens the palette on top of it; any other app shortcut closes Settings and runs in the Chat.
-      if (settingsOpenRef.current && command !== "commandPalette.toggle") setSettingsOpen(false);
-      if (inLink) return;
-      if (command === "grid.focusPrevious" || command === "grid.focusNext") {
-        const tiles = shownTilesRef.current;
-        if (tiles.length < 2) return;
-        event.preventDefault();
-        const step = command === "grid.focusPrevious" ? -1 : 1;
-        const at = tiles.indexOf(gridFocusKeyRef.current ?? "");
-        // A new Chat's draft tile is left, never landed on: it has no Chat to open.
-        const others = tiles.filter((key, index) => index === at || !isDraftTileKey(key));
-        const from = others.indexOf(gridFocusKeyRef.current ?? "");
-        const next = others[(from + step + others.length) % others.length];
-        if (next && next !== gridFocusKeyRef.current) openLinkedChat(next);
-        return;
-      }
-      if (command === "changes.toggle") {
-        if (!changesAvailableRef.current) return;
-        event.preventDefault();
-        // Shows or hides the panel on the view it was left on (Changes or the PR), never switching it.
-        changes.toggle();
-      } else if (command === "canvas.open") {
-        event.preventDefault();
-        changes.closeDiff();
-        setView("canvas");
-      } else if (command === "usage.open") {
-        event.preventDefault();
-        changes.closeDiff();
-        setSettingsSection("usage");
-        setSettingsOpen(true);
-      } else if (command === "chat.parent") {
-        // The bookmark's way up: the open Chat's nearest listed ancestor, alone. Nothing on a Chat that has none.
-        const open = gridFocusKeyRef.current;
-        const parent = open && !isDraftTileKey(open) ? chatBookmark(familySessionsRef.current, open)?.parent : undefined;
-        if (!parent) return;
-        event.preventDefault();
-        openAlone(parent);
-      } else if (command === "chat.find") {
-        if (!findRef.current.canOpen) return;
-        event.preventDefault();
-        openFind();
-      } else if (command === "commandPalette.toggle") {
-        event.preventDefault();
-        setCommandPaletteOpen(true);
-      } else if (command === "chat.new") {
-        event.preventDefault();
-        startNewChatOnThisMac();
-      } else if (command === "project.add") {
-        event.preventDefault();
-        void openProject();
-      } else if (command === "terminal.new" && terminalChatRef.current) {
-        event.preventDefault();
-        newTerminal(terminalChatRef.current, undefined, setNotice);
-      }
-    }
-
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
-  }, []);
-
-  useEffect(() => {
-    function handleEscape(event: KeyboardEvent) {
-      // A menu, picker or search that Escape closed has already consumed it.
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
-      // The Settings modal closes on its own Escape (the dialog's cancel); nothing behind it, a running turn least of all, takes it.
-      if (settingsOpenRef.current) return;
-      // The Link's workspace takes every Escape over a Link.
-      if (selectedLinkRef.current) return;
-      if (findRef.current.open) {
-        event.preventDefault();
-        setFindOpen(false);
-        return;
-      }
-      // A Run Chat beside its Routine's page closes first, then the page goes back to the Routines page.
-      if (runPaneOpen) {
-        event.preventDefault();
-        closeRunPane();
-        return;
-      }
-      if (view === "routines" && routineId) {
-        event.preventDefault();
-        setRoutineId(null);
-        return;
-      }
-      if (view === "canvas" || view === "routines") {
-        event.preventDefault();
-        setView("chat");
-        return;
-      }
-      if (run && project && selectedSession) {
-        event.preventDefault();
-        // Escape denies the open approval or dismisses the open question; once that's sent, Escape stops the turn.
-        const approval = run.approvals[0];
-        const question = approval ? undefined : run.questions[0];
-        if (approval && !run.answered[approval.requestId]) answerApproval("deny");
-        else if (question && !run.answered[question.requestId]) answerQuestion(null);
-        else void agentRuns.interrupt(chatKey(project.path, selectedSession.id));
-      }
-    }
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [run, project?.path, selectedSession?.id, view, routineId, runPaneOpen]);
-
-  // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
-  const jumpChats = useRef<string[]>([]);
-  const setJumpChats = useEvent((ids: string[]) => {
-    jumpChats.current = ids;
-  });
-  const jumpToChat = useEvent((event: KeyboardEvent) => {
-    if (selectedLinkRef.current) return;
-    if (view !== "chat" || event.defaultPrevented || event.isComposing) return;
-    const index = chatJumpIndex(shortcutCommand(event));
-    if (index === null) return;
-    if (isModalOpen() || document.querySelector('[role="menu"], [aria-label="Chat name"]')) return;
-    const chat = jumpChats.current[index];
-    if (!chat) return;
+  function escapeOpenChat(event: KeyboardEvent) {
+    if (!run || !project || !selectedSession) return;
     event.preventDefault();
-    openChat(Number(chat));
+    // Escape denies the open approval or dismisses the open question; once that's sent, Escape stops the turn.
+    const approval = run.approvals[0];
+    const question = approval ? undefined : run.questions[0];
+    if (approval && !run.answered[approval.requestId]) answerApproval("deny");
+    else if (question && !run.answered[question.requestId]) answerQuestion(null);
+    else void agentRuns.interrupt(chatKey(project.path, selectedSession.id));
+  }
+  const { findOpen, setFindOpen, findSignal, findSeed, findRef, openFind, openMessage } = useFindInChat({
+    canOpen: view === "chat" && chatCount > 0,
+    shownSessionId: view === "chat" ? selectedSession?.id : undefined,
+    messageCount: messages.length,
+    openChat: (sessionId) => openChat(sessionId),
   });
-  useEffect(() => {
-    window.addEventListener("keydown", jumpToChat);
-    return () => window.removeEventListener("keydown", jumpToChat);
-  }, [jumpToChat]);
+  useAppShortcuts(
+    {
+      setSettingsOpen,
+      settingsOpenRef,
+      openSettingsAt,
+      linkOpenRef: selectedLinkRef,
+      shownTilesRef,
+      gridFocusKeyRef,
+      familySessionsRef,
+      changesAvailableRef,
+      terminalChatRef,
+      findRef,
+      changes,
+      setView,
+      openLinkedChat: (key) => openLinkedChat(key),
+      openAlone: (key) => openAlone(key),
+      openFind,
+      setFindOpen,
+      openCommandPalette,
+      startNewChat: () => startNewChatOnThisMac(),
+      openProject,
+      setNotice,
+    },
+    {
+      settingsOpenRef,
+      linkOpenRef: selectedLinkRef,
+      findRef,
+      setFindOpen,
+      runPaneOpen,
+      closeRunPane: () => closeRunPane(),
+      view,
+      routineId,
+      setRoutineId,
+      setView,
+      escapeOpenChat,
+      deps: [run, project?.path, selectedSession?.id, view, routineId, runPaneOpen],
+    },
+  );
+  // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
+  const setJumpChats = useJumpToChat({ enabled: () => !selectedLinkRef.current && view === "chat", openChat });
 
   // The sidebar is memo()'d: these keep one identity across renders (each runs the latest closure) so a streamed
   // batch or another pane's state change doesn't re-render it.
