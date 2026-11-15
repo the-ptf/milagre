@@ -11,7 +11,7 @@ import { ComposerTray, OfflineTray } from "../offline-tray";
 import { ComposerGlass } from "../composer-glass";
 import { LINK_CHAT_WORKTREES_TEXT, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
@@ -43,7 +43,7 @@ import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { compactButtonState } from "@milagre/shared/chat-display";
 import { useCompactButtonDisplay, useNewChatStats, useShowContextSize } from "../chat-display-setting";
-import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
+import type { ChatMessage, ChatStep, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
   chatPullRequests,
@@ -54,7 +54,7 @@ import {
   pullRequestRefs,
   withPreview,
 } from "@milagre/shared/chats";
-import { runStatusLabel, sendStatusLabel } from "@milagre/shared/tool-activity";
+import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
@@ -70,7 +70,7 @@ import { composerQuote, quotedMessage, quoteSource, type ComposerQuote } from "@
 import { QuoteChips } from "../quote-chips";
 import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
-import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
+import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useRunShape, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
@@ -103,7 +103,7 @@ import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanim
 import { ChatReply, type ReplyChat } from "../chat-reply";
 import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
-import { chosenDesign, designActivity } from "@milagre/shared/artifact";
+import { chosenDesign } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
@@ -488,6 +488,24 @@ export default function ChatScreen() {
 }
 
 /**
+ * The streaming reply, which reads its turn's text and steps itself: a streamed batch renders it and nothing around it.
+ * It hands its steps to `onSteps`, for the Chat's links to read when a file is tapped.
+ */
+const LiveReply = memo(function LiveReply({
+  chatKey,
+  onSteps,
+  ...reply
+}: { chatKey: string; onSteps: (steps: readonly ChatStep[] | undefined) => void } & Omit<ComponentProps<typeof ChatReply>, "run" | "message">) {
+  const run = useRun(chatKey);
+  const steps = run?.steps;
+  useLayoutEffect(() => {
+    onSteps(steps);
+  }, [onSteps, steps]);
+  useLayoutEffect(() => () => onSteps(undefined), [onSteps]);
+  return run ? <ChatReply run={run} {...reply} /> : null;
+});
+
+/**
  * One Chat: the routed one (`single`, or `primary` with another beside it), or the one beside it (`secondary`), which
  * leaves the route, the native header, the side panels and the open Project to the routed one. Every read and action
  * goes through useSession, which for a Chat beside of another Project is that Project's own (beside-session.tsx).
@@ -758,8 +776,9 @@ function ChatPane({
   useFocusEffect(readProjectGit);
   const mentionState = session.snapshot?.project.state;
   const mentionLink = session.snapshot?.project.link;
-  // This Chat's streaming turn, read on its own: a runs read for another Chat of the Project re-renders nothing here.
-  const liveRun = useRun(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
+  // This Chat's streaming turn, read on its own: a runs read for another Chat of the Project re-renders nothing here. Only
+  // its shape (run-shape.ts): its text and steps stream into LiveReply, so a batch renders the reply, not this screen.
+  const liveRun = useRunShape(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
   // Its run's text and steps come in full; other Chats' runs come as summaries (visible-run-chats.ts).
   useVisibleRunChatKeys(session.client, params.id && projectPath ? [`${projectPath}#${params.id}`] : []);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
@@ -938,9 +957,12 @@ function ChatPane({
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
   const history = chatHistory(messages);
-  // The steps whose files a reply may name relative to a subfolder: the saved ones, then the running turn's.
-  const liveSteps = liveRun?.steps;
-  const chatSteps = useMemo(() => (liveSteps?.length ? [...history.steps, ...liveSteps] : history.steps), [history.steps, liveSteps]);
+  // The steps whose files a reply may name relative to a subfolder: the saved ones, then the running turn's, which
+  // LiveReply keeps here as they stream.
+  const liveSteps = useRef<readonly ChatStep[] | undefined>(undefined);
+  const onLiveSteps = useCallback((steps: readonly ChatStep[] | undefined) => {
+    liveSteps.current = steps;
+  }, []);
   const chosen = useMemo(() => chosenDesign(history.userBodies), [history.userBodies]);
   const designChoice = chosen ? `${chosen.id}:${chosen.version}` : undefined;
   // Long Chats mount their newest messages first; earlier ones load on request.
@@ -1344,7 +1366,7 @@ function ChatPane({
           sent: pending.accepted,
           provider: pending.provider,
         })
-      : runStatusLabel(run?.steps);
+      : (run?.status ?? null);
   const heartbeat =
     chat && beating
       ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
@@ -1359,7 +1381,7 @@ function ChatPane({
   const activity = chat ? chatActivity(chat, run) : undefined;
   const background = chat ? backgroundItems(chat, ports) : [];
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
-  const designsMoved = history.designActivity + designActivity(run?.steps ?? [], []);
+  const designsMoved = history.designActivity + (run?.designActivity ?? 0);
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
   const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode);
   const turn = turnTarget(composer.preferences[chatId], chat?.provider, composer.defaults);
@@ -2483,9 +2505,10 @@ function ChatPane({
     />
   );
   const liveReply = run ? (
-    <ChatReply
+    <LiveReply
       key="run"
-      run={run}
+      chatKey={chatId}
+      onSteps={onLiveSteps}
       media={media}
       basePath={worktree?.path || project.path}
       chatId={chatId}
@@ -2516,7 +2539,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={chatSteps}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={history.steps} liveSteps={liveSteps}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}

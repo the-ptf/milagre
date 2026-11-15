@@ -493,6 +493,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests
       // register nothing.
       if (base === "runs-reply" && !(id in modules)) return load("runs-reply.ts", modules, "", cache);
+      // A streaming turn's shape (run-shape.ts) is plain logic over the turn.
+      if (base === "run-shape" && !(id in modules)) return require("../apps/mobile/src/run-shape.ts");
       if (base === "visible-run-chats" && !(id in modules))
         return {
           useVisibleRunChat() {},
@@ -3759,7 +3761,8 @@ function chatHost({
     "../browser": { useBrowserShortcut: (options) => (typeof browserShortcut === "function" ? browserShortcut(options) : browserShortcut) },
     "../ports": { PortsChip: "PortsChip", useChatPorts: () => noPorts },
     "../terminal": { TerminalChip: "TerminalChip", terminalPlaces: () => undefined },
-    react,
+    // LiveReply is memoized; a test draws it as it draws any component.
+    react: { ...react, memo: (component) => component },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": native,
     "expo-router": {
@@ -3817,6 +3820,11 @@ function chatHost({
       usePendingChats: () => session,
       // The Chat's streaming turn, read live from the test's snapshot as the session's runs store would hand it out.
       useRun: (key) => (key ? session.snapshot?.runs?.runs[key] : undefined),
+      // Its shape, as the screen around the reply reads it (run-shape.ts).
+      useRunShape: (key) => {
+        const run = key ? session.snapshot?.runs?.runs[key] : undefined;
+        return run ? require("../apps/mobile/src/run-shape.ts").runShape(run) : undefined;
+      },
       sameSession: (a, b) => a === b,
     },
     "../pending-chats": require("../apps/mobile/src/pending-chats.ts"),
@@ -7961,7 +7969,10 @@ test("live tool activity opens in the activity sheet instead of expanding in the
   const tree = screen.render();
   const pushed = [];
   screen.router.push = (route) => pushed.push(route);
-  find(tree, (node) => node.type === "ChatReply").props.onActivity("run");
+  // The streaming reply reads its turn itself (LiveReply in app/chat.tsx); the Chat hands it the same props as a saved one.
+  const live = find(tree, (node) => node.type?.name === "LiveReply");
+  assert.equal(live.props.chatKey, "/p#42");
+  live.props.onActivity("run");
   assert.equal(JSON.stringify(pushed), JSON.stringify([{ pathname: "/activity", params: { id: "42", message: "run" } }]));
 });
 
@@ -10415,7 +10426,8 @@ test("a mobile follow-up to a running turn appears immediately and restores text
   );
   const order = [];
   find(screen.render(), (node) => {
-    if (node.type === "ChatReply") order.push(node.props.run ? "Live reply" : node.props.message.body);
+    if (node.type === "ChatReply") order.push(node.props.message.body);
+    if (node.type?.name === "LiveReply") order.push("Live reply");
     return false;
   });
   assert.deepEqual(order, ["Original question", "Previous answer", "Live reply", "Follow-up message"], "steering input follows the reply already in progress");
