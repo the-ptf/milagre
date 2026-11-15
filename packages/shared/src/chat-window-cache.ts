@@ -1,7 +1,7 @@
 type Message = { role?: string };
 type ChatWindow = { messages: Message[]; hasMore: boolean };
 
-/** Prepend only adjacent history. Leaving a Chat can trim/evict its window while the request is in flight. */
+/** Prepends only adjacent history: leaving a Chat can trim or evict its window while the request is in flight. */
 export function prependChatPage<T extends { messages: { id: number }[]; hasMore: boolean }>(
   current: T | undefined,
   before: number,
@@ -50,8 +50,8 @@ export class ChatWindowCache<T extends ChatWindow> {
     if (count === 0) return;
     this.readers.set(key, count - 1);
     if (count > 1) return;
-    // React cleans up the tile subscription before subscribing the focused Chat in the same commit.
-    // Keep the window protected through that handoff, including writes/pruning by other Chats.
+    // React unsubscribes the tile before subscribing the focused Chat in the same commit; keep the window protected
+    // through the handoff.
     queueMicrotask(() => {
       if (this.readers.get(key) !== 0) return;
       this.readers.delete(key);
@@ -68,8 +68,8 @@ export class ChatWindowCache<T extends ChatWindow> {
   }
 
   /**
-   * A read window back to its last turns once it holds more than twice as many: a Chat open for hours, followed at its
-   * bottom, keeps every message since it opened otherwise. The trimmed window, or null when nothing changed.
+   * Trims a read window to its last turns once it holds more than twice as many. The trimmed window, or null when
+   * nothing changed.
    */
   trim(key: string): T | null {
     const current = this.windows.get(key);
@@ -98,8 +98,7 @@ export class ChatWindowCache<T extends ChatWindow> {
     for (const message of value.messages) {
       let size = this.sizes.get(message);
       if (size === undefined) {
-        // Conservative UTF-16 serialized payload estimate, not a whole-heap measurement. Immutable messages are
-        // measured once; the WeakMap does not keep evicted messages or previous streaming versions alive.
+        // UTF-16 payload estimate, measured once per immutable message.
         size = JSON.stringify(message).length * 2;
         this.sizes.set(message, size);
       }

@@ -141,11 +141,6 @@ export const designDocumentSchema = z
   })
   .strict();
 
-// What agents send to design_show and design_apply. Every tool definition is sent with each request, so these leave out
-// what the saved document is checked against anyway: color patterns, the generated componentSourceId, the node fields
-// repeated in design_apply, and its `replace` (design_show with expectedVersion replaces a whole design). Layers are
-// open objects, so a field these don't list still reaches validateDesignDocument and applyDesignOperations, which
-// reject it.
 const plainColor = z.string().max(100);
 const { componentSourceId: _generated, ...wireNodeShape } = { ...nodeSchema.shape, fill: plainColor.optional(), stroke: plainColor.optional() };
 export const designDocumentInputSchema = z
@@ -264,8 +259,6 @@ function belongsToComponent(byId, sourceId, componentId) {
   return false;
 }
 
-// Only existing, valid generated layers may disappear when an operation removes
-// their main layer. A replacement supplies fresh references and cannot inherit trust.
 function generatedComponentSources(document) {
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
   const sources = new Map();
@@ -283,7 +276,6 @@ function generatedComponentSources(document) {
   return sources;
 }
 
-/** Validate only the final tree, so one batch can insert children before their parent. */
 export function applyDesignOperations(document, operations, intent) {
   const before = intent === undefined ? undefined : validateDesignDocument(document);
   let result = validateDesignDocument(document);
@@ -292,7 +284,6 @@ export function applyDesignOperations(document, operations, intent) {
   for (const operation of parsed) {
     if (operation.op === "document") {
       const patch = operation.patch;
-      // Updating the kit adopts its colors. Explicit token overrides in this batch remain possible.
       const tokens = patch.kit ? { ...patch.kit.colors, ...patch.tokens } : patch.tokens ? { ...result.tokens, ...patch.tokens } : result.tokens;
       Object.assign(result, patch);
       if (tokens) result.tokens = tokens;
@@ -380,8 +371,6 @@ export function applyDesignOperations(document, operations, intent) {
       if (operation.patch.parentId && designInstanceRoot(result, operation.patch.parentId))
         throw Error("Edit the main component or detach this instance before moving layers into it.");
       const next = { ...result.nodes[index], ...operation.patch };
-      // An explicit local edit must survive kit resolution, including edits from the inspector.
-      // Supplying a new binding in the same patch deliberately keeps that binding authoritative.
       if (
         !Object.hasOwn(operation.patch, "textStyle") &&
         ["fontFamily", "fontSize", "fontWeight", "lineHeight"].some((field) => Object.hasOwn(operation.patch, field))
@@ -433,7 +422,6 @@ export function diffDesignDocuments(before, after) {
   const oldOrder = oldNodes.filter((node) => newById.has(node.id)).map((node) => node.id);
   const newOrder = newNodes.filter((node) => oldById.has(node.id)).map((node) => node.id);
   if (JSON.stringify(oldOrder) !== JSON.stringify(newOrder)) return replace();
-  // Reparenting a child away from a deleted frame needs a replacement to avoid cascading deletion.
   if (newNodes.some((node) => oldById.get(node.id)?.parentId && !newById.has(oldById.get(node.id).parentId))) return replace();
   const operations = [];
   for (const node of oldNodes) {
@@ -458,7 +446,6 @@ export function diffDesignDocuments(before, after) {
     );
     if (Object.keys(patch).length) operations.push({ op: "update", id: node.id, patch });
   }
-  // Preserve the exact final document when a complex insertion/deletion changes index semantics.
   try {
     if (JSON.stringify(applyDesignOperations(a, operations)) !== JSON.stringify(b)) return replace();
   } catch {
@@ -488,7 +475,6 @@ export function designNodeAt(document, x, y) {
       }
       parentId = nodes.get(parentId)?.parentId;
     }
-    // Feedback names an editable instance, never one of its generated children.
     if (!clipped) return designInstanceRoot(document, node.id, nodes) ?? node;
   }
   return null;
@@ -498,7 +484,6 @@ const escape = (value) =>
   String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 
 function nodeStyles(document, node, box, parentBox, parentNode) {
-  // Transparent images (icons, cut-outs) show what is behind them; the grey placeholder marks an image still to add.
   const background = node.type === "text" || node.type === "icon" ? "transparent" : designColor(document, node.fill, designDefaultFill(node));
   const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
   return [
@@ -531,7 +516,6 @@ function nodeStyles(document, node, box, parentBox, parentNode) {
   ].join(";");
 }
 
-// Shared for one render only: neither old documents nor arbitrary user text remain cached afterward.
 function cachedTextLayout() {
   const cache = new WeakMap();
   return (node, width = Infinity) => {
@@ -639,7 +623,6 @@ export function designSvg(value, { embedFonts = true, onCanvasOnly = false, rend
   );
 }
 
-/** A compact, editable screen used by the isolated desktop and phone fixtures. */
 export function createExampleDesign() {
   return {
     schemaVersion: 1,

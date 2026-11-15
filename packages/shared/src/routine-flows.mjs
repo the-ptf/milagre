@@ -1,7 +1,3 @@
-// Routine flows: the steps of a multi-step Routine, how they are checked and edited, what each step reads and gives, and
-// how a Run's progress reads. Shared by the daemon (store.cjs, flow-runner.cjs), desktop and phone. Types:
-// routine-flows.d.mts.
-
 export const FLOW_LIMITS = Object.freeze({
   steps: 40,
   depth: 3,
@@ -16,7 +12,6 @@ export const FLOW_LIMITS = Object.freeze({
   retries: 5,
 });
 
-/** The step types, in the order the Add step menu lists them, with the words and Lucide icon both apps show. */
 export const FLOW_STEP_TYPES = Object.freeze([
   { kind: "agent", name: "Ask an agent", short: "Ask an agent", description: "A turn in a Chat that returns fields you define", icon: "bot" },
   { kind: "if", name: "If", short: "If", description: "Pick a path from a field of an earlier step", icon: "split" },
@@ -43,7 +38,6 @@ const PLACEHOLDER = /\{\{\s*([a-zA-Z][\w.-]*)\s*\}\}/g;
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const text = (value) => (typeof value === "string" ? value : "");
 
-/** What the trigger gives every step, by trigger kind, as `trigger.<path>` refs. */
 const TRIGGER_FIELDS = {
   linear: [
     { path: "issue.key", type: "text", label: "issue.key" },
@@ -60,12 +54,10 @@ const TRIGGER_FIELDS = {
   schedule: [{ path: "time", type: "text", label: "time" }],
 };
 
-/** The trigger's fields as refs a step can read: `{ ref: "trigger.issue.title", label, type }`. */
 export function triggerFields(triggerKind) {
   return (TRIGGER_FIELDS[triggerKind] ?? []).map((field) => ({ ref: `trigger.${field.path}`, label: field.label, type: field.type, stepName: "Trigger" }));
 }
 
-/** The words for a step type. */
 export function stepType(kind) {
   return FLOW_STEP_TYPES.find((type) => type.kind === kind) ?? null;
 }
@@ -85,7 +77,6 @@ export function newStepId(steps, name) {
   for (let n = 2; ; n += 1) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
 }
 
-/** A new step of `kind` with the defaults the editor starts from. */
 export function newStep(kind, steps = []) {
   const type = stepType(kind);
   if (!type) throw new Error(`Unknown step type: ${kind}`);
@@ -122,12 +113,10 @@ export function flattenSteps(steps, depth = 0, parentId = null, branch = null, o
   return out;
 }
 
-/** The step with `id`, or null. */
 export function findStep(steps, id) {
   return flattenSteps(steps).find((entry) => entry.step.id === id)?.step ?? null;
 }
 
-// Rebuilds the tree with `edit(list, parentId, branch)` applied to every list (the top one too), deepest first.
 function mapLists(steps, edit, parentId = null, branch = null) {
   const list = steps.map((step) =>
     step.kind === "if" ? { ...step, yes: mapLists(step.yes, edit, step.id, "yes"), otherwise: mapLists(step.otherwise, edit, step.id, "otherwise") } : step,
@@ -178,8 +167,6 @@ export function moveStep(steps, id, by) {
   });
 }
 
-// The steps that have run by the time step `id` starts, on any path that reaches it: the earlier steps of its list, and of
-// every list above it (an If's paths come after the If itself, so the If's own earlier steps count, its other path not).
 function stepsBefore(steps, id) {
   const before = [];
   const search = (list) => {
@@ -192,7 +179,6 @@ function stepsBefore(steps, id) {
         before.length = mark + 1;
         if (search(step.otherwise)) return true;
         before.length = mark;
-        // A path's steps may not have run, so only the If is known to have: a step after it can't read them.
       }
       before.push(step);
     }
@@ -214,7 +200,6 @@ export function fieldsBefore(steps, id, triggerKind) {
     for (const field of step.output ?? []) {
       fields.push({ ref: `${step.id}.${field.name}`, label: field.name, type: field.type, choices: field.choices, stepName: step.name });
     }
-    // A pull-request step's link is read as `<id>.url`.
   }
   for (const step of earlier) if (step.kind === "pull-request") fields.push({ ref: `${step.id}.url`, label: "url", type: "link", stepName: step.name });
   return fields;
@@ -227,7 +212,6 @@ export function placeholders(value) {
   return refs;
 }
 
-/** What a step reads: the refs in its texts and, for an If, its field. */
 export function stepReads(step) {
   if (!step) return [];
   if (step.kind === "agent") return placeholders(step.prompt);
@@ -238,12 +222,9 @@ export function stepReads(step) {
   return [];
 }
 
-/** How many steps read `ref`. */
 export function usedBy(steps, ref) {
   return flattenSteps(steps).filter((entry) => stepReads(entry.step).includes(ref)).length;
 }
-
-// ---- checking -------------------------------------------------------------------------------------------------------
 
 function cleanField(value, where) {
   if (!isObject(value)) throw new Error(`${where}: a field must be an object`);
@@ -414,9 +395,6 @@ export function flowProblems(steps, triggerKind) {
   return problems;
 }
 
-// ---- running ----------------------------------------------------------------------------------------------------------
-
-/** What a trigger's event gives the steps, as the object `trigger.<path>` refs read. */
 export function triggerValues(event, at) {
   const values = {};
   if (event?.kind === "linear") {
@@ -456,7 +434,6 @@ export function fillTemplate(value, values) {
   });
 }
 
-/** Whether an If's test holds for `values`. */
 export function testCondition(step, values) {
   const found = readRef(values, step.field);
   if (step.test === "is-set") return found !== undefined && found !== null && found !== "" && found !== false;
@@ -467,7 +444,6 @@ export function testCondition(step, values) {
     .trim()
     .toLowerCase();
   if (step.test === "contains") return actual.includes(expected);
-  // A list of choices ("small, medium") in the value means any of them.
   const options = expected.split(/\s*(?:,|\bor\b)\s*/).filter(Boolean);
   const matches = options.length > 1 ? options.includes(actual) : actual === expected;
   return step.test === "is" ? matches : !matches;
@@ -511,7 +487,6 @@ export function checkOutput(fields, value) {
   return { ok: true, output };
 }
 
-/** The lines appended to an agent step's prompt telling it how to hand its output back. */
 export function outputInstructions(fields) {
   if (!fields.length) return "When you are done, call the flow_step_output tool once with an empty object.";
   const lines = fields.map((field) => {
@@ -530,7 +505,6 @@ export function outputInstructions(fields) {
   return ["When you are done, call the flow_step_output tool once with these fields:", ...lines].join("\n");
 }
 
-/** Short text for a step's output: "complexity large, area relay". */
 export function outputSummary(output) {
   if (!isObject(output)) return "";
   return Object.entries(output)
@@ -539,8 +513,6 @@ export function outputSummary(output) {
     .map(([key, value]) => `${key} ${typeof value === "boolean" ? (value ? "yes" : "no") : value}`)
     .join(", ");
 }
-
-// ---- words ------------------------------------------------------------------------------------------------------------
 
 const TEST_WORDS = { is: "is", "is-not": "is not", contains: "contains", "is-set": "is set" };
 
@@ -553,7 +525,6 @@ export function conditionText(step) {
   return step.test === "is-set" ? `If ${field} is set` : `If ${field} ${TEST_WORDS[step.test] ?? "is"} ${step.value || "…"}`;
 }
 
-/** The second line under a step's name in the editor. `modelName(provider, model)` names a model. */
 export function stepSubtitle(step, { modelName } = {}) {
   switch (step.kind) {
     case "agent": {
@@ -589,12 +560,9 @@ export function durationText(minutes) {
   return rest ? `${hours} h ${rest} min` : `${hours} h`;
 }
 
-/** A step's title in lists: an If reads as its question. */
 export function stepTitle(step) {
   return step.kind === "if" && (step.name === "If" || !step.name) ? conditionText(step) : step.name;
 }
-
-// ---- drafts -----------------------------------------------------------------------------------------------------------
 
 const SETTING_WORDS = {
   prompt: "prompt changed",
@@ -643,8 +611,6 @@ export function flowChanges(published, draft) {
   for (const [id, entry] of before) if (!after.has(id)) lines.push(`Removed ${stepTitle(entry.step)}`);
   return lines;
 }
-
-// ---- a Run's progress -------------------------------------------------------------------------------------------------
 
 /**
  * A flow Run's steps in run order with how each went, for the Run view: `status` is "not-taken" for a step on the path an
@@ -704,7 +670,6 @@ export function flowRunText(run) {
   return flow.dryRun ? "Test run done" : "Done";
 }
 
-/** Whether the Run waits on the owner: an approval with no answer yet. */
 export function needsAnswer(run) {
   const flow = run?.flow;
   if (!flow || flow.status !== "waiting") return false;

@@ -1,4 +1,3 @@
-// A device's recurring notification window. Null preserves the existing anytime behavior.
 export const NOTIFICATION_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export const NOTIFICATION_TIMES = Array.from({ length: 48 }, (_, index) => {
   const hour = Math.floor(index / 2);
@@ -10,7 +9,7 @@ export const NOTIFICATION_TIMES = Array.from({ length: 48 }, (_, index) => {
 export function workHoursSchedule(timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
   return { days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone };
 }
-// Hermes lacks supportedValuesOf; keep the same IANA choices available on phones.
+// Hermes lacks Intl.supportedValuesOf.
 const FALLBACK_TIME_ZONES = `Africa/Abidjan Africa/Accra Africa/Addis_Ababa Africa/Algiers Africa/Asmera Africa/Bamako Africa/Bangui Africa/Banjul Africa/Bissau
 Africa/Blantyre Africa/Brazzaville Africa/Bujumbura Africa/Cairo Africa/Casablanca Africa/Ceuta Africa/Conakry Africa/Dakar
 Africa/Dar_es_Salaam Africa/Djibouti Africa/Douala Africa/El_Aaiun Africa/Freetown Africa/Gaborone Africa/Harare Africa/Johannesburg
@@ -108,7 +107,6 @@ export function parseNotificationSchedule(value) {
 }
 export function notificationAllowed(schedule, now = Date.now()) {
   if (!schedule) return true;
-  // Read wall time in the device's chosen zone, never the sending computer's local zone.
   const parts = Object.fromEntries(
     formatter(schedule.timeZone)
       .formatToParts(now)

@@ -39,7 +39,6 @@ export function validateDesignPageSnapshot(value) {
   return snapshot;
 }
 
-/** An interactive design on a public page: its HTML, with scripts only from the pinned CDNs, and its screen size. */
 function interactiveDesign(value) {
   const dimension = (number) => {
     if (!Number.isInteger(number) || number < 240 || number > 3840) throw Error("Invalid interactive design dimensions.");
@@ -51,7 +50,6 @@ function interactiveDesign(value) {
   return { html: value.html, width: dimension(value.width), height: dimension(value.height) };
 }
 
-/** Whether a page runs interactive designs, which its policy then allows (scripts from the pinned CDNs). */
 export const designPageRunsCode = (snapshot) => snapshot?.kind !== "artifacts" && !!snapshot?.designs?.some((design) => design.interactive);
 
 /** Check the decoded signature as well as the declared MIME type; SVG never enters a public snapshot. */
@@ -81,7 +79,6 @@ const decodeEntities = (value) =>
     return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
   });
 
-/** Link previews read this. Drop a leading repeat of the title and cut at a word near the limit. */
 function summary(text, pageTitle) {
   let value = text.replace(/\s+/g, " ").trim();
   if (pageTitle && value.toLowerCase().startsWith(pageTitle.toLowerCase())) value = value.slice(pageTitle.length).replace(/^[\s:·|.,-]+/, "");
@@ -91,7 +88,6 @@ function summary(text, pageTitle) {
   return (space > DESIGN_PAGE_DESCRIPTION_CHARACTERS / 2 ? cut.slice(0, space) : cut).replace(/[\s:·|.,-]+$/, "") + "…";
 }
 
-/** The page's own description wins; otherwise its visible text. Scripts, styles and markup never reach the preview. */
 function artifactDescription(artifact, pageTitle) {
   const meta = /<meta\s[^>]*(?:name|property)\s*=\s*["'](?:description|og:description)["'][^>]*>/i.exec(artifact.html);
   const content = meta && /\scontent\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(meta[0]);
@@ -104,7 +100,6 @@ function artifactDescription(artifact, pageTitle) {
   return summary(decodeEntities(text), pageTitle);
 }
 
-/** Several designs are named; one design is described by its own text layers, in document order. */
 function designsDescription(page) {
   if (page.designs.length > 1) {
     const names = page.designs.map((design) => design.title);
@@ -120,19 +115,15 @@ function designsDescription(page) {
   return summary([...named, ...layers].join(" · "), page.title);
 }
 
-// The desktop Canvas's spacing: between frames and blocks, a block's padding around its frames (canvas pixels), a
-// group's name above its block (screen pixels) and the title row above each frame.
 const GAP = 80;
 const GROUP_PADDING = 48;
 const GROUP_LABEL = 30;
 const CAPTION = 42;
-// A block's name keeps its screen size through --inv (the inverse zoom the controller sets), like the desktop Canvas.
 const GROUP_STYLE =
   `section{display:flex;flex-direction:column;align-items:flex-start}.name{position:relative;flex-shrink:0;height:calc(${GROUP_LABEL}px * var(--inv,1))}` +
   ".name>div{position:absolute;bottom:0;left:0;display:flex;align-items:baseline;gap:8px;padding-bottom:8px;white-space:nowrap;font:500 13px/1.35 system-ui,sans-serif;color:#e5edf3;transform:scale(var(--inv,1));transform-origin:bottom left}" +
   ".name .none{color:#9199a4}.name b{font-weight:400;color:#9199a4;font-variant-numeric:tabular-nums}" +
   `.block{display:flex;align-items:flex-start;gap:${GAP}px;padding:${GROUP_PADDING}px;border-radius:40px;background:rgb(255 255 255/.05)}`;
-/** One row per group, in the order they first appear; designs without a group share a row where the first of them is. */
 function designRows(designs) {
   const rows = new Map();
   for (const design of designs) {
@@ -146,9 +137,7 @@ function designRows(designs) {
 
 const descriptionMeta = (description) => (description ? `<meta name="description" content="${escape(description)}">` : "");
 
-// Public pages carry no header or footer: the content fills the window, the zoom bar floats bottom-left as on the
-// desktop Canvas and the Milagre logo bottom-right. Colors are desktop's dark theme tokens (surface, ink, ink-2, line, shadow-card). CSP forbids external
-// resources, so the icons (Hugeicons minus, plus, fit-to-screen) and the Milagre mark are inline SVG.
+// CSP forbids external resources, so the icons and the Milagre mark are inline SVG.
 const icon = (size, paths) =>
   `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths.map((d) => `<path d="${d}"/>`).join("")}</svg>`;
 const MILAGRE_MARK =
@@ -164,14 +153,13 @@ const CHROME_STYLE =
 const LOGO_LINK = `<a class="logo" href="https://milagre.cloud" target="_blank" rel="noopener noreferrer" aria-label="Made with Milagre">${MILAGRE_MARK}</a>`;
 const ZOOM_BAR = `<nav class="bar" aria-label="Canvas zoom"><button id="out" class="step" aria-label="Zoom out">${icon(14, ["M20 12L4 12"])}</button><button id="zoom" aria-label="Zoom to 100%"></button><button id="in" class="step" aria-label="Zoom in">${icon(14, ["M12 4V20M20 12H4"])}</button><i aria-hidden="true"></i><button id="fit" aria-label="Fit everything">${icon(13, ["M3 4V20", "M21 4V20", "M15.6216 9L16.5002 9.87868C17.5002 10.8787 18.0002 11.3787 18.0002 12C18.0002 12.6213 17.5002 13.1213 16.5002 14.1213L15.6216 15M8.37892 9L7.50024 9.87868C6.50024 10.8787 6.00024 11.3787 6.00024 12C6.00024 12.6213 6.50024 13.1213 7.50024 14.1213L8.37892 15M6.37892 12H17.6216"])}Fit</button></nav>`;
 
-/** Public output contains generated SVG images and a fixed controller, never source JSON or Chat metadata. */
-/** `files` gives the public URL of an Artifact page's file; without it, its `assets/<name>` references stay as written. */
+/**
+ * Public output contains generated SVG images and a fixed controller, never source JSON or Chat metadata. `files` gives
+ * the public URL of an Artifact page's file; without it, its `assets/<name>` references stay as written.
+ */
 export function renderDesignPage(input, { files } = {}) {
   const page = validatedSnapshots.has(input) ? input : validateDesignPageSnapshot(input);
   if (page.kind === "artifacts") return renderArtifactPage(page, files);
-  // Laid out as the desktop Canvas does: one row of frames, or once any design names a group, one block per group
-  // (the groups and the designs in each in the order they first appear, designs without a group in a row of their own)
-  // with the group's name above it. The name keeps its screen size, so the fit allows for it at the zoom it lands on.
   const rows = designRows(page.designs);
   const grouped = rows.some((row) => row.group);
   const pad = grouped ? GROUP_PADDING : 0;
@@ -182,7 +170,6 @@ export function renderDesignPage(input, { files } = {}) {
   const height = rows.reduce((sum, row) => sum + rowHeight(row), 0) + GAP * (rows.length - 1);
   const labels = grouped ? rows.length : 0;
   const renderFrames = (embedFonts) => {
-    // An interactive design runs in a sandboxed frame with no same origin, under its own policy inside the page's.
     const frame = ({ title: name, document, interactive }) =>
       interactive
         ? `<figure style="width:${interactive.width}px"><figcaption>${escape(name)}</figcaption><iframe class="live" title="${escape(name)}" width="${interactive.width}" height="${interactive.height}" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${escape(artifactDocument(interactive.html, { code: true }))}"></iframe></figure>`
@@ -208,7 +195,6 @@ export function renderDesignPage(input, { files } = {}) {
   return render(true);
 }
 
-/** An Artifact is one current HTML page. Publishing freezes that content in an opaque sandbox. */
 function validateArtifactPageSnapshot(value) {
   if (value.schemaVersion !== 1 || !Array.isArray(value.artifacts) || value.artifacts.length !== 1)
     throw Error("An Artifact snapshot contains exactly one page.");
@@ -218,7 +204,6 @@ function validateArtifactPageSnapshot(value) {
     if (!Number.isInteger(number) || number < 240 || number > 3840) throw Error("Invalid Artifact page dimensions.");
     return number;
   };
-  // The page's files travel separately (uploaded by hash before the snapshot); the snapshot names them.
   const assets = item.assets === undefined ? [] : item.assets;
   if (!Array.isArray(assets) || assets.length > MAX_PAGE_ASSETS) throw Error("An Artifact page has too many files.");
   const names = new Set();
@@ -244,7 +229,6 @@ function validateArtifactPageSnapshot(value) {
         html: item.html,
         width: dimension(item.width),
         height: dimension(item.height),
-        // Left out when there are none, so a page without files keeps the snapshot it always had.
         ...(files.length ? { assets: files } : {}),
       },
     ],
@@ -257,8 +241,7 @@ function validateArtifactPageSnapshot(value) {
 function renderArtifactPage(page, files) {
   const [first] = page.artifacts;
   const artifact = files ? { ...first, html: rewriteAssetUrls(first.html, first.assets, files) } : first;
-  // The HTTP policy is inherited by srcdoc, including blocked network and frame navigation.
-  // The sandbox deliberately omits same-origin, forms, popups, downloads and top navigation.
+  // srcdoc inherits the HTTP policy, including blocked network and frame navigation.
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>${escape(page.title)} | Milagre Artifact</title>${descriptionMeta(artifactDescription(artifact, page.title))}<style>*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#111922;color:#e5edf3}body{display:flex;flex-direction:column}main{flex:1;min-height:0;background:white}iframe{display:block;width:100%;height:100%;border:0}${CHROME_STYLE}</style></head><body><h1 class="sr">${escape(page.title)}</h1><main><iframe title="${escape(artifact.title)}" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${escape(artifact.html)}"></iframe></main><div class="dock">${LOGO_LINK}</div></body></html>`;
   return html;
 }

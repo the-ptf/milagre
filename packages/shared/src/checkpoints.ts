@@ -46,23 +46,19 @@ export function checkpointTime(at: number, now = Date.now()) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/** The task as one line: the first line of what the user wrote. */
 export const checkpointTask = (item: Checkpoint) =>
   item.prompt
     ?.split("\n")
     .find((line) => line.trim())
     ?.trim() || "Task";
 
-/** "3 files · 8:00 AM"; a task that never got its final capture says so. */
 export function checkpointMeta(item: Checkpoint, now = Date.now()) {
   const files = item.changed === undefined ? "Interrupted" : `${item.changed} ${item.changed === 1 ? "file" : "files"}`;
   return `${files} · ${checkpointTime(item.createdAt, now)}`;
 }
 
-/** What undoing does to a file: the task edited it, created it, or deleted it. */
 export const checkpointEffect = (file: CheckpointFile) => (file.action === "replace" ? "Revert" : file.action === "delete" ? "Delete" : "Restore");
 
-/** "login.ts" and "src/auth". */
 export function splitCheckpointPath(path: string) {
   const at = path.lastIndexOf("/");
   return { name: path.slice(at + 1), dir: at < 0 ? "" : path.slice(0, at) };

@@ -1,7 +1,6 @@
 import { isDesktopStep } from "./desktop-steps.ts";
 import type { ChatStep, ImageAttachment } from "./model.ts";
 
-/** Snapshot provenance is only a label. Only step.file can select a durable attachment. */
 export function replyImageFile(step: ChatStep, attachments: ImageAttachment[] = []): string | undefined {
   if (!step.file) return undefined;
   return attachments.find((image) => image.sourcePath === step.file)?.path || step.file;
@@ -14,9 +13,8 @@ export function viewedImageName(step: ChatStep): string {
 export type ReplyPart = { type: "text"; text: string } | { type: "steps"; steps: ChatStep[] };
 
 /**
- * A reply's text and tool steps in the order they happened. Each step sits at its offset (the
- * length of the reply's text when it started); steps next to each other form one group, and a step
- * without an offset goes after the text. Text that is only whitespace is left out.
+ * Steps sit at their offset (the length of the reply's text when they started); steps next to each other form one
+ * group, a step without an offset goes after the text, whitespace-only text is left out.
  */
 export function replyParts(body: string, steps: ChatStep[] = []): ReplyPart[] {
   const parts: ReplyPart[] = [];
@@ -35,24 +33,18 @@ export function replyParts(body: string, steps: ChatStep[] = []): ReplyPart[] {
   return parts;
 }
 
-/** A design the agent showed, finished, which the reply shows as a card. */
 export type ArtifactStep = ChatStep & { artifact: NonNullable<ChatStep["artifact"]> };
 export const isArtifactCard = (step: ChatStep): step is ArtifactStep => step.kind === "artifact" && step.status === "done" && !!step.artifact;
 
-/** A finished heartbeat_create step that set a Heartbeat (its result named it), which the reply shows as a card. */
 export type HeartbeatStep = ChatStep & { routine: NonNullable<ChatStep["routine"]> };
 export const isHeartbeatCard = (step: ChatStep): step is HeartbeatStep => step.status === "done" && !!step.routine;
 
 export type ActivityEntry = { type: "text"; text: string } | { type: "step"; step: ChatStep };
 
 /**
- * A reply as its activity and its answer. The answer is the reply's last text; the activity is
- * everything else (thinking, tool steps and the text between them) in the order it happened.
- * The worktree's setup is neither: it comes back apart, to show as a row of its own before both.
- * Generated images come back apart too, to show between the activity and the answer, and so do the designs the agent
- * showed, once each at the newest version this reply made (an artifact step still running, or one that failed, stays in
- * the activity as a row). So do the Heartbeats it set, each as a card, and its computer use steps (`desktop`), which
- * show as one card with the app's live screen.
+ * The answer is the reply's last text; the activity is everything else in order. The worktree's setup, generated
+ * images, designs (once each, at the newest version), Heartbeat cards and computer use steps (`desktop`) come back
+ * apart.
  */
 export function replyActivity(
   body: string,
@@ -72,7 +64,6 @@ export function replyActivity(
   const setup = allSteps.filter((step) => step.kind === "setup");
   const images = allSteps.filter((step) => step.kind === "image" && step.imageOrigin !== "viewed");
   const viewedImages = allSteps.filter((step) => step.kind === "image" && step.imageOrigin === "viewed");
-  // One entry per design, at its newest version in this reply, where it was first shown.
   const artifacts: ArtifactStep[] = [];
   for (const step of allSteps.filter(isArtifactCard)) {
     const at = artifacts.findIndex((item) => item.artifact.id === step.artifact.id);
@@ -96,11 +87,7 @@ export function replyActivity(
   return { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer, answerAt };
 }
 
-/**
- * What a reply concluded without writing it: its last thinking, when no text came after it (the agent
- * kept its findings there, then asked a question or ended the turn). Shown under the answer so it isn't
- * hidden in a step the user rarely opens.
- */
+/** The last thinking, when no text came after it; shown under the answer. */
 export function unspokenThought(body: string, steps: ChatStep[] = []): string {
   const parts = replyParts(
     body,
@@ -130,8 +117,8 @@ export function creditsText(credits: number): string {
 }
 
 /**
- * What a reply's activity did, in one line: "Thought for 12s · read 2 files · ran 3 commands", and what it cost when the
- * agent said (Kiro: "· 0.04 credits"). Files count once however often they were read or edited; failed is how many steps failed.
+ * "Thought for 12s · read 2 files · ran 3 commands", plus the cost when the agent said (Kiro: "· 0.04 credits"). Files
+ * count once however often read or edited; `failed` is how many steps failed.
  */
 export function activitySummary(all: ChatStep[], { credits }: { credits?: number } = {}): { text: string; failed: number } {
   const steps = all.filter((step) => step.kind !== "setup");

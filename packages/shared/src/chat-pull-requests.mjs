@@ -1,7 +1,6 @@
 const PR_URL = /^https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 
-/** The same repository and PR, including links to its files, checks or comments. */
 function pullRequestIdentity(value) {
   try {
     const url = new URL(value);
@@ -13,7 +12,6 @@ function pullRequestIdentity(value) {
   }
 }
 
-/** Finds a link's PR only among the Chat's known PRs, preserving its Worktree when supplied by the caller. */
 export function associatedPullRequest(url, choices) {
   const identity = pullRequestIdentity(url);
   return identity ? choices.find((choice) => pullRequestIdentity(choice.url) === identity) : undefined;
@@ -27,19 +25,12 @@ export function pullRequestRefs(messages) {
     if (ref && !refs.includes(ref)) refs.push(ref);
   };
   for (const step of messages.flatMap((message) => message.steps ?? [])) {
-    // Saved shell steps are "$ command" then the output; a failed one has no PR to show.
     if (step.kind !== "shell" || step.status !== "done" || !step.detail?.startsWith("$ ")) continue;
     if (/\bgh\s+pr\s+create\b/.test(step.detail)) add(createdPullRequestUrl(step.detail));
     for (const match of step.detail.matchAll(/\bgh\s+pr\s+merge\b([^\n;&|]*)/g)) add(mergedRef(match[1]));
   }
-  // A number that a created URL already covers is the same PR (both run in the chat's repository).
   return refs.filter((ref) => !/^\d+$/.test(ref) || !refs.some((other) => other.endsWith(`/pull/${ref}`)));
 }
-/**
- * pullRequestRefs per chat, recomputed only when one of its messages changed. The state keeps unchanged
- * message objects as they were (reconcileState), so a chat's messages compare by identity; the sidebar
- * asks for every chat on each rebuild and would otherwise rescan every shell step.
- */
 export function pullRequestRefsCache() {
   const cached = new Map();
   return (key, messages) => {
@@ -50,7 +41,6 @@ export function pullRequestRefsCache() {
     return refs;
   };
 }
-/** The URL `gh pr create` printed, from a shell step's detail; null when there is none. */
 // gh prints the new PR's URL alone on the last line; URLs in the body come before it.
 export function createdPullRequestUrl(detail) {
   const lines = detail
@@ -61,7 +51,6 @@ export function createdPullRequestUrl(detail) {
   return index > 0 ? lines[index] : null;
 }
 function mergedRef(args) {
-  // Quoted values stay one word, so `--body "two words"` doesn't read "words" as the PR.
   const words = [...args.matchAll(/"[^"]*"|'[^']*'|\S+/g)].map(([word]) => word.replace(/^['"]|['"]$/g, ""));
   let repo;
   for (let index = 0; index < words.length; index++) {
@@ -71,7 +60,6 @@ function mergedRef(args) {
     else if (word.startsWith("-")) continue;
     else if (PR_URL.test(word)) return word;
     else if (/^\d+$/.test(word)) return repo && REPO.test(repo) ? `https://github.com/${repo}/pull/${word}` : word;
-    // A branch name, a variable or anything else isn't followed: the branch PR shows on its own.
     else return null;
   }
   return null;
@@ -80,7 +68,6 @@ function mergedRef(args) {
 export function chatPullRequests(refs, found, branch) {
   const prs = [];
   for (const read of [...refs.map((ref) => found[ref]), branch]) {
-    // The branch PR is also read at every turn end, so it is the fresher copy of a PR the chat named too.
     const pr = read && branch && read.url === branch.url ? branch : read;
     if (pr && !prs.some((other) => other.url === pr.url)) prs.push(pr);
   }

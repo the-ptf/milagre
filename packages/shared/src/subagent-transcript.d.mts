@@ -10,9 +10,7 @@ export function sessionWithTranscriptTails<T extends Pick<AgentSession, "subagen
 export function withArchivedSummary<T extends Subagent>(agent: T): T;
 /** `session` with each archived subagent as a summary; the same object for the same session. */
 export function sessionWithArchivedSummaries<T extends Pick<AgentSession, "subagents">>(session: T): T;
-/** Whether `agent` is an archived subagent's summary, whose details are read on demand. */
 export function isSubagentSummary(agent: Pick<Subagent, "detailsOnDemand"> | undefined): boolean;
-/** Whether `agent` carries only the tail of its transcript. */
 export function hasTranscriptTail(agent: Pick<Subagent, "transcriptLength"> | undefined): boolean;
 /** The whole transcript `held` brought up to date with `agent`'s; null when it must be read again. */
 export function mergeTranscript(held: readonly SubagentTranscriptEntry[], agent: Subagent): SubagentTranscriptEntry[] | null;

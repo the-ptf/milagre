@@ -1,14 +1,8 @@
-// Kiro (docs/adr/0017-kiro-over-acp.md) reports each model in its `model` config option with what it costs and which
-// efforts it takes, in `_meta.kiro`: { rateMultiplier, rateUnit: "Credit", effortLevels, defaultEffortLevel }. Milagre's
-// ids carry a `kiro:` prefix, so a Claude or GPT model run on Kiro's credits never turns into the same model on its
-// own provider (a saved default, a model id read back from a Chat).
+// Kiro reports each model's cost and efforts in `_meta.kiro`: { rateMultiplier, rateUnit: "Credit", effortLevels,
+// defaultEffortLevel }.
 
 const PREFIX = "kiro:";
 
-/**
- * What kiro-cli 2.34.2 (engine v3) offered an Enterprise account on 2026-10-30, a short list in its order. The picker
- * shows these until a session reports the account's own list. Multipliers are relative to Auto, as Kiro bills them.
- */
 export const KIRO_AGENT_OPTIONS = Object.freeze([
   { value: "auto", name: "Auto", description: "Models chosen by task for optimal usage and consistent quality", _meta: { kiro: { rateMultiplier: 1 } } },
   {
@@ -38,10 +32,8 @@ export const KIRO_AGENT_OPTIONS = Object.freeze([
   },
 ]);
 
-/** The model the text generator asks (chat titles, commit messages): cheap, and without an effort to choose. */
 export const KIRO_TEXT_MODEL = "claude-haiku-4.5";
 
-/** Milagre's id for one of Kiro's model ids. */
 export const kiroModelId = (value) => `${PREFIX}${value}`;
 
 /** Kiro's own model id for Milagre's `kiro:` id; an id without the prefix is passed on as it is. */

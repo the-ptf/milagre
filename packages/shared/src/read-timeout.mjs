@@ -1,4 +1,3 @@
-/** Bound a UI read without letting a late answer overwrite the retry's result. */
 export function readWithTimeout(read, milliseconds = 15_000) {
   let timer;
   return Promise.race([

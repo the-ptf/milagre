@@ -1,4 +1,3 @@
-/** Reuse unchanged wire values, matching message/step arrays by id even after reordering. */
 export function reconcileState(previous, incoming) {
   if (previous === incoming || !previous || !incoming || typeof previous !== "object" || typeof incoming !== "object") return incoming;
   if (Array.isArray(incoming)) {

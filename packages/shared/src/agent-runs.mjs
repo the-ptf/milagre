@@ -1,7 +1,3 @@
-// Folds agent events into chats' saved state and the turns streaming in them. Shared by the main
-// process, which saves every chat's turns (see agents/chat-host.cjs), and the renderer, which shows
-// them as they stream. Types: agent-runs.d.mts.
-
 import { hasTranscriptTail } from "./subagent-transcript.mjs";
 import { qualifyKey } from "./chat-scopes.mjs";
 import { nativePlan } from "./chat-plan.mjs";
@@ -10,42 +6,33 @@ export { computerOfKey } from "./chat-scopes.mjs";
 
 export const MAX_OUTPUT = 20_000;
 
-/** Command output keeps its end, where results and errors are. */
 export function capOutput(text) {
   return text.length > MAX_OUTPUT ? `… truncated\n${text.slice(-MAX_OUTPUT)}` : text;
 }
 
-/**
- * Names a chat for the agent host. Session ids are counters per project, so every project has
- * a chat 2; the key carries the project path so chats in different projects never share a session.
- * `computerId`: a paired computer's chat carries its id (`${computerId}|${path}#${id}`); this Mac's doesn't.
- */
+/** `computerId`: a paired computer's chat key is `${computerId}|${path}#${id}`; this Mac's has no prefix. */
 export function chatKey(projectPath, sessionId, computerId) {
   return `${qualifyKey(computerId, projectPath)}#${sessionId}`;
 }
 
-/** The session id at the end of a chat key (after the last `#`), or NaN. */
+/** The session id after the last `#`, or NaN. */
 export function sessionIdFromKey(key) {
   const match = /#(\d+)$/.exec(key);
   return match ? Number(match[1]) : Number.NaN;
 }
 
-/** The project path at the start of a chat key (before the last `#`). */
 export function projectOfKey(key) {
   const index = key.lastIndexOf("#");
   return index === -1 ? key : key.slice(0, index);
 }
 
-/** Whether a chat key names a chat of the project at `projectPath`, and not of a path that merely starts with it. */
 export function chatInProject(projectPath, key) {
   return key === chatKey(projectPath, sessionIdFromKey(key));
 }
 
-/** The model of the chat's last message, which a turn the agent started by itself runs on. */
 export function lastUserModel(state, sessionId) {
   const last = state.messages.findLast((message) => message.session_id === sessionId && message.role === "user");
   if (last) return last.model ?? "";
-  // A window that holds no messages (chat-pages-v1) has it in the Chat's summary.
   return state.sessions?.[sessionId]?.summary?.lastModel ?? "";
 }
 
@@ -54,14 +41,12 @@ export function startRun(runs, chatId, model, permissionMode) {
   return { ...runs, [chatId]: permissionMode ? { ...run, permissionMode } : run };
 }
 
-/** The run with one step changed, or null when it has no such step or `update` declines. */
 function updateStep(run, id, update) {
   const index = run.steps.findIndex((step) => step.id === id);
   const next = index === -1 ? null : update(run.steps[index]);
   return next ? { ...run, steps: run.steps.map((step, position) => (position === index ? next : step)) } : null;
 }
 
-/** Tool completion replaces its output. A missing reasoning summary must not erase a public summary already streamed. */
 function endStep({ detail: streamed, ...step }, end) {
   const detail = end.detail ?? (step.kind === "thinking" ? streamed : undefined);
   return {
@@ -80,10 +65,6 @@ function endStep({ detail: streamed, ...step }, end) {
   };
 }
 
-/**
- * Steps as saved with a reply: none left running, and offsets into the reply's trimmed text.
- * A step still running when the turn ends is saved as `closeAs`, except thinking, which just stops.
- */
 function savedSteps(text, steps, closeAs) {
   if (!steps.length) return {};
   const lead = text.length - text.trimStart().length;
@@ -97,7 +78,6 @@ function savedSteps(text, steps, closeAs) {
   };
 }
 
-/** How a chat's turn stands: waiting on the user (an approval or a question), working, or idle (no run). */
 export function runStatus(run) {
   if (!run) return "idle";
   return run.approvals.length || run.questions.length ? "waiting" : "working";
@@ -105,21 +85,14 @@ export function runStatus(run) {
 
 const TURN_ENDS = new Set(["turn-completed", "turn-cancelled", "turn-failed"]);
 
-/** Whether the event ends a turn. */
 export function isTurnEnd(event) {
   return TURN_ENDS.has(event.type);
 }
 
-/** Whether a subagent is still at work: not ended yet, or waiting on an approval (see Subagent.status). */
 export function subagentActive(agent) {
   return ["initializing", "running", "waiting"].includes(agent?.status);
 }
 
-/**
- * The run left once a steering message splits it: the streamed text and finished steps are saved
- * above the new message, and steps still running carry on at the start of the rest of the reply.
- * Null when there is nothing to save yet.
- */
 function splitRun(run) {
   const finished = run.steps.filter((step) => step.status !== "running");
   if (!run.text.trim() && !finished.length) return null;
@@ -127,21 +100,14 @@ function splitRun(run) {
   return { ...run, text: "", steps: running, split: true };
 }
 
-/**
- * Folds one agent event into the turns streaming per chat (keyed by chat key), whatever project
- * they belong to. `model` names the model of a turn that starts without a message from this
- * window (see `turn-started`). Unchanged runs are returned as they are.
- */
 export function applyRunEvent(runs, chatId, event, model = "") {
   const run = runs[chatId];
   switch (event.type) {
-    // A message sent while a turn runs steers it; otherwise it starts one.
     case "message-sent": {
       if (!run) return startRun(runs, chatId, event.model, event.permissionMode);
       const split = splitRun(run);
       return split ? { ...runs, [chatId]: split } : runs;
     }
-    // A turn this window didn't start, such as a steering message that arrived as the last turn ended.
     case "turn-started": {
       const next = run ? runs : startRun(runs, chatId, model);
       return event.turnId === undefined || next[chatId].turnId === event.turnId ? next : { ...next, [chatId]: { ...next[chatId], turnId: event.turnId } };
@@ -174,10 +140,8 @@ export function applyRunEvent(runs, chatId, event, model = "") {
       return run ? { ...runs, [chatId]: { ...run, waitingForSubagents: event.waiting } } : runs;
     case "context-usage":
       return run ? { ...runs, [chatId]: { ...run, contextUsage: { used: event.used, size: event.size } } } : runs;
-    // The user's answers to a question were saved as their message, after the reply so far (see recordAnswers).
     case "answers-sent":
       return run ? { ...runs, [chatId]: splitRun(run) ?? { ...run, split: true } } : runs;
-    // Text from the parent agent means it's no longer waiting on its subagents.
     case "text-delta":
       return run ? { ...runs, [chatId]: { ...run, text: run.text + event.text, ...(run.waitingForSubagents ? { waitingForSubagents: false } : {}) } } : runs;
     case "step-started": {
@@ -185,7 +149,6 @@ export function applyRunEvent(runs, chatId, event, model = "") {
       const viewed = event.step.kind === "image" && event.step.imageOrigin === "viewed";
       const existing = run.steps.findIndex((step) => step.id === event.step.id);
       const admitted = existing !== -1 && run.steps[existing].kind === "image" && run.steps[existing].imageOrigin === "viewed";
-      // Count the reply after steering splits, not the provider turn. Replays keep their slot.
       if (viewed && !admitted && run.steps.filter((step) => step.kind === "image" && step.imageOrigin === "viewed").length >= 16) return runs;
       const step = {
         ...event.step,
@@ -215,24 +178,17 @@ export function applyRunEvent(runs, chatId, event, model = "") {
       const { [chatId]: _finished, ...remaining } = runs;
       return remaining;
     }
-    // Event types added by later steps change nothing.
     default:
       return runs;
   }
 }
 
-/**
- * Folds one agent event into the saved state (the project at `projectPath`) and the in-memory
- * runs. `changed` is true when `state` changed and must be saved; streamed text only lives in
- * `runs` until the turn ends. Events for another project's chats, or for a session this state
- * doesn't have, change nothing.
- */
+/** `changed` is true when `state` must be saved; streamed text lives only in `runs` until the turn ends. */
 export function applyAgentEvent(state, runs, projectPath, chatId, event) {
   const sessionId = sessionIdFromKey(chatId);
   let session = state.sessions[sessionId];
   if (!chatInProject(projectPath, chatId) || !session) return { state, runs, changed: false };
   const run = runs[chatId];
-  // Input, reset and a new turn invalidate even a suggestion still in flight from the old turn.
   const clearSuggestion = ["message-sent", "turn-started", "session-reset"].includes(event.type);
   const suggestionChanged = clearSuggestion && (session.suggestion !== undefined || session.suggestionTurnId !== undefined);
   if (suggestionChanged) {
@@ -255,16 +211,11 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       const children = (session.subagents ?? []).filter((agent) => agent.id !== session.native_session_id);
       const previous = children.find((agent) => agent.id === event.agent.id);
       if (previous && previous.updatedAt > event.agent.updatedAt) return { state, runs, changed: false };
-      // A resumed provider can rediscover a child before it has replayed the earlier output.
-      // A client that holds transcript tails (subagent-transcript.mjs) gets the host's merged transcript, or its tail,
-      // and keeps it as it comes.
       const tail = hasTranscriptTail(event.agent) || hasTranscriptTail(previous);
       const agent = previous
         ? {
             ...previous,
             ...event.agent,
-            // One that ended and runs again (a resumed session picks up its background agents, as after an account
-            // switch) is back on the track; one archived while it runs stays archived.
             archived: previous.archived && !(!subagentActive(previous) && subagentActive(event.agent)),
             title: event.agent.title === "Subagent" ? previous.title : event.agent.title,
             prompt: event.agent.prompt ?? previous.prompt,
@@ -275,9 +226,7 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
                 ? event.agent.transcript
                 : [...new Map([...previous.transcript, ...event.agent.transcript].map((entry) => [entry.id, entry])).values()].slice(-100),
             transcriptLength: event.agent.transcriptLength,
-            // A child that runs again comes without an end (subagents.cjs); the old one must not stop its clock.
             endedAt: event.agent.endedAt,
-            // An archived subagent's summary stays one only while updates come as summaries (subagent-transcript.mjs).
             detailsOnDemand: event.agent.detailsOnDemand,
           }
         : event.agent;
@@ -287,7 +236,6 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       const subagents = previous ? children.map((child) => (child.id === agent.id ? agent : child)) : [...children, agent];
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, subagents } } }, runs, changed: true };
     }
-    // The agent process's background work besides subagents (chat-activity.mjs) outlasts the turn too; each set replaces the last.
     case "background-tasks": {
       const tasks = Array.isArray(event.tasks) ? event.tasks : [];
       if (JSON.stringify(tasks) === JSON.stringify(session.backgroundTasks ?? [])) return { state, runs, changed: false };
@@ -295,13 +243,11 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       const next = tasks.length ? { ...rest, backgroundTasks: tasks } : rest;
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: next } }, runs, changed: true };
     }
-    // A Chat's plan lives on its session (chat-plan.mjs), so it outlasts the turn. Milagre's task tools replace it whole.
     case "plan-updated": {
       const { plan: _previous, ...rest } = session;
       const next = event.plan ? { ...rest, plan: event.plan } : rest;
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: next } }, runs, changed: true };
     }
-    // A provider's own todo list fills the plan until Milagre's tools own it.
     case "tasks-updated": {
       const plan = nativePlan(session.plan, event.tasks, Date.now());
       if (plan === session.plan) return { state, runs, changed: false };
@@ -319,18 +265,13 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     }
     case "message-sent": {
       const next = run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
-      // A steered run's first text is likely the answer to that message: see step-started.
       if (run) next.runs = { ...next.runs, [chatId]: { ...next.runs[chatId], steered: true } };
       return { ...next, changed: next.changed || suggestionChanged };
     }
     case "turn-started":
       return { state, runs: applyRunEvent(runs, chatId, event, lastUserModel(state, sessionId)), changed: suggestionChanged };
-    // A /compact the user asked for shows its progress on its divider: Claude's own compaction step stays out of the reply.
     case "step-started":
       if (event.step.id.startsWith("compact-") && pendingCompaction(state, sessionId)) return { state, runs, changed: false };
-      // Text written after a steering message, before the agent goes back to its tools, answers the user: it is saved
-      // as its own reply, so it isn't folded into the activity with the text between steps.
-      // ponytail: the first text after the steer, even when the agent wrote it before it read the message.
       if (run?.steered && run.text.trim()) {
         const split = splitRunForSteer(state, runs, projectPath, chatId);
         const { steered: _answered, ...rest } = split.runs[chatId];
@@ -340,7 +281,6 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     case "context-compacting":
       return pendingCompaction(state, sessionId) ? { state, runs, changed: false } : addCompaction(state, runs, projectPath, chatId, "preparing");
     case "context-compacted": {
-      // The boundary may be the last usage event of a /compact turn. Keep the gauge accurate even without a later API request.
       const size = run?.contextUsage?.size ?? session.contextUsage?.size;
       if (Number.isFinite(event.after) && event.after >= 0 && size > 0) {
         const contextUsage = { used: event.after, size };
@@ -371,29 +311,22 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         session = { ...rest, ...(suggestionTurnId ? { suggestionTurnId } : {}) };
         state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
       }
-      // The context gauge outlives the run, so the composer still shows it between turns.
       if (run.contextUsage) state = { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, contextUsage: run.contextUsage } } };
-      // A compaction request whose turn ends before its boundary did not happen.
       const unfinished = pendingCompaction(state, sessionId);
       if (unfinished) state = withContext(state, unfinished, { ...unfinished.context, status: "failed" });
-      // The reply so far was saved when a steering message split it; there is nothing left to show.
       if (event.type === "turn-completed" && run.split && !run.text.trim() && !run.steps.length)
         return { state, runs: remaining, changed: Boolean(run.contextUsage) || Boolean(unfinished) || suggestionUpdated };
-      // A /compact turn says nothing: its divider is the whole reply.
       if (event.type === "turn-completed" && !run.text.trim() && !run.steps.length && isCompactionRequest(lastUserMessage(state, sessionId)))
         return { state, runs: remaining, changed: true };
       const message = {
         id: state.next_id,
         session_id: sessionId,
         body: replyBody(run.text, event, run.steps.length > 0),
-        // A turn the plan's usage limit stopped carries the limit, so the Chat can offer another account.
         context: event.type === "turn-failed" && event.limit ? { kind: "limit", ...event.limit } : null,
         role: "assistant",
         model: run.model,
         outcome: event.type === "turn-completed" ? "completed" : event.type === "turn-cancelled" ? "cancelled" : "failed",
-        // What the turn cost, when the agent reports it (Kiro's credits).
         ...(event.type === "turn-completed" && Number.isFinite(event.credits) ? { credits: event.credits } : {}),
-        // Codex sends no end for a command still running when a turn stops, so the turn's end closes it.
         ...savedSteps(run.text, run.steps, event.type === "turn-completed" ? "done" : "failed"),
       };
       return { state: { ...state, next_id: state.next_id + 1, messages: [...state.messages, message] }, runs: remaining, changed: true };
@@ -406,13 +339,11 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
 const isCompactionRequest = (message) => message?.context?.kind === "compaction";
 const lastUserMessage = (state, sessionId) => state.messages.findLast((message) => message.session_id === sessionId && message.role === "user");
 
-/** The manual or automatic compaction that has not reached its boundary yet, if any. */
 function pendingCompaction(state, sessionId) {
   const request = state.messages.findLast((message) => message.session_id === sessionId && isCompactionRequest(message));
   return request?.context.status === "preparing" ? request : null;
 }
 
-/** Save the reply so far above the divider; the same turn continues below it. */
 function addCompaction(state, runs, projectPath, chatId, status, event = {}) {
   const sessionId = sessionIdFromKey(chatId);
   const usage = runs[chatId]?.contextUsage ?? state.sessions[sessionId].contextUsage;
@@ -447,20 +378,13 @@ function withContext(state, message, context) {
 function replyBody(text, event, hasSteps) {
   const reply = text.trim();
   if (event.type === "turn-failed") {
-    // Milagre's own messages are full sentences that name the CLI and the fix; the agent's raw errors get a prefix.
     const failure = event.notice ? event.message : `Agent error: ${event.message}`;
     return reply ? `${reply}\n\n${failure}` : failure;
   }
-  // Cancellation belongs to the message's outcome, not to the agent's words (or language).
   if (event.type === "turn-cancelled") return reply;
   return reply || (hasSteps ? "" : "The agent finished without a reply.");
 }
 
-/**
- * Before a steering message joins a running turn, the reply streamed so far is saved as its own
- * message, so the chat reads in order: the reply so far, the new message, then the rest of the reply.
- * Finished steps are saved with it; steps still running carry on at the start of the rest of the reply.
- */
 export function splitRunForSteer(state, runs, projectPath, chatId) {
   const sessionId = sessionIdFromKey(chatId);
   const run = runs[chatId];
@@ -484,11 +408,6 @@ export function splitRunForSteer(state, runs, projectPath, chatId) {
   };
 }
 
-/**
- * Shows the user's answers to a question as their message: the reply so far is saved first (as for a
- * steering message), so the answers sit between what the agent asked and what it does next.
- * `messageId` is the new message's id, so it can be taken back if the answers don't reach the agent.
- */
 export function recordAnswers(state, runs, projectPath, chatId, body, answered, images) {
   const sessionId = sessionIdFromKey(chatId);
   const run = runs[chatId];
@@ -511,10 +430,7 @@ export function recordAnswers(state, runs, projectPath, chatId, body, answered, 
   };
 }
 
-/**
- * The answers to a question request as the user's message keeps them, for its answer card: each question with what
- * was answered, in the request's order. A typed answer to a secret question is masked; null when nothing was answered.
- */
+/** Null when nothing was answered; a typed answer to a secret question is masked. */
 export function answeredQuestions(request, answers) {
   if (!request || !answers) return null;
   const answered = request.questions.flatMap((question) => {

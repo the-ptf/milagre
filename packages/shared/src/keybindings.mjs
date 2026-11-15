@@ -1,17 +1,10 @@
-// Keybindings, the T3 Code way: each computer keeps a keybindings.json, a JSON array of `{ key, command, when? }` rules
-// (core keybindings.cjs), and Settings › Keybindings edits it on one computer or on all of them. The desktop and the
-// iPad read the rules of the computer they run on, and the last rule whose key and `when` both match wins.
-// Types: keybindings.d.mts.
-
-/** At most this many rules are read from a file; the rest are left out. */
 export const MAX_KEYBINDINGS = 256;
 const MAX_KEY_LENGTH = 64;
 const MAX_WHEN_LENGTH = 256;
 
 /**
- * Every command a key can run, in the order Settings lists them. `mobile` marks the ones the iPad's hardware keyboard
- * offers too; `forward` the ones the desktop catches before any frame gets the key (app-shortcuts.cjs), so they work with
- * focus in a design, an HTML reply or the simulator. Text editing (⌘Z, Enter to send, Escape), ⌘W and ⌘Q stay fixed and are not here.
+ * Every command a key can run, in Settings order. `mobile`: the iPad's hardware keyboard offers it too; `forward`: the
+ * desktop catches the key before any frame gets it.
  */
 export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "commandPalette.toggle", title: "Search commands, Chats and Projects", group: "General", defaults: ["mod+k"], mobile: true },
@@ -24,7 +17,6 @@ export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "usage.open", title: "Open token usage", group: "Navigation", defaults: ["mod+shift+u"], forward: true },
   { id: "grid.focusPrevious", title: "Previous Chat in the grid", group: "Navigation", defaults: ["mod+alt+arrowleft"] },
   { id: "grid.focusNext", title: "Next Chat in the grid", group: "Navigation", defaults: ["mod+alt+arrowright"] },
-  // A Subchat's bookmark goes back to its parent; there is no history, so this is a place, not "back".
   { id: "chat.parent", title: "Open the parent Chat", group: "Navigation", defaults: ["mod+["], mobile: true },
   ...Array.from({ length: 9 }, (_, index) => ({
     id: `chat.jump.${index + 1}`,
@@ -35,7 +27,6 @@ export const KEYBINDING_COMMANDS = Object.freeze([
   })),
   { id: "chat.find", title: "Find in Chat", group: "Chat", defaults: ["mod+f"] },
   { id: "chat.quote", title: "Quote the selected text in the next message", group: "Chat", defaults: ["mod+shift+'"] },
-  // Held or pressed per Settings › Chat › Dictation; the iPad's keyboard only reports the press, so there it starts and stops.
   { id: "dictation.toggle", title: "Dictate", group: "Chat", defaults: ["alt+space"], mobile: true },
   { id: "changes.toggle", title: "Show or hide Changes", group: "Panels", defaults: ["mod+shift+d"], forward: true, mobile: true },
   { id: "terminal.toggle", title: "Show or hide Terminals", group: "Panels", defaults: ["mod+j"] },
@@ -60,22 +51,17 @@ export const WHEN_KEYS = Object.freeze({
   isIpad: "Milagre runs on an iPad.",
 });
 
-/** The command's catalog entry, or undefined for an unknown id. */
 export function keybindingCommand(id) {
   return COMMANDS.get(id);
 }
 
-/** The default rules, in catalog order. */
 export function defaultKeybindings() {
   return KEYBINDING_COMMANDS.flatMap((command) => command.defaults.map((key) => ({ key, command: command.id })));
 }
 
-/** The default rules of one command. */
 export function defaultRulesFor(command) {
   return (COMMANDS.get(command)?.defaults ?? []).map((key) => ({ key, command }));
 }
-
-// ---- Keys ----------------------------------------------------------------------------------------------------------
 
 const MODIFIER_ALIASES = {
   mod: "mod",
@@ -136,14 +122,13 @@ const CODE_KEYS = {
 };
 
 /**
- * A key string such as `mod+shift+d` read into its parts, or null when it isn't one: it needs exactly one key that isn't
- * a modifier. `mod` is ⌘ on a Mac and Ctrl elsewhere.
+ * A key string such as `mod+shift+d` read into its parts, or null; it needs exactly one non-modifier key. `mod` is ⌘ on
+ * a Mac, Ctrl elsewhere.
  */
 export function parseKey(value) {
   if (typeof value !== "string") return null;
   const text = value.trim().toLowerCase();
   if (!text || text.length > MAX_KEY_LENGTH) return null;
-  // "mod++" binds the plus key: the last part may be "+" itself.
   const parts = text.endsWith("++") ? [...text.slice(0, -2).split("+"), "+"] : text.split("+");
   const shortcut = { key: "", mod: false, meta: false, ctrl: false, alt: false, shift: false };
   for (const [index, raw] of parts.entries()) {
@@ -161,7 +146,6 @@ export function parseKey(value) {
   return shortcut.key ? shortcut : null;
 }
 
-/** The key string for parts, in the order `mod+ctrl+alt+shift+key`. */
 export function formatKey(shortcut) {
   const parts = [];
   if (shortcut.mod) parts.push("mod");
@@ -173,7 +157,6 @@ export function formatKey(shortcut) {
   return parts.join("+");
 }
 
-/** The same key string every way it can be written (`cmd+K` and `mod+k` on a Mac), for comparing two rules. */
 export function canonicalKey(value, mac) {
   const shortcut = parseKey(value);
   if (!shortcut) return null;
@@ -183,8 +166,8 @@ export function canonicalKey(value, mac) {
 }
 
 /**
- * The key a keyboard event pressed, in key-string form. Letters and digits come from `key`, so they follow the keyboard
- * layout; with ⌥ or ⇧ held the Mac types another character, so punctuation and those come from the physical `code`.
+ * The key a keyboard event pressed, in key-string form. Letters and digits follow the layout; punctuation and ⌥/⇧
+ * characters come from the physical `code`.
  */
 export function eventKey(event) {
   const key = String(event.key ?? "");
@@ -199,12 +182,11 @@ export function eventKey(event) {
   return key.length === 1 ? lower : null;
 }
 
-/** Whether a keyboard event is a modifier on its own (nothing to bind yet). */
 export function isModifierEvent(event) {
   return ["Meta", "Control", "Alt", "Shift", "OS", "Hyper", "Super", "CapsLock", "Fn"].includes(String(event.key));
 }
 
-/** The key string a keyboard event pressed, `mod` standing for ⌘ on a Mac and Ctrl elsewhere; null for a lone modifier. */
+/** The key string a keyboard event pressed, or null for a lone modifier. */
 export function keyFromEvent(event, mac) {
   if (isModifierEvent(event)) return null;
   const key = eventKey(event);
@@ -220,8 +202,8 @@ export function keyFromEvent(event, mac) {
 }
 
 /**
- * Whether a keyboard event presses the shortcut, with exactly its modifiers. `either` lets `mod` be ⌘ or Ctrl on any
- * platform, as the window's shortcuts always took them; an explicit `cmd` or `ctrl` still needs that key.
+ * Whether a keyboard event presses the shortcut with exactly its modifiers. `either` lets `mod` be ⌘ or Ctrl on any
+ * platform.
  */
 export function eventMatches(event, shortcut, mac, either = false) {
   if (eventKey(event) !== shortcut.key) return false;
@@ -232,7 +214,6 @@ export function eventMatches(event, shortcut, mac, either = false) {
   return Boolean(event.metaKey) === meta && Boolean(event.ctrlKey) === ctrl;
 }
 
-/** Whether a key string has ⌘, Ctrl or ⌥, or is a function key: a bare letter would fire while typing. */
 export function hasCommandModifier(value) {
   const shortcut = parseKey(value);
   if (!shortcut) return false;
@@ -260,11 +241,7 @@ function keyLabel(key) {
   return KEY_GLYPHS[key] ?? key.toUpperCase();
 }
 
-/**
- * How a key string reads, the way the app's hints draw it: `⇧⌘D` on a Mac (macOS menu order: ⌃⌥⇧⌘, then the key),
- * `Ctrl+Shift+D` elsewhere.
- * Null for a string that isn't a key.
- */
+/** How a key string reads in hints: `⇧⌘D` on a Mac, `Ctrl+Shift+D` elsewhere. Null for a string that isn't a key. */
 export function keyLabelFor(value, mac) {
   const shortcut = parseKey(value);
   if (!shortcut) return null;
@@ -275,9 +252,7 @@ export function keyLabelFor(value, mac) {
   return [ctrl && "Ctrl", meta && "Meta", shortcut.alt && "Alt", shortcut.shift && "Shift", key].filter(Boolean).join("+");
 }
 
-// ---- When ----------------------------------------------------------------------------------------------------------
-
-/** A `when` expression read into a tree, or null when it doesn't parse. Names, `!`, `&&`, `||` and parentheses. */
+/** A `when` expression read into a tree, or null when it doesn't parse. */
 export function parseWhen(value) {
   if (typeof value !== "string") return null;
   const text = value.trim();
@@ -332,7 +307,6 @@ export function parseWhen(value) {
   return tree && at === tokens.length ? tree : null;
 }
 
-/** Whether a `when` tree holds in `context`; a name the context doesn't set is false. */
 export function evaluateWhen(node, context) {
   switch (node.type) {
     case "identifier":
@@ -348,7 +322,6 @@ export function evaluateWhen(node, context) {
   }
 }
 
-/** The names a `when` tree uses. */
 export function whenNames(node) {
   if (!node) return [];
   if (node.type === "identifier") return [node.name];
@@ -356,9 +329,6 @@ export function whenNames(node) {
   return [...whenNames(node.left), ...whenNames(node.right)];
 }
 
-// ---- Rules ---------------------------------------------------------------------------------------------------------
-
-/** A rule from a file's entry, trimmed, or a reason it can't be one. */
 export function readRule(entry) {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return { error: "is not an object" };
   const { key, command, when } = entry;
@@ -370,7 +340,6 @@ export function readRule(entry) {
   return { rule };
 }
 
-/** The valid rules of a file's parsed contents, and a line per entry left out. */
 export function readRules(value) {
   if (!Array.isArray(value)) return { rules: [], issues: ["The file is not a JSON array of rules."] };
   const rules = [];
@@ -387,7 +356,6 @@ export function readRules(value) {
   return { rules, issues };
 }
 
-/** Rules ready to match: each with its parsed key and `when`. */
 export function compileRules(rules) {
   return rules.flatMap((rule) => {
     const shortcut = parseKey(rule.key);
@@ -399,8 +367,8 @@ export function compileRules(rules) {
 }
 
 /**
- * The command a keyboard event runs: the last rule whose key and `when` both match, or null. A `mod` key answers to ⌘
- * or Ctrl (see `eventMatches`), but a rule that names the pressed modifier exactly wins over one that only allows it.
+ * The command a keyboard event runs: the last matching rule, or null. A rule naming the pressed modifier exactly wins
+ * over one that only allows it.
  */
 export function commandForEvent(compiled, event, context, mac) {
   for (const either of [false, true]) {
@@ -420,12 +388,11 @@ function lastMatch(compiled, event, context, mac, either) {
   return null;
 }
 
-/** The key strings a command has, in file order. */
 export function keysFor(rules, command) {
   return rules.filter((rule) => rule.command === command).map((rule) => rule.key);
 }
 
-/** The first key a command has whose `when` can hold in `context` (all of them without a context), for a hint. */
+/** The first key a command has whose `when` can hold in `context` (all of them without a context). */
 export function primaryKeyFor(rules, command, context) {
   for (let index = rules.length - 1; index >= 0; index--) {
     const rule = rules[index];
@@ -439,10 +406,7 @@ export function primaryKeyFor(rules, command, context) {
   return null;
 }
 
-/**
- * The commands other than `command` that a key already runs, ignoring rules whose `when` differs (they may never meet).
- * `when` compares as written.
- */
+/** The other commands a key already runs, ignoring rules whose `when` differs. */
 export function conflictsFor(rules, { key, command, when }, mac) {
   const wanted = canonicalKey(key, mac);
   if (!wanted) return [];
@@ -455,12 +419,10 @@ export function conflictsFor(rules, { key, command, when }, mac) {
   return [...others];
 }
 
-/** `rules` with every rule of `command` replaced by `next`, added at the end so they win over earlier ones. */
 export function withCommandRules(rules, command, next) {
   return [...rules.filter((rule) => rule.command !== command), ...next.map((rule) => ({ ...rule, command }))];
 }
 
-/** Whether a command's rules are exactly its defaults. */
 export function isDefault(rules, command) {
   const mine = rules.filter((rule) => rule.command === command);
   const defaults = COMMANDS.get(command)?.defaults ?? [];
@@ -468,8 +430,8 @@ export function isDefault(rules, command) {
 }
 
 /**
- * The file's rules with the defaults of commands it has never seen added at the end (a newer Milagre brought them),
- * and the commands now seen. A command whose rules the user removed stays unbound: it is already seen.
+ * The file's rules with the defaults of unseen commands added at the end, and the commands now seen. A command whose
+ * rules the user removed stays unbound.
  */
 export function addNewDefaults(rules, seen) {
   const known = new Set(seen);

@@ -1,9 +1,7 @@
 import type { RoutineTrigger } from "./model.ts";
 
-/** Comes first in a rendered prompt that has fenced text, once, whatever the number of blocks. */
 export const UNTRUSTED_NOTE: string;
 
-/** The placeholders a trigger fills, in the order the autocomplete lists them, each with an example of what it expands to. */
 export function placeholdersFor(trigger: RoutineTrigger): Array<{ name: string; example: string }>;
 
 /**

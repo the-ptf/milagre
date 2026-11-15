@@ -1,7 +1,3 @@
-// The Babysit PRs settings every surface shares: the daemon reads them, the desktop and the phone edit them. Also the
-// line a Chat shows when babysitting its PR stopped. Types: babysit.d.mts.
-
-/** What can wake the agent, in the order the settings list them. */
 const WAKE_ORDER = Object.freeze(["comments", "checks", "conflicts", "behind"]);
 
 export const INTERVAL_OPTIONS = Object.freeze([1, 2, 5, 10, 15, 30]);
@@ -56,7 +52,6 @@ const bool = (value, fallback) => (typeof value === "boolean" ? value : fallback
 const oneOf = (value, options, fallback) => (options.includes(value) ? value : fallback);
 const text = (value, max, fallback) => (typeof value === "string" ? value.slice(0, max) : fallback);
 
-/** A rule with a switch and a number: the number survives the switch being off, so turning it on restores it. */
 function numberRule(value, options, key, fallback) {
   const source = isRecord(value) ? value : {};
   return { on: bool(source.on, fallback.on), [key]: oneOf(source[key], options, fallback[key]) };
@@ -84,7 +79,6 @@ export function normalizeBabysitSettings(value) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-// Why babysitting a PR stopped, as the Chat's line says it after "Stopped babysitting PR #<n>: ".
 const STOPPED_WHY = {
   merged: () => "merged",
   closed: () => "closed",
@@ -96,8 +90,8 @@ const STOPPED_WHY = {
 };
 
 /**
- * The line a Chat shows when its PR's babysit Heartbeat ended (context kind "babysit-stopped"): "Stopped babysitting PR #1:
- * merged.". A reason this build doesn't know reads as a plain stop.
+ * "Stopped babysitting PR #1: merged." for the context kind "babysit-stopped"; a reason this build doesn't know reads
+ * as a plain stop.
  */
 export function babysitStoppedText(context) {
   const why = Object.hasOwn(STOPPED_WHY, context.reason) ? STOPPED_WHY[context.reason](context) : null;

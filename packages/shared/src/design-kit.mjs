@@ -25,7 +25,6 @@ export const designKitDataSchema = z
     textStyles: map(textStyle),
     spacing: map(z.number().min(0).max(2000)),
     radii: map(z.number().min(0).max(2000)),
-    // Component trees use the ordinary layer schema, checked by validateDesignKit in design.mjs.
     components: map(z.array(z.record(z.string(), z.unknown())).min(1).max(200), 30).optional(),
     references: z
       .array(z.object({ title: z.string().min(1).max(120), source: z.string().min(1).max(2000) }).strict())
@@ -57,7 +56,6 @@ export const designConsistencySchema = z
   })
   .strict();
 
-/** Resolve a pinned snapshot before layout. Saved documents remain portable on desktop, phone and exports. */
 export function resolveDesignKit(document) {
   const kit = document.kit;
   for (const node of document.nodes) {
@@ -115,7 +113,6 @@ const equalValue = (a, b) =>
     ? Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k, v]) => Object.hasOwn(b, k) && b[k] === v)
     : a === b;
 
-/** Shared rules; exceptions name one exact layer/field/value and remain visible in diagnostics. */
 export function designKitWarnings(document) {
   if (!document.kit) return [];
   const warnings = [];
@@ -154,14 +151,12 @@ export function designKitWarnings(document) {
         break;
       }
     if (hidden) continue;
-    // Check generated children too: exposed color properties must not bypass the palette.
     for (const field of ["fill", "stroke"]) {
       const value = node[field] ?? (field === "fill" ? designDefaultFill(node) : undefined);
       if (outsidePalette(value))
         add(node.id, field, resolvedColor(value), `${node.id}.${field} uses a color outside kit ${kit.id} v${kit.version}. Use a palette color.`);
     }
     for (const field of ["gap", "padding", "radius", "minWidth", "minHeight"]) {
-      // Minimum dimensions are component constraints unless explicitly bound to a spacing token.
       if ((field === "minWidth" || field === "minHeight") && !node.bindings?.[field]) continue;
       const values = Object.values(field === "radius" ? kit.radii : kit.spacing);
       if (node[field] !== undefined && node[field] !== 0 && values.length && !values.includes(node[field]))
@@ -178,7 +173,6 @@ export function designKitWarnings(document) {
   return warnings;
 }
 
-/** Run on preflight and every save, not while parsing/rendering a recoverable draft. */
 export function validateDesignConsistency(document) {
   if (document.consistency?.mode !== "strict") return document;
   if (!document.kit) throw designError("Strict consistency requires a pinned project kit. Read design_kit_read and set document.kit.", ["kit"]);

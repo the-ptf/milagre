@@ -7,7 +7,6 @@ export const BRANCH_POLICY_DEFAULTS = Object.freeze({
   instructions: "",
 });
 
-/** Settings copy, shared by desktop and phone. */
 export const BRANCH_COPY = Object.freeze({
   title: "Branches",
   footer: "Applies to new Worktrees. Existing branches keep their names.",
@@ -48,7 +47,6 @@ export function branchSlug(text) {
     .replace(/-+$/, "");
 }
 
-/** Only an unambiguous, explicit issue key in the prompt counts as a ticket. */
 export function branchTicket(text) {
   const keys = [...new Set(String(text).match(/\b[A-Z][A-Z0-9]{1,15}-[0-9]+\b/g) ?? [])];
   return keys.length === 1 ? keys[0] : "";
@@ -62,7 +60,6 @@ export function validBranchName(branch) {
   return branch.split("/").every((part) => !part.startsWith(".") && !part.endsWith(".lock"));
 }
 
-/** Validate only supplied fields, so repository defaults can be combined with a personal username. */
 export function branchPolicyFields(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Git branch settings must be an object.");
   const result = {};
@@ -84,10 +81,8 @@ export function validatePolicyBranch(branch, policy) {
   return branch;
 }
 
-/** Render in code: the model supplies a slug, never the template or Git arguments. */
 export function formatPolicyBranch(policy, { slug, ticket = "", suffix = "", preview = false }) {
   const template = policy.template || (policy.dashesOnly ? "{slug}-{suffix}" : "milagre/{slug}-{suffix}");
-  // A ticket already occupies its own slot; don't repeat it in the task's slug.
   const task =
     template.includes("{ticket") && ticket ? String(slug).replace(new RegExp(`\\b${ticket.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), " ") : slug;
   const values = { slug: branchSlug(task) || "chat", username: policy.username, ticket: ticket.toLowerCase(), suffix };
@@ -112,7 +107,6 @@ export function validateBranchPolicy(policy) {
 
 export const BRANCH_TOKENS = ["username", "ticket", "slug", "suffix"];
 
-/** What Settings shows for a draft: the example name, or which field is wrong and why. */
 export function branchPolicyCheck(policy) {
   const result = { preview: "", template: "", baseBranch: "" };
   if (policy.baseBranch && !validBranchName(policy.baseBranch)) result.baseBranch = "Not a valid branch name.";
@@ -129,7 +123,6 @@ export function branchPolicyCheck(policy) {
   return result;
 }
 
-/** The personal overrides to save: every field the repository doesn't set, kept from the draft. */
 export function branchPolicyOverrides(settings, draft) {
   const local = {};
   for (const field of Object.keys(BRANCH_POLICY_DEFAULTS)) {

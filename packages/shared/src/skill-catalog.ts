@@ -9,7 +9,6 @@ export const SKILL_SCOPES: Array<{ scope: SkillScope; label: string }> = [
   { scope: "bundled", label: "Built-in" },
 ];
 
-/** The CLI folders discovery reads (`.claude/skills`…), as filter choices. */
 export const SKILL_PROVIDERS = [
   { provider: "claude", label: "Claude" },
   { provider: "codex", label: "Codex" },
@@ -58,8 +57,7 @@ export function rankSkillMatches<T>(items: readonly T[], query: string, read: (i
     items
       .map((item, index) => ({ item, index, rank: skillMatchRank(read(item).name, read(item).description, query) }))
       .filter((entry) => entry.rank >= 0)
-      // Sorts the array the map above just made (Hermes, which also reads this package, has no toSorted).
-      // oxlint-disable-next-line unicorn/no-array-sort
+      // Hermes has no toSorted.
       .sort((a, b) => a.rank - b.rank || a.index - b.index)
       .map((entry) => entry.item)
   );
@@ -69,18 +67,14 @@ export function groupSkills<T extends SkillOption>(skills: T[]) {
   return SKILL_SCOPES.map((group) => ({ ...group, skills: skills.filter((skill) => skill.scope === group.scope) })).filter((group) => group.skills.length > 0);
 }
 
-/** The same-named skills a winner hides. */
 export function shadowedBy(shadowed: ShadowedSkill[] | undefined, skill: SkillOption) {
   return (shadowed ?? []).filter((item) => item.shadowedBy === skill.path);
 }
 
-/** A SKILL.md without its frontmatter, which the page shows as the name and description instead. */
 export function skillBody(content: string) {
   return content.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "").trim();
 }
 
-// ponytail: guesses the home folder from the path (macOS and Linux layouts); pass the real one if a host ever reports it.
-// Also shortens the paths inside a discovery warning.
 export function shortenHome(text: string) {
   return text.replace(/(^|\s)\/(?:Users|home)\/[^/\s]+(?=\/|\s|$)/g, "$1~");
 }

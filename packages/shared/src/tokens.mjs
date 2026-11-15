@@ -1,4 +1,3 @@
-/** A token count the way model windows are named: 366k, 1M, 1.5M. */
 export function formatTokens(tokens) {
   const thousands = Math.round(tokens / 1000);
   if (thousands < 1) return String(Math.round(tokens));

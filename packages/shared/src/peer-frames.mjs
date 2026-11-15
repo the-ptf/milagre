@@ -1,16 +1,8 @@
-// The paired-desktop protocol inside an encrypted channel (relay-crypto). A desktop sends each daemon request as an
-// `rpc` message and the daemon sends each of its frames (a reply, an error or an event) as an `evt` message:
-//   { t: "rpc" | "evt", frame }
-// A frame whose UTF-8 JSON is over PART_THRESHOLD bytes travels instead as consecutive `part` messages, each with the
-// base64 of PIECE_BYTES of it (a whole 768 KiB piece would be 1 MiB in base64, past the relay's frames):
-//   { t: "part", id, i, n, data }   id: the sender's count of split frames, i: 0..n-1, n: how many parts
-// A frame's parts are never interleaved with another rpc, evt or part message, and the channel delivers in order, so a
-// reader holds at most one frame. Node only (the daemon and Electron main): it uses Buffer.
+// Node only (uses Buffer). A split frame travels as base64 `part` messages sized to stay under the relay's frame limit.
 import { Buffer } from "node:buffer";
 
 export const PART_THRESHOLD = 768 * 1024;
 export const PIECE_BYTES = 512 * 1024;
-// The daemon's frame limit (apps/daemon/src/protocol.cjs).
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const MAX_PARTS = MAX_FRAME_BYTES / PIECE_BYTES;
 const MAX_DATA = Math.ceil(PIECE_BYTES / 3) * 4;
@@ -25,7 +17,6 @@ export function createFrameWriter(kind) {
   const head = Buffer.from(`{"t":${JSON.stringify(kind)},"frame":`);
   let lastId = 0;
   return {
-    /** The UTF-8 message texts that carry one frame (`json`, its JSON text), each ready for channel.sealEncoded. */
     write(json) {
       const bytes = Buffer.from(json, "utf8");
       if (bytes.length > MAX_FRAME_BYTES)
@@ -47,7 +38,7 @@ export function createFrameWriter(kind) {
 
 /** Reads frames of one direction: `kind` is "rpc" on the daemon, "evt" on a desktop. */
 export function createFrameReader(kind, { maxBytes = MAX_FRAME_BYTES } = {}) {
-  let partial = null; // { id, n, pieces, size } while a split frame arrives
+  let partial = null;
   const refuse = (code, message) => {
     partial = null;
     return peerError(code, message);
@@ -80,7 +71,6 @@ export function createFrameReader(kind, { maxBytes = MAX_FRAME_BYTES } = {}) {
         throw peerError("INVALID_REQUEST", "Expected a JSON frame");
       }
     },
-    /** Whether a split frame is half received. */
     pending: () => partial !== null,
   };
 }

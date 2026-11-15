@@ -1,16 +1,11 @@
-// In-place provider handoff: a chat switches between Claude and Codex, and a divider message (context kind
-// "handoff") marks each switch (a failed one marks none). Dividers also record where each provider stopped reading. Types: handoff.d.mts.
-
 export function isHandoff(message) {
   return message?.context?.kind === "handoff";
 }
 
 const chatMessages = (state, sessionId) => state.messages.filter((message) => message.session_id === sessionId);
 
-// A divider whose handoff failed or was cancelled did not happen: it marks no switch.
 const isEffective = (message) => isHandoff(message) && message.context.status !== "failed";
 
-/** The provider the chat's last turn ran on: the last divider's target, else the chat's provider once it has messages. */
 export function lastTurnProvider(state, sessionId) {
   const messages = chatMessages(state, sessionId);
   if (!messages.length) return undefined;

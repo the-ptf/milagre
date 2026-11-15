@@ -3,7 +3,6 @@ export type DiffMode = "uncommitted" | "committed";
 export type DiffFileEntry = {
   /** The new path, relative to the chat's folder. */
   path: string;
-  /** Renames only. */
   oldPath?: string;
   status: "added" | "deleted" | "modified" | "renamed";
   added: number;
@@ -46,20 +45,17 @@ export type GitHistory =
       /** Omitted when the caller already has branchesVersion. */
       branches?: GitBranch[];
       branchesVersion?: string;
-      /** Checked live, independently of the cached catalogue. */
       baseMissing?: boolean;
       commits: GitCommit[];
       hasMore: boolean;
       message?: string;
     };
 
-/** Older desktop hosts can reject this optional read while still serving file diffs. */
 export function isGitHistoryUnavailable(error: unknown): boolean {
   const message = error && typeof error === "object" && "message" in error ? String(error.message) : String(error ?? "");
   return message === "Command is not available from mobile" || /Unknown command: git:history(?:[. ]|$)/.test(message);
 }
 
-/** Platform-neutral picker entries keep desktop and phone grouping and copy aligned. */
 export function comparisonOptions(data: Extract<GitHistory, { isRepo: true }> | undefined) {
   const branchOptions = (data?.branches ?? []).map((branch) => {
     const remote = /^refs\/remotes\/([^/]+)\/(.+)$/.exec(branch.ref);
@@ -120,7 +116,6 @@ export function commitStatsNotice(reason: NonNullable<GitCommit["statsUnavailabl
     : "Totals unavailable: Git exceeded the output limit. Retrying automatically.";
 }
 
-/** Older hosts can omit the parent metadata; avoid asserting a parent until it is known. */
 export function commitComparisonLabel(parent: string | null | undefined): string {
   return parent === null ? "First commit" : parent ? "Compared with first parent" : "Commit changes";
 }

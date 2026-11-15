@@ -1,9 +1,4 @@
-// The Routines form's state and what it saves: the `routines:create` input for a new Routine, the `routines:update` patch
-// for an edited one. Desktop and phone both edit this state, so they validate the same way and send the same thing.
-// Types: routine-form.d.mts.
-
 const DAY_MS = 864e5;
-// The store's limits (packages/core/src/routines/store.cjs, cron.cjs), so the form says no before the Mac does.
 const MAX_EXPIRY_MS = 30 * DAY_MS;
 const MAX_RUNS_LIMIT = 1000;
 const NAME_MAX = 80;
@@ -16,7 +11,6 @@ const HOURS_RULE = `Every N hours must divide 24 (${EVERY_HOURS.join(", ")})`;
 const CHAT_ONLY_SCHEDULE = "Only schedule triggers can target an existing Chat";
 const SIGNED_NEEDS_SECRET = "A signed webhook needs a signing secret";
 
-/** The New Routine and Edit forms' prompt copy, the same on desktop and the phone. */
 export const PROMPT_PLACEHOLDER = "What should the agent do on each Run? End with (pass) when there's nothing to do.";
 export const PROMPT_HINT = "Type {{ for the Run's fields";
 const DATA_NOTES = {
@@ -24,17 +18,11 @@ const DATA_NOTES = {
   webhook: "The request is passed as data, not instructions.",
 };
 
-/** The hint under the prompt for a trigger: an event's fields are data the agent reads, never instructions it follows. */
 export function promptHint(trigger) {
   const note = DATA_NOTES[trigger];
   return note ? `${PROMPT_HINT}. ${note}` : PROMPT_HINT;
 }
 
-/**
- * What deleting a Routine does, as its delete confirmation and the Edit form's Delete Routine row say it. A Heartbeat checks
- * back on a Chat that is someone's own, and the delete leaves that Chat alone; any other Routine opens Run Chats, and the
- * delete archives the ones nobody has kept.
- */
 export function deleteWarning(routine) {
   return routine?.target?.kind === "chat" ? "Its Chats stay." : "Its Runs stop, and its Run Chats you haven't kept are archived.";
 }
@@ -50,7 +38,6 @@ export function fallbackApplies(state) {
   return state.runIn !== "chat" && !isCommentRoutine(state);
 }
 
-// The fallback the form names ({ provider, model, effort? }), or null for the automatic pick.
 function fallbackOf(state) {
   const provider = text(state.fallbackProvider);
   const model = text(state.fallbackModel);
@@ -59,7 +46,6 @@ function fallbackOf(state) {
   return { provider, model, ...(effort ? { effort } : {}) };
 }
 
-/** A new Routine's form: a schedule every hour in a new worktree, running until switched off. */
 export function emptyRoutineForm(timezone, now = Date.now()) {
   return {
     name: "",
@@ -114,7 +100,6 @@ export function scheduleCron(schedule) {
   return { cron: amount === 24 ? "0 0 * * *" : `0 */${amount} * * *` };
 }
 
-/** `at` on the wall clock of `timeZone`: its date, minutes into the day and weekday (0 is Sunday). */
 function wallClock(at, timeZone) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -129,11 +114,9 @@ function wallClock(at, timeZone) {
   return { year: part("year"), month: part("month"), day: part("day"), minutes: (part("hour") % 24) * 60 + part("minute") };
 }
 
-/** The moment the wall clock of `timeZone` reads `minutes` into the day `offset` days after `wall`'s (minutes may run past midnight). */
 function wallMoment(wall, offset, minutes, timeZone) {
   const target = Date.UTC(wall.year, wall.month - 1, wall.day + offset, 0, minutes);
   let at = target;
-  // The zone's offset at the guess, twice, so a day that changes its clock lands right.
   for (let pass = 0; pass < 2; pass += 1) {
     const seen = wallClock(at, timeZone);
     at += target - Date.UTC(seen.year, seen.month - 1, seen.day, 0, seen.minutes);
@@ -221,14 +204,11 @@ function triggerOf(state) {
   return fail("trigger", "Pick a trigger");
 }
 
-/** A Linear Routine on new comments: it has no Each run, because comments go into the Chat linked to the issue. */
 export function isCommentRoutine(state) {
   return state.trigger === "linear" && state.linear?.event === "comment";
 }
 
 function targetOf(state) {
-  // The Mac still keeps a new-chat target on a listed Project for a comment Routine (store.cjs checkTarget); its Runs
-  // never use it, so the form fills it from the Project it has, in a Worktree.
   if (isCommentRoutine(state)) {
     if (!text(state.projectPath)) return fail("project", "Pick a Project");
     return { target: { kind: "new-chat", projectPath: state.projectPath, workspace: "worktree" } };
@@ -260,7 +240,6 @@ function endOf(state, now) {
 }
 
 function common(form, now) {
-  // A comment Routine's Each run is hidden: whatever it last held (even an existing Chat) doesn't count.
   const state = isCommentRoutine(form) ? { ...form, runIn: "worktree" } : form;
   const name = text(state.name);
   if (!name) return fail("name", "Give the Routine a name");
@@ -277,13 +256,11 @@ function common(form, now) {
   return { name, prompt, trigger: trigger.trigger, target: target.target, end };
 }
 
-/** The `routines:create` input the form makes, or the field that is wrong and why. */
 export function formToInput(state, now = Date.now()) {
   const made = common(state, now);
   if (made.error) return made;
   const input = { name: made.name, prompt: made.prompt, trigger: made.trigger, target: made.target };
   if (made.trigger.kind === "webhook") {
-    // The Mac mints the URL and its hook id; the form only says whether a signature is checked.
     const secret = text(state.webhook.signingSecret);
     const signed = state.webhook.signed === true || Boolean(secret);
     if (signed && !secret) return fail("signingSecret", SIGNED_NEEDS_SECRET);
@@ -326,7 +303,6 @@ export function formFromRoutine(routine, timezone, now = Date.now()) {
     state.runIn = target.workspace;
     state.projectPath = target.projectPath;
   }
-  // The form shows one end; a Routine with both keeps its expiry in `at`, so an edit doesn't drop it (see formToUpdate).
   const at = routine.expiresAt ?? empty.stop.at;
   if (routine.maxRuns !== undefined) state.stop = { ...empty.stop, kind: "runs", runs: routine.maxRuns, at };
   else if (routine.expiresAt !== undefined) state.stop = { ...empty.stop, kind: "date", at };
@@ -345,26 +321,19 @@ export function formToUpdate(state, routine, now = Date.now()) {
     return fail("runIn", "Where a Routine's Runs land can't change between a Chat and new Chats");
   const made = common(comment ? { ...state, projectPath: routine.target.projectPath } : state, now);
   if (made.error) return made;
-  // A comment Routine keeps the target it has, left out of the patch: the form shows no Project or Each run for it, and
-  // sending it would check again a Project the form hides, which may have left the list since.
   const patch = { name: made.name, prompt: made.prompt, trigger: made.trigger, ...(comment ? {} : { target: made.target }) };
   if (routine.trigger.kind === "webhook") {
     const secret = text(state.webhook.signingSecret);
     const signed = Boolean(secret) || (state.webhook.signed ?? routine.trigger.signed) === true;
-    // Signing a webhook that had no secret needs one now, or every delivery would fail its check.
     if (signed && !secret && routine.trigger.signed !== true) return fail("signingSecret", SIGNED_NEEDS_SECRET);
-    // No hook id: only a rotate changes it, and the one this form opened with is stale after a rotate.
     patch.trigger = { kind: "webhook", signed };
     if (secret) patch.signingSecret = secret;
-    // A cleared header (null) goes back to the default.
     if (signed) patch.signingHeader = text(state.webhook.signingHeader) || null;
   }
   for (const key of ["provider", "model", "permissionMode"]) patch[key] = text(state[key]) || null;
-  // A Routine whose Runs never retry (a Heartbeat, a comment Routine) keeps whatever it has.
   if (fallbackApplies(state)) patch.fallback = fallbackOf(state);
   patch.maxRuns = made.end.maxRuns ?? null;
   patch.expiresAt = made.end.expiresAt ?? null;
-  // A run cap picked over a stored expiry keeps that expiry: the form shows only one end.
   if (state.stop.kind === "runs" && routine.maxRuns !== undefined && routine.expiresAt !== undefined) patch.expiresAt = routine.expiresAt;
   return { patch };
 }

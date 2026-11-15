@@ -1,7 +1,3 @@
-// Dictation on every platform: the language the speaker picked, and the words of the Chat's project the recognizer should
-// expect. Whisper (desktop, Android) takes the words as its prompt; Apple's DictationTranscriber (iOS) as contextual strings,
-// and the AI fix-up as its vocabulary.
-
 /** "auto" lets Whisper detect languages. Explicit languages can use Apple dictation; `locale` is its default region. */
 export const DICTATION_LANGUAGES = [
   { code: "auto", name: "Detect automatically (experimental)", locale: null },
@@ -38,9 +34,7 @@ export const DICTATION_LANGUAGES = [
 
 const CODES = new Set(DICTATION_LANGUAGES.map((language) => language.code));
 
-/** A saved setting as a known code, "auto" for anything else. */
 export function dictationLanguage(value) {
-  // The first automatic-detection experiment was named after the two languages used to test it.
   if (value === "pt-en") return "auto";
   return typeof value === "string" && CODES.has(value) ? value : "auto";
 }
@@ -53,8 +47,6 @@ export function appleLocale(language) {
   return DICTATION_LANGUAGES.find((item) => item.code === language)?.locale ?? "";
 }
 
-// Names every Chat may say, which recognizers swap for common words ("code X", "cloud", "Cairo"): Milagre's own nouns,
-// its agents and their models.
 const APP_TERMS = [
   "Milagre",
   "Claude",
@@ -73,7 +65,6 @@ const APP_TERMS = [
   "ACP",
   "pull request",
 ];
-// Providers, tools and services a message to a coding agent names in any project.
 const DEV_TERMS = [
   "GitHub",
   "OpenAI",
@@ -112,25 +103,18 @@ const DEV_TERMS = [
   "OTA",
   "EAS",
 ];
-// Folder names that say nothing about the project.
 const NOISE = new Set(["src", "lib", "dist", "build", "test", "tests", "app", "apps", "packages", "index", "main", "utils", "scripts", "docs", "assets"]);
 const MAX_TERMS = 150;
-/** How long a take's first inference waits for the project's words before it goes without them. */
 export const VOCABULARY_WAIT_MS = 1500;
 const RECENT_FILES = 20;
 const CODE_NAME = /[a-z][A-Z]|^[A-Z][a-z]+[A-Z]|[a-z]_[a-z]/;
 
-/** A file's name without its extensions, kept when it reads as a word someone would say. */
 function stem(file) {
   const name = String(file).split("/").at(-1) ?? "";
   const base = name.replace(/\..*$/, "");
   return base.length >= 3 && /[A-Za-z]/.test(base) && !NOISE.has(base.toLowerCase()) ? base : "";
 }
 
-/**
- * How someone names a file they're working on: a code name as it is ("PromptComposer"), anything else with its extension
- * ("voice-dictation.ts"), which is how it gets said ("voice dictation dot ts").
- */
 function fileTerm(file) {
   const name = String(file).split("/").at(-1) ?? "";
   const base = stem(file);
@@ -149,7 +133,6 @@ export function codeNames(source, limit = 8) {
     if (name.length >= 6 && CODE_NAME.test(name) && !names.includes(name)) names.push(name);
   };
   const text = String(source ?? "").slice(0, 200_000);
-  // Declarations at the start of a line (top level, or a type's members) and exported constants: a test's locals never.
   const declaration =
     /^[ \t]*(?:(?:export|default|async|public|private|internal|static|pub|open|final)\s+)*(?:function\*?|class|def|func|fn|struct|protocol|enum|interface|type)\s+([A-Za-z_$][\w$]*)/gm;
   for (const match of text.matchAll(declaration)) add(match[1]);
@@ -198,12 +181,10 @@ export function dictationTerms({ projectName, branch, chatTitle, chat = [], file
   if (branch && !/^(main|master|HEAD)$/.test(branch)) terms.push(branch.replace(/^[^/]+\//, "").replace(/[-_]+/g, " "));
   if (chatTitle) terms.push(chatTitle);
   terms.push(...chat);
-  // Hidden folders hold tooling (.github, .milagre), not what the project is about.
   const visible = (file) =>
     !String(file)
       .split("/")
       .some((part) => part.startsWith("."));
-  // A recently changed file and two of the names in it, by turns, so neither crowds the other out of a short prompt.
   const working = recent.filter(visible).slice(0, RECENT_FILES).map(fileTerm).filter(Boolean);
   for (let i = 0, j = 0; i < working.length || j < names.length; i++, j += 2) {
     if (i < working.length) terms.push(working[i]);
@@ -238,7 +219,6 @@ const keyOf = (text) =>
     .normalize("NFKD")
     .replace(/[^a-z0-9]/g, "");
 
-// Names that are no English word, so a lowercase, split or near hearing of one is always that name.
 const BRANDS = new Set(
   [
     "Milagre",
@@ -264,21 +244,15 @@ const BRANDS = new Set(
     "npm",
   ].map(keyOf),
 );
-// Words that say the next or previous words name code: "the use dictation hook", "a função insert dictation".
 const CODE_CUES = new Set(
   "function functions hook hooks component components method methods class type interface module variable prop props screen helper constant struct enum endpoint command tool test file função funções componente componentes arquivo método classe tela".split(
     " ",
   ),
 );
-// Spoken punctuation in file names: "voice dictation dot ts", "ponto ts".
 const DOT_WORDS = new Set(["dot", "ponto", "punto", "point"]);
 const MAX_WINDOW = 7;
 const NEAR_WINDOW = 3;
 
-/**
- * A word's consonant skeleton, for names a recognizer heard nearly right: "Milliger" and "Milagre" are both "mlgr",
- * "codecs" and "Codex" both "kdks". Vowels, h, w and y go; letters that sound alike become one; doubles collapse.
- */
 function skeleton(text) {
   return keyOf(text)
     .replace(/ph/g, "f")
@@ -291,7 +265,6 @@ function skeleton(text) {
     .replace(/(.)\1+/g, "$1");
 }
 
-/** How a term may be heard, and whether a hearing of it can be trusted without more context. */
 function termShape(term) {
   const parts = term.split(/[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])/).filter(Boolean);
   const key = keyOf(term);
@@ -300,8 +273,6 @@ function termShape(term) {
     key,
     brand: BRANDS.has(key),
     file: /\.[A-Za-z0-9]{1,5}$/.test(term) && !/\s/.test(term),
-    // Mixed case inside the word (GitHub, iPad, useDictation), an acronym (MCP) or punctuation (whisper.rn): a lowercase
-    // hearing is wrong; a plain capitalized word (Chat, Linear) can be ordinary English and is left alone.
     marked: /.[A-Z]/.test(term) || /^[A-Z0-9]{2,}$/.test(term) || /[._-]/.test(term) || BRANDS.has(key),
     parts: parts.length,
     code: CODE_NAME.test(term) && !/\s/.test(term),
@@ -333,21 +304,17 @@ export function snapTerms(text, terms) {
     start: match.index,
     end: match.index + match[0].length,
   }));
-  // Words join across spaces, hyphens and a stray period ("use. Dictation"), never across a comma.
   const joinable = (left, right) => /^[\s.-]*$/.test(source.slice(left.end, right.start));
   const cueNear = (from, to) =>
     [tokens[from - 1], tokens[from - 2], tokens[to + 1], tokens[to + 2]].some((token) => token && CODE_CUES.has(token.text.toLowerCase()));
-  /** Whether `size` words heard as exactly this term's letters can be trusted to mean it. */
   const trusted = (shape, from, size) => {
     if (shape.file || shape.brand) return true;
     if (size === 1) return shape.marked;
-    // Spelled out letter by letter: "N P M", "M C P".
     if (tokens.slice(from, from + size).every((token) => token.text.length === 1)) return true;
     if (shape.code) return shape.parts >= 3 || cueNear(from, from + size - 1);
     if (/\s/.test(shape.term)) return /\s[A-Z]/.test(shape.term);
     return shape.marked;
   };
-  /** A term glued to the word before it, as Whisper writes it: "OpenVoiceDictation.ts", "CheckUseDictation". */
   const glued = (token) => {
     for (let at = 1; at < token.text.length - 2; at++) {
       if (!/[a-z]/.test(token.text[at - 1]) || !/[A-Z]/.test(token.text[at])) continue;
@@ -381,7 +348,6 @@ export function snapTerms(text, terms) {
         break;
       }
       if (matched || size > NEAR_WINDOW) continue;
-      // Near hearings of a brand: same consonants, same first sound.
       const near = sounds.get(skeleton(letters));
       if (near && skeleton(near.term)[0] === skeleton(window[0].text)[0]) matched = { start: window[0].start, end: window.at(-1).end, term: near.term, size };
     }
@@ -397,21 +363,15 @@ export function snapTerms(text, terms) {
   return result;
 }
 
-/** How the dictation shortcut works: held while talking, or pressed once to start and again to stop. */
 export const DICTATION_SHORTCUT_MODES = Object.freeze([
   { value: "hold", label: "Hold to talk", description: "Talk while you hold the keys. Letting go finishes the take." },
   { value: "toggle", label: "Press to start, press to stop", description: "Press once to talk, again to finish. Escape discards the take." },
 ]);
 
-/** A saved shortcut mode as a known one: hold unless it says toggle. */
 export function dictationShortcutMode(value) {
   return value === "toggle" ? "toggle" : "hold";
 }
 
-/**
- * The models the fix-up can run on: Automatic (the smallest model of the Chat's own agent, then the others when it
- * can't answer), or one agent's. Their names follow core's one-shot text models (git-text.cjs).
- */
 export const DICTATION_FIX_MODELS = Object.freeze([
   { value: "auto", label: "Automatic", name: "", description: "The smallest model of the Chat's agent" },
   { value: "claude", label: "Claude Haiku 4.5", name: "Claude Haiku", description: "" },
@@ -420,7 +380,6 @@ export const DICTATION_FIX_MODELS = Object.freeze([
   { value: "kiro", label: "Kiro · Claude Haiku 4.5", name: "Kiro Haiku", description: "" },
 ]);
 
-/** A saved fix-up model as a known one, Automatic for anything else. */
 export function dictationFixModel(value) {
   return DICTATION_FIX_MODELS.some((model) => model.value === value) ? value : "auto";
 }
@@ -432,7 +391,6 @@ export function fixUpProvider(model, chatProvider) {
   return DICTATION_FIX_MODELS.some((item) => item.value === chatProvider && item.value !== "auto") ? chatProvider : "claude";
 }
 
-/** The fix-up model's short name, for the composer's status while it works: "Claude Haiku". */
 export function fixUpModelName(model, chatProvider) {
   const provider = fixUpProvider(model, chatProvider);
   return DICTATION_FIX_MODELS.find((item) => item.value === provider)?.name ?? "";
@@ -443,8 +401,6 @@ const PROMPT_CHARACTERS = 600;
 
 /** Whisper's prompt: the terms as a comma list, cut at a term boundary so the most telling ones stay. */
 export function whisperPrompt(terms, language) {
-  // An example of switching languages helps preserve the original speech instead of translating minority-language words.
-  // It is example text, not a forced language list. Keep it before vocabulary so long project names cannot crowd it out.
   const hint = language && dictationLanguage(language) === "auto" ? "Olá, vamos conversar and switch languages when needed. " : "";
   let prompt = "";
   for (const term of terms) {
@@ -463,9 +419,6 @@ export function whisperLanguage(language, model) {
   return model?.english ? "en" : dictationLanguage(language);
 }
 
-// whisper.cpp's models, pinned to one revision and checked by hash. Each platform offers four, named for what they are
-// good at: the most accurate one that still transcribes in seconds on that hardware, its English-only counterpart, and
-// two quicker ones. A phone's CPU tops out at small.
 const WHISPER_REVISION = "5359861c739e955e79d9a303bcbc70fb988958b1";
 const whisperModel = (id, purpose, name, file, size, sha256, { english = false, accuracy, speed }) => ({
   id,
@@ -502,18 +455,14 @@ export const WHISPER_MODELS = {
   ],
 };
 
-/** A saved model id as one of the platform's models: the default for anything unknown. */
 export function whisperModelFor(platform, id) {
   const models = WHISPER_MODELS[platform];
   return models.find((model) => model.id === id) ?? models[0];
 }
 
-// Whisper's stand-ins for silence and noise, and the lines it invents on a silent clip.
 const NON_SPEECH = /\[(?:BLANK_AUDIO|MUSIC|NOISE|SILENCE|INAUDIBLE)[^\]]*\]|\((?:music|silence|noise|inaudible)[^)]*\)/gi;
 
-// Lines Whisper learned from video captions and writes for sound it hears no words in (a click, a breath, the room), each as
-// a segment of its own, in the language it was told to listen for. Nobody dictates these to a coding agent, so they go
-// wherever they appear. Matched by their letters alone: "E aí!", "e ai" and "E aí..." are the same line.
+// Whisper writes lines it learned from video captions for sound with no words in it; matched by letters alone.
 const CAPTION_LINES = [
   "E aí",
   "Eaí",
@@ -590,8 +539,7 @@ const CAPTION_LINES = [
   "請訂閱",
   "字幕由Amara.org社区提供",
 ];
-// Thanks and goodbyes Whisper also invents on such sound, which someone may really say at the end of a message. Dropped
-// only when they are all it heard: a clip of nothing but a breath says "Obrigado", a message never ends up as only that.
+// Whisper also invents thanks and goodbyes on such sound.
 const FAREWELL_LINES = [
   "Obrigado",
   "Obrigada",
@@ -622,7 +570,6 @@ const FAREWELL_LINES = [
   "Спасибо",
 ];
 
-/** A line by its letters and digits alone, lowercase and without accents: how two spellings of a caption line meet. */
 const lineKey = (text) =>
   String(text)
     .normalize("NFKD")
@@ -633,10 +580,8 @@ const lineKey = (text) =>
 const CAPTION_KEYS = new Set(CAPTION_LINES.map(lineKey));
 const FAREWELL_KEYS = new Set(FAREWELL_LINES.map(lineKey));
 const isCaption = (line) => CAPTION_KEYS.has(lineKey(line)) || /(?:^| )amara org(?: |$)/.test(lineKey(line));
-// A caption line glued to real words as their last sentence: "Corrija o bug. E aí".
 const LAST_SENTENCE = /^(.*[.!?…])\s+([^.!?…]+?)[.!?…]*$/su;
 
-/** A segment's words without Whisper's non-speech markers, nor a caption line it ends on. */
 function speechOf(text) {
   const line = String(text ?? "")
     .replace(NON_SPEECH, " ")

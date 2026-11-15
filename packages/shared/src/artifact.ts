@@ -5,28 +5,23 @@ export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.
 
 export type { ArtifactAsset };
 
-/** A design as `artifact:list` returns it: its newest version, and the screen it is laid out on. */
 export type ArtifactSummary = ArtifactRef & {
   versions: number;
   width: number;
   height: number;
   format: "design" | "html";
-  /** A design that is the agent's own HTML, run live in the viewers, instead of layers Milagre draws. */
   interactive?: boolean;
   kit?: { id: string; version: number; title: string };
   consistency?: { mode: "advisory" | "strict" };
 };
 
-/** Whether a design is interactive: its HTML runs under DESIGN_CODE_CSP, and it has no layer document. */
 export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
   design?.format === "design" && design.interactive === true;
 
-/** The pinned visual identity, shared by desktop and phone. */
 export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "consistency"> | null | undefined): string {
   return design?.kit ? `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}` : "";
 }
 
-/** One version of a layer design an agent showed, as `artifact:get` returns it. */
 export type LayerDesignArtifact = ArtifactSummary & {
   format: "design";
   interactive?: false;
@@ -37,7 +32,6 @@ export type LayerDesignArtifact = ArtifactSummary & {
   fontKey?: string;
   fontCss?: string;
 };
-/** One version of an interactive design: the agent's HTML page, with no layer document. */
 export type InteractiveDesignArtifact = ArtifactSummary & {
   format: "design";
   interactive: true;
@@ -48,7 +42,6 @@ export type InteractiveDesignArtifact = ArtifactSummary & {
   fontCss?: never;
 };
 export type DesignArtifact = LayerDesignArtifact | InteractiveDesignArtifact;
-/** One tab of an Artifact page: a page of its own, under a title in the page's tab bar. */
 export type ArtifactTab = { id: string; title: string; html: string };
 /** `html` is the page, or its first tab when the agent split it into `tabs`. `assets` are the files its HTML shows as `assets/<name>`. */
 export type HtmlArtifact = ArtifactSummary & {
@@ -64,13 +57,11 @@ export type ArtifactAssetChunk = ArtifactAsset & { offset: number; base64: strin
 export type Artifact = DesignArtifact | HtmlArtifact;
 export type ArtifactPageKind = "designs" | "artifacts";
 
-/** A public link to a Chat page. Sharing the page again updates the snapshot behind the same link. */
 export interface DesignPageShare {
   kind?: ArtifactPageKind;
   id: string;
   url: string;
   title: string;
-  /** When the link was first published. */
   createdAt: number;
   /** When the snapshot behind the link was last replaced; absent until the first update. */
   updatedAt?: number;
@@ -152,7 +143,6 @@ export function nearText(text: string | undefined | null): string {
   return line.length > 80 ? `${line.slice(0, 80).replace(/\s+\S*$/, "")}\u2026` : line;
 }
 
-/** Sent comments are numbered within the message that carried them (the comments the host recorded at once). */
 export function sentNumbers(comments: { id: string; createdAt: number }[]): Map<string, number> {
   const numbers = new Map<string, number>();
   const batches = new Map<number, number>();
@@ -170,10 +160,8 @@ export function sentNumbers(comments: { id: string; createdAt: number }[]): Map<
  */
 export const newCommentId = () => Array.from({ length: 8 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 
-/** A comment as the host keeps it: with its id, and, once the agent has addressed it, its note on what it did. */
 export type ArtifactComment = DesignComment & { id: string; createdAt: number; resolved?: { note: string; at: number } };
 
-// Plain text: the message shows in the user's bubble as typed, without markdown.
 const designName = (design: ArtifactRef) =>
   design.format === "html" ? `the artifact "${design.title}" (${design.id})` : `the design "${design.title}" (${design.id}, version ${design.version})`;
 
@@ -192,7 +180,6 @@ export function designFeedbackMessage({ choice, comments }: { choice?: ArtifactR
       const layer = comment.nodeId ? `, layer "${comment.nodeId}"` : "";
       const tab = comment.design.format === "html" && comment.tab ? `, on the tab ${comment.tab.id} ("${nearText(comment.tab.title)}")` : "";
       const near = comment.design.format === "html" && nearText(comment.near) ? `, near "${nearText(comment.near)}"` : "";
-      // The id lets the agent resolve the comment; a message from before ids has none.
       return `${index + 1}. ${comment.id ? `(comment ${comment.id}) ` : ""}On ${designName(comment.design)}${at}${layer}${tab}${near}: ${comment.text.trim()}`;
     });
     const htmlOnly = comments.every((comment) => comment.design.format === "html");
@@ -205,7 +192,6 @@ export function designFeedbackMessage({ choice, comments }: { choice?: ArtifactR
   return parts.join("\n\n");
 }
 
-/** Preserve the person's feedback in history when design cards are unavailable. */
 export function designFeedbackText({ choice, comments }: { choice?: ArtifactRef | null; comments: DesignComment[] }): string {
   const parts: string[] = [];
   if (choice) parts.push(`Chose ${choice.title} (version ${choice.version}).`);
@@ -219,7 +205,6 @@ const REVISE_ARTIFACT = "Read the current page with artifact_read, then update i
 const REVISE_MIXED = `${REVISE} ${REVISE_ARTIFACT}`;
 const RESOLVE_SUFFIX = " Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.";
 const RESOLVE = `${REVISE}${RESOLVE_SUFFIX}`;
-// Historical messages remain readable; these instructions are never emitted for new feedback.
 const LEGACY_REVISE = "Revise them with artifact_show and keep their ids.";
 const LEGACY_REVISE_LAYERS =
   "Read the latest editable design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id. Use artifact_read and artifact_show for HTML designs.";
@@ -286,7 +271,6 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
   return { choice, comments };
 }
 
-/** The design the user last chose in these messages, read back from the message designFeedbackMessage wrote. */
 export function chosenDesign(bodies: string[]): { id: string; version: number } | null {
   for (const body of bodies.toReversed()) {
     const [, id, version] = CHOICE.exec(body) ?? [];
@@ -312,23 +296,16 @@ export {
   hasDiagrams,
 } from "./artifact-document.mjs";
 
-/** The step the transcript shows for the agent resolving a design comment (core's agents/steps.cjs names it). */
 export const RESOLVED_STEP = "Resolved a design comment";
 
-/** The agent's notes on the comments it resolved, by comment id. */
 export function resolutionNotes(comments: ArtifactComment[]): Map<string, string> {
   return new Map(comments.flatMap((comment) => (comment.resolved ? [[comment.id, comment.resolved.note] as const] : [])));
 }
 
-/**
- * Changes when the Chat's design comments may have: a comment resolved (its step done) or feedback sent. Resolutions
- * are read again only then, not on every step or message.
- */
 export function designActivity(steps: { title: string; status?: string }[], userBodies: string[]): number {
   return steps.filter((step) => step.title === RESOLVED_STEP && step.status === "done").length + userBodies.filter((body) => parseDesignFeedback(body)).length;
 }
 
-/** A pin an Artifact page draws (ARTIFACT_PAGE_SCRIPT): its key, its spot, the number on it and its colours. */
 export type PagePin = { k: string; x: number; y: number; a?: string; n: number | string; fill: string; ink: string; label: string; hide?: boolean };
 
 /** What an Artifact page's helper tells its viewer (ARTIFACT_PAGE_SCRIPT); screen points are in the page's pixels. */

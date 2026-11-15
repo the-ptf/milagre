@@ -1,6 +1,5 @@
 import nacl from "tweetnacl";
 
-/** Raised when a hello must not open a channel; `code` says why. */
 export class RelayAuthError extends Error {
   constructor(code, message) {
     super(message);
@@ -17,7 +16,7 @@ const encoder = new TextEncoder(),
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const KINDS = new Set(["phone", "desktop"]);
 const MAX_NAME = 64;
-// Control characters and bidirectional overrides: a name must not hide or reorder the text around it in a list.
+// Control characters and bidirectional overrides can hide or reorder the surrounding text.
 const UNSAFE = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu;
 
 /** A device's name from its hello: unsafe characters removed, trimmed, at most 64 characters; null when there is none. */
@@ -67,7 +66,6 @@ export const hostIdOf = (signPublicKey) => b64url(nacl.hash(signPublicKey).slice
 
 const json = (value) => encoder.encode(JSON.stringify(value));
 const parse = (bytes) => JSON.parse(decoder.decode(bytes));
-// What a device says it takes (`caps` in its hello, e.g. "batch"): short names, a few at most; Macs from before ignore them.
 const MAX_CAPS = 8;
 const MAX_CAP = 32;
 function sameToken(a, b) {
@@ -87,7 +85,6 @@ function channel(key, sendDirection) {
     return n;
   };
   const receiveDirection = sendDirection === PHONE_TO_HOST ? HOST_TO_PHONE : PHONE_TO_HOST;
-  /** Seals `plain`, the UTF-8 bytes of one JSON message. */
   function sealEncoded(plain) {
     sent += 1n;
     const box = nacl.secretbox(plain, nonce(sendDirection, sent), key);
@@ -99,7 +96,6 @@ function channel(key, sendDirection) {
   }
   return {
     seal: (value) => sealEncoded(json(value)),
-    // A daemon frame is serialised once for every client; sealing its bytes saves a second JSON pass per desktop.
     sealEncoded,
     open(frame) {
       if (frame[0] !== DATA || frame.length < 9 + nacl.secretbox.overheadLength) throw new Error("Not a channel frame");
@@ -113,10 +109,7 @@ function channel(key, sendDirection) {
   };
 }
 
-/**
- * `name` says what the device is called, `kind` what it is ("phone" when left out) and `caps` what it takes ("batch": a
- * window of messages as one frame); Macs from before ignore all three.
- */
+/** `kind` defaults to "phone"; `caps` lists what the device takes ("batch": a window of messages as one frame). */
 export function phoneHello({ phone, host, token, random, name, kind, caps }) {
   withRandom(random);
   const ephemeral = nacl.box.keyPair();
@@ -154,7 +147,6 @@ export function hostAccept({ host, hello, isKnown, canPair = false, token, rando
   if (inner.kind !== undefined && !KINDS.has(inner.kind)) throw new RelayAuthError("bad-hello", "Unknown kind of device");
   const id = b64url(phoneKey);
   const firstPairing = !isKnown(id);
-  // A function decides per device: a device removed while the window was open stays out until it opens again.
   const pairable = typeof canPair === "function" ? canPair(id) : canPair;
   if (firstPairing && !pairable) throw new RelayAuthError("unknown-phone", "Pairing is closed on this computer");
   withRandom(random);

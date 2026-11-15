@@ -1,6 +1,3 @@
-// What the Projects canvas shows, shared by the desktop canvas and the phone's: the chats the sidebar lists, grouped by
-// Worktree, each with its live state. A Worktree whose chats are all archived (or never started) stays off the canvas.
-
 import { chatSummary } from "./chat-summary.mjs";
 import { chatTitle, isListedChat } from "./chats.mjs";
 import { activityAgo } from "./chat-row.ts";
@@ -16,7 +13,6 @@ export type CanvasChat = {
   provider?: ModelProvider;
   /** When the chat last got a message or a reply ended (ms since epoch). */
   lastAt?: number;
-  /** Its last reply failed. */
   failed: boolean;
   readOnly?: boolean;
 };
@@ -29,7 +25,6 @@ export type CanvasWorktree = {
   diff?: DiffStat;
   /** Oldest first, so a card's rows don't move as chats run. */
   chats: CanvasChat[];
-  /** The named Link's conversation this Worktree takes part in. */
   sharedChat?: { linkId: string; sessionId: number };
 };
 
@@ -39,7 +34,6 @@ export type CanvasWorktree = {
  */
 export function canvasWorktrees(state: CoordinatorState | undefined, markOf: (sessionId: number, unread: boolean) => CanvasMark): CanvasWorktree[] {
   if (!state) return [];
-  // Chats carry a summary of their messages; only an older host's state, without one, is read message by message.
   const bySession = new Map<number, ChatMessage[]>();
   if (Object.values(state.sessions).some((session) => !session.summary))
     for (const message of state.messages) {
@@ -53,7 +47,6 @@ export function canvasWorktrees(state: CoordinatorState | undefined, markOf: (se
     const messages = bySession.get(session.id) ?? [];
     const summary = chatSummary(session, messages);
     const mark = markOf(session.id, Boolean(session.unread));
-    // A hidden Run Chat shows only while it waits on someone.
     if (!isListedChat(session, summary.count, mark === "waiting" || mark === "question")) continue;
     const chat: CanvasChat = {
       id: session.id,
@@ -71,17 +64,14 @@ export function canvasWorktrees(state: CoordinatorState | undefined, markOf: (se
   return Object.values(state.worktrees)
     .sort((a, b) => a.id - b.id)
     .flatMap((worktree) => {
-      // A Worktree in a named Link's conversation stays too: that Chat lives in the Link, not in this Project.
       const chats = chatsByWorktree.get(worktree.id);
       if (!chats && !worktree.sharedChat) return [];
       return [{ id: worktree.id, path: worktree.path, branch: worktree.name, diff: worktree.diff, chats: chats ?? [], sharedChat: worktree.sharedChat }];
     });
 }
 
-/** The tone a status draws in: the sidebar's palette (`chatMarkTone`), with a failed idle chat in red. */
 export type CanvasTone = "accent" | "orange" | "red" | "ink3";
 
-/** The words under a chat's title: what it's doing now, or how long it has been quiet. */
 export function canvasStatus(chat: Pick<CanvasChat, "mark" | "lastAt" | "failed" | "readOnly">, now: number): { label: string; tone: CanvasTone } {
   if (chat.readOnly) return { label: "Read-only history", tone: "ink3" };
   const ago = chat.lastAt === undefined ? undefined : activityAgo(chat.lastAt, now);
@@ -111,7 +101,6 @@ export function canvasAttention(chats: readonly Pick<CanvasChat, "mark">[]): "wa
   return undefined;
 }
 
-/** The canvas's status filter. */
 export type CanvasFilter = "all" | "needs-you" | "running";
 
 export function matchesCanvasFilter(mark: CanvasMark, filter: CanvasFilter): boolean {
@@ -120,7 +109,6 @@ export function matchesCanvasFilter(mark: CanvasMark, filter: CanvasFilter): boo
   return true;
 }
 
-/** How many chats each filter keeps, for the counts beside its labels. */
 export function canvasFilterCounts(worktrees: readonly Pick<CanvasWorktree, "chats">[]): Record<CanvasFilter, number> {
   const counts = { all: 0, "needs-you": 0, running: 0 };
   for (const { chats } of worktrees)

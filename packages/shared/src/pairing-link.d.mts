@@ -1,6 +1,4 @@
-/** A Cloudflare Access service token: the edge drops any request to the host's tunnel without it. */
 export type Access = { id: string; secret: string };
-/** An encrypted device channel with a pinned identity, private routes and an optional public fallback. */
 export type RelayLink = {
   url: string;
   hostId: string;
@@ -14,7 +12,6 @@ export type Pairing = {
   access?: Access;
   relay?: RelayLink;
 };
-/** `allowLocalRelay`: also take a relay on this machine (ws://127.0.0.1); tests only. */
 export type PairingOptions = { allowLocalRelay?: boolean };
 export function validAccess(value: unknown): Access | undefined;
 export function localEndpoint(input: string): string;

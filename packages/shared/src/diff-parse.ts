@@ -12,7 +12,6 @@ export function parsePatch(patch: string): DiffHunk[] {
   let oldLeft = 0;
   let newLeft = 0;
   const rows = patch.split("\n");
-  // A trailing newline leaves one empty string that is not a line.
   if (rows[rows.length - 1] === "") rows.pop();
   for (const raw of rows) {
     const row = raw.endsWith("\r") ? raw.slice(0, -1) : raw;

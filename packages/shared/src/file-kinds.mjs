@@ -14,10 +14,8 @@ const BADGES = {
 };
 const REACT = new Set(["tsx", "jsx"]);
 const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
-/** Images' identity color, the same in every theme: an image file's icon and a pasted image's chip. */
 export const IMAGE_COLOR = "#8250df";
 
-/** Badge letters or an icon name for a path, with the tint to draw it in. */
 export function fileKind(path) {
   if (path.endsWith("/")) return { badge: null, icon: "folder", color: "#8a8f98" };
   const name = path.slice(path.lastIndexOf("/") + 1);

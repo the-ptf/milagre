@@ -1,8 +1,3 @@
-// The sound a notification plays, chosen in Settings > Notifications on desktop and on the phone. Each device keeps its
-// own choice. "system" is the platform's own notification sound; every other chime is a short clip Milagre ships:
-// desktop plays it from the app, the phone has it bundled so a push names it (iOS) or uses its channel (Android).
-
-/** In the menu's order. */
 export const NOTIFICATION_CHIMES = [
   { id: "system", label: "System default" },
   { id: "miracle", label: "Miracle" },
@@ -33,7 +28,6 @@ export function notificationChimeFile(id) {
   return chime === "system" ? null : `chime_${chime.replaceAll("-", "_")}`;
 }
 
-/** What a push sends as `sound`: the bundled wav for a chime, or the default sound. */
 export function notificationChimeSound(id) {
   const file = notificationChimeFile(id);
   return file ? `${file}.wav` : "default";

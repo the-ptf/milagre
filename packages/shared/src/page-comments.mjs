@@ -1,20 +1,14 @@
-// Comments on Browser panel pages: the message the agent reads, and reading it back for the transcript card.
-// Types in page-comments.d.mts.
-
 const RESOLVE = "Once you have addressed a comment, resolve it with browser_resolve_comment and its comment id.";
 const SCREENSHOTS = "Each comment's screenshot is attached, in order.";
 const HEADING = /^(A comment|\d+ comments) on the page "(.*)" \((https?:\/\/\S+)\):$/;
 const ITEM = /^(\d+)\. \(comment ([a-f0-9]{8})\) (.+)$/;
 const CONTINUED = "     ";
-// The lines under a comment, as pageCommentsMessage writes them. A card shows only a message made of these.
 const DETAIL = /^ {3}(Comment|Selector|Box|Styles|HTML): /;
 
-/** The id of a comment the app sends, made before it is sent so the message can name it. */
 export const pageCommentId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 8);
 
 const oneLine = (text, max) => text.replace(/\s+/g, " ").trim().slice(0, max) || "";
 
-/** The comment's text, its lines after the first indented so the message reads them as one comment. */
 const commentText = (text) =>
   text
     .trim()
@@ -28,7 +22,6 @@ const commentText = (text) =>
  */
 export function pageCommentsMessage(comments, { screenshots = true } = {}) {
   const pages = new Map();
-  // A page's address on one line without spaces, as the heading names it.
   for (const comment of comments) {
     const url = comment.url.replace(/\s/g, encodeURIComponent);
     pages.set(url, [...(pages.get(url) ?? []), comment]);
@@ -85,7 +78,6 @@ export function parsePageComments(body) {
       inText = true;
     } else if (current && inText && line.startsWith(CONTINUED)) current.text += `\n${line.slice(CONTINUED.length)}`;
     else if (current && DETAIL.test(line)) inText = false;
-    // Anything else (a line the writer never makes, text before the first page) is a message someone typed.
     else if (line.trim()) return null;
     else inText = false;
   }

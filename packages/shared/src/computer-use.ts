@@ -1,4 +1,3 @@
-/** Experimental computer use: agents operate desktop apps through agent-desktop (Settings › This Mac). */
 export type ComputerUsePermission = "granted" | "denied" | "not_required" | "unknown";
 
 export interface ComputerUseSettings {
@@ -29,7 +28,6 @@ export interface ComputerUseStatus extends ComputerUseSettings {
   supported: boolean;
   version: string;
   platform: string;
-  /** Apps agents never operate. */
   blockedApps: string[];
   /** Null when unsupported. On macOS both belong to Milagre, the app that launches agent-desktop. */
   permissions: { accessibility: ComputerUsePermission; screenRecording: ComputerUsePermission } | null;
@@ -47,9 +45,9 @@ export interface ComputerUseApi {
 }
 
 /**
- * Keep observing across initial idle, the final frame and transport reconnects on both clients, while `active()` (the
- * card's steps still running or just finished) says the agent may still capture. Once the feed is idle and the steps are
- * done it stops, so a long Chat's older cards don't each hold a request open (the phone has a cap per computer).
+ * Keeps observing across initial idle, the final frame and reconnects while `active()` says the agent may still
+ * capture; stops once the feed is idle and the steps are done, so older cards don't each hold a request open (the phone
+ * caps requests per computer).
  */
 export function observeComputerUseScreen(
   read: (after: number) => Promise<ComputerUseFrame>,
@@ -69,10 +67,8 @@ export function observeComputerUseScreen(
       if (frame.live) delay = 0;
       else if (!active()) return;
     } catch {
-      // A restarted host may have reset its sequence. Read its retained frame again on reconnect.
       after = 0;
     }
-    // Idle replies from older hosts and disconnected transports must not spin a tight request loop.
     if (!disposed) timer = setTimeout(() => void poll(), delay);
   };
   void poll();
@@ -82,5 +78,4 @@ export function observeComputerUseScreen(
   };
 }
 
-/** A granted permission needs nothing; anything else offers the Grant button. */
 export const permissionMissing = (state: ComputerUsePermission | undefined) => state !== "granted" && state !== "not_required";

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LocalMcpApi, LocalMcpConfiguration, LocalMcpCredential, LocalMcpStatus } from "./local-mcp";
 
-/** Both settings screens share request ordering and one-time credential lifetime. */
 export function useLocalMcp(api: LocalMcpApi | undefined) {
   const [status, setStatus] = useState<LocalMcpStatus | null>(null);
   const [credential, setCredential] = useState<LocalMcpCredential | null>(null);
@@ -64,7 +63,6 @@ export function useLocalMcp(api: LocalMcpApi | undefined) {
       await refresh();
       return true;
     } catch {
-      // A failed reply can follow a successful revoke or install. Show the host's current state.
       if (generation.current === id) await refresh();
       if (generation.current === id) setError(failure);
       return false;
