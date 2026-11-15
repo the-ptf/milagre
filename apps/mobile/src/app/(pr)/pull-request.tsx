@@ -1,4 +1,5 @@
-import { View } from "react-native";
+import { Platform, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { PrOverview } from "../../pr-overview";
 import { openPrPage, useCloseSheet, usePrRoute } from "../../pr-nav";
@@ -12,15 +13,23 @@ export default function PullRequestSheet() {
   const styles = useStyles();
   const { route, cwd, number, client, valid, waiting } = usePrRoute();
   const close = useCloseSheet();
+  // Android: the sheet reaches under the status bar (fullStackSheet in app/_layout.tsx), and this page has no native header to clear it.
+  const insets = useSafeAreaInsets();
+  const top = Platform.OS === "android" ? insets.top : 0;
   const choices = chatPullRequestChoices(route.chat);
   const shown = choices.find((choice) => choice.number === number && choice.cwd === route.cwd);
   const project = shown?.project && shown.projectPath ? { name: shown.project, path: shown.projectPath } : undefined;
-  if (!valid || !client || !cwd) return <PrPending number={number} waiting={waiting} onClose={close} />;
+  if (!valid || !client || !cwd)
+    return (
+      <View style={[styles.screen, { paddingTop: top }]}>
+        <PrPending number={number} waiting={waiting} onClose={close} />
+      </View>
+    );
   return (
     // Not collapsable: a form sheet lays out a ScrollView with at most one view beside it; a flattened root hands it every
     // row, and a PR already read (the Chat reads it for its Review pill) opened to a blank sheet. 24 above the first row:
     // its pill buttons sat cramped under the grabber at the 16 a centred sheet title uses.
-    <View collapsable={false} style={[styles.screen, { paddingTop: space.xxl }]}>
+    <View collapsable={false} style={[styles.screen, { paddingTop: top + space.xxl }]}>
       <PrOverview
         key={`${cwd}#${number}`}
         client={client}
