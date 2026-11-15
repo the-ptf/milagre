@@ -6924,6 +6924,24 @@ test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the shee
   }
 });
 
+test("a new Chat whose Worktree has a PR opens it from the header, and the sheet's Ask Chat fills its composer", () => {
+  globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
+  globalThis.openedPullRequests = [];
+  try {
+    const screen = chatHost({ effects: true });
+    const tree = screen.render();
+    const key = `${screen.session.snapshot.project.path}#new:1`;
+    find(tree, (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #91").props.onPress();
+    assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "1", number: "91", chat: key }]));
+    screen.render();
+    assert.equal(globalThis.prChat.prefillChat(key, "About PR #91: "), true);
+    assert.equal(screen.session.drafts[key], "About PR #91: ");
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.openedPullRequests;
+  }
+});
+
 test("open review threads show a Review pill beside Merge, which opens the PR's threads", () => {
   globalThis.chatPullRequest = { number: 92, title: "Fix it", url: "https://github.com/o/r/pull/92", state: "OPEN", readyToMerge: true };
   const thread = (id, resolved, pending = false) => ({

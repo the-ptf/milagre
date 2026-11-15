@@ -968,10 +968,13 @@ function ChatPane({
   );
   // A saved Chat's key, as its drafts and the PR sheet name it.
   const savedChatKey = targetMatches && projectPath && params.id ? `${projectPath}#${params.id}` : undefined;
+  // The key the PR sheet and panel use: a new Chat goes by its draft's, since its Worktree's branch can already have a PR
+  // to open, ask about or send to.
+  const prChatKey = targetMatches && projectPath ? (savedChatKey ?? `${projectPath}#new:${params.worktreeId}`) : undefined;
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? panelWorktree(session.snapshot?.project, worktreeOf.id) : undefined,
-    pullRequest: savedChatKey && pr && prCwd ? { number: pr.number, chatKey: savedChatKey, choices: prChoices, ...(prPath ? {} : { cwd: prCwd }) } : undefined,
+    pullRequest: prChatKey && pr && prCwd ? { number: pr.number, chatKey: prChatKey, choices: prChoices, ...(prPath ? {} : { cwd: prCwd }) } : undefined,
     passive: secondary,
   });
   // The PR sheet and the iPad panel send to this Chat and fill its composer ("Send to Chat", "Ask Chat"), and a Chat row's
@@ -984,19 +987,19 @@ function ChatPane({
     changes: () => void;
   } | null>(null);
   useEffect(() => {
-    if (!savedChatKey) return;
-    const unregister = registerPrChat(savedChatKey, {
+    if (!prChatKey) return;
+    const unregister = registerPrChat(prChatKey, {
       send: (body) => prChat.current?.send(body) ?? Promise.resolve(false),
       prefill: (text) => prChat.current?.prefill(text),
       pullRequests: () => prChat.current?.pullRequests() ?? [],
       changes: () => prChat.current?.changes(),
     });
-    const unsubscribe = onPullRequestRequest(savedChatKey, (number) => prChat.current?.open(number));
+    const unsubscribe = onPullRequestRequest(prChatKey, (number) => prChat.current?.open(number));
     return () => {
       unregister();
       unsubscribe();
     };
-  }, [savedChatKey]);
+  }, [prChatKey]);
   const browserShortcut = useBrowserShortcut({
     chatId: savedChatKey ?? undefined,
     openInPanel: panels.openInPanel,
@@ -1236,7 +1239,7 @@ function ChatPane({
   const worktree = project.state.worktrees[worktreeId];
   /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
   function openPr(number = pr?.number, page?: "threads", memberCwd?: string) {
-    if (!number || !params.id || !worktree) return false;
+    if (!number || !worktree) return false;
     // A Link Chat's PR is read in the Project it came from.
     const cwd = project.link ? (memberCwd ?? prChoices.find((choice) => choice.number === number)?.cwd) : undefined;
     if (project.link && !cwd) return false;
