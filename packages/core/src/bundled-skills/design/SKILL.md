@@ -5,233 +5,114 @@ description: Create screen designs in a Milagre Chat, as named layers with layou
 
 # Designing in a Chat
 
-Use this tool for UI screens, mockups, prototypes and visual designs. For a page explaining a topic, a report or an interactive explainer, use `artifact_show` and the artifacts skill. Each Chat has one live HTML artifact page, separate from its designs.
+Use this for UI screens, mockups, prototypes and visual designs. For an explainer, report or topic page, use `artifact_show` and the artifacts skill instead. If the user named another design tool (Pencil, Figma, Paper or any other MCP or app), use that tool.
 
-Only agents change designs. The user views them on the Designs canvas on desktop and phone, tries interactive ones, pins comments, chooses one and asks for changes through Chat.
+Only agents change designs. The user views them on the Designs canvas on desktop and phone, tries interactive ones, pins comments, chooses one and asks for changes through Chat. A design is one of two kinds, fixed for all its versions:
 
-A design is one of two kinds, fixed for all its versions:
+- **Layers** (`document`): a static screen drawn from named layers. Best for quick exploration, many variants, and work held to the Project's kit.
+- **Interactive** (`html` with `width` and `height`): your own HTML page, run live. Best when the screen has behaviour worth trying (navigation, tabs, toggles, forms, menus, animation) or the user asks for a prototype.
 
-- **Layers** (`document`): a static screen Milagre draws from named layers. Best for quick visual exploration, many variants, and work held to the Project's kit.
-- **Interactive** (`html` with `width` and `height`): your own HTML page, run live at that screen size. Best when the screen has behaviour worth trying (navigation, tabs, toggles, forms, onboarding steps, menus, animation) or the user asks for a prototype or something to click through. See Interactive designs below.
+## Process
 
-If the user named another design tool (Pencil, Figma, Paper or any other MCP or app), use that tool. Their choice wins over Milagre designs.
+1. **Ground it.** If the Project has a `DESIGN.md` (at the root, or in the folder of the app you are designing for), read it before anything else: its colors, type, spacing, components and rules win over your own taste. Then call `design_kit_read` when available (all Chats in the Project share the kit) and reuse its snapshot as `document.kit`. On takeover, `design_inspect` shows the saved screen. In a project with an app, read its screens, colors, type and components and design in that style. Ask one question only if the platform or screen is unclear.
+2. **Show it.** `design_show` with a title and one design per screen (390 by 844 for a phone). Give layers stable, meaningful ids and names. Use real content (dates, names, badges, chips), not placeholders. When the Chat covers several parts of the app, set `group` to the part (the same for every screen and variant of it); the canvas lays out one block per group.
+3. **Look before you reply.** The result is the saved design as an image, plus warnings (clipped text, layers outside their parent or screen, low contrast) or, for interactive designs, the first screen and console messages. Fix every warning and console error unless the overflow is deliberate (edge bleed, scroll peek), and anything that looks off, with `design_apply`. At most two fix rounds. In your image only: remote `https:` images are placeholders, unbundled fonts draw in Inter, and characters it can't draw are blank; leave all three. If no image comes back, the design is still saved; don't call again just for one.
+4. **Offer variants when the direction is open.** Two or three designs, each with its own id and a title naming the idea ("Alt B, dark timeline"), in the same group. One when the user was specific. A variant that keeps most of a saved design: `design_show` with a new `id`, `title`, `from: { "id": "<saved id>" }` and only the `operations` or `edits` that differ. Draw a new document only when the layout changes.
+5. **Act on feedback.** `design_read` the latest version, then `design_apply` with it as `expectedVersion` and one batch. A version conflict means another agent changed it: read again and adapt. After addressing a comment, `artifact_resolve_comment` with its id and a one-line note; resolve only what you addressed.
+6. **Build when asked.** `design_read` the chosen design and implement it in the project's own code and components. An interactive design's HTML is a reference to rebuild, not code to copy. `design_export` returns JSON, SVG or HTML when the user needs a file.
 
-1. **Ground it.** If the Project has a `DESIGN.md` (at the root, or in the folder of the app you are designing for), read it before anything else: its colors, type, spacing, components and rules win over your own taste. Then read `design_kit_read` when available: all Chats in this Project share that kit. Reuse its pinned snapshot in `document.kit`. On takeover, call `design_inspect` to see the current saved screen without making a version. In a project with an app, read its screens, colors, type and components first, and design in that style. Ask one question only if the platform or screen is unclear.
-2. **Show it.** Call `design_show` with a title and one document per screen, or for an interactive design the `html` of the flow. Set its width and height (390 by 844 for a phone). Give layers stable, meaningful ids and names. Use real content: the dates, names, badges and chips a real screen would show, not a simplified placeholder. When the Chat covers more than one part of the app (onboarding, settings, a workout screen), give each design a `group` naming its part, the same name for every screen and variant of it; the canvas lays out one block per group.
-3. **Look before you reply.** `design_show` and `design_apply` return the saved design as an image. A layer design also gets warnings for clipped text, layers outside their parent or the screen, and low contrast; an interactive design gets its first screen drawn in Chrome and what its console logged (fix every error). Look at the image. Fix every warning unless the overflow is deliberate (an edge bleed or a scroll peek), and fix anything that looks off (alignment, uneven spacing, icons, crowding), with `design_apply`. Do at most two fix rounds, then reply. Remote `https:` images show as placeholders in your image only; the user sees them. If no image comes back, the design is still saved; work from the warnings and don't call the tool again just to get one. If your image shows a family that is not bundled (see Fonts) in Inter, that is expected; don't change the font for it. Characters your image can't draw (a note names their layers) are blank there only; keep them.
-4. **Offer variants when the direction is open.** Show two or three designs, each with its own id and a title that names the idea ("Alt B, dark timeline"), in the group of the screen they are variants of. When the user was specific, show one. A variant that keeps most of a saved design (another color, a different header, one section changed) starts from it: `design_show` with a new `id`, its `title`, `from: { "id": "<saved id>" }` and only the `operations` (layers) or `edits` (interactive) that differ (the same ones `design_apply` takes), no `document` or `html`. Milagre copies the saved design, applies them and keeps its group. Draw a whole new document only when the layout itself changes.
-5. **Act on feedback.** Read the latest version with `design_read`, then call `design_apply` with that version as `expectedVersion` and one batch of operations (layers) or edits (interactive). If a version conflict occurs, another agent changed it: read again and adapt your changes to the latest version. After addressing a comment, call `artifact_resolve_comment` with its id and a one-line note. Resolve only what you addressed.
-6. **Build when asked.** Read the chosen design with `design_read` and implement it in the project's own code and components. A choice means continue from that design only. `design_export` returns JSON, SVG or HTML (interactive designs: HTML) when the user needs a file. An interactive design's HTML is a reference to rebuild in the project's stack, not code to copy in.
+Keep replies short: say what differs between variants or what changed. The card shows the design.
 
 ## Craft
 
-- **Icons.** Use an `icon` layer for every icon, with a Lucide name from lucide.dev/icons. Never use a Unicode glyph or an image of an icon. `fill` is its color and `strokeWidth` its line weight (2 by default; 1.5 reads closer to SF Symbols). Common names: `chevron-left`, `chevron-right`, `x`, `check`, `chevrons-up-down`, `sliders-horizontal`, `search`, `plus`, `ellipsis`, `signal`, `wifi`, `battery-full`.
-- **Type.** Inter is the default and is measured. Keep one scale per screen; for iOS: 34 large title, 22 title, 17 body and row labels, 15 secondary, 13 captions and section headers. The large title uses weight 700, other titles 600, body 400. Set secondary text apart with a lighter color as well as the smaller step, not with size alone.
-- **Spacing.** Work on a 4 px grid. Use 16 to 20 px screen margins on a phone, 44 px minimum touch targets, 12 to 16 px inside grouped rows, and the same gap between siblings of the same kind.
-- **Phone chrome.** Use a 54 px status bar with the time at 17/600 on the left and `signal`, `wifi` and `battery-full` icons at 17 px on the right. Navigation buttons are 44 px circles with a 20 px icon centred inside.
-- **Density.** Match the app you are designing for. A list row in a booking app shows its date, title, time and status; don't drop columns to make the layout easier.
+- **Icons.** An `icon` layer with a Lucide name (lucide.dev/icons) for every icon, never a Unicode glyph or image. `fill` is its color, `strokeWidth` its weight (2 default, 1.5 reads like SF Symbols). Common: `chevron-left`, `chevron-right`, `x`, `check`, `search`, `plus`, `ellipsis`, `sliders-horizontal`, `signal`, `wifi`, `battery-full`.
+- **Type.** Inter by default. One scale per screen; for iOS: 34 large title (700), 22 title (600), 17 body and row labels (400), 15 secondary, 13 captions and section headers. Set secondary text apart with a lighter color too, not size alone.
+- **Spacing.** A 4 px grid, 16 to 20 px phone margins, 44 px touch targets, 12 to 16 px inside grouped rows, equal gaps between siblings of a kind.
+- **Phone chrome.** A 54 px status bar: time at 17/600 left, `signal`, `wifi`, `battery-full` at 17 px right. Nav buttons are 44 px circles with a 20 px icon.
+- **Density.** Match the app. A booking row shows date, title, time and status; don't drop columns to ease the layout.
 
 ## Document format
 
-A document has `schemaVersion: 1`, `width`, `height`, an optional `background`, optional color `tokens`, and a flat `nodes` array. Every node has a unique `id`, `type`, `width` and `height`. Use `parentId` to put a layer inside a frame. Coordinates are relative to its parent; top-level coordinates are relative to the screen.
+`schemaVersion: 1`, `width`, `height`, optional `background`, optional color `tokens` (referenced as `$name`), and a flat `nodes` array. Every node has a unique `id`, `type`, `width` and `height`; `parentId` puts it inside a frame, and coordinates are relative to the parent (or the screen).
 
 ```json
-{
-  "schemaVersion": 1,
-  "width": 390,
-  "height": 844,
-  "background": "#f6f4ef",
+{ "schemaVersion": 1, "width": 390, "height": 844, "background": "#f6f4ef",
   "tokens": { "ink": "#16261f", "accent": "#27634b" },
   "nodes": [
-    {
-      "id": "content",
-      "name": "Welcome content",
-      "type": "frame",
-      "x": 24,
-      "y": 72,
-      "width": 342,
-      "height": 272,
-      "layout": "vertical",
-      "gap": 20
-    },
-    {
-      "id": "heading",
-      "parentId": "content",
-      "name": "Page title",
-      "type": "text",
-      "width": 342,
-      "height": 80,
-      "text": "Make room for your next idea.",
-      "fontSize": 32,
-      "fontWeight": 700,
-      "fill": "$ink"
-    },
-    {
-      "id": "start-button",
-      "parentId": "content",
-      "name": "Start button",
-      "type": "frame",
-      "width": 342,
-      "height": 52,
-      "fill": "$accent",
-      "radius": 12,
-      "layout": "horizontal",
-      "align": "center",
-      "justify": "center"
-    },
-    {
-      "id": "start-label",
-      "parentId": "start-button",
-      "name": "Start label",
-      "type": "text",
-      "width": 240,
-      "height": 24,
-      "text": "Start a project",
-      "fontSize": 16,
-      "fontWeight": 600,
-      "textAlign": "center",
-      "fill": "#ffffff"
-    }
-  ]
-}
+    { "id": "content", "name": "Welcome content", "type": "frame", "x": 24, "y": 72, "width": 342, "height": 272, "layout": "vertical", "gap": 20 },
+    { "id": "heading", "parentId": "content", "name": "Page title", "type": "text", "width": 342, "height": 80,
+      "text": "Make room for your next idea.", "fontSize": 32, "fontWeight": 700, "fill": "$ink" },
+    { "id": "start-button", "parentId": "content", "name": "Start button", "type": "frame", "width": 342, "height": 52,
+      "fill": "$accent", "radius": 12, "layout": "horizontal", "align": "center", "justify": "center" },
+    { "id": "start-label", "parentId": "start-button", "name": "Start label", "type": "text", "width": 240, "height": 24,
+      "text": "Start a project", "fontSize": 16, "fontWeight": 600, "textAlign": "center", "fill": "#ffffff" }
+  ] }
 ```
 
-Available layer properties:
-
 - **All layers:** `id`, `name`, `type`, `parentId`, `x`, `y`, `width`, `height`, `widthMode`, `heightMode`, `minWidth`, `minHeight`, `fill`, `stroke`, `strokeWidth`, `radius`, `opacity`, `hidden`, `locked`.
-- **Text:** `text`, `fontSize`, `fontFamily`, `fontWeight`, `lineHeight`, `textAlign` (`left`, `center` or `right`). `fill` is the text color. `lineHeight` is a unitless multiplier, such as `1.35`, never pixels.
-- **Frames:** `layout` (`free`, `horizontal` or `vertical`), `gap`, `padding`, `align` (`start`, `center` or `end`), `justify` (`start`, `center`, `end` or `space-between`). Horizontal and vertical layouts position their children automatically.
-- **Shapes:** use `rectangle` or `ellipse` as the type.
-- **Images:** use `image` as the type and `src` for its image URL. Colors can reference tokens with `$name`.
-- **Icons:** use `icon` as the type and `icon` for its Lucide name. `fill` is the line color and `strokeWidth` the line weight. Icons can't have a stroke, radius, text, src or children, and an unknown name fails with the closest matches.
+- **Text:** `text`, `fontSize`, `fontFamily`, `fontWeight`, `lineHeight` (unitless, such as `1.35`), `textAlign` (`left`, `center`, `right`). `fill` is the text color.
+- **Frames:** `layout` (`free`, `horizontal`, `vertical`; the last two place children), `gap`, `padding`, `align` (`start`, `center`, `end`), `justify` (`start`, `center`, `end`, `space-between`).
+- **Other types:** `rectangle`, `ellipse`, `image` (`src`), `icon` (`icon` name; no stroke, radius, text, src or children; an unknown name fails with the closest matches).
 
-## Content sizing
-
-`widthMode` and `heightMode` each accept `fixed` (the default), `hug` or `fill`. Keep numeric `width` and `height`: fixed uses those pixel sizes, while dynamic modes use them as fallbacks. `hug` fits text or a frame's children. `fill` uses available parent space; siblings with fill sizing share the remaining row or column space. Use `minWidth` and `minHeight` for explicit minima. A fill child inside a hug parent uses its fallback on that axis to avoid a circular size dependency.
-
-For a vertical card, use `heightMode: "hug"` on the frame and `widthMode: "fill", heightMode: "hug"` on its text. Changing the copy then moves the content below it. Text, selection bounds and SVG export share the same line breaks. Text is set in Inter by default, embedded in every preview and measured at weights 400, 500, 600 and 700, including its Latin punctuation (curly quotes, dashes, the middle dot, accented letters). Arial, Georgia, Times New Roman and Courier New are also measured; other fonts and non-Latin scripts use approximate metrics and render only where the viewer has them installed. Your preview image draws every family that is not bundled, including those four, in Inter.
+**Sizing.** `widthMode`/`heightMode` take `fixed` (default), `hug` (fits text or children) or `fill` (shares the parent's remaining space). Keep numeric `width`/`height` as fallbacks; a fill child in a hug parent uses its fallback. For a vertical card, `heightMode: "hug"` on the frame and `widthMode: "fill", heightMode: "hug"` on its text, so longer copy pushes content down. Prefer hug text in new screens. Inter (400 to 700), Arial, Georgia, Times New Roman and Courier New are measured; other fonts and non-Latin scripts use approximate metrics.
 
 ## Fonts
 
-Besides Inter, these families are bundled: measured, embedded in every preview, export and your image. Name one first in `fontFamily`, followed by a fallback of the same kind (`Bebas Neue, Arial, sans-serif`); a bundled family counts only as the first in the list. Each is drawn at 400 and a few other weights; other weights render with the nearest drawn one.
+Besides Inter, these families are bundled (measured and embedded in previews, exports and your image). Name one first in `fontFamily` with a fallback of the same kind (`Bebas Neue, Arial, sans-serif`); missing weights render with the nearest drawn one.
 
 Albert Sans, Anton, Archivo, Barlow, Barlow Condensed, Bebas Neue, Besley, Big Shoulders, Bodoni Moda, Bricolage Grotesque, Chivo, EB Garamond, Epilogue, Figtree, Hanken Grotesk, Imbue, Jost, League Spartan, Libre Franklin, Literata, Newsreader, Onest, Public Sans, Red Hat Display, Red Hat Text, Rokkitt, Schibsted Grotesk, Source Serif 4, Stack Sans Headline, Stack Sans Text, STIX Two Text, TikTok Sans, Unbounded, Work Sans, Young Serif, Zilla Slab.
 
 ## Project visual kit
 
-`design_kit_read` returns the Project's latest kit (default id `project`), or a specific version. `null` means no kit exists. Establish one from the app's `DESIGN.md` (when it has one), its existing style and confirmed choices with `design_kit_save`: send `expectedVersion: 0` for a new kit or the latest version for a revision. Never invent a new identity for an existing app without the user's direction.
+`design_kit_read` returns the latest kit (default id `project`) or a given version; `null` means none. Create or revise one with `design_kit_save` (`expectedVersion: 0` for new, else the latest) from the app's `DESIGN.md` when it has one, its existing style and confirmed choices. Never invent a new identity for an existing app without the user's direction.
 
-### Consistency rules
+A kit has `title`, `colors`, `textStyles` (`fontSize`, optional `fontFamily`, `fontWeight`, `lineHeight`), `spacing`, `radii` (all four required, may be empty), optional `components` (layer arrays with one main frame whose id is the map key) and `references` (`{title, source}`). Pass the snapshot, with `id` and `version`, as `document.kit`. Use `$color`, `textStyle: "body"` on text and `bindings: {padding: "md", gap: "sm", radius: "card"}` on frames (`radius` from `radii`; `padding`, `gap`, `minWidth`, `minHeight` from `spacing`). A numeric edit drops that binding; a typography edit drops `textStyle`; `unset` removes them explicitly.
 
-Composition may vary: positions, dimensions, content and hierarchy are not kit rules. Colors (including defaults and instance property overrides), complete typography, padding/gap and corner radii must use kit values. Zero spacing/radius and transparent paint are allowed. Minimum dimensions are layout constraints unless bound to a kit token. Existing component links and typed property options must remain intact unless the user requests a detach/change.
+Kit revisions don't change existing screens. To adopt one, `design_apply` `{op: "document", patch: {kit: <snapshot>}}` and review. Copied component trees are not replaced silently.
 
-Documents default to advisory consistency. Opt in with `consistency: {mode: "strict"}` (also through a `document` patch). Omitting `consistency` in a full replacement preserves the existing policy; changing it requires an explicit mode. Strict saves and `design_validate` reject kit drift. Reads and draft previews remain possible. A strict document needs a pinned kit with at least one color, text style, spacing and radius. Never switch off strict mode, change the kit or add exceptions to evade an error.
+**Consistency.** Layout and content may vary; colors, full typography, padding/gap and radii must come from the kit (zero and transparent are allowed). Documents are advisory by default; `consistency: {mode: "strict"}` makes saves and `design_validate` reject drift and needs a kit with at least one color, text style, spacing and radius. Never switch strict off, change the kit or add exceptions to evade an error. For a variation the user asked for, add `consistency.exceptions` `{nodeId, field, value, reason}`, copying `id`, `field` and `actual` from the diagnostic and stating the user's intent in `reason`.
 
-When the user deliberately requests a variation, record `consistency.exceptions`: `{nodeId, field, value, reason}`. Copy `id`, `field` and `actual` from the diagnostic into `nodeId`, `field` and `value`; explain the user's intent in `reason`. The exception applies only to that layer/field and exact effective value. It stays visible as `kit-exception`; changing a token's resolved color invalidates the old exception. Typography values contain the normalized full font family, size, weight and line height. An exception documents intent, not independent proof of user approval. Hidden source layers are skipped, but their visible component instances are checked. Public pages omit consistency metadata and private reasons.
+**Text edits.** Pass `intent` to `design_validate` and `design_apply` when changing existing copy:
 
-### Content changes
+- `{mode: "text-only", textIds: [...]}`: only those texts change; any layout shift rejects the batch. Report remaining clipping.
+- `{mode: "fit-text", textIds: [...], layoutIds: [...]}`: geometry may also change inside the named layout subtrees (smallest scope). The result must clear clipping in scope and add no defects elsewhere.
 
-Use the optional `intent` on both `design_validate` and `design_apply` when editing existing text. It applies to this batch only; do not omit it to evade a rejection.
-
-- `intent: {mode: "text-only", textIds: ["heading"]}` permits only those text fields and their linked component text propagation. Every other field and every computed layer bound must stay identical. Clipping may remain; report it. If Hug or automatic layout moves/resizes a layer, the batch rejects without saving. Ask for layout permission when the user explicitly required fixed geometry.
-- `intent: {mode: "fit-text", textIds: ["heading"], layoutIds: ["content"]}` permits text changes on the named targets and geometry on those targets plus the named layout subtrees. Geometry means x/y, width/height, sizing modes and min sizes. Styles, spacing, content elsewhere, layer ids/order, kit, document size and component links stay intact. Select the smallest authorized layout scope; do not add unrelated layers to bypass the contract. The result must clear clipping/overflow in scope and target ancestors, cannot create or change layout defects elsewhere, and cannot increase overlap between sibling text layers. Existing unrelated defects remain diagnostics. This is a constraint on your proposed operations, not an automatic layout solver.
-
-Text targets must be existing text layers. Edit a main component text layer when changing its linked copies. Instance `componentValues` edits are outside these intents for now; do not silently replace them with a main-component edit. Normal batches remain available for other user-requested edits.
-
-Diagnostics include `measurements` (required/available size, missing height, edge overflow or contrast ratio), `blockerId` and `suggestions`. Candidate `operations` are proposals with `requiresValidation: true`: preflight them against the current version and intended scope before applying, then inspect the saved result. A Hug proposal can move siblings or overflow a parent. Color proposals require permission to change style and do not belong in a text intent. Measurements use the shared font/layout engine; they are not a guarantee about unavailable fonts or overall aesthetics.
-
-Preflight, save and inspect again. Prefer Hug text in new screens so longer copy can flow. Strict kit consistency does not block content overflow: layout diagnostics and fit-text are separate criteria.
-
-The kit has `title`, `colors`, `textStyles`, `spacing`, `radii`, optional `components` and `references`. All four maps are required, but can be empty. A text style has `fontSize` and optional `fontFamily`, `fontWeight`, `lineHeight`. Component templates are arrays of ordinary layers, with one root main component whose id matches the map key. References are `{title, source}` records for approved examples or source files.
-
-Pass the returned snapshot, including `id` and `version`, as `document.kit`. Colors are available as `$name`. Use `textStyle: "body"` on text, or `bindings: {padding: "md", gap: "sm", radius: "card"}` on a frame. Radius names come from `radii`; the other supported bindings (`padding`, `gap`, `minWidth`, `minHeight`) come from `spacing`. Bound values follow the kit and override their numeric fallbacks. An explicit numeric property edit removes the corresponding spacing/radius binding; editing a typography property removes `textStyle`, preserving its other resolved values. A binding supplied in the same patch remains authoritative. You can also remove bindings explicitly with `unset`. Text-only edits keep their text style.
-
-Kit revisions do not change existing screens. To adopt a revision, read it, then send `{op: "document", patch: {kit: <returned snapshot>}}` in `design_apply`. This adopts its colors and updates bound fields. Review the result before continuing. Component templates are copied into the screen when used; changing a kit does not silently replace those component trees. Preserve source layer ids when explicitly updating a copied component.
+Edit a main component's text to change its copies; instance `componentValues` are outside intents. Diagnostics carry `measurements`, `blockerId`, `suggestions` and candidate `operations` (`requiresValidation: true`): preflight them, apply, then inspect.
 
 ## Inspect and preflight
 
-`design_inspect` takes `{id, version?, nodeId?}`. It returns an image, calculated layer bounds, warning coverage and rendering limitations without saving. `nodeId` crops to a visible layer. Contrast marked `unsupported` has not passed: images, partial backdrops and translucency may prevent evaluation. Remote pictures and unbundled fonts can differ from the user's view; do not claim a complete visual verification in that case.
+`design_inspect` `{id, version?, nodeId?}` returns the image, layer bounds and warnings without saving; `nodeId` crops to a layer. Contrast marked `unsupported` has not passed; with remote images or unbundled fonts, don't claim full visual verification. `design_validate` checks `{document}` or `{id, expectedVersion, operations}` (or `html` with size) without saving or reserving a version.
 
-`design_validate` checks either `{document}` or `{id, expectedVersion, operations}` without saving. It returns `valid`, errors with field paths, or the resulting document and diagnostics. It does not reserve a version; the subsequent write still needs `expectedVersion` and can conflict.
+## Components
 
-## Reusable components
-
-Mark a frame with `component: true` to make it a main component. Insert another frame with `componentId` set to that main frame's id, plus its own stable id, position and numeric size fallbacks. Milagre expands the instance's children and keeps their ids stable as the main changes. Change the main to update every linked instance. Nested components are not supported.
-
-Expose content or state properties on a main frame with `componentProperties`, for example `{"label":{"nodeId":"button-label","field":"text"},"disabled":{"nodeId":"button","field":"opacity","options":[1,0.5]}}`. Supported fields are `text`, `icon`, `hidden`, `fill` and `opacity`. The target must be in that main component. An instance sets `componentValues: {label: "Cancel", disabled: 0.5}`. Omitted properties keep the source value; `options` limits allowed states. Update `componentValues` as a complete map; send an empty map to reset overrides.
-
-An instance can change its properties, position, parent, name, visibility and lock state. Its other size, appearance and descendant fields follow the main. In `design_read`, generated children carry `componentSourceId`; edit that source layer in the main. To make an independent copy, send the whole document again with `design_show` (same id, latest `expectedVersion`), with `componentId` removed from the instance root and `componentSourceId` removed from its descendants. Keep their ids. Detach instances before deleting their main component.
+`component: true` makes a frame a main component. An instance is a frame with `componentId` set to it, its own id, position and size fallbacks; Milagre generates its children (with `componentSourceId`, edit that source in the main). No nesting. Expose properties on the main with `componentProperties`, such as `{"label":{"nodeId":"button-label","field":"text"},"disabled":{"nodeId":"button","field":"opacity","options":[1,0.5]}}` (fields `text`, `icon`, `hidden`, `fill`, `opacity`); instances set the full `componentValues` map (`{}` resets). Instances may change properties, position, parent, name, visibility and lock only. Detach instances before deleting their main.
 
 ## Editing
 
-`design_apply` takes `{ id, expectedVersion, operations }`. A successful batch creates one saved version; a rejected batch changes nothing. Earlier versions stay available. Send only the changes needed, so small revisions avoid generating a full screen again.
+`design_apply` `{id, expectedVersion, operations}` saves one version per batch; a rejected batch changes nothing. Send only what changes, and keep ids stable so comments keep pointing at their layers. To replace the whole screen, `design_show` with the same id and latest `expectedVersion`.
 
-```json
-{
-  "id": "welcome",
-  "expectedVersion": 1,
-  "operations": [
-    { "op": "update", "id": "heading", "patch": { "text": "Your next idea starts here.", "fontSize": 30 } },
-    { "op": "update", "id": "start-button", "patch": { "radius": 16 } }
-  ]
-}
-```
+- `{op: "update", id: "heading", patch: {text: "Your next idea starts here.", fontSize: 30}}`
+- `{op: "insert", node: {...}, index?}` and `{op: "delete", id}` (removes descendants too).
+- `{op: "document", patch: {tokens: {accent: "#2563eb"}, background: "$accent"}}`: tokens merge; width, height and kit also change here.
+- `{op: "duplicate", id: "card", newId: "second-card", x: 20, y: 300}` copies with new ids, keeping component links.
+- `{op: "detach", id}` makes an instance independent; `{op: "unset", id, fields: [...]}` clears `parentId`, `textStyle`, `bindings` or `componentValues`.
 
-Use `insert` with a `node` (the same fields as a `design_show` node) and optional `index` to add a layer, and `delete` with an `id` to remove a layer and its descendants. To replace the whole screen, call `design_show` with the design's id and the latest `expectedVersion`. Keep ids stable across edits so comments and later edits keep pointing at the same layers.
-
-More atomic operations:
-
-- `{op: "document", patch: {tokens: {accent: "#2563eb"}, background: "$accent"}}` updates document fields without resending layers; token patches merge. Width, height and kit can also change here.
-- `{op: "duplicate", id: "card", newId: "second-card", x: 20, y: 300}` copies the subtree with new ids and preserves component links.
-- `{op: "detach", id: "button-instance"}` makes an independent copy with the current property values.
-- `{op: "unset", id: "heading", fields: ["textStyle"]}` removes optional bindings. Supported fields: `parentId`, `textStyle`, `bindings`, `componentValues`.
-
-## Export
-
-`design_export` returns lossless JSON or SVG with native shapes, editable text and images. SVG keeps external image URLs and font names as references. `html` returns a layer design's drawn page or an interactive design's own HTML. The desktop's Export in a design's menu also downloads PNG; remote images must allow cross-origin access or be embedded data URLs. A failed image export shows an error and produces no partial download.
+`design_export` gives lossless JSON, SVG (image URLs and font names as references) or HTML. The desktop menu also exports PNG.
 
 ## Interactive designs
 
-Send `design_show` with `html`, `width` and `height` (390 by 844 for a phone, 1280 by 800 for a desktop app). The page runs live on the canvas and the phone, sandboxed: no `fetch`, no forms to servers, no `localStorage` or cookies (they throw). Keep state in memory and use realistic sample data.
-
-Start every React design with these exact tags (versions pinned, integrity checked), then write the app inline in `<script type="text/babel">`:
+`design_show` with `html`, `width` and `height` (390 by 844 phone, 1280 by 800 desktop). It runs sandboxed: no `fetch`, server forms, `localStorage` or cookies. Keep state in memory with realistic sample data. Start React designs with these exact tags, then write the app in `<script type="text/babel">` rendering into `#root`:
 
 ```html
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>html,body{margin:0;height:100%}body{font-family:Inter,system-ui,sans-serif}</style>
-</head>
-<body>
-<div id="root"></div>
-<script type="text/babel">
-function App() {
-  const [screen, setScreen] = React.useState("home");
-  return screen === "home"
-    ? <main data-screen-label="Home">…<button onClick={() => setScreen("detail")}>Open</button></main>
-    : <main data-screen-label="Detail">…</main>;
-}
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-</script>
-</body>
-</html>
 ```
 
-- **Libraries.** Scripts load only from unpkg.com, cdn.jsdelivr.net, cdnjs.cloudflare.com or esm.sh, each at an exact version (`react@18.3.1`, not `react@18` or `latest`); `design_show` refuses others. Tailwind's browser build is `https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.17`. Plain HTML and JavaScript need no libraries at all.
-- **Icons.** Lucide: load `https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js` (integrity `sha384-ieG+IKD0d/ZPXyCBTMVAbqsQdns8QGJR/e26WMw7M4fkaI/rHcS/YIoi+ah9WGge`, crossorigin `anonymous`), then draw one with `lucide.createElement(lucide.ChevronLeft)`, which returns an SVG element; in React, append it to a span's ref in `useEffect`. Never a Unicode glyph, emoji or hand-drawn SVG for an icon.
-- **Screens.** Put a flow in one design and switch its screens with state; mark each screen's root with `data-screen-label`. A second design is for a variant, not the next screen.
-- **Fit the screen.** The design fills exactly `width` by `height`: no sideways scroll, the main view sized to the screen (`height:100%`), long content scrolling inside it. A phone design draws its status bar (54 px) and home indicator.
-- **Make it feel real.** Every visible control does something plausible: tabs switch, toggles toggle, forms validate, lists open their item. Give buttons hover and pressed states and transitions of 150 to 250 ms. Lay out with flex or grid and `gap`.
-- **The same craft rules apply:** Inter or a fitting family from Google Fonts (`<link>` to fonts.googleapis.com works), a 4 px grid, the type scale above, 44 px touch targets, real content and the app's own colors.
-- **Edit with `edits`.** `design_apply` takes `{ id, expectedVersion, edits: [{ find, replace, all? }] }`: exact text from the HTML `design_read` returns, long enough to occur once, applied in order. To change most of the page, send the whole `html` again with `design_show` (same id, latest `expectedVersion`).
-- **Check it.** The result draws the first screen and lists console messages; a blank screen means the scripts failed. `design_validate` with `html`, `width` and `height` does the same without saving. Comments on an interactive design carry `x` and `y` as fractions of the screen the user saw.
-
-## Availability
-
-HTML Artifacts are the Chat's single explanatory page, through `artifact_read` and `artifact_show`; use the artifacts skill for that, not for UI screens.
-
-Keep replies short: say what differs between variants or what changed. The card shows the design.
+- **Libraries.** Only unpkg.com, cdn.jsdelivr.net, cdnjs.cloudflare.com or esm.sh, at an exact version (`react@18.3.1`, not `latest`). Tailwind: `https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.17`.
+- **Icons.** Lucide from `https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js` (integrity `sha384-ieG+IKD0d/ZPXyCBTMVAbqsQdns8QGJR/e26WMw7M4fkaI/rHcS/YIoi+ah9WGge`, crossorigin `anonymous`); `lucide.createElement(lucide.ChevronLeft)` returns an SVG to append (in React, to a span ref in `useEffect`). Never glyphs, emoji or hand-drawn SVG.
+- **Screens.** One design per flow, screens switched with state, each root marked `data-screen-label`. A second design is a variant, not the next screen.
+- **Fit.** Exactly `width` by `height`, no sideways scroll, long content scrolling inside. Phones draw the 54 px status bar and home indicator.
+- **Feel real.** Every visible control works plausibly; buttons have hover and pressed states, 150 to 250 ms transitions; flex or grid with `gap`. The craft rules above apply; Google Fonts `<link>`s work.
+- **Edit** with `design_apply` `{id, expectedVersion, edits: [{find, replace, all?}]}`: exact text from `design_read`, unique, applied in order. For larger changes resend the whole `html`. A blank first screen means the scripts failed. Comments carry `x`/`y` as fractions of the screen the user saw.
