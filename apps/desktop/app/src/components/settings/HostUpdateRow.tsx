@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { installQuestion, noDesktopUpdate, updateAvailable, updateBusy, updateDescription, type HostUpdate } from "@milagre/shared/app-update";
+import {
+  installQuestion,
+  noDesktopUpdate,
+  RESTART_GIVE_UP_MS,
+  restartLost,
+  updateAvailable,
+  updateBusy,
+  updateDescription,
+  type HostUpdate,
+} from "@milagre/shared/app-update";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { MilagreBridge } from "../../electron";
 import { Row } from "./SettingsGroup";
@@ -22,6 +31,15 @@ export function HostUpdateRow({ bridge, name }: { bridge: Pick<MilagreBridge, "r
   // Restarting there drops the computer's connection for a moment; the row keeps saying so until it answers again.
   const [restarting, setRestarting] = useState(false);
   const following = restarting || updateBusy(update ?? null);
+  // A computer that never answers again (its install failed with no host left to say so) ends "Restarting" with what to do.
+  useEffect(() => {
+    if (!restarting) return;
+    const timer = setTimeout(() => {
+      setRestarting(false);
+      setError(restartLost(name));
+    }, RESTART_GIVE_UP_MS);
+    return () => clearTimeout(timer);
+  }, [restarting, name]);
   useEffect(() => {
     let live = true;
     const show = (value: HostUpdate) => {
@@ -41,7 +59,8 @@ export function HostUpdateRow({ bridge, name }: { bridge: Pick<MilagreBridge, "r
       clearInterval(timer);
     };
   }, [bridge, following, restarting]);
-  if (update === undefined && !restarting) return null;
+  // Hidden while the computer can't answer, unless a restart it never came back from has something to say.
+  if (update === undefined && !restarting && !error) return null;
   const run = async (action: () => Promise<HostUpdate>) => {
     setError("");
     try {

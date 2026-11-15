@@ -222,17 +222,29 @@ async function startDesktop() {
   protocol.handle("milagre-artifact", (request) => previews.handle(request));
   const appIconPath = path.join(__dirname, "../app/public/logo-milagre-image.png");
   const { createReleaseChannelStore, prepareUpdater } = require("./release-channel.cjs");
-  const { createAppUpdates, createAutoInstall, deferUpdater, watchAppUpdates } = require("./app-updates.cjs");
-  const updater = deferUpdater(() => require("electron-updater").autoUpdater);
+  const { createAppUpdates, createAutoInstall, deferUpdater, stageNativeUpdate, watchAppUpdates } = require("./app-updates.cjs");
+  const updateLog = require("./update-log.cjs").createUpdateLog(path.join(app.getPath("userData"), "updates.log"));
+  const updater = deferUpdater(() => {
+    const loaded = require("electron-updater").autoUpdater;
+    loaded.logger = updateLog.logger;
+    return loaded;
+  });
   const releaseChannel = createReleaseChannelStore({ file: path.join(app.getPath("userData"), "release-channel.json") });
   const updates = createAppUpdates({
     updater,
     enabled: app.isPackaged,
     prepare: () => prepareUpdater(updater.loaded(), releaseChannel.get()),
-    stopHost: async () => {
-      await runtime.close({ stopHost: true });
-      await prepareQuit();
+    // macOS's updater unpacks and verifies the update while the host still runs; Windows and Linux installers need nothing first.
+    stage: () => (process.platform === "darwin" ? stageNativeUpdate(updater.loaded(), require("electron").autoUpdater) : Promise.resolve()),
+    stopHost: () => runtime.close({ stopHost: true }),
+    resumeHost: () => runtime.reopen(),
+    prepareQuit: () => prepareQuit(),
+    // The host is stopped and the window half closed: a fresh start brings both back (and installs, if the update got that far).
+    relaunch: () => {
+      app.relaunch();
+      app.exit(0);
     },
+    log: updateLog.line,
     publish: (state) => {
       for (const window of BrowserWindow.getAllWindows()) window.webContents.send("update:state", state);
     },

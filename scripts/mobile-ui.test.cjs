@@ -14046,6 +14046,71 @@ test("mobile General shows the Mac's Milagre update, checks, installs after aski
   assert.ok(find(MacUpdatesSection(), (node) => node.props?.title === "Auto update"));
 });
 
+test("mobile General says why a Mac's install failed, and stops saying Restarting when the Mac never comes back", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const react = hookHost({ effects: true });
+  const focused = [];
+  const appUpdate = require("@milagre/shared/app-update");
+  // The Mac answers, then goes quiet once the install starts (its host stopped), as on 2026-11-15.
+  let state = { status: "downloaded", version: "0.233.0", progress: 100, current: "0.232.0" };
+  let reachable = true;
+  const client = {
+    async call(method) {
+      if (!reachable) throw new Error("Could not reach your computer.");
+      if (method === "app-update:state") return state;
+      if (method === "app-update:install") {
+        reachable = false;
+        throw new Error("Connection lost");
+      }
+      throw new Error("Unknown method");
+    },
+  };
+  const { useMacUpdate, MacUpdateRows } = load("mac-update.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "@milagre/shared/app-update": appUpdate,
+    "./confirm-store": { confirm: async () => true },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./ui": { Button: "Button", ErrorNotice: "ErrorNotice", useStyles: () => fakeStyles },
+    "./theme": themeHooks,
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  let hook;
+  const render = () => {
+    react.begin();
+    hook = useMacUpdate(client);
+    return MacUpdateRows({ state: hook, macName: "Victor XPro" });
+  };
+  const texts = () => allNodes(render(), (node) => node.type === "Text").map((node) => [node.props.children].flat().join(""));
+  const notices = () => allNodes(render(), (node) => node.type === "ErrorNotice").map((node) => node.props.message);
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const focus = async () => {
+    for (const cleanup of cleanups.splice(0)) cleanup?.();
+    focused.length = 0;
+    render();
+    for (const fn of focused.splice(0)) cleanups.push(fn());
+    await settle();
+  };
+  await focus();
+  // A failed install the Mac came back from says why, and keeps the update ready.
+  state = { ...state, error: "Could not stop Milagre's background host. Try again." };
+  await focus();
+  assert.ok(texts().includes("Could not stop Milagre's background host. Try again. Milagre 0.233.0 is still ready to install."));
+  state = { ...state, error: undefined };
+  await hook.install("Victor XPro");
+  await settle();
+  assert.ok(texts().includes("Restarting Milagre on Victor XPro."), "a dropped connection is the restart");
+  t.mock.timers.tick(appUpdate.RESTART_GIVE_UP_MS - 1);
+  render();
+  assert.deepEqual(notices(), []);
+  t.mock.timers.tick(1);
+  assert.deepEqual(notices(), [appUpdate.restartLost("Victor XPro")]);
+  assert.equal(hook.restarting, false);
+});
+
 function settingsCardHost(pages, width = 820, isPad = true) {
   // Exercise the rendered handlers with the installed router, including a nested Settings stack over a Chat.
   const { StackRouter } = require("../node_modules/expo-router/build/react-navigation/routers/StackRouter.js");

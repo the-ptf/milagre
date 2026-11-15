@@ -450,6 +450,28 @@ async function connectDesktopRuntime(options) {
       clearTimeout(timer);
       client?.close();
     },
+    /**
+     * Brings this Mac's own host back after close({ stopHost }) for an update that did not go ahead: the stop failed
+     * part way (the host may have stopped all the same) or the install did. Starts the host when it is gone; a host the
+     * stop never reached is only connected to again. Resolves once connected; on a failure it retries by itself.
+     */
+    async reopen() {
+      if (remote) throw new Error(`Only ${thisComputer}'s own host starts from here.`);
+      closed = false;
+      hostStopped = false;
+      starts = 0;
+      if (client && !recovering) return;
+      clearTimeout(timer);
+      timer = null;
+      // Asked for, like restartHost: no "stopped unexpectedly" notice once it is back.
+      restarting = true;
+      try {
+        const failure = await reconnect();
+        if (failure) throw failure;
+      } finally {
+        restarting = false;
+      }
+    },
   };
 }
 module.exports = { connectDesktopRuntime };

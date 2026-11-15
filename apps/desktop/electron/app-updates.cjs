@@ -37,23 +37,100 @@ function deferUpdater(load) {
   };
 }
 
-/** One updater owns downloads, background checks, and explicit host shutdown for installation. */
-function createAppUpdates({ updater, enabled, prepare, stopHost, publish, now = Date.now }) {
+// How long the app may take to quit once it has handed the update over. Past this it never will (the installer failed
+// or a window refused to close): with its host already stopped, it starts again rather than sit there without one.
+const QUIT_TIMEOUT_MS = 60_000;
+// How long macOS's updater may take to unpack and verify the downloaded update before the host stops.
+const STAGE_TIMEOUT_MS = 3 * 60_000;
+
+/**
+ * Hands a downloaded update to macOS's updater (Squirrel.Mac) and waits until it has unpacked and verified it.
+ * electron-updater only does this when the app quits (autoInstallOnAppQuit) or inside quitAndInstall; both happen after
+ * the host has stopped, so a failure there left the Mac without a host. Done first, quitAndInstall only relaunches.
+ * @param {{ squirrelDownloadedUpdate?: boolean }} target electron-updater's MacUpdater
+ * @param {import('node:events').EventEmitter & { checkForUpdates(): void }} native Electron's autoUpdater
+ */
+function stageNativeUpdate(target, native, { timeoutMs = STAGE_TIMEOUT_MS } = {}) {
+  if (target.squirrelDownloadedUpdate) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    /** @param {Error} [error] */
+    const finish = (error) => {
+      clearTimeout(timer);
+      native.removeListener("update-downloaded", ready);
+      native.removeListener("update-not-available", none);
+      native.removeListener("error", fail);
+      if (error) reject(error);
+      else resolve(undefined);
+    };
+    const ready = () => finish();
+    const none = () => finish(new Error("macOS's updater found no update to install"));
+    const fail = (error) => finish(error instanceof Error ? error : new Error(String(error)));
+    const timer = setTimeout(() => finish(new Error("macOS's updater took too long to prepare the update")), timeoutMs);
+    native.on("update-downloaded", ready);
+    native.on("update-not-available", none);
+    native.on("error", fail);
+    try {
+      native.checkForUpdates();
+    } catch (error) {
+      fail(error);
+    }
+  });
+}
+
+/**
+ * One updater owns downloads, background checks, and explicit host shutdown for installation. An install prepares the
+ * update first (`stage`), then stops the host, then quits: a failure before the host stops leaves everything running,
+ * one while it stops brings it back (`resumeHost`), and a quit that never comes starts Milagre again (`relaunch`).
+ */
+function createAppUpdates({
+  updater,
+  enabled,
+  prepare,
+  stage = async () => {},
+  stopHost,
+  resumeHost = async () => {},
+  prepareQuit = async () => {},
+  relaunch = () => {},
+  publish,
+  log = (/** @type {string} */ _line) => {},
+  now = Date.now,
+  setTimer = (/** @type {() => void} */ callback, /** @type {number} */ ms) => void setTimeout(callback, ms).unref(),
+}) {
   /** @type {import('../app/src/electron').UpdateState} */
   let state = { status: "idle", version: null, progress: 0, auto: false };
   /** @type {Promise<typeof state> | null} */
   let checking = null;
   /** @type {Promise<void> | null} */
   let installing = null;
+  /** Where an install is: its errors are the step's own until it quits (see failed). */
+  let phase = /** @type {"" | "staging" | "stopping" | "quitting"} */ ("");
   let lastCheck = -Infinity;
   /** @param {Partial<typeof state>} next */
   const update = (next) => {
+    const before = state;
     state = { ...state, ...next };
+    if (state.status !== before.status || (state.error && state.error !== before.error))
+      log(`${state.status}${state.version ? ` ${state.version}` : ""}${state.error ? `: ${state.error}` : ""}`);
     publish(state);
     return state;
   };
-  const failed = () => {
-    if (state.status === "installing") return update({ status: "downloaded", error: "Could not restart Milagre. Try again." });
+  const reason = (error) => (error instanceof Error ? error.message : String(error));
+  // The host is stopped and the app did not quit to install: start Milagre again, with its host, rather than leave it.
+  let gaveUp = false;
+  const giveUp = (error) => {
+    if (gaveUp) return;
+    gaveUp = true;
+    log(`install did not quit: ${reason(error)}. Starting Milagre again.`);
+    update({ status: "downloaded", error: "Could not restart Milagre to install the update. Try again." });
+    relaunch();
+  };
+  const failed = (error) => {
+    if (error !== undefined) log(`updater error: ${reason(error)}`);
+    if (state.status === "installing") {
+      // Before the quit, the install step that failed reports it; after, nothing else will.
+      if (phase === "quitting") giveUp(error ?? new Error("updater error"));
+      return state;
+    }
     // A failed metadata check leaves the existing installer usable. Once a newer download starts,
     // electron-updater owns/replaces the cache, so a download failure must be retried instead.
     if (state.status === "downloaded") return state;
@@ -92,7 +169,7 @@ function createAppUpdates({ updater, enabled, prepare, stopHost, publish, now = 
         (error) => {
           if (isChannelNotPublished(error)) return noUpdate();
           // electron-updater also emits an error event; preserve its download-specific explanation.
-          return state.status === "error" ? state : failed();
+          return state.status === "error" ? state : failed(error);
         },
       )
       .finally(() => {
@@ -109,13 +186,40 @@ function createAppUpdates({ updater, enabled, prepare, stopHost, publish, now = 
         if (checking) await checking;
         if (state.status !== "downloaded") return;
         update({ status: "installing", error: undefined });
-        await stopHost();
-        updater.quitAndInstall();
-      })
-      .catch(() => {
-        update({ status: "downloaded", error: "Could not restart Milagre. Try again." });
+        gaveUp = false;
+        phase = "staging";
+        try {
+          await stage();
+        } catch (error) {
+          log(`install: preparing the update failed: ${reason(error)}`);
+          update({ status: "downloaded", error: "Could not prepare the update. Try again." });
+          return;
+        }
+        phase = "stopping";
+        try {
+          await stopHost();
+        } catch (error) {
+          log(`install: stopping the host failed: ${reason(error)}`);
+          await resumeHost().then(
+            () => log("install: host started again"),
+            (cause) => log(`install: starting the host again failed: ${reason(cause)}`),
+          );
+          update({ status: "downloaded", error: "Could not stop Milagre's background host. Try again." });
+          return;
+        }
+        phase = "quitting";
+        log("install: host stopped, quitting to install");
+        try {
+          await prepareQuit();
+          updater.quitAndInstall();
+        } catch (error) {
+          giveUp(error);
+          return;
+        }
+        setTimer(() => giveUp(new Error(`Milagre was still open ${QUIT_TIMEOUT_MS / 1000} s after quitting to install`)), QUIT_TIMEOUT_MS);
       })
       .finally(() => {
+        if (phase !== "quitting") phase = "";
         installing = null;
       });
     return installing;
@@ -197,4 +301,4 @@ function watchAppUpdates(
   });
   refresh();
 }
-module.exports = { deferUpdater, createAppUpdates, createAutoInstall, watchAppUpdates, INPUT_IDLE_SECONDS };
+module.exports = { deferUpdater, createAppUpdates, createAutoInstall, stageNativeUpdate, watchAppUpdates, INPUT_IDLE_SECONDS, QUIT_TIMEOUT_MS };
