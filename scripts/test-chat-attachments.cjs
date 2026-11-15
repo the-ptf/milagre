@@ -222,8 +222,15 @@ async function browserChecks() {
     await click('[data-quote-chip] [aria-label="Remove quote"]');
     await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
     assert.match((await chips())[0], /\|Your message$/, "X removes that quote alone");
-    await click('[data-quote-chip] [aria-label="Remove quote"]');
+    // Backspace at the start of the prompt takes back the quote chip before it, and leaves the text.
+    await evaluate(`(() => {
+      const editor = document.querySelector('[data-prompt-editor]'); editor.focus();
+      const range = document.createRange(); range.setStart(editor, 0); range.collapse(true);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    })()`);
+    await key("Backspace");
     await waitFor(`!document.querySelector('[data-quote-chip]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question", "Backspace at the start removes only the quote");
     await type("");
 
     // A sent message shows its @file mention and /skill as chips; the mentioned file gets no second tile, an unmentioned one keeps its tile.

@@ -9,10 +9,10 @@ import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
 // size too). The label alone sets the chip's baseline
 // (`LABEL`), so every chip's text sits on the line's baseline and the chip is centred on the line whatever comes first
 // (an icon has no baseline, a badge a smaller one); icons and badges are sized in em, centred, and never set the height.
-const CHIP =
+export const CHIP =
   "relative -top-[0.04em] inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[0.875em] leading-[1.35] font-[inherit] whitespace-nowrap";
 const LABEL = "truncate self-baseline";
-const ICON_SIZE = "0.95em";
+export const ICON_SIZE = "0.95em";
 // A chip that opens something: the pointer cursor, its border unchanged on hover (a chip is part of the text, not a
 // button that lights up); focus is the base accent outline. File and image chips keep a native title: it reveals the full
 // path or name the chip truncates.

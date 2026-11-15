@@ -799,6 +799,15 @@ export function PromptComposer({
         return;
       }
     }
+    // Backspace at the very start takes back the quote chip just before the caret, as it would a chip in the text.
+    if (event.key === "Backspace" && onRemoveQuote && quotes.length && !event.metaKey && !event.altKey && !event.ctrlKey) {
+      const selection = inputRef.current?.getSelection();
+      if (selection?.start === 0 && selection.end === 0) {
+        event.preventDefault();
+        onRemoveQuote(quotes.at(-1)!.id);
+        return;
+      }
+    }
     if (recall(event)) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -980,17 +989,6 @@ export function PromptComposer({
             }}
           />
           <Attachments
-            leading={
-              onRemoveQuote && quotes.length ? (
-                <QuoteChips
-                  quotes={quotes}
-                  onRemove={(id) => {
-                    onRemoveQuote(id);
-                    inputRef.current?.focus();
-                  }}
-                />
-              ) : undefined
-            }
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}
             files={imageDraft.files.filter((file) => !chipPaths.includes(file))}
@@ -1025,41 +1023,56 @@ export function PromptComposer({
 
           {/* The prompt has its own row at every width, with the controls on the row below it. */}
           <div className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,max-content)_auto] items-end gap-x-1 gap-y-1.5">
-            <div className="relative col-span-full row-start-1 w-full min-w-0">
-              <PromptEditor
-                ref={inputRef}
-                resetKey={imageDraft.scope}
-                value={draft}
-                parts={parts}
-                skillDescriptions={skillDescriptions}
-                onOpenImage={(index) => setPreviewId(imageDraft.images[index - 1]?.id ?? null)}
-                onPaste={(event) => {
-                  const selection = inputRef.current?.getSelection() ?? {
-                    start: caret,
-                    end: caret,
-                  };
-                  const promise = imageDraft.onPaste(event);
-                  if (event.defaultPrevented) insertImages(promise, selection);
-                }}
-                provisional={provisional}
-                onSelect={setCaret}
-                onChange={(value, position) => {
-                  setCaret(position);
-                  onDraftChange(dropUnmentionedImages(draftLatest.current, value));
-                  setDismissed(false);
-                }}
-                onKeyDown={handleKeyDown}
-                disabled={false}
-                maxHeight={100}
-                suggestion={visibleSuggestion}
-                placeholder={
-                  offlineName
-                    ? offlinePlaceholder(offlineName)
-                    : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
-                      (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
-                }
-                className="min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
-              />
+            {/* Quotes sit at the start of the prompt's line, as chips in the text; the prompt takes the rest of the row
+            and drops under them when they leave it too little. */}
+            <div className="relative col-span-full row-start-1 flex w-full min-w-0 flex-wrap items-start">
+              {onRemoveQuote && quotes.length > 0 && (
+                <span className="contents text-[length:calc(var(--chat-size)+1px)] leading-5 [&>[data-quote-chip]]:mt-2 [&>[data-quote-chip]]:ml-2 [&>[data-quote-chip]]:top-0">
+                  <QuoteChips
+                    quotes={quotes}
+                    onRemove={(id) => {
+                      onRemoveQuote(id);
+                      inputRef.current?.focus();
+                    }}
+                  />
+                </span>
+              )}
+              <div className="relative min-w-40 flex-1 basis-40">
+                <PromptEditor
+                  ref={inputRef}
+                  resetKey={imageDraft.scope}
+                  value={draft}
+                  parts={parts}
+                  skillDescriptions={skillDescriptions}
+                  onOpenImage={(index) => setPreviewId(imageDraft.images[index - 1]?.id ?? null)}
+                  onPaste={(event) => {
+                    const selection = inputRef.current?.getSelection() ?? {
+                      start: caret,
+                      end: caret,
+                    };
+                    const promise = imageDraft.onPaste(event);
+                    if (event.defaultPrevented) insertImages(promise, selection);
+                  }}
+                  provisional={provisional}
+                  onSelect={setCaret}
+                  onChange={(value, position) => {
+                    setCaret(position);
+                    onDraftChange(dropUnmentionedImages(draftLatest.current, value));
+                    setDismissed(false);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  disabled={false}
+                  maxHeight={100}
+                  suggestion={visibleSuggestion}
+                  placeholder={
+                    offlineName
+                      ? offlinePlaceholder(offlineName)
+                      : (running ? (queuesFollowUp ? "Queue a message for the next turn…" : "Steer the agent…") : (placeholder ?? PROMPT_PLACEHOLDER)) +
+                        (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                  }
+                  className="min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
+                />
+              </div>
             </div>
             <Tooltip label="Attach files" asChild>
               <button
