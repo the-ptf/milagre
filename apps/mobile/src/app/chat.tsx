@@ -11,7 +11,7 @@ import { ComposerTray, OfflineTray } from "../offline-tray";
 import { ComposerGlass } from "../composer-glass";
 import { LINK_CHAT_WORKTREES_TEXT, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
@@ -35,7 +35,6 @@ import {
   LaptopIcon,
   Link04Icon,
   MoreHorizontalIcon,
-  SidebarLeftIcon,
   StopIcon,
   Video01Icon,
 } from "@hugeicons/core-free-icons";
@@ -43,7 +42,7 @@ import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { compactButtonState } from "@milagre/shared/chat-display";
 import { useCompactButtonDisplay, useNewChatStats, useShowContextSize } from "../chat-display-setting";
-import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
+import type { ChatMessage, LinkIssueResult, PullRequestActionContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
   chatPullRequests,
@@ -57,7 +56,7 @@ import {
 import { runStatusLabel, sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
-import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
+import { LINK_PR_HINT, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
@@ -107,8 +106,7 @@ import { chosenDesign, designActivity } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
-import { exchangeText, foldLinkedExchanges, linkedContext, linkedLine, type LinkedExchange } from "@milagre/shared/linked-message";
-import { LinkedMessageLine } from "../linked-message-line";
+import { foldLinkedExchanges } from "@milagre/shared/linked-message";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider, LimitResetDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
@@ -140,33 +138,21 @@ import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-lin
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
-import { Approval, ActivityQuestions, answersWithImages } from "../questions";
+import { ActivityQuestions, answersWithImages } from "../questions";
 import { QueuedMessages } from "../queued-messages";
 import { followUpDelivery } from "@milagre/shared/queued-messages";
 import { AgentControls } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
-import { useSplit, useSplitLayout } from "../split-context";
-import { chatAreaWidth, READING_WIDTH } from "../split-width";
+import { useSplitLayout } from "../split-context";
+import { READING_WIDTH } from "../split-width";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
 import { HeaderAction, HeaderActionGroup } from "../primitives/header-action-group";
-import {
-  DISABLED_OPACITY,
-  ErrorNotice,
-  GlassIconButton,
-  HeaderButton,
-  IconButton,
-  PageScroll,
-  PillButton,
-  PullDown,
-  pressStyle,
-  useStyles,
-  type MenuSection,
-} from "../ui";
+import { DISABLED_OPACITY, ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, pressStyle, useStyles } from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -203,36 +189,37 @@ import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { chatBookmark, chatFamily } from "@milagre/shared/subchats";
-import { subchatNote, subchatNotes, suggestionArguments, isSilentNote } from "../subchat-notes";
-import { SubchatNoteView, SubchatWaitingNote } from "../subchat-note";
+import { subchatNotes, isSilentNote } from "../subchat-notes";
+import { SubchatWaitingNote } from "../subchat-note";
 import { SubchatBookmarkHost } from "../subchat-bookmark";
-import { BESIDE_PARENT, familyMenu } from "../subchat-family";
+import { BESIDE_PARENT } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 import { promptText } from "../text-prompt";
 import { useVisibleRunChatKeys } from "../visible-run-chats";
+import {
+  ChatStackOptions,
+  ChatToolbar,
+  FamilyTitleMenu,
+  HeaderTitleBox,
+  HiddenHeaderOptions,
+  SidebarButton,
+  SidebarToolbar,
+  chatPaneMenu,
+} from "../chat-header";
+import { issueRunDivider, transcriptRows } from "../chat-transcript-rows";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
 
-// A Linear Run's first message is its issue card carrying the Run: its divider shows above the card.
-function issueRunDivider(message: ChatMessage, merged?: { count: number; last: RoutineRunContext }) {
-  const run = isRoutineRun(message) ? null : routineRunOf(message);
-  return run ? <RoutineRunDivider context={run} merged={merged} /> : null;
-}
-
-/** Below this, the new-Chat tray's Linear chip shows only its logo so the row fits on one line (a phone; an iPad keeps the label). */
 const COMPACT_TRAY_ROW_WIDTH = 460;
 
-/** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
-/** The choice sheet's rows for a list of Linear issues. */
 function issueChoices(issues: LinearIssue[]) {
   return issues.map((issue) => ({ id: issueChoiceId(issue), title: `${issue.key} ${issue.title}`, subtitle: issue.state.name }));
 }
-/** The workspace the issue sheet showed last, so it opens there again. */
 let lastLinearWorkspace: string | undefined;
 const UNDO_COMMANDS = [{ name: "undo", description: "Undo a task's file changes" }];
 const STORAGE_COMMANDS = [{ name: STORAGE_COMMAND, description: STORAGE_COMMAND_HINT }];
@@ -243,175 +230,8 @@ const NO_CHECKPOINTS: CheckpointApi = {
   restore: () => Promise.reject(new Error("Connect to the computer to undo changes")),
 };
 
-// The native header lays its title out between the sidebar button and the toolbar group, and lets a title wider than that run
-// under the group. These are the pieces of that room, in points: the header's inset from the screen edge, one round button,
-// the Browser, PR and ⋯ buttons sharing a pill, and the clear space beside the title. The title is never wider than 230.
-const HEADER_EDGE = 16;
-const HEADER_BUTTON = 44;
-const HEADER_BUTTON_PITCH = 44;
-const HEADER_GAP = 12;
-const HEADER_TITLE_MAX = 230;
-/** The widest the header title may be on a screen `screenWidth` wide: what is left between the sidebar button and the toolbar group. */
-function headerTitleWidth(screenWidth: number, actionCount: number) {
-  const left = HEADER_EDGE + HEADER_BUTTON + HEADER_GAP;
-  const right = HEADER_EDGE + (HEADER_BUTTON + (actionCount - 1) * HEADER_BUTTON_PITCH) + HEADER_GAP;
-  return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
-}
-
-/** The header title's box, as wide as the room the pinned sidebar leaves. */
-function HeaderTitleBox({ actionCount, children }: { actionCount: number; children: ReactNode }) {
-  const window = useWindowDimensions();
-  const { pinned } = useSplit();
-  return <View style={{ alignItems: "center", width: "100%", maxWidth: headerTitleWidth(chatAreaWidth(window.width, pinned), actionCount) }}>{children}</View>;
-}
-
-/**
- * A pane's native header content, kept apart from its screen options. expo-router publishes a Stack.Screen's options and a
- * Stack.Toolbar's children to the navigator whenever they change, which re-renders the navigator; what changes with every
- * Chat render goes through this slot instead, and the options stay the same object.
- */
-type HeaderSlotStore = { get: () => ReactNode; set: (content: ReactNode) => void; subscribe: (listener: () => void) => () => void };
-function headerSlotStore(initial: ReactNode): HeaderSlotStore {
-  let content = initial;
-  const listeners = new Set<() => void>();
-  return {
-    get: () => content,
-    set(next) {
-      if (next === content) return;
-      content = next;
-      for (const listener of listeners) listener();
-    },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-}
-/** Draws what the slot holds now, in the header. */
-function HeaderSlot({ slot }: { slot: HeaderSlotStore }) {
-  return <>{useSyncExternalStore(slot.subscribe, slot.get)}</>;
-}
-/** The slot `content` goes through, written as the pane commits, so the header shows it in the same frame. */
-function useHeaderSlot(content: ReactNode) {
-  const [slot] = useState(() => headerSlotStore(content));
-  useLayoutEffect(() => slot.set(content), [slot, content]);
-  return slot;
-}
-
-/** A new Chat has no title until it has a name; the header draws what the slot holds. */
-function chatScreenOptions(title: string, starting: boolean, slot: HeaderSlotStore) {
-  return {
-    title: starting ? "" : title,
-    headerTitle: () => (starting ? null : <HeaderSlot slot={slot} />),
-    headerShown: true,
-    headerBackVisible: false,
-    gestureEnabled: false,
-  };
-}
-/** The routed Chat's native header when it is alone: its options change only with the title, `header` draws through a slot. */
-function ChatStackOptions({ title, starting, header }: { title: string; starting: boolean; header: ReactNode }) {
-  const slot = useHeaderSlot(header);
-  const options = useMemo(() => chatScreenOptions(title, starting, slot), [title, starting, slot]);
-  return <Stack.Screen options={options} />;
-}
-
-/** The routed Chat's route with another Chat beside it: each pane draws its own header, the route keeps only the title. */
-function HiddenHeaderOptions({ title }: { title: string }) {
-  const options = useMemo(() => ({ title, headerShown: false, headerBackVisible: false, gestureEnabled: false }), [title]);
-  return <Stack.Screen options={options} />;
-}
-
-/**
- * The header's right toolbar: `children` (the actions) draw through a slot, and the toolbar is published again only when
- * `shape` (which buttons show) changes, so the native bar measures it again exactly when its width can change.
- */
-function ChatToolbar({ shape, children }: { shape: string; children: ReactNode }) {
-  const slot = useHeaderSlot(children);
-  const items = useMemo(
-    () => (
-      // Keyed on the shape so its options change when a button comes or goes.
-      <Stack.Toolbar.View key={shape} hidesSharedBackground>
-        <HeaderSlot slot={slot} />
-      </Stack.Toolbar.View>
-    ),
-    [shape, slot],
-  );
-  return <Stack.Toolbar placement="right">{items}</Stack.Toolbar>;
-}
-
-/**
- * The title's family menu (subchat-family.ts). It reads the Project's runs itself, as each member's state follows its turn,
- * so the Chat screen around it doesn't render again for every step another Chat of the Project streams.
- */
-function FamilyTitleMenu({
-  sessions,
-  chatKey,
-  members,
-  routines,
-  routinesOn,
-  now,
-  canOpenBeside,
-  label,
-  title,
-  onSelect,
-  children,
-}: {
-  sessions: Parameters<typeof familyMenu>[0]["sessions"];
-  chatKey: string;
-  members: readonly string[];
-  routines: Parameters<typeof familyMenu>[0]["routines"];
-  routinesOn: boolean;
-  now: number;
-  canOpenBeside: boolean;
-  label: string;
-  title: string;
-  onSelect: (id: string) => void;
-  children: ReactNode;
-}) {
-  const runs = useSession().snapshot?.runs.runs;
-  const sectionsKey = JSON.stringify(familyMenu({ sessions, key: chatKey, children: members, routines, routinesOn, runs, now, canOpenBeside }));
-  const sections = useMemo(() => JSON.parse(sectionsKey) as MenuSection[], [sectionsKey]);
-  return (
-    <PullDown label={label} title={title} sections={sections} onSelect={onSelect} style={{ maxWidth: "100%" }}>
-      {children}
-    </PullDown>
-  );
-}
-
-/** The native header's sidebar button: shows or hides the pinned sidebar, or slides the navigation over on a narrower window. */
-function SidebarToolbar({ onOpenNavigation }: { onOpenNavigation: (side: "left") => void }) {
-  const { dockable, pinned, toggle } = useSplit();
-  const label = dockable ? (pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation";
-  const press = useCallback(() => (dockable ? toggle() : onOpenNavigation("left")), [dockable, toggle, onOpenNavigation]);
-  // Stack.Toolbar.Button takes SF Symbols only on iOS; Android needs a React child. The same children keep the toolbar's
-  // options from being published again on every Chat render.
-  const items = useMemo(
-    () =>
-      Platform.OS === "ios" ? (
-        <Stack.Toolbar.Button icon="sidebar.left" accessibilityLabel={label} onPress={press} />
-      ) : (
-        <Stack.Toolbar.View>
-          <HeaderButton label={label} icon={SidebarLeftIcon} onPress={press} />
-        </Stack.Toolbar.View>
-      ),
-    [label, press],
-  );
-  return <Stack.Toolbar placement="left">{items}</Stack.Toolbar>;
-}
-
-/** The sidebar button of a Chat with another beside it, which draws its own header. */
-function SidebarButton() {
-  const { pinned, toggle } = useSplit();
-  return <GlassIconButton label={pinned ? "Hide sidebar" : "Show sidebar"} systemImage="sidebar.left" icon={SidebarLeftIcon} onPress={toggle} />;
-}
-
-// `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
 type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
 
-/**
- * The routed Chat, and on a wide iPad a second Chat beside it, of any Project on any computer, opened from a sidebar
- * row's "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
- */
 const NO_MEMBERS: WorktreeBinding[] = [];
 const NO_QUOTES: ComposerQuote[] = [];
 const NO_REFS: string[] = [];
@@ -434,9 +254,6 @@ export default function ChatScreen() {
   useEffect(() => {
     if (state === "ended") closeBeside();
   }, [state]);
-  // Every route to a Chat opens it alone (a sidebar row, a pill, a notification, the Attention pill): a route that changes
-  // the open Chat ends the split. Most routes close it themselves, before they navigate, so it never shows for a frame;
-  // this one catches those that don't (a notification, a Live Activity, a Routine's Chat).
   const routeKey = `${params.hostId}|${params.projectPath}|${params.id}|${params.worktreeId}`;
   const routed = useRef(routeKey);
   useEffect(() => {
@@ -445,23 +262,19 @@ export default function ChatScreen() {
     closeBeside();
   }, [routeKey]);
   const shown = state === "shown" && beside ? beside : null;
-  // Closing the routed Chat leaves the one beside it in its place.
   const promote = useCallback(() => {
     if (!shown) return;
     router.setParams({ id: String(shown.chatId), worktreeId: undefined, draft: undefined, prefill: undefined });
     closeBeside();
   }, [shown]);
-  // Focus identifies the pane whose terminal can own the keyboard. Both composers and transcripts make room for it.
   const [typing, setTyping] = useState<"routed" | "beside">("routed");
   const besideTyping = Boolean(shown) && typing === "beside";
   const routedTypes = useCallback(() => setTyping("routed"), []);
   const besideTypes = useCallback(() => setTyping("beside"), []);
-  // A sheet a pane opens is about that pane's Chat, so it reads that pane's Project (beside-session.tsx).
   const routedTouched = useCallback(() => touchPane("routed"), []);
   const besideTouched = useCallback(() => touchPane("beside"), []);
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
-      {/* Each pane clips its edge fades, which are as wide as the window so that the sidebar's slide never resizes them. */}
       <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={routedTouched}>
         <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} keyboard={!besideTyping} onTyping={routedTypes} onClose={promote} />
       </View>
@@ -469,7 +282,6 @@ export default function ChatScreen() {
         <>
           <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: colors.line }} />
           <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={besideTouched}>
-            {/* A Chat of another Project or computer reads its own Project's session; one of the open Project shares it. */}
             <BesideSession key={`${shown.hostId}|${shown.projectPath}`} chat={shown}>
               <ChatPane
                 key={`${shown.hostId}|${shown.projectPath}#${shown.chatId}`}
@@ -487,11 +299,6 @@ export default function ChatScreen() {
   );
 }
 
-/**
- * One Chat: the routed one (`single`, or `primary` with another beside it), or the one beside it (`secondary`), which
- * leaves the route, the native header, the side panels and the open Project to the routed one. Every read and action
- * goes through useSession, which for a Chat beside of another Project is that Project's own (beside-session.tsx).
- */
 function ChatPane({
   params: routeParams,
   pane,
@@ -501,9 +308,7 @@ function ChatPane({
 }: {
   params: ChatParams;
   pane: "single" | "primary" | "secondary";
-  /** Whether this pane follows the keyboard: always alone, only the last touched one in a split. */
   keyboard: boolean;
-  /** Its composer took focus: in a split, this pane gets the keyboard. */
   onTyping: () => void;
   onClose: () => void;
 }) {
@@ -513,8 +318,6 @@ function ChatPane({
   const [newChatStats] = useNewChatStats();
   const { settings: contextSettings } = useContextSettings();
   const [compactButtonDisplay] = useCompactButtonDisplay();
-  // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
-  // params, so the new snapshot never renders against the old route and briefly unmounts the composer.
   const [internalBrowser] = useInternalBrowser();
   const [arriving, setArriving] = useState<ChatParams | null>(null);
   const params = arriving ?? routeParams;
@@ -530,45 +333,31 @@ function ChatPane({
   const navigation = useNavigation<NavigationProp<{ chat: { worktreeId?: string } }, "chat">>();
   const secondary = pane === "secondary";
   const paired = pane !== "single";
-  // This New Chat's own id; the drawer passes a sending one's back to reopen it (pending-chats.ts).
   const [ownDraft] = useState(() => randomUUID());
   const draftId = params.draft || ownDraft;
   const session = useSession();
-  // The Chat beside reads its own Project when that isn't the open one.
   const openSession = useMainSession();
   const ownProject = !sameSession(session, openSession);
   const composer = useComposer();
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
-  // Only the pieces that read whether the sidebar is pinned (SidebarToolbar, SidebarButton, HeaderTitleBox) re-render as it
-  // shows or hides; the Chat itself doesn't.
   const split = useSplitLayout();
-  // On a wide iPad the transcript and composer keep to a centered reading column. It is a max width, not padding
-  // worked out from the window, so the column slides without reflowing while the sidebar opens or closes.
   const column = { width: "100%", maxWidth: READING_WIDTH, alignSelf: "center" } as const;
   const [actionBusy, setBusy] = useState(false);
-  // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
   const sendingRef = useRef(new Set<string>());
   const [sendingKeys, setSendingKeys] = useState<string[]>([]);
-  /** Which typed @mentions name a Project file: those are tinted and attached at send. */
   const knownFiles = useRef(createKnownFiles());
-  // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSends = useRef(createResendMemory());
   const [picking, setPicking] = useState(false);
-  // The new-Chat tray row's width: 0 until it is laid out, which keeps the Linear chip compact on a phone from the start.
   const [trayRowWidth, setTrayRowWidth] = useState(0);
   const [dockHeight, setDockHeight] = useState(140);
-  // The Chat whose Terminals are docked below it (an iPad); another Chat in this pane starts without them.
   const [terminalFor, setTerminalFor] = useState<string | null>(null);
-  // The Chat whose docked Terminals are on screen, also while they sink away after being put away.
   const [terminalMounted, setTerminalMounted] = useState<string | null>(null);
   const [terminalHeight, setTerminalHeight] = useState(0);
   const [terminalCount, setTerminalCount] = useState<number | undefined>(undefined);
-  // The composer has the keyboard; without it, a keyboard up over the docked Terminal is the Terminal's.
   const [composerFocused, setComposerFocused] = useState(false);
-  // Quote in a message's selection menu: the passage joins the composer's quotes and the composer takes the keyboard.
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const askChatId = `${session.snapshot?.project.path ?? ""}#${params.id ?? `new:${params.worktreeId}`}`;
   const askProvider = params.id ? session.snapshot?.project.state.sessions[Number(params.id)]?.provider : undefined;
@@ -576,7 +365,6 @@ function ChatPane({
   useEffect(() => {
     askTarget.current = { chatId: askChatId, provider: askProvider, setQuotes: composer.setQuotes };
   });
-  // One identity for the pane's life, so the messages that read it don't render again with each keystroke.
   const askAboutPassage = useCallback((passage: string, from: QuoteFrom) => {
     const { chatId: target, provider, setQuotes } = askTarget.current;
     const quote = composerQuote(passage, quoteSource(from, provider));
@@ -585,7 +373,6 @@ function ChatPane({
     setComposerFocusRequest((value) => value + 1);
   }, []);
   const [error, setError] = useState("");
-  // Bumped after a link or unlink so the Linear issues of the Worktrees are read again.
   const [linkVersion, setLinkVersion] = useState(0);
   const [toast, setToast] = useState<{ text: string } | null>(null);
   const historyToast = useHistoryToast("chat");
@@ -596,7 +383,6 @@ function ChatPane({
     },
     [],
   );
-  // Undo changes: the Chat's task checkpoints, shown in the composer's place from ⋯, /undo or an undo line's Redo.
   const undoClient = session.client;
   const checkpointApi = useMemo<CheckpointApi | null>(
     () =>
@@ -612,8 +398,6 @@ function ChatPane({
   const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
   const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
   const targetHost = params.hostId || session.client?.url || "";
-  // The Chat above an open Subchat, which a capsule under the header names (subchat-bookmark.tsx). A secondary pane has none.
-  // The transcript and the message jumps keep 16 further down for it.
   const bookmark =
     !secondary && params.id && session.snapshot ? chatBookmark(session.snapshot.project.state.sessions, `${session.snapshot.project.path}#${params.id}`) : null;
   const topClear = insets.top + (bookmark ? 100 : 84);
@@ -632,7 +416,6 @@ function ChatPane({
     void savedChatDefaults.saveTarget(targetHost, targetProject, patch);
   };
   const [branchList, setBranchList] = useState<{ client: Client; path: string; items: string[]; error?: string } | null>(null);
-  // A failed send can retry in the checkout already created for this draft.
   const preparedTarget = useRef<{ client: Client; path: string; base: string; issueKey?: string; worktreeId: number; sessionId: number } | null>(null);
   const scroll = useRef<Reanimated.ScrollView>(null);
   const dots = useDotBackground();
@@ -651,8 +434,6 @@ function ChatPane({
         return;
       }
       // Android runs a view command ahead of the mount it arrives with, so a jump asked for from onContentSizeChange
-      // stops at the end the content had before it grew: at the end already, it doesn't move at all. Timers fire after
-      // that frame's mount, so the jump a frame later reaches the grown end. Bursts of growth share one jump.
       cancelEndFrame();
       endFrame.current = requestAnimationFrame(() => {
         endFrame.current = undefined;
@@ -664,7 +445,6 @@ function ChatPane({
   );
   const contentHeight = useRef(0);
   const scrollOffset = useRef(0);
-  // Between a drag's start and the end of its fling: only then are scroll events the reader's own.
   const dragging = useRef(false);
   const historyRead = useRef<object | null>(null);
   const pickingNow = useRef(false);
@@ -674,11 +454,9 @@ function ChatPane({
   const [scrollIdentity, setScrollIdentity] = useState({ route: routeKey, key: routeKey, revision: 0 });
   const scrollKey = scrollIdentity.route === routeKey ? scrollIdentity.key : `${routeKey}|${scrollIdentity.revision + 1}`;
   if (scrollIdentity.route !== routeKey) setScrollIdentity({ route: routeKey, key: scrollKey, revision: scrollIdentity.revision + 1 });
-  // Saving a draft changes its address, not its transcript or native keyboard/scroll state.
   const adoptChat = useCallback(
     (id: number) => {
       setScrollIdentity((current) => ({ ...current, route: `${scrollScope}|${id}`, key: scrollKey }));
-      // The Chat beside the routed one never has a route of its own to change.
       if (!secondary) router.setParams({ id: String(id) });
     },
     [scrollScope, scrollKey, secondary],
@@ -687,10 +465,7 @@ function ChatPane({
   const [historyState, setHistoryState] = useState({ key: scrollKey, loading: false, error: "" });
   const [jumpState, setJumpState] = useState({ key: scrollKey, visible: false });
   const showJumpToBottom = jumpState.key === scrollKey && jumpState.visible;
-  // Whether the transcript has scrolled under the header: its fade shows only then, as desktop's top blur does.
   const [underHeader, setUnderHeader] = useState(false);
-  // A Chat opens already at its newest message: the transcript stays hidden until the scroll view reports its end on
-  // screen. The jump to the end can land frames after a long transcript mounts, and showing it earlier flashes the top.
   const [placedKey, setPlacedKey] = useState<string | null>(null);
   const placed = placedKey === scrollKey;
   const placeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -720,7 +495,6 @@ function ChatPane({
       cancelEndFrame();
     };
   }, [scrollKey, cancelEndFrame]);
-  // Short transcripts never auto-scroll: a scroll to the end while the keyboard is up would stay offset after it hides.
   const viewport = useRef(0);
   const place = () => {
     if (placed || !viewport.current || !contentHeight.current) return;
@@ -728,8 +502,6 @@ function ChatPane({
       setPlacedKey(scrollKey);
       return;
     }
-    // Asked again on every layout until shown, so the jump reaches the latest end. The timer shows a Chat whose end
-    // never reports, rather than leaving it hidden.
     scrollToBottom(false);
     placeTimer.current ??= setTimeout(() => setPlacedKey(scrollKey), PLACE_FALLBACK_MS);
   };
@@ -737,7 +509,6 @@ function ChatPane({
     session.snapshot?.project.state.worktrees[
       (params.id ? session.snapshot.project.state.sessions[Number(params.id)]?.worktree_id : Number(params.worktreeId)) ?? -1
     ];
-  // Stable props keep each memoized ChatReply from re-rendering on every keystroke and poll tick.
   const connected = session.client;
   const projectPath = session.snapshot?.project.path;
   const readProjectGit = useCallback(() => {
@@ -753,21 +524,16 @@ function ChatPane({
       live = false;
     };
   }, [connected, projectPath, session.snapshot?.project.link, params.id]);
-  // Split panes can mount without becoming a navigation route's focus target.
   useEffect(readProjectGit, [readProjectGit]);
   useFocusEffect(readProjectGit);
   const mentionState = session.snapshot?.project.state;
   const mentionLink = session.snapshot?.project.link;
-  // This Chat's streaming turn, read on its own: a runs read for another Chat of the Project re-renders nothing here.
   const liveRun = useRun(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
-  // Its run's text and steps come in full; other Chats' runs come as summaries (visible-run-chats.ts).
   useVisibleRunChatKeys(session.client, params.id && projectPath ? [`${projectPath}#${params.id}`] : []);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
-  // What a sent message's @ chips read of them: a Chat's activity moving (`at`, `lastAt`) re-renders no saved reply.
   const replyChatsKey = JSON.stringify(mentionChats.map(({ id, title, available }) => ({ id, title, available })));
   const replyChats = useMemo(() => JSON.parse(replyChatsKey) as ReplyChat[], [replyChatsKey]);
-  // The computers an @ can name: this Chat's computer first, then the others this phone reaches.
   const computerViews = useComputerViews();
   const mentionHost = connected?.url;
   const mentionComputerKey = JSON.stringify([
@@ -777,15 +543,10 @@ function ChatPane({
     ...computerViews.map((view) => ({ id: view.hostId, name: view.name, online: view.state === "online", self: view.hostId === mentionHost })),
   ]);
   const mentionComputers = useMemo(() => JSON.parse(mentionComputerKey) as MentionComputer[], [mentionComputerKey]);
-  // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
-  // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
-  // With the Mac's switch off nothing runs, so a listed Heartbeat promises no check.
   const { routines, enabled: routinesOn } = useRoutines(connected);
   const beating = routinesOn === true && routines.some((routine) => routine.enabled && routine.target.kind === "chat");
-  // Now, to the half minute, only while some Heartbeat could show a Next check.
   const now = useActivityClock(beating);
-  // A Chat without a Project runs in the Chats home: no branch, PR or Linear issue of its own to show (as on desktop).
   const chatsHomeOpen = isChatsHomeProject(session.snapshot?.project);
   const linearIssues = useWorktreeLinearIssues(
     connected,
@@ -799,8 +560,6 @@ function ChatPane({
     : undefined;
   const pendingCanonicalId = pending && session.snapshot ? pendingChatSessionId(session.snapshot.project.state, pending.preview) : null;
   const archiveRequest = useRef(false);
-  // A send the computer took no longer holds the composer while its saved copy is on the way: a stale snapshot would
-  // otherwise keep the button spinning until the turn ends.
   const unsent = !!pending && !pending.accepted;
   const sendingKey = `${connected?.url}|${originChatId}`;
   const busy = actionBusy || unsent || sendingKeys.includes(sendingKey);
@@ -815,7 +574,6 @@ function ChatPane({
   );
   useEffect(() => {
     let cancelled = false;
-    // A busy Mac (429) or a dropped answer is read again for a minute; the error shows only once that gives up.
     if (connected && projectPath && !session.snapshot?.project.link && !params.id)
       void retrySend(() => connected.call<string[]>("project:branches", [projectPath]), {
         retryable: (error) => !cancelled && retryKind(error) !== null,
@@ -831,7 +589,6 @@ function ChatPane({
       cancelled = true;
     };
   }, [connected, projectPath, params.id, session.snapshot?.project.link]);
-  // A screen reopened from the drawer adopts its own acknowledged Chat; the original async handler may be unfocused.
   const acceptedSessionId = pending?.accepted ? pending.preview.targetSessionId : null;
   const pendingKey = pending ? `${pending.hostId}|${pending.originChatId}` : null;
   const { setPendingChats } = pendingStore;
@@ -843,8 +600,6 @@ function ChatPane({
     }, [acceptedSessionId, pending?.promoted, pendingKey, setPendingChats, adoptChat]),
   );
   const allMessages = session.snapshot?.project.state.messages;
-  // A host that keeps messages by Chat sends the snapshot without them: the Chat on screen reads its own as pages, its
-  // last turns again as the Project state changes (a saved message changes it), never on a read of the streaming turns.
   const lean = !!session.snapshot?.project.state.messagesInChats;
   const page = useChatPage(lean && targetMatches ? connected : null, projectPath, params.id ? Number(params.id) : null, mentionState, session.reconnects);
   const canonicalPage = useChatPage(
@@ -870,9 +625,7 @@ function ChatPane({
         : savedMessages,
     [pending, pendingCanonicalId, lean, canonicalPage.messages, allMessages, savedMessages],
   );
-  // Messages the host still holds before the ones here.
   const historyPage = pendingCanonicalId !== null ? canonicalPage : page;
-  // A summary can acknowledge a send before its message page arrives. Keep what is already on screen during that read.
   const [transcript, setTranscript] = useState({ key: scrollKey, messages: loadedMessages });
   const messages = lean && historyPage.loading && !loadedMessages.length && transcript.key === scrollKey ? transcript.messages : loadedMessages;
   const compactionFeedback = useCompactionFeedback(
@@ -880,15 +633,11 @@ function ChatPane({
     scrollKey,
   );
   if (transcript.key !== scrollKey || transcript.messages !== messages) setTranscript({ key: scrollKey, messages });
-  // A saved Chat whose page is still on its way shows nothing yet, not the new-chat welcome.
   const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
-  // The open Chat's PRs, read as its row in the Chat list reads them (same refs, same pooled lookups), so the PR action
-  // above the composer and the row's status are about the same PRs.
   const prPath = session.snapshot?.project.link || chatsHomeOpen ? undefined : worktreeOf?.path;
   const openChat = params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined;
   const savedPrRefs = openChat ? (openChat.summary?.pullRequests ?? session.snapshot?.project.pullRequestRefs?.[openChat.id]) : undefined;
   const prRefs = useMemo(() => (openChat ? (savedPrRefs ?? pullRequestRefs(messages)) : []), [openChat, savedPrRefs, messages]);
-  // A Link Chat's PRs are the ones its Projects' Worktree branches opened, each read in that Worktree.
   const linkView = session.snapshot?.project.link;
   const linkMembers = (linkView && params.id ? linkView.state.sessions[params.id]?.worktrees : undefined) ?? NO_MEMBERS;
   const prStatus = useChatPullRequests(
@@ -909,14 +658,10 @@ function ChatPane({
         ]
       : [];
   });
-  // The header menu's PR is the one the row shows first.
   const rowPrs = rowPullRequests(prPath ? chatPrs : linkPrs.map((entry) => entry.pr));
   const pr = rowPrs[0] ?? null;
-  // Each Link PR is the object its member's lookup returned, so it finds its own Worktree even when two share a number.
   const placeOf = (entry: (typeof rowPrs)[number]) => linkPrs.find((place) => place.pr === entry);
-  // The folder the PR is read in: the Chat's Worktree, or the Link Chat's Project it came from.
   const prCwd = pr ? (prPath ?? placeOf(pr)?.cwd) : undefined;
-  // Every PR the row shows, for the PR panel's menu; the list keeps one identity while it says the same.
   const prChoicesJson = JSON.stringify(
     rowPrs.map((entry) => {
       const place = prPath ? undefined : placeOf(entry);
@@ -932,22 +677,16 @@ function ChatPane({
     }),
   );
   const prChoices = useMemo(() => JSON.parse(prChoicesJson) as PrChoice[], [prChoicesJson]);
-  // The open PR's detail, read every 30 s while it's open, for the Review pill's count of unresolved threads.
   const prDetail = usePrDetail(session.client, prCwd, pr?.number ?? Number.NaN, pr?.state === "OPEN");
   const prOpenThreads = pr && prDetail.pr?.state === "OPEN" && prDetail.pr.number === pr.number ? openThreads(prDetail.pr).length : 0;
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
-  // The design the user last chose on the design sheet, which its cards mark.
   const history = chatHistory(messages);
-  // The steps whose files a reply may name relative to a subfolder: the saved ones, then the running turn's.
   const liveSteps = liveRun?.steps;
   const chatSteps = useMemo(() => (liveSteps?.length ? [...history.steps, ...liveSteps] : history.steps), [history.steps, liveSteps]);
   const chosen = useMemo(() => chosenDesign(history.userBodies), [history.userBodies]);
   const designChoice = chosen ? `${chosen.id}:${chosen.version}` : undefined;
-  // Long Chats mount their newest messages first; earlier ones load on request.
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
   const visible = shown.key === scrollKey ? shown.count : PAGE;
-  // A Chat followed at its bottom as new messages arrive lets go of the history it showed: its earlier messages unmount
-  // and its window keeps its last turns, so a Chat open for hours costs what a fresh one does. Scrolling up reads them again.
   const { trim: trimHistory } = historyPage;
   const seenCount = useRef(messages.length);
   useEffect(() => {
@@ -957,13 +696,8 @@ function ChatPane({
     if (visible > PAGE) setShown({ key: scrollKey, count: PAGE });
     trimHistory(() => following.current && !historyRead.current && !historyAnchor.current);
   }, [messages.length, visible, scrollKey, trimHistory]);
-  // Quiet heartbeats fold into one line and their replies drop out.
-  // A back-and-forth with another Chat folds into one line too, its latest reply under it.
   const groupedMessages = useMemo(() => foldLinkedExchanges(groupQuietRuns(messages)), [messages]);
-  // The transcript renders its last `visible` rows, so new ones at the end push old ones out at the top. The native
   // view then moves the offset to keep what is on screen (maintainVisibleContentPosition) and reports that as a scroll,
-  // with the new rows' height left to the end. When as much leaves as arrives, the content size doesn't change and
-  // onContentSizeChange never jumps to the end (#972). The first row a scroll event last saw tells onScroll so.
   const firstRowId = groupedMessages[Math.max(0, groupedMessages.length - visible)]?.message.id;
   const scrolledFirstRow = useRef(firstRowId);
   async function showEarlier() {
@@ -975,7 +709,6 @@ function ChatPane({
     try {
       if (messages.length <= visible) await historyPage.loadEarlier();
       if (currentScrollKey.current !== scrollKey) return;
-      // A hidden heartbeat reply never lays out, so anchor on the first message after it that does.
       const first = groupedMessages.slice(Math.max(0, messages.length - visible)).find((entry) => !entry.hidden)?.message;
       const y = first && messagePositions.current.get(first.id);
       historyAnchor.current = first && y !== undefined ? { id: first.id, y, offset: scrollOffset.current, key: scrollKey } : null;
@@ -990,7 +723,6 @@ function ChatPane({
     }
   }
   const handoffModels = useMemo(() => [...modelsFor("claude", session.models), ...modelsFor("codex", session.models)], [session.models]);
-  // The rail runs over what the transcript shows: hidden (pass) replies and merged-away quiet dividers are not stops.
   const shownEntries = useMemo(() => groupedMessages.filter((entry) => !entry.hidden), [groupedMessages]);
   const navigationItems = useMemo(
     () =>
@@ -999,7 +731,6 @@ function ChatPane({
         if (!entry || isSilentNote(entry.message)) return [];
         const { message, merged } = entry;
         const position = `${index + 1} of ${shownEntries.length}`;
-        // A routine-run divider, or a Linear Run's issue card carrying its Run.
         const run = routineRunOf(message);
         return {
           index,
@@ -1065,8 +796,6 @@ function ChatPane({
     (message: string, stepId?: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message, ...(stepId ? { stepId } : {}) } }),
     [params.id],
   );
-  // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one. The Chat beside
-  // opens it in its own place, so the routed Chat and the open Project stay.
   const openOtherChat = useCallback(
     (key: string) => {
       const target = { projectPath: projectOfKey(key), hostId: targetHost, id: String(sessionIdFromKey(key)) };
@@ -1074,7 +803,6 @@ function ChatPane({
         openBeside({ hostId: targetHost, projectPath: target.projectPath, chatId: sessionIdFromKey(key) });
         return;
       }
-      // The target becomes the routed Chat and the split ends: the beside Chat's state outlives the route.
       closeBeside();
       router.replace({ pathname: "/chat", params: target });
     },
@@ -1087,10 +815,7 @@ function ChatPane({
       if (canRemember) rememberChat(Number(params.id));
     }, [canRemember, params.id, rememberChat]),
   );
-  // A saved Chat's key, as its drafts and the PR sheet name it.
   const savedChatKey = targetMatches && projectPath && params.id ? `${projectPath}#${params.id}` : undefined;
-  // The key the PR sheet and panel use: a new Chat goes by its draft's, since its Worktree's branch can already have a PR
-  // to open, ask about or send to.
   const prChatKey = targetMatches && projectPath ? (savedChatKey ?? `${projectPath}#new:${params.worktreeId}`) : undefined;
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
@@ -1098,8 +823,6 @@ function ChatPane({
     pullRequest: prChatKey && pr && prCwd ? { number: pr.number, chatKey: prChatKey, choices: prChoices, ...(prPath ? {} : { cwd: prCwd }) } : undefined,
     passive: secondary,
   });
-  // The PR sheet and the iPad panel send to this Chat and fill its composer ("Send to Chat", "Ask Chat"), and a Chat row's
-  // PR link opens the PR here; they reach the latest send through these.
   const prChat = useRef<{
     send: (body: string) => Promise<boolean | "busy">;
     prefill: (text: string) => void;
@@ -1125,18 +848,13 @@ function ChatPane({
     chatId: savedChatKey ?? undefined,
     openInPanel: panels.openInPanel,
   });
-  // Only the routed Chat clears its Unread mark: the one beside is read when it is opened on its own.
   useReadOpenChat(
     connected,
     projectPath,
     !secondary && targetMatches && params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined,
     !!panels.open,
   );
-  // A Chat picked in another Project opens that Project here, behind the splash mark, rather than in the navigation.
-  // The Chat beside is always of the open Project, and never opens another.
   const { wanted, error: openError, retry: retryOpen } = useOpenProject(secondary ? {} : params);
-  // The open Link was deleted on another device: the session dropped it, and its Chat leaves for the Projects list, as
-  // a Link deleted from this phone does. A Chat of another Project or computer stays.
   const deletedLink = secondary ? null : session.deletedLink;
   const routedScope = params.projectPath || session.snapshot?.project.path;
   const leftDeleted = !!deletedLink && routedScope === deletedLink.path && (!params.hostId || params.hostId === deletedLink.hostId);
@@ -1145,7 +863,6 @@ function ChatPane({
     showArchiveNotice(linkDeletedElsewhereText(deletedLink.name));
     router.replace("/projects");
   }, [leftDeleted, deletedLink]);
-  // A new Chat picked without a Worktree starts in the Project's own checkout once the Project is here.
   const loaded = targetMatches && !!session.snapshot;
   const needsWorktree = !params.id && !params.worktreeId;
   const candidates = loaded && needsWorktree ? Object.values(session.snapshot!.project.state.worktrees) : [];
@@ -1155,7 +872,6 @@ function ChatPane({
     if (starterId === undefined) router.replace("/projects");
     else router.setParams({ worktreeId: String(starterId) });
   }, [needsWorktree, loaded, starterId]);
-  // A prefill lands in the new Chat's composer once its Worktree is known, unless something is typed there already.
   const prefillKey = loaded && !params.id && params.worktreeId && params.prefill ? `${session.snapshot!.project.path}#new:${params.worktreeId}` : null;
   const { setDrafts } = composer;
   useEffect(() => {
@@ -1164,24 +880,16 @@ function ChatPane({
     setDrafts((current) => (current[prefillKey] ? current : { ...current, [prefillKey]: text }));
     router.setParams({ prefill: undefined });
   }, [prefillKey, params.prefill, setDrafts]);
-  // The Projects a new Chat can switch to, on every shown computer: each computer's every known Project while it is new.
   const newChatProjects = useNewChatProjects(!params.id);
   const noProject = useNoProjectChoice(session.client?.url);
-  // The open computer's Links, after the Projects: picking one starts the Chat there, as the sidebar's + on a Link does.
   const newChatLinks = useMemo(() => linksOf(computerViews, session.client?.url), [computerViews, session.client?.url]);
-  // The "Start building in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
-  // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
   const keyboard = useReanimatedKeyboardAnimation();
-  // The keyboard's height once it has settled (0 closed): read on show and hide only, never per frame.
   const restingKeyboard = useKeyboardState((state) => (state.isVisible ? state.height : 0));
   const startLift = Math.max(insets.bottom, 12) - 8;
   const startLineStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 }],
   }));
   const sidebar = <SidebarToolbar onOpenNavigation={panels.show} />;
-  // A comment or a choice from the design sheet is sent from here when the Chat comes back into view. Sent while the
-  // Chat is busy, it waits and goes once it no longer is; one that fails waits for the Chat's next focus.
-  // A Chat started from an issue: the choice sheet outlives this render, so it calls the latest send through this ref.
   const startIssue = useRef<(issue: LinearIssue) => void>(() => {});
   const sendDesign = useRef<() => void>(() => {});
   const sendGenui = useRef<(text: string) => Promise<boolean | "busy">>(async () => false);
@@ -1197,21 +905,15 @@ function ChatPane({
   useEffect(() => {
     if (!busy && !picking && designDeferred.current) sendDesign.current();
   }, [busy, picking]);
-  // Feedback sent from the designs docked beside this Chat (an iPad) goes at once: the Chat never left the screen.
   useEffect(() => {
     if (!designKey || !params.id) return;
     return onSendDesignMessageNow((key) => {
       if (key === designKey) sendDesign.current();
     });
   }, [designKey, params.id]);
-  // Compact now, pressed on the context sheet: Claude's /compact as a divider in the chat, with no handoff and the
-  // draft kept. Each new count per chat key sends once; counts already there when the screen mounts are old news.
-  // The Chat's values are read from the key here, so the effect sits above the Redirect with the other hooks.
   const compactSeen = useRef<Record<string, number> | null>(null);
   const compactRequests = composer.compactRequests;
   useEffect(() => {
-    // The routed Chat sends for every Chat of the open Project, the one beside it included; a Chat beside of another
-    // Project sends for its own.
     if (secondary && !ownProject) return;
     if (!compactSeen.current) {
       compactSeen.current = { ...compactRequests };
@@ -1245,20 +947,16 @@ function ChatPane({
         .then(() => session.expectActivity())
         .catch((e: Error) => setError(e.message));
     }
-    // The counters are the trigger; the rest is read as it stands when one moves.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [compactRequests]);
-  // The Tasks pill grows into its panel over the transcript; the panel is drawn at the screen's root, above the composer.
   const planPanel = usePlanPanel(
     params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
     `${session.snapshot?.project?.path}#${params.id}`,
   );
-  // The Subchats pill, the same way: the Chats this Chat's Delegations made, in a panel over the transcript.
   const subchatPanel = useSubchatPanel(
     params.id && Number(params.id) > 0 ? session.snapshot?.project?.state.sessions : undefined,
     `${session.snapshot?.project?.path}#${params.id}`,
   );
-  // Both pill panels grow to the composer's column: beside an iPad's sidebar or docked panel, never under them.
   const { attachRoom: attachPlanRoom } = planPanel;
   const { attachRoom: attachSubchatRoom } = subchatPanel;
   const attachPanelRooms = useCallback(
@@ -1268,21 +966,15 @@ function ChatPane({
     },
     [attachPlanRoom, attachSubchatRoom],
   );
-  // Polled here, not in the chip: a command serving one of these ports leaves the background line.
   const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
   const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
-  // The poll hands over a new array every 5 s; keyed on the loopback-only ports themselves, the value (and every reply's
-  // markdown, which reads it) changes only when they do.
   const loopbackKey = [...loopbackOnlyPorts(ports)].sort((a, b) => a - b).join(",");
   const reachable = useMemo(
     () => ({ host: reachableHost, loopbackOnly: new Set(loopbackKey ? loopbackKey.split(",").map(Number) : []) as ReadonlySet<number> }),
     [reachableHost, loopbackKey],
   );
-  // Every saved reply, note and pill opens a family Chat through this one stable function, so they don't render again with
-  // each Chat render; it calls the openFamilyChat of the latest render.
   const openFamilyRef = useRef<(key: string) => void>(() => {});
   const onOpenFamilyChat = useCallback((key: string) => openFamilyRef.current(key), []);
-  // The Chat beside waits for its own Project in its pane; it never sends the app back to the computers.
   if (secondary && (!session.client || !session.snapshot || !targetMatches)) {
     return (
       <View style={[styles.screen, { alignItems: "center", justifyContent: "center", padding: 24 }]}>
@@ -1330,13 +1022,10 @@ function ChatPane({
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
   const draft = composer.drafts[chatId] || "";
   const quotes = composer.quotes[chatId] || NO_QUOTES;
-  // What Send sends: the quotes as blockquotes, then the typed text.
   const outgoing = quotedMessage(quotes, draft);
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
-  // The send's progress, or Worktree creation and setup, beside the running mark and timer, as on desktop. Tool calls and
-  // thinking name themselves in the transcript's activity row.
   const phase =
     pending && !run
       ? sendStatusLabel({
@@ -1349,16 +1038,12 @@ function ChatPane({
     chat && beating
       ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
       : undefined;
-  // The Routine this Chat belongs to: the one whose Run opened it (a Run Chat, hidden or kept), else its Heartbeat. Its
-  // header button opens the Routine's page; with the Mac's switch off, nothing shows, as for the Next check.
   const ownRoutine = chat && routinesOn === true ? chatRoutine(routines, chatId, chat.routine) : undefined;
   const ownHeartbeat = ownRoutine?.target.kind === "chat";
   const openRoutine = () => ownRoutine && router.push({ pathname: "/routine", params: { id: ownRoutine.id } });
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
-  // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
   const background = chat ? backgroundItems(chat, ports) : [];
-  // Feedback cards read the agent's resolutions again only when a comment may have changed.
   const designsMoved = history.designActivity + designActivity(run?.steps ?? [], []);
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
   const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode);
@@ -1368,14 +1053,11 @@ function ChatPane({
   const ultracodeOn = model.ultracode && !!preferences.ultracode;
   const worktreeId = chat?.worktree_id ?? Number(params.worktreeId);
   const worktree = project.state.worktrees[worktreeId];
-  /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
   function openPr(number = pr?.number, page?: "threads", memberCwd?: string) {
     if (!number || !worktree) return false;
-    // A Link Chat's PR is read in the Project it came from.
     const cwd = project.link ? (memberCwd ?? prChoices.find((choice) => choice.number === number)?.cwd) : undefined;
     if (project.link && !cwd) return false;
     const route = { worktreeId: String(worktreeId), number: String(number), chat: chatId, ...(cwd ? { cwd } : {}) };
-    // The right panel shows the routed Chat's PR; the Chat beside it opens the PR sheet.
     if (widthClass(window.width) !== "compact" && !secondary) panels.showPullRequest(prChoiceKey({ number, cwd }));
     else if (page) openPrPage(page, route);
     else openPullRequest(route);
@@ -1391,14 +1073,11 @@ function ChatPane({
     prefill: (text) => composer.setDrafts((current) => ({ ...current, [chatId]: text })),
     open: openPr,
     pullRequests: () => prChoices,
-    // The right panel holds the routed Chat's Changes; the Chat beside it opens its own as a page.
     changes: secondary ? () => router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } }) : () => panels.showChanges(),
   };
   const configuredBase = projectGit?.client === client && projectGit?.path === project.path ? projectGit?.base : undefined;
   const pickedBase = explicitBase?.scope === targetScope ? explicitBase.branch : undefined;
   const branches = branchList?.client === client && branchList.path === project.path ? branchList : null;
-  // Until the branch list arrives a new Worktree starts from this checkout's branch, as on desktop, so a busy Mac
-  // never holds the send.
   const base =
     pickedBase ??
     (configuredBase ||
@@ -1409,12 +1088,10 @@ function ChatPane({
           : worktree?.name && branches.items.includes(worktree.name)
             ? worktree.name
             : branches.items[0]));
-  // Each Chat without a Project gets its own new, empty folder: a Worktree of the Chats home, never its checkout.
   const isolation = chatsHomeOpen ? "worktree" : pickedIsolation;
   const newWorktree = !project.link && !params.id && isolation === "worktree";
   const startTray = !params.id && !project.link;
   const targetDisabled = busy || picking;
-  // The new-Chat chip that starts a Chat from a Linear issue; `labelled` drops its text in a narrow tray.
   const issueButton = (labelled: boolean) => (
     <Pressable
       accessibilityRole="button"
@@ -1443,7 +1120,6 @@ function ChatPane({
   const compactQueued = chat?.queued?.find((item) => compactionContext(item));
   const compacting = compactionContext(messages.findLast((item) => compactionContext(item)))?.status === "preparing";
   const canSteer = !compacting && providerCapabilities(chat?.provider ?? actualProvider).steer;
-  // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
   const delivery = followUpDelivery(contextSettings.followUps);
   const queuesFollowUp = delivery === "queue" || !canSteer;
   const compactBlocked = compacting || busy || Boolean(session.error) || Boolean(chat?.archived) || unavailable;
@@ -1478,11 +1154,9 @@ function ChatPane({
       </Pressable>
     ) : null;
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
-  // A new Chat before its first message: "Start building in <Computer / Project>" in the middle of the screen picks its Project.
   const startingChat = !params.id && !pending && !messages.length;
   const projectName = chatsHomeOpen ? NO_PROJECT_LABEL : project.name || project.path.split("/").findLast(Boolean) || "Project";
   const hostIds = new Set(newChatProjects.map((item) => item.hostId));
-  // One row per repository: a Project cloned on several computers is one row, and the computer chip picks the copy.
   const projectGroups = newChatProjectGroups(newChatProjects);
   const isOpenCopy = (item: NewChatProject) => item.hostId === client.url && item.path === project.path;
   const projectCopies = projectGroups.find((group) => group.copies.some(isOpenCopy))?.copies ?? [];
@@ -1490,7 +1164,6 @@ function ChatPane({
   const onSeveralComputers = projectCopies.length > 1;
   const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
   const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
-  // Messages waiting on this device for this Chat (or its New Chat) sit in the composer's tray (offline-tray.tsx).
   const trayTarget = {
     computerId: client.url,
     owner: project.path,
@@ -1498,15 +1171,11 @@ function ChatPane({
     computerName: computerName || "This computer",
     offline,
   };
-  // The computer chip's rows: every copy of the Project, or the open one alone before the lists have found it.
   const computerCopies: NewChatProject[] = projectCopies.length
     ? projectCopies
     : [{ hostId: client.url, hostName: computerName || "This computer", offline: false, path: project.path, name: projectName }];
-  // The computer a Chat without a Project runs on, named in its "Just chat on <Computer>" heading.
   const chatsComputer = noProject?.copies.find((copy) => copy.hostId === client.url)?.hostName ?? session.hostName ?? "this computer";
-  // A Chat beside on another computer than the open one says which.
   const otherComputer = client.url !== openSession.client?.url;
-  /** Moves the new Chat to a computer's Chats home, made there first when it doesn't exist yet. */
   async function startWithoutProject(hostId: string) {
     const copy = noProject?.copies.find((item) => item.hostId === hostId);
     const homeClient = hostId === client.url ? client : allComputers.clientFor(hostId);
@@ -1521,7 +1190,6 @@ function ChatPane({
       setError((e as Error).message);
     }
   }
-  /** "Just chat on <Computer> ▾": the computers that can hold a Chat without a Project. */
   function chooseChatsComputer() {
     if (busy || !noProject) return;
     showChoiceSheet({
@@ -1542,7 +1210,6 @@ function ChatPane({
       placeholder: "Search projects",
       emptyLabel: "No projects",
       items: [
-        // First, above every Project: a Chat with no repository, in its own empty folder.
         ...(noProject
           ? [
               {
@@ -1566,7 +1233,6 @@ function ChatPane({
           ...(hostIds.size > 1 ? { section: item.hostName } : {}),
           leading: <ProjectIcon client={item.hostId === client.url ? client : allComputers.clientFor(item.hostId)} path={item.path} size={24} />,
         })),
-        // Then the open computer's Links, under their own heading, each with its Projects' tiles as in the sidebar.
         ...newChatLinks.map((link, index) => ({
           id: `link:${index}`,
           title: link.name,
@@ -1599,8 +1265,6 @@ function ChatPane({
       },
     });
   }
-  // Keep the composer, keyboard and heading mounted while the destination loads, as on desktop. Its route, Worktree
-  // and draft move in the same commit as the loaded Project, so there is no intermediate splash or empty composer.
   async function switchProject(hostId: string, projectPath: string) {
     if (busy || (hostId === client.url && projectPath === project.path)) return;
     const host = hostId === client.url ? null : allComputers.hostFor(hostId);
@@ -1674,7 +1338,6 @@ function ChatPane({
       setPicking(false);
     }
   }
-  /** The @ menu's pick: attach the file the mention names. */
   function mentionFile(path: string) {
     const root = worktree?.path;
     if (!root) return;
@@ -1713,7 +1376,6 @@ function ChatPane({
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref for design messages.
   sendDesign.current = () => {
     const message = designKey ? peekDesignMessage(designKey) : null;
-    // One batch at a time, oldest first: a batch handed over while one is on its way goes after it.
     if (!message || !designKey || designSending.current === message || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
     designSending.current = message;
     void send(message.text, false)
@@ -1722,7 +1384,6 @@ function ChatPane({
         designDeferred.current = sent === "busy";
         if (sent !== true) return;
         designMessageSent(designKey, message);
-        // The next batch goes now, or waits for the turn this one started like any message sent to a busy Chat.
         sendDesign.current();
       })
       .catch(() => {
@@ -1731,11 +1392,9 @@ function ChatPane({
   };
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref, read only when an issue is picked in the choice sheet.
   startIssue.current = (issue) => void send(issueFirstMessage(issue, draft), true, undefined, issue);
-  /** Lists the open issues in the choice sheet; picking one starts the Chat from it. */
   async function chooseIssue() {
     await pickLinearIssue("Start from a Linear issue", (issue) => startIssue.current(issue));
   }
-  /** Shows the open issues in the choice sheet under `title` and hands the picked one to `onPick`. */
   async function pickLinearIssue(title: string, onPick: (issue: LinearIssue) => void) {
     if (targetDisabled || !client) return;
     setError("");
@@ -1750,7 +1409,6 @@ function ChatPane({
       setError(result.error);
       return;
     }
-    // Every list read from any tab, so a pick resolves to the issue on the row that was tapped.
     const seen = new Map<string, LinearIssue>();
     const keep = (list: LinearIssue[]) => {
       for (const issue of list) seen.set(issueChoiceId(issue), issue);
@@ -1763,10 +1421,8 @@ function ChatPane({
       emptyLabel: "No issues found.",
       leading: <LinearLogo size={18} tone="ink" />,
       items: keep(result.issues),
-      // One tab per workspace when there are several; a Mac that predates workspaces sends none.
       tabs: result.workspaces?.map((workspace) => ({ id: workspace.id, label: workspace.name })),
       tab: result.workspace,
-      // The Mac keeps each list for a minute; a pull reads it from Linear again.
       load: async (workspace, fresh) => {
         const next = await client.call<LinearIssuesResult>("linear:issues", [{ fresh, ...(workspace ? { workspace } : {}) }]);
         if ("error" in next) throw new Error(next.error);
@@ -1779,10 +1435,8 @@ function ChatPane({
       },
     });
   }
-  /** Whether the message went: "busy" when it wasn't tried, the Chat being busy. An issue key starts the Chat in its own new worktree. */
   async function send(body = outgoing, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
     const messageDelivery = run && !prAction && !issue ? delivery : undefined;
-    // The composer's own message carries its quotes; the typed part is what clears from the field once it goes.
     const own = body === outgoing;
     const typed = own ? draft : body;
     const sentQuotes = own ? quotes : NO_QUOTES;
@@ -1790,14 +1444,12 @@ function ChatPane({
     const dropSentQuotes = () => {
       if (sentQuotes.length) composer.setQuotes((held) => ({ ...held, [chatId]: (held[chatId] || []).filter((quote) => !sentQuoteIds.has(quote.id)) }));
     };
-    // `/undo` opens Undo changes instead of reaching the agent, even mid-turn; its preview waits for the turn to end.
     if (chat && !chat.readOnlyReason && withAttachments && typed.trim() === "/undo" && !sentQuotes.length) {
       composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
       setUndoIntent("Undo");
       void undo.open();
       return false;
     }
-    // `/storage` opens Clean up worktrees for the Chat's computer instead of reaching the agent.
     if (withAttachments && typed.trim() === `/${STORAGE_COMMAND}` && !sentQuotes.length) {
       const saved = session.hosts.find((item) => item.id === targetHost || item.address === targetHost);
       if (saved) {
@@ -1807,14 +1459,12 @@ function ChatPane({
       }
     }
     const issueKey = issue?.key;
-    // Only immediate delivery into a steerable turn keeps a model pick for later.
     const steered = Boolean(run) && messageDelivery !== "queue" && canSteer;
     if (!body && !(withAttachments && attachments.length)) return false;
     if (busy || sendingRef.current.has(sendingKey) || picking) return "busy";
     sendingRef.current.add(sendingKey);
     setSendingKeys((current) => [...current, sendingKey]);
     setError("");
-    // A restored queue must be read before an online send can bypass it.
     if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
     if (offline || hasQueuedChat(client.url, project.path, params.id ? Number(params.id) : null)) {
       try {
@@ -1873,19 +1523,13 @@ function ChatPane({
         setSendingKeys((current) => current.filter((key) => key !== sendingKey));
       }
     }
-    // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
-    // against the Project (the one just typed) is asked about now, for up to a second.
     const mentionRoot = worktree?.path;
-    // Only a mention the Mac has not answered about waits (up to a second); an ordinary send still clears the composer before its first await.
-    // A path named inside a quote was the agent's or an earlier message's: only what was typed attaches files.
     if (withAttachments && mentionRoot && knownFiles.current.unchecked(mentionRoot, mentionPaths(typed), 1).length)
       await knownFiles.current.resolve(client, mentionRoot, mentionPaths(typed));
     const mentions =
       withAttachments && mentionRoot ? mentionAttachments(typed, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path)) : { added: [] };
     const sent = body;
     const sendingProjectPath = project.path;
-    // The next New Chat opens where this one started, and so does a pick of this repository's Project.
-    // A Chat without a Project moves only the computer: New Chat still opens the last real Project.
     if (!params.id) {
       void savedChatDefaults.saveLastComputer(client.url);
       if (!chatsHomeOpen) void savedChatDefaults.saveLastProject(client.url, sendingProjectPath);
@@ -1895,9 +1539,7 @@ function ChatPane({
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = own || issueKey !== undefined;
-    // A shared Chat's Worktrees are made by its agent in the Projects it changes; an issue names their branches there.
     const creates = !project.link && (newWorktree || issueKey !== undefined);
-    // A new Chat's send is this screen's, not every New Chat's in the Worktree (pending-chats.ts).
     const key = `${client.url}|${originChatId}`;
     const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
     const resendParts = sending.map((item) => item.id);
@@ -1935,9 +1577,6 @@ function ChatPane({
     following.current = true;
     Keyboard.dismiss();
     const options = { ...sendOptions(model, preferences), delivery: messageDelivery };
-    // A busy or unreachable Mac gets the send again until it takes it; the message shows as sending meanwhile. The host
-    // recognises a resend by its clientMessageId (or a Link's operationId), so only a new Worktree, which has no such
-    // id, waits for a Mac that never read the request.
     const retried = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) !== null });
     const retriedUnsent = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) === "unsent" });
     let accepted = false;
@@ -1983,7 +1622,6 @@ function ChatPane({
                 prompt: attachmentPrompt(sent, media.files),
                 ...options,
                 sentFrom: SENT_FROM,
-                // A Mac that predates issue cards in shared Chats ignores linearIssue and sends the body as a plain message.
                 ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
               },
             ])
@@ -1994,18 +1632,15 @@ function ChatPane({
                 clientMessageId: preview.message.clientMessageId,
                 body: sent,
                 ...media,
-                // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
                 prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files),
                 ...options,
                 sentFrom: SENT_FROM,
                 ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-                // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
                 ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
               },
             ]),
       ).catch(async (error) => {
         if (retryKind(error) !== "unknown") throw error;
-        // Read the saved receipt before another send. An absent receipt may still be in flight, so it never triggers an automatic resend.
         const receipt = await client
           .call<{ sessionId: number } | null>("chat:send-status", [sendingProjectPath, preview.message.clientMessageId])
           .catch(() => null);
@@ -2030,8 +1665,6 @@ function ChatPane({
           : current,
       );
       const destination = `${sendingProjectPath}#${result.sessionId}`;
-      // What was typed here while the send went belongs to the Chat it made. Once a New Chat's screen is gone, the
-      // composer under chatId is the next New Chat's, so it stays put; an open Chat's composer is its own.
       const here = promote || !!params.id;
       if (here && (clearsDraft || destination !== chatId))
         composer.setDrafts((current) => {
@@ -2067,12 +1700,10 @@ function ChatPane({
         Keyboard.dismiss();
         if (!params.id) adoptChat(result.sessionId);
       }
-      // The message went; a busy Mac that can't answer this read yet is caught up by the live connection.
       void session.refresh().catch(() => {});
       return true;
     } catch (e) {
       if (!accepted) {
-        // The host may have saved the message and lost only its answer: a resend of this text carries the same id.
         failedSends.current.remember(key, preview.message.clientMessageId!, sent, resendParts);
         pendingStore.setPendingChats((current) => {
           const next = { ...current };
@@ -2117,7 +1748,6 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
-    // As desktop's: the composer asks this Chat's agent, which files it with report_milagre_bug after the user approves.
     else if (id === "report-bug" && chat) {
       composer.setDrafts((current) => ({ ...current, [chatId]: withReportPrompt(current[chatId] ?? "") }));
       setComposerFocusRequest((count) => count + 1);
@@ -2126,8 +1756,6 @@ function ChatPane({
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
-  // Done leaves the finished Chat for a new one in the same Project (the Chat beside just closes); the toast's Undo
-  // brings it back to the list.
   async function markDone(finished: NonNullable<typeof chat>) {
     const ok = await action(() => client.call("chat:patch", [project.path, finished.id, { done: true, unread: false }]));
     if (!ok) return;
@@ -2137,22 +1765,16 @@ function ChatPane({
       void action(() => client.call("chat:patch", [project.path, finished.id, { done, ...(done ? { unread: false } : {}) }]));
     undoHistory.record({ text: "Moved to Done", kind: "done", undoneText: "Back in Chats", place: "chat", undo: patch(false), redo: patch(true) });
   }
-  // Archive starts immediately, preserves unsaved work, and stops a running turn.
-  // The sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
-  // preserves its scroll and avoids a second screen transition. Completion never moves the phone again.
   async function archive(target: NonNullable<typeof chat>) {
     if (busy || archiveRequest.current) return;
     archiveRequest.current = true;
     let left = false;
     const leave = () => {
       left = true;
-      // The Chat beside the routed one closes; the routed one stays.
       if (secondary) closeBeside();
-      // The pinned sidebar is already there to pick the next Chat; narrower, it slides over the archived one.
       else if (split.dockable) router.replace("/projects");
       else panels.show("left");
     };
-    // By the time the archive ends the phone may show another Project, so the list's copy of this one is read too.
     const refresh = () => Promise.all([session.refresh(), session.previewProject(project.path)]);
     setError("");
     try {
@@ -2194,7 +1816,6 @@ function ChatPane({
     }
   }
   const prAction = pullRequestAction(chatPrs);
-  // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
   const prActionRequest = prAction ? pullRequestActionContext({ action: prAction.blocker, pr: prAction.pr.number, url: prAction.pr.url }) : null;
   const agents = (chat?.subagents || []).filter((agent) => !agent.archived);
   const diff = worktree?.diff;
@@ -2203,14 +1824,10 @@ function ChatPane({
     // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- the issue comes from the host's JSON, so url may be missing and startsWith would throw
     if (/^https:\/\//.test(url)) void Linking.openURL(url).catch(() => {});
   }
-  // A Chat's own Worktree (not the main checkout, not one another Chat shares) can link an issue; a stored one is shown
-  // with its hint when Linear can't see it. Nothing about the link shows while Linear is off.
   const canLink =
     linearActive && !!chat && !project.link && !chatsHomeOpen && !!worktree?.path && worktree.path !== project.path && !worktreeShared(project.state, chat.id);
   const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
   const linkHint = storedIssue && !(worktree?.name ?? "").toLowerCase().includes(storedIssue.toLowerCase()) ? LINK_PR_HINT(storedIssue) : null;
-  /** Picks an issue from the list and links it to this Chat's Worktree. */
-  /** A short confirmation over the transcript that goes away on its own. Steps that can be undone go in the undo history. */
   function showToast(text: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ text });
@@ -2245,15 +1862,12 @@ function ChatPane({
       setError((e as Error).message);
     }
   }
-  // A Chat with subchats, or a subchat: its title opens a menu of the family (subchats.ts, subchat-family.ts).
   const family = chat && !secondary ? chatFamily(project.state.sessions, `${project.path}#${chat.id}`) : null;
-  // Transcript links, the pills and the title menu share one route: every Chat opens alone, never beside this one.
   function openFamilyChat(key: string) {
     if (key === `${project.path}#${chat?.id}`) return;
     openOtherChat(key);
   }
   openFamilyRef.current = openFamilyChat;
-  // "Open beside parent" is the one way into a split from a Subchat, for a wide iPad's second pane.
   const besideParent = bookmark && split.widthClass === "wide" && !secondary ? sessionIdFromKey(bookmark.parent) : undefined;
   function selectFamilyItem(id: string) {
     if (id === BESIDE_PARENT) {
@@ -2297,7 +1911,6 @@ function ChatPane({
         )}
         {(paired || (!project.link && !chatsHomeOpen) || (!!pr && !!chat && !chatsHomeOpen)) && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, maxWidth: "100%" }}>
-            {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
             {paired && (
               <Text
                 numberOfLines={1}
@@ -2326,67 +1939,13 @@ function ChatPane({
                 {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
               </View>
             )}
-            {/* A Link Chat has no branch of its own; its first PR (from one of its Projects) still shows. */}
             {project.link && pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
           </View>
         )}
       </HeaderTitleBox>
     </>
   );
-  // Both header layouts use the same actions and one glass capsule.
-  const paneMenu: MenuSection[] = [
-    {
-      items: [
-        ...(chatsHomeOpen
-          ? []
-          : [
-              { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
-            ]),
-        ...(chat
-          ? [
-              {
-                id: chat.readOnlyReason ? "checkpoints" : "undo",
-                title: chat.readOnlyReason ? "View checkpoints" : "Undo changes",
-                systemImage: "arrow.uturn.backward",
-                disabled: !!run,
-              },
-            ]
-          : []),
-        ...(ownRoutine ? [{ id: "routine", title: ownHeartbeat ? "Heartbeat" : "Routine", systemImage: ownHeartbeat ? "waveform.path.ecg" : "repeat" }] : []),
-        ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
-        ...(linkHint ? [{ id: "link-hint", title: linkHint, systemImage: "info.circle", disabled: true }] : []),
-        ...(agents.length > 0 ? [{ id: "agents", title: "Subagents", systemImage: "person.2", subtitle: String(agents.length) }] : []),
-      ],
-    },
-    ...(chat
-      ? [
-          {
-            items: [
-              { id: "rename", title: "Rename", systemImage: "pencil" },
-              { id: "reload", title: "Reload chat", systemImage: "arrow.clockwise", disabled: busy },
-              { id: "report-bug", title: UI_COPY.reportMilagreBug, systemImage: "ladybug" },
-              ...(canLink
-                ? [
-                    {
-                      id: storedIssue ? "unlink-issue" : "link-issue",
-                      title: storedIssue ? "Unlink issue" : "Link issue…",
-                      systemImage: "link",
-                      disabled: busy,
-                    },
-                  ]
-                : []),
-              {
-                id: "archive",
-                title: chat.archived ? "Restore" : "Delete",
-                systemImage: chat.archived ? "tray.and.arrow.up" : "trash",
-                destructive: !chat.archived,
-                disabled: busy,
-              },
-            ],
-          },
-        ]
-      : []),
-  ];
+  const paneMenu = chatPaneMenu({ chatsHomeOpen, diff, chat, run, ownRoutine, ownHeartbeat, linearIssue, linkHint, agents, busy, canLink, storedIssue });
   const headerActions = (
     <HeaderActionGroup>
       {browserShortcut && (
@@ -2431,57 +1990,18 @@ function ChatPane({
   ) : null;
   const question = run?.questions[0];
   const answering = !!question && sentAnswers?.requestId === question.requestId;
-  // The host's message replaces the preview as soon as the transcript grows by it.
   const answerPreview = answering && sentAnswers.count === messages.length ? sentAnswers.message : null;
-  // What a Subchat's escalation left in this transcript: which notes draw nothing in place, and the open request's wait note.
   const notes = subchatNotes(messages, !!question || !!run?.approvals.length);
-  const renderSubchatNote = (message: ChatMessage) => {
-    const note = subchatNote(message);
-    return note ? (
-      <SubchatNoteView
-        note={note}
-        outcomes={notes.outcomes}
-        onOpenChat={onOpenFamilyChat}
-        onSend={(suggestion) => client.call("agent:answer-question", [suggestionArguments(suggestion)])}
-        onDismiss={(id) => client.call("agent:dismiss-suggestion", [{ chatId, id }])}
-      />
-    ) : null;
-  };
-  // A message another Chat's agent sent here is one line, as a model switch is; its text opens in the brief sheet.
-  // A back-and-forth with one Chat is one line for the run, the exchange opening in the same sheet.
-  const renderLinkedLine = (message: ChatMessage, exchange?: LinkedExchange) => {
-    const line = exchange?.line ?? (message.role === "user" ? linkedLine(linkedContext(message)) : null);
-    if (!line) return null;
-    const chat = line.chat;
-    return (
-      <LinkedMessageLine
-        line={line}
-        count={exchange?.count}
-        attachments={exchange ? 0 : (message.images?.length ?? 0) + (message.files?.length ?? 0)}
-        onOpen={() => {
-          showBrief(exchange ? exchangeText(exchange) : message.body, exchange ? `Messages with ${line.name}` : `${line.verb} ${line.name}`, {
-            ...(line.label !== line.name ? { subtitle: line.label } : {}),
-            ...(chat ? { openChat: () => openFamilyChat(chat) } : {}),
-          });
-          router.push("/handoff-brief");
-        }}
-      />
-    );
-  };
+  const { renderSubchatNote, renderLinkedLine, renderToolApproval } = transcriptRows({
+    outcomes: notes.outcomes,
+    client,
+    chatId,
+    actionBusy,
+    action,
+    openFamilyChat,
+    onOpenFamilyChat,
+  });
   const pendingInput = pending && pendingCanonicalId === null ? pending.preview.message : null;
-  const renderToolApproval = (approval: NonNullable<typeof run>["approvals"][number]) => (
-    <Approval
-      key={approval.requestId}
-      approval={approval}
-      busy={actionBusy}
-      respond={(decision) =>
-        void action(async () => {
-          const accepted = await client.call("agent:respond-permission", [{ chatId, requestId: approval.requestId, decision }]);
-          if (!accepted) throw new Error("This approval is no longer pending. Refresh the Chat.");
-        }, true)
-      }
-    />
-  );
   const liveReply = run ? (
     <ChatReply
       key="run"
@@ -2503,15 +2023,10 @@ function ChatPane({
     !!chat?.formerWorktree ||
     !!chat?.readOnlyReason ||
     (!offline && unavailable);
-  // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
   if (terminalShown && terminalMounted !== chatId) setTerminalMounted(chatId);
-  // The composer floats above the transcript and rides the keyboard, stopping 8pt above it; with the Terminal below, it
-  // sits clear of the home indicator already.
   const dockPadding = terminalShown ? 12 : Math.max(insets.bottom, 12);
-  // Only what is being typed into rides the keyboard: the Terminal lifts over the composer when it is typed into, and the
-  // composer rises above a keyboard taller than the Terminal under it otherwise.
   const terminalTyping = terminalShown && !composerFocused;
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
@@ -2519,7 +2034,6 @@ function ChatPane({
       <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={chatSteps}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
-            {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
             {!paired && <ChatStackOptions title={title} starting={startingChat} header={header} />}
             {pane === "primary" && <HiddenHeaderOptions title={title} />}
             {!paired && sidebar}
@@ -2530,18 +2044,14 @@ function ChatPane({
                 <KeyboardChatScrollView
                   key={scrollKey}
                   ref={scroll}
-                  // The keyboard covers both panes. Both must observe its full animation, including when focus moves
-                  // between composers while it is open; unfreezing after focus misses the opening scroll adjustment.
                   freeze={terminalTyping}
                   offset={lift}
                   keyboardLiftBehavior="whenAtEnd"
                   onEndVisible={onEndVisible}
                   contentInsetAdjustmentBehavior="never"
                   // iOS reads a tap on a React Native button near the top edge (the PR button, the Chat's title) as a tap on
-                  // the status bar too and scrolls this transcript to its first message. Only native header buttons stop it.
                   scrollsToTop={false}
                   // Images above the screen load after the Chat is placed. The native view keeps the first visible message
-                  // where it was in the same frame; a JS jump from onContentSizeChange arrives frames later and flickers.
                   maintainVisibleContentPosition={KEEP_VISIBLE_POSITION}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="interactive"
@@ -2555,7 +2065,6 @@ function ChatPane({
                     dragging.current = true;
                     scrollingToBottom.current = false;
                     cancelEndFrame();
-                    // Pause before the first scroll event: a small drag must not compete with streamed growth.
                     following.current = false;
                   }}
                   onScrollEndDrag={() => {
@@ -2579,15 +2088,12 @@ function ChatPane({
                       if (distance <= 1) scrollingToBottom.current = false;
                       return;
                     }
-                    // The native view keeping the screen in place as rows left the top: still following, so on to the end.
                     const rowsLeftTop = scrolledFirstRow.current !== firstRowId;
                     scrolledFirstRow.current = firstRowId;
                     if (rowsLeftTop && !dragging.current && following.current && distance > 1) {
                       scrollToBottom(false);
                       return;
                     }
-                    // Once the reader takes over, stay paused inside the old 120px threshold too. Only moving
-                    // down to the actual end (or Go to bottom) resumes following; anchor/layout events don't.
                     following.current = following.current ? distance < 120 : e.contentOffset.y > previous && distance <= 1;
                     if (placed && e.contentOffset.y < previous && e.contentOffset.y <= 160 && !(historyState.key === scrollKey && historyState.error))
                       void showEarlier();
@@ -2628,7 +2134,6 @@ function ChatPane({
                       </View>
                     )
                   )}
-                  {/* A new Chat's empty state is the centred "Start building in" line instead. */}
                   {!messages.length && !run && !pageLoading && !historyPage.error && !startingChat && (
                     <View style={{ paddingVertical: 48, alignItems: "center", gap: 8 }}>
                       <Text style={styles.subtitle}>What are we working on?</Text>
@@ -2716,18 +2221,15 @@ function ChatPane({
                                 />
                               ) : (
                                 <>
-                                  {/* A Linear Run's first message is its issue card carrying the Run: the divider, then the card. */}
                                   {issueRunDivider(message, merged)}
                                   <ChatReply
                                     message={message}
-                                    // Only a user message's @ chips and feedback cards read these; an assistant reply keeps its defaults.
                                     chats={message.role === "user" ? replyChats : undefined}
                                     media={media}
                                     basePath={worktree?.path || project.path}
                                     chatId={chatId}
                                     designChoice={designChoice}
                                     designsMoved={message.role === "user" ? designsMoved : undefined}
-                                    // A limit card offers other accounts only on the Chat's last message, with no turn running.
                                     limitPending={message.id === chat?.limitResume?.sourceMessageId ? chat.limitResume : undefined}
                                     limitResumeAvailable={message.id === chat?.limitTurn?.sourceMessageId}
                                     limitResumeBlocked={message.id === chat?.limitTurn?.sourceMessageId ? !!chat?.queued?.length : undefined}
@@ -2805,12 +2307,8 @@ function ChatPane({
                       startLineStyle,
                     ]}
                   >
-                    {/* A quarter of the free room above the heading with the stats under it (a phone is short; desktop gives a
-                        third), half without them. It doesn't depend on whether the cards have loaded or the keyboard hides them,
-                        so the heading stays put. */}
                     <View pointerEvents="none" style={{ flex: 1 }} />
                     {chatsHomeOpen ? (
-                      // No Project to pick here: the heading picks the computer, and the line under it goes back to the Projects.
                       <>
                         <Pressable
                           accessibilityRole="button"
@@ -2915,7 +2413,6 @@ function ChatPane({
                   offset={{ closed: 0, opened: lift }}
                   style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
                 >
-                  {/* No fade under the composer, as on desktop: the transcript runs crisp to it and the glass dock floats over it. */}
                   <View
                     ref={attachPanelRooms}
                     collapsable={false}
@@ -2934,7 +2431,6 @@ function ChatPane({
                       <SubchatAsk panel={subchatPanel} messages={messages} onOpenChat={onOpenFamilyChat} />
                     )}
                     {(!question || answering) && (
-                      // More pills than fit scroll sideways; the spacer still right-aligns them when they fit.
                       <ScrollView
                         horizontal
                         showsHorizontalScrollIndicator={false}
@@ -2987,7 +2483,6 @@ function ChatPane({
                     {notes.waiting && <SubchatWaitingNote note={notes.waiting} />}
                     {run?.approvals.map(renderToolApproval)}
                     {question && (
-                      // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.
                       <View style={answering ? { display: "none" } : undefined}>
                         <ActivityQuestions
                           hostId={client.url}
@@ -3043,22 +2538,18 @@ function ChatPane({
                       />
                     ) : (
                       (!question || answering) && (
-                        // A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece, as on desktop.
                         <ComposerTray start={startTray} target={trayTarget}>
                           {startTray && chatsHomeOpen ? (
-                            // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: space.md, paddingVertical: 6 }}>
                               <Icon icon={BubbleChatIcon} tone="ink2" size={12} />
                               <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
                             </View>
                           ) : (
                             startTray && (
-                              // One row, never wrapped: the computer and branch names truncate, and the Linear chip drops its label when the row is narrow.
                               <View
                                 style={{ flexDirection: "row", alignItems: "center" }}
                                 onLayout={(event) => setTrayRowWidth(event.nativeEvent.layout.width)}
                               >
-                                {/* Every Project has the chip, on one computer or several: the heading never names the computer. */}
                                 {
                                   <PullDown
                                     label="Choose computer"
@@ -3223,21 +2714,17 @@ function ChatPane({
                               </View>
                             )
                           )}
-                          {/* A shared Chat's agent makes its Worktrees, so a new one has only an issue to start from. */}
                           {!params.id && project.link && linearActive && (
                             <View style={{ flexDirection: "row", alignItems: "center" }}>{issueButton(true)}</View>
                           )}
                           <OfflineTray target={trayTarget} chip={!startTray} />
                           <View
                             style={{
-                              // An open Chat's composer is glass over the transcript, as on desktop; a new Chat's sits solid in its tray.
                               backgroundColor: startTray ? colors.surface : "transparent",
                               borderWidth: 1,
-                              // The raised shadow carries its own hairline ring, so the edge is transparent (not 0 wide: the padding stays put).
                               borderColor: startTray ? colors.lineStrong : ultracodeOn ? colors.line : "transparent",
                               borderRadius: radius.composer,
                               borderCurve: "continuous",
-                              // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
                               paddingHorizontal: 8,
                               paddingBottom: 6,
@@ -3247,14 +2734,12 @@ function ChatPane({
                             }}
                           >
                             {!startTray && <ComposerGlass radius={radius.composer} />}
-                            {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
                             {ultracodeOn && <UltracodeGlow radius={radius.composer} />}
                             {picking && (
                               <Text accessibilityRole="progressbar" accessibilityLabel="Preparing attachment" style={styles.caption}>
                                 Preparing attachment...
                               </Text>
                             )}
-                            {/* Quotes lead, as on desktop, then the attachments. */}
                             <QuoteChips
                               quotes={quotes}
                               disabled={busy}
@@ -3314,7 +2799,6 @@ function ChatPane({
                                         size={32}
                                         disabled={busy || picking}
                                         onPress={() => {
-                                          // Removing this tile may leave room again, which ends the limit error.
                                           composer.setAttachments((currentAttachments) => ({
                                             ...currentAttachments,
                                             [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
@@ -3334,14 +2818,12 @@ function ChatPane({
                             )}
                             <PromptField
                               // A draft keeps its native text input when its computer or Project changes, preserving
-                              // keyboard focus and the caret. Saved Chats still get an input of their own.
                               key={params.id ? chatId : "new"}
                               chats={mentionChats}
                               computers={mentionComputers}
                               currentId={chat?.id}
                               client={client}
                               projectPath={worktree?.path || (project.link ? "" : project.path)}
-                              // A new shared Chat reads its Projects' skills through the Link's key; an open one, its own folder's.
                               skillScope={project.link ? worktree?.path || project.path : undefined}
                               draft={draft}
                               suggestion={
@@ -3363,7 +2845,6 @@ function ChatPane({
                               known={knownFiles.current}
                               onMention={worktree?.path ? mentionFile : undefined}
                               commands={chat && !chat.readOnlyReason ? CHAT_COMMANDS : STORAGE_COMMANDS}
-                              // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
                                 offline
                                   ? `Queue a message for ${computerName || "this computer"}`
@@ -3375,7 +2856,6 @@ function ChatPane({
                                       ? CHATS_PLACEHOLDER
                                       : undefined
                               }
-                              // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
                               onSubmit={() => {
                                 if (!sendDisabled) void send();
                               }}
@@ -3385,20 +2865,14 @@ function ChatPane({
                               }}
                               onBlur={() => setComposerFocused(false)}
                               focusRequest={composerFocusRequest}
-                              // In a split the pane takes the keyboard on touch-down: by focus its animation has begun, and
-                              // the pane would miss the lift that keeps its transcript's end above the keyboard.
                               onTouchStart={onTyping}
                               onChangeText={(value) => {
-                                // Clearing the composer also clears the limit error that its mentions caused.
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
-                              // Attach on the left; model, context, mic and Send or Stop on the right, as on desktop. No permission chip:
-                              // the model sheet's footer shows and changes it.
                               renderControls={(mic) => (
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                                   <PullDown
                                     label="Attach photos or files"
-                                    // SF Symbols' paperclip draws taller than the mic's glyph at the same size: 16 matches the mic's 20.
                                     nativeTrigger={{ systemImage: "paperclip", iconSize: 16, disabled: attachmentDisabled }}
                                     sections={[
                                       {
@@ -3456,7 +2930,6 @@ function ChatPane({
                                     !quietContext &&
                                     (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
                                       <View style={{ flexDirection: "row", alignItems: "center" }}>
-                                        {/* The tint is the send button's 34pt height; the buttons keep their 44pt touch targets. */}
                                         {compactState.warning && (
                                           <View
                                             pointerEvents="none"
@@ -3517,8 +2990,6 @@ function ChatPane({
                       )
                     )}
                   </View>
-                  {/* Drawn last and floated above the dock, so showing it changes no other view's layout or order: either
-            replays the pills' layout transition. */}
                   {showJumpToBottom && (
                     <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: dockHeight, height: 56, alignItems: "center" }}>
                       <GlassIconButton label="Go to bottom" systemImage="chevron.down" icon={ArrowDown01Icon} onPress={jumpToBottom} />
