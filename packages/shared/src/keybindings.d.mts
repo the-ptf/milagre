@@ -34,16 +34,13 @@ export interface KeybindingCommand {
   forward?: boolean;
 }
 
-/** One line of keybindings.json. */
 export interface KeybindingRule {
   key: string;
   command: KeybindingCommandId;
   when?: string;
 }
 
-/** A computer's keybindings, as its host reads keybindings.json. */
 export interface KeybindingsState {
-  /** The file's path on that computer. */
   path: string;
   rules: KeybindingRule[];
   /** A line per entry left out, or the reason the whole file was (then `rules` are the defaults). */

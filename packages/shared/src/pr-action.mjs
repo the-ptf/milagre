@@ -1,4 +1,3 @@
-/** What each PR-blocker pill asks for: its label, the line the chat keeps, and the bundled skill with the procedure. */
 export const PR_ACTIONS = {
   conflicts: { label: "Resolve conflicts", sentence: "Resolve the conflicts on pull request", skill: "milagre-resolve-conflicts" },
   "changes-requested": { label: "Address review", sentence: "Address the review on pull request", skill: "milagre-address-review" },
@@ -24,7 +23,6 @@ export function pullRequestActionBody(context) {
   return `${PR_ACTIONS[context.action].sentence} #${context.pr}`;
 }
 
-/** What the agent is sent: the line, the URL, then the skill token the runtime expands into the skill's instructions. */
 export function pullRequestActionPrompt(context) {
   return `${pullRequestActionBody(context)} (${context.url}). /${PR_ACTIONS[context.action].skill}`;
 }

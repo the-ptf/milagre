@@ -10,7 +10,6 @@ export type OutboxTransport = {
   sendLink(request: LinkSendRequest): Promise<{ sessionId: number }>;
 };
 
-/** Receipt support is required before mutations: older computers fail visibly instead of risking duplicate delivery. */
 export async function deliverOutbox(original: OutboxItem, update: (patch: Partial<OutboxItem>) => Promise<OutboxItem>, transport: OutboxTransport) {
   let item = original;
   const state = await transport.open();

@@ -1,6 +1,3 @@
-// A Chat's task list and phase history (ChatPlan in model.ts), written by Milagre's task tools or mirrored from a
-// provider's own todo list. Pure functions: core, desktop and phone share them. Errors are sentences for the agent.
-
 export const PHASES = Object.freeze(["start", "plan", "build", "test", "review", "merge", "release", "done"]);
 const MAX_DEPTH = 3;
 const MAX_TASKS = 100;
@@ -8,7 +5,6 @@ const MAX_PHASES = 200;
 
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 
-/** Every task by id, depth first. */
 function byId(tasks, out = new Map()) {
   for (const task of tasks) {
     out.set(task.id, task);
@@ -17,7 +13,6 @@ function byId(tasks, out = new Map()) {
   return out;
 }
 
-/** Parents take their status from their subtasks; leaves keep theirs. */
 export function deriveTasks(tasks) {
   return tasks.map((task) => {
     if (!task.children?.length) {
@@ -31,7 +26,6 @@ export function deriveTasks(tasks) {
   });
 }
 
-/** Replaces the tree with `input`, keeping the status of tasks it names by id. */
 export function setTasks(plan, input, now) {
   const known = byId(plan?.tasks ?? []);
   const explicit = new Set();
@@ -77,7 +71,6 @@ export function setTasks(plan, input, now) {
   return { source: "milagre", tasks, phases: plan?.phases ?? [], updatedAt: now };
 }
 
-/** Changes one task: a leaf's status, or any task's title and activeForm. */
 export function updateTask(plan, change, now) {
   if (!plan || plan.source !== "milagre") throw new Error("This Chat has no task list yet: write one with tasks_set.");
   const all = byId(plan.tasks);
@@ -96,20 +89,19 @@ export function updateTask(plan, change, now) {
   return { ...plan, tasks: deriveTasks(patch(plan.tasks)), updatedAt: now };
 }
 
-/** Moves the Chat to `phase`; the same phase twice in a row is one entry. Keeps the plan's source; a fresh plan is "native", since only the task tools take ownership. */
+/** The same phase twice in a row is one entry. */
 export function setPhase(plan, phase, now) {
   const base = plan ?? { source: "native", tasks: [], phases: [], updatedAt: now };
   if (currentPhase(base) === phase) return base;
   return { ...base, phases: [...base.phases, { phase, at: now }].slice(-MAX_PHASES), updatedAt: now };
 }
 
-/** A provider's own flat todo list as the plan, unless Milagre's tools own it. An empty list with no phases clears it. */
+/** Ignored when Milagre's tools own the plan. An empty list with no phases clears it. */
 export function nativePlan(plan, tasks, now) {
   if (plan?.source === "milagre") return plan;
   const phases = plan?.phases ?? [];
   if (!tasks.length && !phases.length) return undefined;
   const mapped = tasks.map((task) => ({ id: task.id, title: task.content, ...(task.activeForm ? { activeForm: task.activeForm } : {}), status: task.status }));
-  // The same list again is not a change, so it isn't saved or published.
   if (plan?.source === "native" && sameTasks(plan.tasks, mapped)) return plan;
   return { source: "native", tasks: mapped, phases, updatedAt: now };
 }
@@ -123,7 +115,6 @@ function sameTasks(a, b) {
   );
 }
 
-/** Done and total over leaves, for the pill. */
 export function taskCounts(tasks) {
   let done = 0;
   let total = 0;

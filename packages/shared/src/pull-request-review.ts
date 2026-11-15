@@ -1,6 +1,3 @@
-// The PR a Chat's branch opened, as the PR panel (desktop), the PR sheet (phone) and the iPad side panel show it.
-// The daemon reads it with gh (packages/core/src/pull-request-review.cjs); every write goes back to GitHub.
-
 export type PullRequestState = "OPEN" | "MERGED" | "CLOSED";
 export type MergeMethod = "squash" | "merge" | "rebase";
 export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
@@ -95,7 +92,6 @@ export type PullRequestWriteResult = { ok: true } | { ok: false; message: string
 
 export type PullRequestRef = { cwd: string; number: number };
 
-/** What the merge box says: ready, blocked by something, or done. Shared by every client so they word it the same. */
 export type MergeStatus = {
   tone: "ready" | "blocked" | "pending" | "merged" | "closed" | "draft";
   title: string;
@@ -125,8 +121,8 @@ export function checksSummary(checks: PullRequestCheck[]): string {
 }
 
 /**
- * The checks bar beside the PR's tabs: counts for its split bar and the words next to it. Failures come first
- * ("2 of 25 failing"), then running ("13 of 18 done"), then "27 passed · 6 skipped", the Checks section's words. Neutral checks pass.
+ * Counts for the split bar and the words beside it: failures first ("2 of 25 failing"), then running ("13 of 18 done"),
+ * then "27 passed · 6 skipped". Neutral checks pass.
  */
 export function checksProgress(checks: PullRequestCheck[]): {
   passed: number;
@@ -161,7 +157,6 @@ export function canMergeNow(pr: PullRequestDetail): boolean {
   return pr.state === "OPEN" && !pr.isDraft && ["CLEAN", "UNSTABLE", "HAS_HOOKS"].includes(pr.mergeStateStatus);
 }
 
-/** The merge box's words, the same on desktop, phone and iPad. */
 export function mergeStatus(pr: PullRequestDetail): MergeStatus {
   if (pr.state === "MERGED") return { tone: "merged", title: "Merged", detail: `Merged into ${pr.baseRefName}` };
   if (pr.state === "CLOSED") return { tone: "closed", title: "Closed", detail: "Closed without merging" };

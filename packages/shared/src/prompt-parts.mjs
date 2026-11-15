@@ -18,19 +18,16 @@ export function composerQuote(passage, source) {
   return { id: `quote-${++quoteCount}`, text, ...(source ? { source } : {}) };
 }
 
-/** Where a quoted passage came from, as its chip names it. */
 export function quoteSource(from, provider) {
   return from === "user" ? "Your message" : `${providerName(provider)} reply`;
 }
 
-/** What a composer sends: each quote as a blockquote, a blank line apart, then the typed text, kept as typed. */
 export function quotedMessage(quotes, text) {
   const blocks = quotes.map((quote) => quoteMarkdown(typeof quote === "string" ? quote : quote.text)).filter(Boolean);
   if (!blocks.length) return text;
   return text.trim() ? `${blocks.join("\n\n")}\n\n${text}` : blocks.join("\n\n");
 }
 
-/** A stable key per quote of one message, its text and how many times that text came before (a message may repeat one). */
 export function quoteKeys(quotes) {
   const seen = new Map();
   return quotes.map((text) => {
@@ -72,7 +69,6 @@ export function formatFileMention(path) {
   return /[\s"]/.test(path) || /^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(path) || path.startsWith("computer:") ? `@"${path}"` : `@${path}`;
 }
 
-/** A reference to a Chat in the sending Project. */
 export function formatChatMention(id) {
   return `@chat:${id}`;
 }
@@ -115,12 +111,10 @@ export function computerMentionTokens(prompt) {
   return tokens;
 }
 
-/** `[Image #1]` inline token for a 1-based attached image index. */
 export function formatImageMention(index) {
   return `[Image #${index}]`;
 }
 
-/** True when a sent prompt is only its attached images' tokens (`[Image #1] [Image #2]`): the images show, not a text bubble. */
 export function onlyImageMentions(prompt, images) {
   if (!images || !prompt.trim()) return false;
   return !prompt.replace(IMAGE_TOKEN, (token, index) => (hasImage(images, Number(index)) ? "" : token)).trim();
@@ -145,12 +139,10 @@ export function promptTitle(line, images) {
   return found.size === 1 ? "Image" : `${found.size} images`;
 }
 
-/** `"Image #1"` display label for a 1-based attached image index. */
 export function imageLabel(index) {
   return `Image #${index}`;
 }
 
-/** "frontend-design" -> "Frontend Design"; a plugin prefix ("plugin:name") is dropped. */
 export function skillLabel(name) {
   const slug = name.slice(name.lastIndexOf(":") + 1);
   return slug

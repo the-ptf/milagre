@@ -1,5 +1,8 @@
+import { memo, useCallback, useLayoutEffect, useRef, type ComponentProps } from "react";
+import { ChatReply } from "./chat-reply";
+import { useRun } from "./session";
 import { router } from "expo-router";
-import type { ChatMessage, RoutineRunContext } from "@milagre/shared/model";
+import type { ChatMessage, ChatStep, RoutineRunContext } from "@milagre/shared/model";
 import type { Client } from "./client";
 import { showBrief } from "./handoff-brief-store";
 import { exchangeText, linkedContext, linkedLine, type LinkedExchange } from "@milagre/shared/linked-message";
@@ -79,4 +82,28 @@ export function transcriptRows({
     />
   );
   return { renderSubchatNote, renderLinkedLine, renderToolApproval };
+}
+
+/** The streaming reply, reading its turn itself, so a streamed batch renders it alone. It hands its steps to `onSteps`. */
+export const LiveReply = memo(function LiveReply({
+  chatKey,
+  onSteps,
+  ...reply
+}: { chatKey: string; onSteps: (steps: readonly ChatStep[] | undefined) => void } & Omit<ComponentProps<typeof ChatReply>, "run" | "message">) {
+  const run = useRun(chatKey);
+  const steps = run?.steps;
+  useLayoutEffect(() => {
+    onSteps(steps);
+  }, [onSteps, steps]);
+  useLayoutEffect(() => () => onSteps(undefined), [onSteps]);
+  return run ? <ChatReply run={run} {...reply} /> : null;
+});
+
+/** The running turn's steps, kept by LiveReply as they stream, for the Chat's links to read when a file is tapped. */
+export function useLiveSteps() {
+  const liveSteps = useRef<readonly ChatStep[] | undefined>(undefined);
+  const onLiveSteps = useCallback((steps: readonly ChatStep[] | undefined) => {
+    liveSteps.current = steps;
+  }, []);
+  return { liveSteps, onLiveSteps };
 }

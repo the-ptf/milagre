@@ -14,6 +14,10 @@ const runs = (job) =>
     .map((step) => step.run)
     .filter(Boolean);
 const candidates = read("package-candidates.yml");
+const { MAX_SHARDS, NATIVE_TESTS } = require("./affected-tests.cjs");
+/** A matrix axis's legs on a PR: an expression picks the PR branch (`'[26]'`) or the change filter's shard count. */
+const prLegs = (values) =>
+  Array.isArray(values) ? values.length : values.includes("needs.changes.outputs.shards") ? MAX_SHARDS : JSON.parse(/'(\[[^']*\])'/.exec(values)[1]).length;
 
 test("CI and candidate runs on one ref cancel the previous PR run but never a main run", () => {
   for (const workflow of [ci, candidates]) {
@@ -32,7 +36,7 @@ test("a PR run is at most 20 jobs, the account's concurrency", () => {
   const total = jobs.reduce((sum, job) => {
     const matrix = job.strategy?.matrix ?? {};
     assert.ok(!("include" in matrix) && !("exclude" in matrix), "update the counter before using matrix include/exclude");
-    return sum + Object.values(matrix).reduce((legs, values) => legs * values.length, 1);
+    return sum + Object.values(matrix).reduce((legs, values) => legs * prLegs(values), 1);
   }, 0);
   assert.ok(total <= 20, `${total} jobs per PR run`);
 });
@@ -68,12 +72,15 @@ test("the Next beta draft waits for the required checks, not the change filter o
   assert.ok(!needs.has("changes"));
 });
 
-test("CI tests both supported Node runtimes on separate runners and gates on both", () => {
+test("CI tests both supported Node runtimes on separate runners outside PRs, and Node 26 on PRs", () => {
   const job = ci.jobs.unit;
-  assert.deepEqual(job.strategy.matrix, { node: [24, 26] });
+  assert.deepEqual(job.strategy.matrix, { node: "${{ fromJSON(github.event_name == 'pull_request' && '[26]' || '[24, 26]') }}" });
   const install = job.steps.find((step) => step.uses === `./${installAction}`);
   assert.equal(install.with["node-version"], "${{ matrix.node }}");
-  assert.ok(runs(job).includes("npm test -- --unit"), "each runtime runs the entire suite");
+  assert.ok(
+    runs(job).includes("npm test -- --unit ${{ github.event_name == 'pull_request' && '--changed HEAD^1' || '' }}"),
+    "a PR runs the tests its change reaches; the merge queue and main run the entire suite",
+  );
   const cli = job.steps.find((step) => step.run === "node scripts/test-cli-package.cjs");
   assert.equal(cli.if, "matrix.node == 24", "Node 26 already runs the installed CLI in the Electron shards");
   assert.ok(ci.jobs.javascript.needs.includes("unit"), "both versions gate JavaScript CI");
@@ -131,14 +138,26 @@ test("package signatures are verified once per lockfile: a cached marker keyed o
   assert.match(verify, /npm audit signatures && touch "\$RUNNER_TEMP\/signatures-verified"/);
 });
 
-test("the required javascript check passes only when the quick checks and both runtime suites passed", () => {
+test("the required javascript check passes only when the change filter, the quick checks and the planned unit tests passed", () => {
   const gate = ci.jobs.javascript;
   assert.equal(gate.if, "always()");
-  assert.deepEqual(gate.needs, ["quick-checks", "unit"]);
+  assert.deepEqual(gate.needs, ["changes", "quick-checks", "unit"]);
   // A skipped or cancelled job must fail the gate, or the queue would accept a PR whose checks never ran.
-  for (const need of gate.needs) assert.ok(gate.steps[0].env.RESULTS.includes(`needs.${need}.result`), need);
+  for (const need of ["changes", "quick-checks"]) assert.ok(gate.steps[0].env.RESULTS.includes(`needs.${need}.result`), need);
   assert.match(runs(gate).join("\n"), /\[ "\$result" = success \] \|\| exit 1/);
+  assertSkipOnlyWhenUnplanned(gate, "UNIT", "unit");
 });
+
+/** A gate accepts a skipped job only when the change filter planned none of it: a failed filter skips it too. */
+function assertSkipOnlyWhenUnplanned(gate, name, output) {
+  const env = gate.steps[0].env;
+  assert.equal(env[`${name === "UNIT" ? "UNIT_PLANNED" : "PLANNED"}`], `\${{ needs.changes.outputs.${output} }}`);
+  const planned = name === "UNIT" ? "UNIT_PLANNED" : "PLANNED";
+  assert.ok(
+    runs(gate).join("\n").includes(`[ "$${name}" = success ] || { [ "$${name}" = skipped ] && [ "$${planned}" = false ]; } || exit 1`),
+    `${gate.name ?? name}: a skip passes only when the change filter planned nothing`,
+  );
+}
 
 test("the macOS smoke runs on pushes to main only and still gates the Next beta draft and the desktop gate", () => {
   const job = ci.jobs["macos-desktop-smoke"];
@@ -175,22 +194,33 @@ test("Windows native tests run without building an installer; Linux repository s
   assert.match(signing.run, /rm -rf "\$GNUPGHOME"/);
 });
 
-test("Electron and Windows checks run when a PR touches desktop code; the JavaScript jobs always run", () => {
+test("a PR runs the unit, Electron and Windows jobs only for the tests its change reaches; other events run them all", () => {
   const changes = ci.jobs.changes;
-  assert.ok(changes, "a changes job decides what a PR touched");
-  const filter = changes.steps.find((step) => step.id === "filter");
-  assert.equal(filter.if, "github.event_name == 'pull_request'", "the filter only runs where a PR base exists; pushes run every job");
-  assert.equal(filter.uses, "dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590");
-  const desktop = YAML.parse(filter.with.filters).desktop;
-  assert.ok(desktop.includes("apps/desktop/**") && desktop.includes("packages/**"));
-  assert.ok(desktop.includes(".github/actions/**"), "a change to the install action reruns the jobs that use it");
-  assert.ok(!desktop.includes("apps/mobile/**"), "mobile-only PRs skip the desktop jobs");
-  assert.equal(changes.outputs.desktop, "${{ github.event_name != 'pull_request' || steps.filter.outputs.desktop == 'true' }}");
-  assert.equal(ci.jobs["desktop-checks"].needs, "changes", "desktop-checks waits for the change detection");
-  assert.equal(ci.jobs["desktop-checks"].if, "needs.changes.outputs.desktop == 'true'", "desktop-checks is skipped on PRs without desktop changes");
-  assert.equal(ci.jobs["native-tests"].if, "needs.changes.outputs.desktop == 'true'");
-  assert.equal(ci.jobs["native-tests"].needs, "changes");
-  for (const name of ["quick-checks", "unit"]) assert.equal(ci.jobs[name].if, undefined, `${name} always runs`);
+  assert.equal(changes.if, undefined, "the change filter runs on every event, so the gates can require it");
+  const checkout = changes.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+  assert.equal(checkout.with["fetch-depth"], "${{ github.event_name == 'pull_request' && 2 || 1 }}", "a PR's merge commit and its base");
+  const plan = changes.steps.find((step) => step.id === "plan");
+  assert.equal(plan.env.BASE, "${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}", "only a PR has a base to compare with");
+  assert.equal(plan.run, 'node scripts/affected-tests.cjs ${BASE:+--base "$BASE"} --github-output');
+  for (const output of ["unit", "electron", "native", "shards"]) assert.equal(changes.outputs[output], `\${{ steps.plan.outputs.${output} }}`);
+  assert.equal(ci.jobs.unit.if, "needs.changes.outputs.unit == 'true'");
+  assert.equal(ci.jobs["desktop-checks"].if, "needs.changes.outputs.electron == 'true'");
+  assert.equal(ci.jobs["native-tests"].if, "needs.changes.outputs.native == 'true'");
+  for (const name of ["unit", "desktop-checks", "native-tests"]) assert.equal(ci.jobs[name].needs, "changes", name);
+  assert.equal(ci.jobs["quick-checks"].if, undefined, "quick-checks always runs");
+  // Each job that selects by --changed recomputes the same selection, so it needs the base commit too.
+  for (const name of ["unit", "desktop-checks"]) {
+    const job = ci.jobs[name];
+    assert.ok(JSON.stringify(job.steps).includes("--changed HEAD^1"), name);
+    const jobCheckout = job.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+    assert.equal(jobCheckout.with["fetch-depth"], "${{ github.event_name == 'pull_request' && 2 || 1 }}", name);
+  }
+});
+
+test("the Windows job's test files are the ones the change filter watches for it", () => {
+  const named = new Set(JSON.stringify(ci.jobs["native-tests"].steps).match(/[\w/.-]+\.test\.cjs/g));
+  for (const prefix of ["scripts/test-runner", "scripts/launch-env"]) named.add(`${prefix}.test.cjs`);
+  assert.deepEqual([...named].toSorted(), NATIVE_TESTS.toSorted());
 });
 
 test("installers build on main, on dispatch, and on PRs only with the preview:installers label", () => {
@@ -207,14 +237,15 @@ test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with s
   const job = ci.jobs["desktop-checks"];
   assert.equal(job["runs-on"], "ubuntu-24.04");
   // The shard count in the command must match the matrix, or checks are silently dropped or run twice.
-  const shards = job.strategy.matrix.shard;
-  assert.deepEqual(
-    shards,
-    Array.from({ length: shards.length }, (_, i) => i + 1),
-  );
+  assert.equal(job.strategy.matrix.shard, "${{ fromJSON(needs.changes.outputs.shards) }}", "the change filter sizes the matrix");
   const run = job.steps.map((step) => step.run).find((command) => command?.includes("npm test -- --electron"));
   assert.match(run, /^xvfb-run /);
-  assert.ok(run.endsWith("npm test -- --electron --shard ${{ matrix.shard }}/${{ strategy.job-total }}"), run);
+  assert.ok(
+    run.endsWith(
+      "npm test -- --electron ${{ github.event_name == 'pull_request' && '--changed HEAD^1' || '' }} --shard ${{ matrix.shard }}/${{ strategy.job-total }}",
+    ),
+    run,
+  );
   // Every place the job names a shard (the ffmpeg lookup too) takes the count from the matrix, or the lookup picks the wrong shard.
   const occurrences = JSON.stringify(job.steps).split("--shard ").slice(1);
   assert.ok(occurrences.length >= 1, "the test run names the shard");
@@ -305,13 +336,13 @@ test("mobile fingerprint check watches the native inputs, needs the approval lab
   assert.ok(steps.find((step) => step.name === "Compare").run.includes("Could not read a fingerprint hash"));
 });
 
-test("a native-gate job always reports for branch protection and only fails when native tests failed", () => {
+test("a native-gate job always reports for branch protection and only fails when native tests failed or were wrongly skipped", () => {
   const gate = ci.jobs["native-gate"];
   assert.ok(gate, "native-gate job exists");
   assert.equal(gate.if, "always()");
-  assert.deepEqual(gate.needs, ["native-tests"]);
-  const run = gate.steps.map((step) => step.run).join("\n");
-  assert.match(run, /success\|skipped\) exit 0/);
+  assert.deepEqual(gate.needs, ["changes", "native-tests"]);
+  assert.match(runs(gate).join("\n"), /\[ "\$CHANGES" = success \] \|\| exit 1/);
+  assertSkipOnlyWhenUnplanned(gate, "RESULT", "native");
   assert.deepEqual(ci.jobs["next-beta"].needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
 });
 
@@ -329,12 +360,14 @@ test("a desktop-gate job always reports for the merge queue and only fails when 
   const gate = ci.jobs["desktop-gate"];
   assert.ok(gate, "desktop-gate job exists");
   assert.equal(gate.if, "always()");
-  assert.deepEqual(gate.needs, ["desktop-checks", "macos-desktop-smoke"]);
-  // Both are skipped on PRs without desktop changes, which must stay mergeable; a failure or cancellation must not.
-  for (const need of gate.needs) assert.ok(gate.steps[0].env.RESULTS.includes(`needs.${need}.result`), need);
+  assert.deepEqual(gate.needs, ["changes", "desktop-checks", "macos-desktop-smoke"]);
+  // The Electron checks are skipped on PRs whose change reaches none, which must stay mergeable; a failure, a
+  // cancellation or a skip caused by a failed change filter must not.
   const script = runs(gate).join("\n");
-  assert.match(script, /success\|skipped\) ;;/);
-  assert.match(script, /\*\) exit 1/);
+  assert.match(script, /\[ "\$CHANGES" = success \] \|\| exit 1/);
+  assertSkipOnlyWhenUnplanned(gate, "CHECKS", "electron");
+  assert.equal(gate.steps[0].env.SMOKE, "${{ needs.macos-desktop-smoke.result }}");
+  assert.match(script, /case "\$SMOKE" in success\|skipped\) ;; \*\) exit 1 ;; esac/);
   // The Next beta draft keeps its own gate list; desktop-gate guards merges, not releases.
   assert.ok(!ci.jobs["next-beta"].needs.includes("desktop-gate"));
 });
@@ -362,7 +395,7 @@ test("PR policy reruns on label changes, checks each rule in its own step and re
   }
 });
 
-test("a PR touching the site runs the Lighthouse budget check, which the desktop shards only run for desktop changes", () => {
+test("a PR touching the site runs the Lighthouse budget check in its own workflow", () => {
   const workflow = read("site-lighthouse.yml");
   assert.ok(workflow.on.pull_request.paths.includes("apps/site/**"));
   assert.ok(workflow.on.pull_request.paths.includes("DESIGN.md"), "the /design page is built from DESIGN.md");
@@ -370,5 +403,4 @@ test("a PR touching the site runs the Lighthouse budget check, which the desktop
   assert.equal(workflow.jobs.lighthouse["runs-on"], "ubuntu-24.04");
   assert.ok(workflow.jobs.lighthouse.steps.some((step) => step.uses === `./${installAction}`));
   assert.ok(runs(workflow.jobs.lighthouse).includes("npm test -- --only lighthouse"));
-  assert.ok(!YAML.parse(ci.jobs.changes.steps[0].with.filters).desktop.includes("apps/site/**"), "otherwise the shards already cover it");
 });

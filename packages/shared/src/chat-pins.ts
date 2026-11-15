@@ -1,11 +1,4 @@
-// Pins belong to the device that made them, like the Chat order and the filters: each Mac and each phone keeps its own
-// in its local preferences, and pinning a Chat on one never pins it on another. Chats still carry the `pinned` and
-// `pin_order` every device used to share (AgentSession); a scope this device hasn't pinned in yet shows those, so
-// nobody loses the pins they had, and its first pin or unpin copies them here and leaves them behind for good.
-
-/** One scope's pins on this device: session id to pin order, lowest first. */
 export type ScopePins = Readonly<Record<string, number>>;
-/** Every scope's pins on this device, by scope key (a Project path, `<computer>|<path>`, a Link's key). */
 export type DevicePins = Readonly<Record<string, ScopePins>>;
 
 type Pinnable = { id: number; pinned?: boolean; pin_order?: number };
@@ -21,7 +14,6 @@ export function keepsOnPin(session: { routine?: { hidden?: boolean } } | undefin
 
 const NO_PINS: ScopePins = Object.freeze({});
 
-/** The pins `scope` shows here: this device's own, or the shared ones its Chats carry until this device changes one. */
 export function scopePins(saved: DevicePins, scope: string, sessions: Iterable<Pinnable>): ScopePins {
   const own = Object.hasOwn(saved, scope) ? saved[scope] : undefined;
   if (own) return own;
@@ -63,7 +55,6 @@ export function setPin(saved: DevicePins, scope: string, sessions: Iterable<Pinn
   return { ...saved, [scope]: next };
 }
 
-/** Saved pins read back: anything that isn't scope to id to a finite order is dropped. */
 export function parseDevicePins(raw: unknown): DevicePins {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result: Record<string, ScopePins> = {};

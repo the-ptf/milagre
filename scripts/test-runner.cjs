@@ -28,6 +28,8 @@ const MANIFEST = {
   "test-chat-scroll-return.cjs": { seconds: 40 },
   "test-chat-scroll-intent.cjs": { seconds: 15 },
   "test-site.cjs": { seconds: 23 },
+  // Its headless Chrome is warmed up first on Linux CI (html-preview-warmup.cjs).
+  "test-html-replies.cjs": { previewsHtml: true },
   "test-task-track.cjs": { seconds: 20 },
   // #526 removed the canvas behind #240; the replacement Subagents check runs on Linux too.
   "test-subagents.cjs": { seconds: 20 },
@@ -100,12 +102,11 @@ const WORKSPACES = {
 };
 
 function parseArgs(argv) {
-  const filters = { unit: false, electron: false, workspace: null, only: null, list: false, shard: null };
+  const filters = { unit: false, electron: false, workspace: null, only: null, list: false, shard: null, changed: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--changed") throw new Error("--changed is not implemented yet; use --only or --workspace");
     if (arg === "--unit" || arg === "--electron" || arg === "--list") filters[arg.slice(2)] = true;
-    else if (arg === "--workspace" || arg === "--only") {
+    else if (arg === "--workspace" || arg === "--only" || arg === "--changed") {
       filters[arg.slice(2)] = argv[++i];
       if (!filters[arg.slice(2)]) throw new Error(`${arg} needs a value`);
     } else if (arg === "--shard") {
@@ -137,6 +138,11 @@ function selectTests({ unit, electron, filters }) {
     pickedElectron = pickedElectron.filter((file) => file.includes(filters.only));
     if (pickedUnit.length + pickedElectron.length === 0) throw new Error(`no test matched "${filters.only}"`);
   }
+  // --changed: only the tests the change reaches (affected-tests.cjs); null means the whole suite.
+  if (filters.affected) {
+    pickedUnit = pickedUnit.filter((file) => filters.affected.has(file));
+    pickedElectron = pickedElectron.filter((file) => filters.affected.has(file));
+  }
   const skipped = [];
   pickedElectron = pickedElectron.filter((file) => {
     const rule = MANIFEST[path.basename(file)];
@@ -163,6 +169,21 @@ function selectTests({ unit, electron, filters }) {
     });
   }
   return { unit: pickedUnit, electron: pickedElectron, skipped };
+}
+
+/**
+ * The tests a change reaches, for --changed: `{ full: reason }` when it touches something the dependency graph cannot
+ * follow, else `{ full: null, tests }`. A check that loads the built renderer depends on all of the desktop app.
+ */
+function affectedSelection({ root, changed, files, unit, electron }) {
+  const extraDependencies = Object.fromEntries(electron.filter((file) => MANIFEST[path.basename(file)]?.needsBuild).map((file) => [file, ["apps/desktop/"]]));
+  return require("./affected-tests.cjs").selectAffected({
+    changed,
+    files,
+    tests: [...unit, ...electron],
+    read: (file) => fs.readFileSync(path.join(root, file), "utf8"),
+    extraDependencies,
+  });
 }
 
 const electronSeconds = (file) => MANIFEST[path.basename(file)]?.seconds ?? TYPICAL_CHECK_SECONDS;
@@ -261,6 +282,30 @@ function shouldRetry({ platform, ci, attempt }) {
 }
 
 /**
+ * One line per failed test or check, the same in every log, so triage across CI runs is a grep for `FAILED-TEST:`:
+ * `FAILED-TEST: <file> › <test name> :: <reason>`, the test name only for node:test files.
+ */
+function failureLine(file, name, reason) {
+  const flat = (text) =>
+    String(text ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+  return `FAILED-TEST: ${file}${name ? ` › ${flat(name)}` : ""} :: ${flat(reason).slice(0, 300) || "no error message"}`;
+}
+
+/**
+ * What an Electron check printed about its failure: the last line that starts with an error (its catch prints the error
+ * last), not Chromium's own `[pid:...:ERROR:...]` logging. Falls back to the last line printed.
+ */
+function failureReason(output) {
+  const lines = String(output ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.findLast((line) => /^(?:\[?\w*(?:Error|Exception)\b|Timed out)/.test(line)) ?? lines.at(-1) ?? "";
+}
+
+/**
  * Only npm needs cmd.exe on Windows, where it is a .cmd script. Node must not go through it: cmd.exe splits its path at
  * "C:\Program Files" and caps a command line at 8,191 characters, under the length of the unit test file list.
  */
@@ -306,12 +351,16 @@ function testEnv(env) {
 
 module.exports = {
   testEnv,
+  failureLine,
+  failureReason,
   HOST_ENV,
   needsShell,
   shouldRetry,
   discoverUnitTests,
   discoverElectronChecks,
   selectTests,
+  affectedSelection,
+  electronSeconds,
   parseArgs,
   MANIFEST,
   UNIT_SECONDS,

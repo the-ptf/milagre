@@ -1,4 +1,3 @@
-// The pure parts of dictating into the composer (desktop and phone): where a transcript lands, how loud the mic is, and the state a take moves through.
 export { createStreamingDictation, createDictationResampler, dictationWav, DICTATION_SAMPLE_RATE, type StreamingDictation } from "./voice-stream.ts";
 
 export const RECORDING_LIMIT_SECONDS = 300;
@@ -10,7 +9,6 @@ export const DICTATION_ACTION_OPTIONS: { value: DictationActionPreference; label
   { value: "send", label: "Send now", description: "No review step." },
 ];
 
-/** Existing users and unreadable preferences keep the transcript in the composer. */
 export function parseDictationAction(value: unknown): DictationActionPreference {
   return value === "send" ? "send" : "paste";
 }
@@ -37,7 +35,6 @@ export type DictationAction =
 
 export const IDLE: Dictation = { phase: "idle", error: null };
 
-/** How long a message over the mic stays. A permission refusal stays until the user acts on it. */
 export const NOTICE_SECONDS = 3;
 
 export const ERRORS = {
@@ -48,9 +45,8 @@ export const ERRORS = {
 } as const satisfies Record<DictationErrorKind, DictationError>;
 
 /**
- * A take moves idle > preparing > recording > transcribing > idle; anything out of order is ignored. `fail` and `done` end
- * it from any phase. When the speech model isn't on the device yet, preparing first goes through downloading and back:
- * the take records only once the model has landed.
+ * A take moves idle > preparing > recording > transcribing > idle; out-of-order events are ignored. `fail` and `done`
+ * end it from any phase.
  */
 export function dictationReducer(state: Dictation, action: DictationAction): Dictation {
   switch (action.type) {
@@ -76,7 +72,7 @@ export function dictationReducer(state: Dictation, action: DictationAction): Dic
 const NOISE_FLOOR_DB = -60;
 const NOISE_FLOOR_AMPLITUDE = 10 ** (NOISE_FLOOR_DB / 20);
 
-/** The recorder's metering in dB (0 is full scale) as 0..1, silent at the -60 dB floor, so quiet rooms do not move the bars. */
+/** The recorder's metering in dB (0 is full scale) as 0..1, silent at the -60 dB floor. */
 export function meterLevel(decibels: number | undefined): number {
   if (decibels === undefined || !Number.isFinite(decibels)) return 0;
   if (decibels <= NOISE_FLOOR_DB) return 0;
@@ -85,7 +81,6 @@ export function meterLevel(decibels: number | undefined): number {
   return Math.sqrt((amplitude - NOISE_FLOOR_AMPLITUDE) / (1 - NOISE_FLOOR_AMPLITUDE));
 }
 
-/** Segments from the recognizer joined into one line of text. */
 export function joinSegments(segments: { text: string }[]): string {
   return segments
     .map((segment) => segment.text.trim())
@@ -97,9 +92,8 @@ const NO_SPACE_BEFORE = /^[\s.,;:!?)\]}]/;
 const NO_SPACE_AFTER = /[\s([{]$/;
 
 /**
- * The draft with `text` at `selection` (replacing a selected range) and the caret after it. The selection was taken when the
- * recording began, so the draft may have changed since: it is clamped to the draft's current length rather than dropped.
- * A space goes on a side only when the neighboring character would otherwise touch the words. Null for empty text.
+ * The draft with `text` at `selection` and the caret after it. The selection is clamped to the draft's current length.
+ * Null for empty text.
  */
 export function insertDictation(draft: string, selection: Selection, text: string): { value: string; caret: number } | null {
   const words = text.trim();
@@ -114,25 +108,18 @@ export function insertDictation(draft: string, selection: Selection, text: strin
   return { value: `${before}${inserted}${trail}${after}`, caret: start + inserted.length };
 }
 
-/**
- * A take's words inside the draft, so the same run can be rewritten in place as the recognizer revises it and taken
- * back out whole when the take is discarded. `settled` is where the revisable tail begins: it marks text that has
- * stopped moving, never text that is known to be right.
- */
+/** A take's words inside the draft. `settled` is where the revisable tail begins. */
 export type DictationTake = {
-  /** The draft as it was when the mic was tapped, and the caret or selection the words replace. */
   base: string;
   anchor: Selection;
-  /** The exact draft this take last wrote; anything else means the user edited around it. */
   produced: string;
-  /** The run this take occupies in `produced`: `[start, end)`, the joining space included. */
+  /** `[start, end)`, the joining space included. */
   start: number;
   end: number;
-  /** Offset into the draft where the revisable tail begins; equal to `end` when nothing is provisional. */
+  /** Equal to `end` when nothing is provisional. */
   settled: number;
 };
 
-/** A take about to write into `draft` at `selection`. Nothing is inserted yet. */
 export function startTake(draft: string, selection: Selection): DictationTake {
   const start = Math.max(0, Math.min(selection.start, draft.length));
   const end = Math.max(start, Math.min(selection.end, draft.length));
@@ -140,10 +127,8 @@ export function startTake(draft: string, selection: Selection): DictationTake {
 }
 
 /**
- * The draft with this take's words rewritten in place from the latest partial. `settled` counts characters of `text`
- * that can no longer change. Null when the take has nothing to write and nothing written yet.
- * The range is clamped to the current draft, so an edit the user made during the take shifts the run rather than
- * dropping it; the words can land in the wrong place if they edited across it.
+ * The draft with this take's words rewritten from the latest partial. `settled` counts characters of `text` that can no
+ * longer change. Null when there is nothing to write and nothing written yet.
  */
 export function writeTake(take: DictationTake, draft: string, text: string, settled: number): { take: DictationTake; value: string; caret: number } | null {
   const start = Math.max(0, Math.min(take.start, draft.length));
@@ -161,7 +146,6 @@ export function writeTake(take: DictationTake, draft: string, text: string, sett
   return { take: { ...take, produced: edit.value, start, end: edit.caret, settled: stable }, value: edit.value, caret: edit.caret };
 }
 
-/** The draft with this take's words taken back out, and the caret or selection to put back. Only the take is discarded. */
 export function revertTake(take: DictationTake, draft: string): { value: string; selection: Selection } {
   if (draft === take.produced) return { value: take.base, selection: take.anchor };
   const start = Math.max(0, Math.min(take.start, draft.length));
@@ -171,8 +155,7 @@ export function revertTake(take: DictationTake, draft: string): { value: string;
 
 /**
  * The draft with a finished take's words replaced by the fix-up's correction, or null when it must not apply: the draft
- * changed since the take wrote it (the user typed, sent or dictated again), so a late answer never overwrites their
- * edits, or the correction says the same words.
+ * changed since the take wrote it, or the correction says the same words.
  */
 export function correctTake(take: DictationTake, draft: string, fixed: string): { take: DictationTake; value: string; caret: number } | null {
   if (draft !== take.produced) return null;
@@ -181,20 +164,16 @@ export function correctTake(take: DictationTake, draft: string, fixed: string): 
   return writeTake(take, draft, words, words.length);
 }
 
-/** The run a finished take wrote, tinted while its fix-up may still rewrite it. */
 export function takeRange(take: DictationTake): Selection {
   return { start: take.start, end: take.end };
 }
 
-/** The part of the draft the recognizer may still rewrite, or null while every dictated word has settled. */
+/** The part of the draft the recognizer may still rewrite, or null once every dictated word has settled. */
 export function provisionalRange(take: DictationTake | null): Selection | null {
   return take && take.settled < take.end ? { start: take.settled, end: take.end } : null;
 }
 
-/**
- * `parts` split so the provisional characters sit in pieces of their own. Only text parts are split: a chip is never
- * half provisional. Each piece carries the part it came from, so a caller keeps its own colors and chips.
- */
+/** `parts` split so provisional characters sit in pieces of their own; only text parts are split. */
 export function splitProvisional<Part extends { kind: string; text: string }>(
   parts: readonly Part[],
   range: Selection | null,

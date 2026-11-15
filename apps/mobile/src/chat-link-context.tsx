@@ -25,23 +25,38 @@ export function ChatLinkProvider({
   openLink,
   ask,
   steps,
+  liveSteps,
   children,
 }: {
   reachable: ReachableHost;
   openLink: (url: string) => boolean;
   ask?: (passage: string, from: QuoteFrom) => void;
   steps?: readonly StepFiles[];
+  /** The streaming turn's steps, after `steps`: kept by the live reply itself, so its batches never render the Chat. */
+  liveSteps?: { readonly current: readonly StepFiles[] | undefined };
   children: ReactNode;
 }) {
   const latest = useRef(steps ?? NO_STEPS);
+  const live = useRef(liveSteps);
   const openRef = useRef(openLink);
   const askRef = useRef(ask);
   // Before any effect or tap handler of the children can run, as the steps ref.
   useLayoutEffect(() => {
     latest.current = steps ?? NO_STEPS;
+    live.current = liveSteps;
     openRef.current = openLink;
     askRef.current = ask;
   });
+  // Read when a file is tapped, never while rendering: the saved steps, then the streaming turn's.
+  const files = useMemo(
+    () => ({
+      get current() {
+        const streaming = live.current?.current;
+        return streaming?.length ? [...latest.current, ...streaming] : latest.current;
+      },
+    }),
+    [],
+  );
   const stableOpen = useCallback((url: string) => openRef.current(url), []);
   // Only whether Quote is offered at all changes the value.
   const hasAsk = Boolean(ask);
@@ -50,7 +65,7 @@ export function ChatLinkProvider({
     <ChatLinkContext value={stableOpen}>
       <ReachableHostContext value={reachable}>
         <MessageAskContext value={stableAsk}>
-          <ChatFilesContext value={latest}>{children}</ChatFilesContext>
+          <ChatFilesContext value={files}>{children}</ChatFilesContext>
         </MessageAskContext>
       </ReachableHostContext>
     </ChatLinkContext>

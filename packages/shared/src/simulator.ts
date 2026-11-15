@@ -15,7 +15,6 @@ export type SimulatorStatus = {
   displayGeneration?: number;
   controlling: boolean;
   ready: boolean;
-  /** Reported by the host helper, not inferred from the simulator name. */
   supportsHingeAngle?: boolean;
   hingeAngle?: number;
   hingePose?: "closed" | "open" | "book" | "laptop" | "tent";

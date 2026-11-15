@@ -1,4 +1,3 @@
-// Messages carried inside the encrypted relay channel (one channel.seal() frame each).
 // Dependency-free on purpose: runs in Node and in Hermes, which has no Buffer.
 const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const INDEX = new Map([...CHARS].map((char, i) => [char, i]));
@@ -40,7 +39,6 @@ export function splitBody(bytes, size = CHUNK) {
   return chunks;
 }
 
-/** Collects a response's chunks by id; a dropped connection calls drop() for every pending id. */
 export function createAssembler() {
   const pending = new Map();
   return {

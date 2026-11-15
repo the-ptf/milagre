@@ -3,6 +3,8 @@ const path = require("node:path");
 const { test } = require("node:test");
 const {
   testEnv,
+  failureLine,
+  failureReason,
   HOST_ENV,
   needsShell,
   shouldRetry,
@@ -70,8 +72,10 @@ test("unknown flags are rejected", () => {
   assert.throws(() => parseArgs(["--watchh"]), /Unknown option --watchh/);
 });
 
-test("--changed is rejected until it is implemented", () => {
-  assert.throws(() => parseArgs(["--changed"]), /--changed is not implemented yet; use --only or --workspace/);
+test("--changed takes the ref to compare with", () => {
+  assert.equal(parseArgs(["--changed", "HEAD^1"]).changed, "HEAD^1");
+  assert.equal(parseArgs([]).changed, null);
+  assert.throws(() => parseArgs(["--changed"]), /--changed needs a value/);
 });
 
 test("a platform skip prints the manifest reason when it has one", (t) => {
@@ -199,6 +203,29 @@ test("HOST_ENV clears every repository variable git itself clears for a subproce
 
 test("npm test spawns every test and check with testEnv", () => {
   const source = require("node:fs").readFileSync(path.join(__dirname, "test.cjs"), "utf8");
-  const spawns = source.match(/spawnSync\(/g).length - 1; // commandExists only probes PATH
-  assert.equal(source.match(/env: testEnv\(process\.env\)/g).length, spawns, "pass env: testEnv(process.env) to each spawnSync in scripts/test.cjs");
+  const spawns = source.match(/spawn(?:Sync)?\(/g).length - 1; // commandExists only probes PATH
+  assert.equal(source.match(/env: testEnv\(process\.env\)/g).length, spawns, "pass env: testEnv(process.env) to each spawn in scripts/test.cjs");
+});
+
+test("a failed test or check prints one FAILED-TEST line with the error its output ends on", () => {
+  assert.equal(
+    failureLine("packages/core/src/a.test.cjs", "stops\n  the tree", "Expected values to be strictly equal:\n+ 'SIGTERM'"),
+    "FAILED-TEST: packages/core/src/a.test.cjs › stops the tree :: Expected values to be strictly equal: + 'SIGTERM'",
+  );
+  const output = [
+    "PASS: an earlier assertion",
+    "Error: Timed out: the Chips chat row",
+    "    at waitFor (scripts/test-composer-chips.cjs:68:11)",
+    "[2585:1110/211954.543737:ERROR:dbus/bus.cc:406] Failed to connect to the bus",
+    "",
+  ].join("\n");
+  assert.equal(
+    failureLine("scripts/test-composer-chips.cjs", null, failureReason(output)),
+    "FAILED-TEST: scripts/test-composer-chips.cjs :: Error: Timed out: the Chips chat row",
+  );
+  assert.equal(
+    failureReason("[DOMException [TimeoutError]: The operation was aborted due to timeout]"),
+    "[DOMException [TimeoutError]: The operation was aborted due to timeout]",
+  );
+  assert.equal(failureReason("no error here\nexit 1"), "exit 1");
 });

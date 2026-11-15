@@ -55,7 +55,6 @@ export function createOutbox({ storage, deliver, available, now = Date.now }) {
       )
         throw new Error("The saved queue cannot be read");
       revision = saved?.revision ?? 0;
-      // A crash during Worktree creation cannot safely replay it. Message sends can replay the same id after a receipt read.
       const items = (saved?.items ?? []).map((item) =>
         item.status !== "sending"
           ? item
@@ -72,7 +71,6 @@ export function createOutbox({ storage, deliver, available, now = Date.now }) {
       throw error;
     }
   });
-  // Consumers see load errors in the snapshot even before anyone tries to enqueue.
   void ready.catch(() => {});
   async function update(id, patch) {
     return ordered(async () => {

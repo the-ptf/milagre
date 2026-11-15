@@ -15,7 +15,6 @@ export interface AntigravityFamily {
   defaultEffort?: EffortLevel;
   /** The agent model id for each effort; a family without levels has its one id under "". */
   variants: Record<EffortLevel, string>;
-  /** The agent options the family was made from, in the agent's order. */
   options: AgentModelOption[];
 }
 

@@ -19,6 +19,7 @@ import { relayRuntime } from "./relay-native";
 import { learnRoutes, lanRoutes } from "./routes-native";
 import { syncProject } from "./live";
 import { mergeRunsReply } from "./runs-reply";
+import { RunShapeReader, type RunShape } from "./run-shape";
 import { visibleRunChats, watchVisibleRunChats } from "./visible-run-chats";
 import { refreshLinks } from "./use-links";
 import { useDesigns } from "./use-designs";
@@ -955,6 +956,15 @@ function useSessionContext() {
 export function useRun(chatKey: string | null | undefined): AgentRun | undefined {
   const session = useSessionContext();
   return useSyncExternalStore(session.runsStore.subscribe, () => (chatKey ? runsOf(session)?.runs[chatKey] : undefined));
+}
+/**
+ * The shape of one Chat's streaming turn ("path#id"), if any (run-shape.ts): whether it runs and what it waits on, not
+ * its text or steps. It re-renders only as the turn starts, asks, answers or ends, not with each streamed batch.
+ */
+export function useRunShape(chatKey: string | null | undefined): RunShape | undefined {
+  const session = useSessionContext();
+  const [reader] = useState(() => new RunShapeReader());
+  return useSyncExternalStore(session.runsStore.subscribe, () => reader.pick(chatKey ? runsOf(session)?.runs[chatKey] : undefined));
 }
 /** What a Chat list reads of a turn: that it runs, and whether it waits on an approval or a question. */
 const listShape = (runs: Runs) =>

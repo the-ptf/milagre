@@ -11,7 +11,6 @@ import type {
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro";
 export type PermissionMode = "ask" | "auto" | "full";
-/** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
 
 /** Effort ids come from the agents themselves (Claude: low…max, Codex adds ultra). */
@@ -39,7 +38,6 @@ export interface ModelOption {
   credits?: number;
 }
 
-/** A model as its agent's CLI reports it (agent:models), with what it accepts. */
 export interface ReportedModel extends ModelCapability {
   id: string;
   name: string;
@@ -123,7 +121,6 @@ export interface Worktree {
   sharedChat?: { linkId: string; sessionId: number };
 }
 
-/** What the chat lists need from a Chat's messages, kept on the Chat by the host (chat-summary.mjs). */
 export interface ChatSummary {
   count: number;
   /** The first and last message in the Project's order: when the Chat started, and its latest activity. */
@@ -137,13 +134,9 @@ export interface ChatSummary {
   titleLine?: string;
   /** How many images that first message carried, so `[Image #N]` in the title line is known to name them; absent when none or not counted. */
   titleImages?: number;
-  /** How the last reply ended (the commit dialog's notes aren't replies). */
   lastOutcome?: "completed" | "failed" | "cancelled";
-  /** The PRs the Chat's commands created or merged. */
   pullRequests?: string[];
-  /** The model of the last message the user sent. */
   lastModel?: string;
-  /** A handoff divider still preparing, by message id. */
   openHandoff?: number;
   /** The clientMessageId of the Chat's last few sends, so a window without messages finds the Chat its preview became. */
   clientMessageIds?: string[];
@@ -157,11 +150,8 @@ export interface AgentSession {
   worktree_id: number;
   agent_name: string;
   status: SessionStatus;
-  /** Kept by the host from the Chat's messages; absent from an older host. */
   summary?: ChatSummary;
-  /** The agent this chat runs on now. A send on the other provider hands the chat off in place (see handoff.mjs). */
   provider?: ModelProvider;
-  /** Claude session id or Codex thread id of the current `provider`, used to resume the agent's memory. */
   native_session_id?: string;
   /** Session ids of the providers this chat is not on right now, so switching back resumes them. */
   native_sessions?: Partial<Record<ModelProvider, string>>;
@@ -171,11 +161,8 @@ export interface AgentSession {
    * task, a workflow), live while that process runs; absent when there is none (chat-activity.mjs).
    */
   backgroundTasks?: BackgroundTask[];
-  /** The Chat's task list and phase history (chat-plan.mjs); absent until an agent writes one. */
   plan?: ChatPlan;
-  /** Automatic title from the first message; a manual title takes precedence. */
   generatedTitle?: string;
-  /** Persisted until background naming finishes, including across restarts. */
   titlePending?: boolean;
   /** A name the user gave the chat. */
   title?: string;
@@ -201,15 +188,10 @@ export interface AgentSession {
   handoverDraft?: string;
   /** Set when a quit stopped this chat's turn: when, so a stale one waits for Continue instead of resuming by itself. */
   resumeTurn?: { stoppedAt?: number };
-  /** The daemon's persisted continuation after a usage limit; shared by all clients. */
   limitResume?: LimitResume;
-  /** The stopped reply eligible for scheduling; turn options remain host-owned. */
   limitTurn?: { sourceMessageId: number };
-  /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
-  /** Claude's predicted follow-up, accepted into the draft without sending. */
   suggestion?: { text: string; turnId: string };
-  /** The completed turn eligible to supply a suggestion; cleared before any new input. */
   suggestionTurnId?: string;
   /**
    * The Routine and Run that started this Chat; set only on a Chat a Run created. `hidden` keeps it out of every Chat list
@@ -221,7 +203,6 @@ export interface AgentSession {
    * kept on the Project folder's Worktree so its Run's history still opens it, and a send into it is refused.
    */
   formerWorktree?: { path: string; name: string; branch?: string };
-  /** A preserved conversation after a canvas Link changed Chat mode. Never accepts another turn. */
   readOnlyReason?: string;
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
@@ -254,41 +235,31 @@ export interface QueuedMessage {
   images?: ImageAttachment[];
   files?: string[];
   context?: ChatContext;
-  /** The model and provider picked when it was sent; its turn hands off like any send if the chat is on another. */
   model: string;
   provider: ModelProvider;
   queuedAt: number;
   clientMessageId?: string;
 }
 
-/**
- * A piece of background work the agent's process runs that isn't a subagent: Claude Code's background tasks (a Bash
- * command run in the background, an MCP task, a workflow). `kind` is the provider's own name for it (local_bash…).
- */
 export interface BackgroundTask {
   id: string;
   kind: string;
   title: string;
-  /** When Milagre first saw it run (ms since epoch). */
   startedAt: number;
 }
 
 /** The end of a background command's output (chat:task-output): the last 8 KiB it wrote, escape sequences included. */
 export interface BackgroundTaskOutput {
   output: string;
-  /** The size of the whole output in bytes. */
   totalBytes: number;
-  /** Whether `output` holds only the end of a longer output. */
   truncated: boolean;
 }
 
-/** Tokens in the agent's context window, out of the model's window size. */
 export interface ContextUsage {
   used: number;
   size: number;
 }
 
-/** A named Link owns one conversation across an isolated Worktree in each member Project. */
 export type ChatScope = { kind: "project"; projectPath: string } | { kind: "link"; linkId: string };
 export interface NamedProjectLink {
   id: string;
@@ -299,12 +270,10 @@ export interface NamedProjectLink {
   /** An existing canvas Link whose Worktrees were adopted, rather than created for this group. */
   canvasLinkId?: string;
 }
-/** What deleting a Named Link would close (link:delete-check): its Chats not archived yet, and the running ones' titles. */
 export interface NamedLinkDeleteCheck {
   chats: number;
   running: string[];
 }
-/** What link:delete did with the Link's Worktrees: the folders it removed, and those it kept for their changes. */
 export interface NamedLinkDeleted {
   removed: string[];
   kept: string[];
@@ -315,12 +284,10 @@ export interface WorktreeBinding {
   worktreePath: string;
   branch: string;
   base: string;
-  /** The folder name the shared Chat's workspace links this Worktree under. */
   alias?: string;
 }
 export interface LinkChatSession extends Omit<AgentSession, "worktree_id"> {
   workspacePath: string;
-  /** Only the Projects the Chat has changed: each gets its Worktree when the agent is about to edit it. */
   worktrees: WorktreeBinding[];
 }
 export interface LinkPreparation {
@@ -328,13 +295,11 @@ export interface LinkPreparation {
   chatId: number;
   /** "ready" once the workspace folder exists. The others come from preparations saved before Worktrees were made on demand. */
   status: "reserved" | "creating" | "setup" | "ready" | "failed";
-  /** The Worktrees made or being made for the Chat. A failed one that kept changes is `retained`, with its `error`. */
   members: Array<WorktreeBinding & { created?: boolean; setupDone?: boolean; setupDeferred?: boolean; retained?: boolean; error?: string }>;
   workspacePath: string;
   error?: string;
   retainedPaths?: string[];
 }
-/** A failed save retained by the Computer, until every pending edit has reached disk. Never persisted itself. */
 export interface PersistenceFailure {
   error: string;
   code?: string;
@@ -362,7 +327,6 @@ export interface OpenLink {
 
 export interface ChatMessage {
   id: number;
-  /** Matches a local send preview to the saved input across snapshots and the send response. */
   clientMessageId?: string;
   session_id: number;
   body: string;
@@ -373,16 +337,13 @@ export interface ChatMessage {
   files?: string[];
   /** Legacy (before in-place handoff): on the first message of a handed-over chat, the brief it was sent with, ahead of `body`. Read, never written. */
   handoverBrief?: string;
-  /** How the agent turn that produced this reply ended. */
   outcome?: "completed" | "failed" | "cancelled";
-  /** The tool calls the agent made in this reply, and its thinking, in the order they started. */
   steps?: ChatStep[];
   /** Kiro only: what the turn cost, in credits, as the agent reported it. */
   credits?: number;
   /** The host's sidecar with the long details of these steps (each marked `hasDetail`); read with the chat:message command. */
   detailFile?: string;
   operationId?: string;
-  /** On the user's answers to an agent's questions: each question with what they answered, shown as a card. */
   answered?: AnsweredQuestion[];
 }
 
@@ -393,7 +354,6 @@ export interface AnsweredQuestion {
   answers: string[];
 }
 
-/** A provider switch inside a chat, shown as a divider before the message that caused it. `brief` is what the new provider was sent. */
 export type HandoffContext = {
   kind: "handoff";
   from: { provider: ModelProvider; model?: string };
@@ -419,7 +379,6 @@ export type CompactionContext = {
   size?: number;
 };
 
-/** What wrote a message nobody typed in this chat: a Link (see LinkedContext), the commit dialog, a handoff, or a legacy handover note. */
 export type AdvisorResultContext = {
   kind: "advisor-result";
   advisorId: string;
@@ -431,17 +390,10 @@ export type AdvisorResultContext = {
   images?: ImageAttachment[];
 };
 
-/** Something on GitHub that stops an open PR from merging and that the agent can fix. */
 export type PullRequestBlocker = "conflicts" | "changes-requested" | "checks-failed" | "behind";
 
-/** A PR-blocker pill the user clicked. Milagre wrote the message and the skill prompt the agent got. */
 export type PullRequestActionContext = { kind: "pr-action"; action: PullRequestBlocker; pr: number; url: string };
 
-/**
- * A Chat started from a Linear issue. Milagre read the issue and wrote the message and prompt; `note` is what the user typed.
- * A Linear Routine's Run starts the same way, and its first message also carries `routine`: the divider (see
- * RoutineRunContext, which `routineRunOf` in routines.mjs makes of it) shown with the issue card.
- */
 export type LinearIssueContext = {
   kind: "linear-issue";
   key: string;
@@ -453,22 +405,15 @@ export type LinearIssueContext = {
   routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string; label?: string };
 };
 
-/**
- * A Link made on the canvas that reached this Chat's Worktree, as a line in the Chat. Milagre writes it when the Link is
- * made; `summary` is the linked summary the Chat's next turn gets, as of then.
- */
 export type WorktreeLinkedContext = {
   kind: "worktree-linked";
   linkId: string;
-  /** The Project the Link reached: another one, or the Chat's own when it links two of its Worktrees. */
   project: { name: string; path: string };
   sameProject: boolean;
-  /** The branches of the Worktrees the Link reached, more than one for a whole-Project Link. */
   branches: string[];
   summary?: string;
 };
 
-/** Where the user reloaded the Chat's agent: its process ended, and the next turn resumes the session in a new one. */
 export type ChatReloadContext = { kind: "reload" };
 
 /**
@@ -480,10 +425,8 @@ export type RoutineTrigger =
   | { kind: "linear"; workspace: string; event: "assigned" | "label-added" | "state" | "comment"; team?: string; label?: string; state?: string }
   | { kind: "webhook"; hookId: string; signed: boolean };
 
-/** Where a Routine's Run lands: an existing Chat (a heartbeat), or a new Chat for each Run. */
 export type RoutineTarget = { kind: "chat"; chatId: string } | { kind: "new-chat"; projectPath: string; workspace: "worktree" | "project" };
 
-/** The Linear issue a Run was started for, as it was when the change was seen. */
 export interface LinearIssueSnapshot {
   id: string;
   key: string;
@@ -500,7 +443,6 @@ export interface LinearIssueSnapshot {
   workspace: string;
 }
 
-/** The Linear comment a Run was started for. `createdAt` is epoch milliseconds. */
 export interface LinearCommentSnapshot {
   id: string;
   body: string;
@@ -531,7 +473,6 @@ export interface FlowField {
   description?: string;
 }
 
-/** A step in a Routine flow. Every step has an id unique in its flow and a name people read. */
 export type FlowStep = FlowAgentStep | FlowIfStep | FlowAskStep | FlowWaitStep | FlowPullRequestStep | FlowCommentStep;
 export type FlowStepKind = FlowStep["kind"];
 
@@ -556,7 +497,6 @@ export interface FlowAgentStep {
   onInvalid: "ask-once" | "stop";
 }
 
-/** Picks a path from a field of an earlier step (or the trigger): `yes` when the test holds, `otherwise` when it doesn't. */
 export interface FlowIfStep {
   id: string;
   name: string;
@@ -569,7 +509,6 @@ export interface FlowIfStep {
   otherwise: FlowStep[];
 }
 
-/** Waits for the owner's approval on any device. Rejected, or no answer in `expiresInHours`, ends the Run. */
 export interface FlowAskStep {
   id: string;
   name: string;
@@ -578,7 +517,6 @@ export interface FlowAskStep {
   expiresInHours: number;
 }
 
-/** Waits for a time to pass, a Linear issue to reach a state, or the Run's pull request to be reviewed. */
 export interface FlowWaitStep {
   id: string;
   name: string;
@@ -588,10 +526,6 @@ export interface FlowWaitStep {
   timeoutHours: number;
 }
 
-/**
- * Pushes the Run's branch and opens a pull request, once: the receipt it keeps (and a look for a PR already on the branch)
- * means a restart or a retry never opens a second one. `askFirst` shows what will be opened and waits for approval.
- */
 export interface FlowPullRequestStep {
   id: string;
   name: string;
@@ -603,7 +537,6 @@ export interface FlowPullRequestStep {
   askFirst: boolean;
 }
 
-/** Comments on the Run's Linear issue, once per Run. */
 export interface FlowCommentStep {
   id: string;
   name: string;
@@ -622,12 +555,10 @@ export interface RoutineFlow {
   draft?: { steps: FlowStep[]; updatedAt: number };
 }
 
-/** What a flow step did, kept so a Run never repeats it: the pull request it opened or found, the comment it posted. */
 export type FlowReceipt =
   | { kind: "pull-request"; url: string; number: number; branch: string; draft: boolean; matched: boolean; at: number }
   | { kind: "linear-comment"; issue: string; url?: string; at: number };
 
-/** What an approval shows before a pull request opens. */
 export interface FlowPullRequestPreview {
   repository?: string;
   /** Commit shown for approval, checked again before publishing the branch. */
@@ -637,7 +568,6 @@ export interface FlowPullRequestPreview {
   title: string;
   body: string;
   draft: boolean;
-  /** e.g. "6 files, 214 added, 38 removed". */
   changes?: string;
 }
 
@@ -665,21 +595,14 @@ export interface FlowStepRun {
   summary?: string;
   tries?: Array<{ startedAt: number; endedAt: number; error: string; chatId?: string }>;
   taken?: "yes" | "otherwise";
-  /** A note the owner added on retry; the next turn's prompt carries it. */
   note?: string;
-  /** Whether the follow-up asking for a valid output was sent this turn. */
   askedForOutput?: boolean;
-  /** Its successful turn ended; work that reports back may still hold the step. */
   turnEnded?: boolean;
   approval?: FlowApproval;
   receipt?: FlowReceipt;
-  /** Set right before an action runs and kept until its receipt: one found after a restart is checked, never repeated. */
   intentAt?: number;
-  /** The repository, branch and commit the action started against, also for actions without approval. */
   intentPreview?: FlowPullRequestPreview;
-  /** A wait's deadline, or when a time wait ends. */
   waitUntil?: number;
-  /** When a Linear state or review wait last looked. */
   checkedAt?: number;
 }
 
@@ -709,7 +632,6 @@ export interface RoutineFallback {
   effort?: EffortLevel;
 }
 
-/** An attempt of a Run that failed and was retried on the fallback: its Chat, what it ran on and how it failed. */
 export interface RoutineRunAttempt {
   chatId?: string;
   worktreeId?: string;
@@ -747,7 +669,6 @@ export interface Routine {
   lastError?: string;
   /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
   signingHeader?: string;
-  /** Set on a flow: its Runs go step by step (flow-runner.cjs) instead of one turn on `prompt`. */
   flow?: RoutineFlow;
   completedAt?: number;
   /** Why it ended, when whatever ended it said: a babysit stop reason, "expired", "max runs", "chat gone"… */
@@ -764,21 +685,15 @@ export interface RoutineRun {
   endedAt?: number;
   status: RoutineRunStatus;
   chatId?: string;
-  /** The Worktree this Run's Chat was started in. */
   worktreeId?: string;
-  /** What started this Run. */
   event?: RoutineEvent;
   summary?: string;
-  /** What the Run did, set when it ends; the Runs list shows it as the row's name. */
   title?: string;
   error?: string;
-  /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
   rejected?: boolean;
   /** Earlier attempts that failed for a provider-side reason; `chatId` and `status` are the last attempt's. */
   attempts?: RoutineRunAttempt[];
-  /** Set when the last attempt was the retry: the model it ran on. */
   fallback?: RoutineFallback;
-  /** A flow Run's steps and how each went. */
   flow?: FlowRun;
 }
 
@@ -803,7 +718,6 @@ export type RoutineRunContext = {
   summary?: string;
 };
 
-/** Why a babysit Heartbeat ended: the PR merged or closed, a stop rule held, it ran out of time, or it was deleted. */
 export type BabysitStopReason = "merged" | "closed" | "green" | "failures" | "expired" | "own-rule" | "deleted";
 
 /**
@@ -874,14 +788,11 @@ export type LinkedContext =
       negotiation?: { id: string; round: number };
     }
   | { kind: "negotiation-agreement"; negotiationId: string; with: string; by?: string }
-  /** A message another Chat's agent sent with chat_start (`from` null when an outside MCP client sent it). */
   | { kind: "chat-message"; from: string | null; fromLabel: string }
   | { kind: "linked-notice"; negotiationId?: string; delegationId?: string; with?: string };
 
-/** A Delegation still queued or running (see delegations.cjs in @milagre/core). */
 export interface OpenDelegation {
   id: string;
-  /** The Link it travels along; null for a Delegation inside its Chat's own Project. */
   link_id: string | null;
   /** Null on the computer that runs another computer's Delegation. */
   from_chat: string | null;
@@ -892,7 +803,6 @@ export interface OpenDelegation {
   negotiation_id?: string;
   round?: number;
   message: string;
-  /** The paired computer that runs it, for a Delegation to another computer; `to_chat` is then that computer's key. */
   computer?: { id: string; name: string };
 }
 
@@ -913,7 +823,6 @@ export interface LinkedWork {
 
 export type StepKind = "shell" | "edit" | "read" | "search" | "other" | "thinking" | "setup" | "image" | "artifact";
 
-/** A design an agent showed or revised: which artifact and the version this step made. */
 export interface ArtifactRef {
   id: string;
   version: number;
@@ -927,27 +836,26 @@ export interface ArtifactRef {
   group?: string;
 }
 
-/** One tool call in an agent's reply (a `setup` step is the worktree's setup command, which Milagre ran, not the agent) (a command, an edit, a read, a search or another tool), or a stretch of its thinking. */
+/**
+ * One tool call in an agent's reply, or a stretch of its thinking. A `setup` step is the worktree's setup command,
+ * which Milagre ran.
+ */
 export interface ChatStep {
   /** Identifies one step across start, output and completion. A viewed snapshot needs a distinct ID from its source Read step. */
   id: string;
   kind: StepKind;
   /** Host time when this step first started. Older hosts omit it; clients show no duration for the running step. */
   startedAt?: number;
-  /** Host completion time; together with startedAt gives wall time without adding parallel calls. */
   endedAt?: number;
-  /** MCP identity, independent of the human title and artifact tool field. */
   source?: { name: string; server?: string };
   /** Bounded, redacted arguments for the detail panel. Large documents are not retained here. */
   input?: string;
-  /** Small facts retained even when detail is fetched lazily. */
   summary?: string;
   error?: string;
   /** What it did, e.g. "Ran `npm test`"; text between backticks is code. */
   title: string;
   /** Saved steps are done or failed; only a reply still streaming has running ones. */
   status: "running" | "done" | "failed";
-  /** Provider-supplied purpose of a command, shown while it runs; the title and detail keep the command. */
   description?: string;
   /** The command and its output, a unified diff, or the thinking summary, capped at 20,000 characters. */
   detail?: string;
@@ -962,23 +870,15 @@ export interface ChatStep {
   file?: string;
   /** The files of a change that edited several (a Codex patch), which has no single `file`; a reply's file links match them too. */
   files?: string[];
-  /** An image snapshot of a file the agent viewed, rather than an image it generated. */
   imageOrigin?: "viewed";
-  /** Provenance of a viewed snapshot only; never grants access to this file. */
   sourceFile?: string;
-  /** Muted text after the title, e.g. "3s" or "exited with code 1 after 4s". */
   note?: string;
-  /** How long the step took, measured by the host or reported by the provider. */
   durationMs?: number;
   /** Where the step sits in the reply: the length of the reply's text when it started. */
   offset?: number;
-  /** For an artifact step, the design it showed. */
   artifact?: ArtifactRef;
-  /** For an artifact step, the Milagre tool it called: the Designs canvas opens when a design tool starts. */
   tool?: "design_show" | "design_apply" | "artifact_show" | "html_render";
-  /** For an artifact step a subagent made, the subagent: the id of the Agent call that started it (Subagent.id). */
   agent?: string;
-  /** For a heartbeat_create step, the Routine it set (the tool result's first line names it), so the card can stop it. */
   routine?: { id: string; name: string };
 }
 
@@ -992,13 +892,10 @@ export interface ImageAttachment {
   sourcePath?: string;
 }
 
-/** What an agent asks to do, as shown on the approval card. */
 export interface PermissionRequest {
   requestId: string;
   kind: "command" | "edit" | "other" | "delegation" | "setup";
-  /** Setup command review context. */
   setup?: { projectPath: string; source: string; computer: string };
-  /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
   title: string;
   description?: string;
@@ -1007,12 +904,9 @@ export interface PermissionRequest {
   /** A unified diff (or the new content), capped at 20,000 characters. */
   diff?: string;
   files?: string[];
-  /** The tool's raw input, for tools that are neither commands nor edits. */
   detail?: string;
   reason?: string;
-  /** Whether "Always allow in this chat" can be offered. */
   allowForChat: boolean;
-  /** The tool step this request is about. */
   stepId?: string;
   /** On a Delegation's card: where it goes ("Project / branch / Chat"), what it says, and whether it opens a Negotiation. */
   /** `computer`: the paired computer it goes to, for a Delegation to another computer (Always allow covers that computer). */
@@ -1021,32 +915,24 @@ export interface PermissionRequest {
 
 export type PermissionDecision = "allow" | "allow-for-chat" | "deny";
 
-/** One option on a question card. */
 export interface QuestionOption {
   label: string;
   description?: string;
 }
 
-/** One question an agent asks, as shown on the question card. */
 export interface AgentQuestion {
   /** Unique within its request; answers are keyed by it. */
   id: string;
-  /** A short tag such as "Library"; may be empty. */
   header: string;
   question: string;
   options: QuestionOption[];
-  /** The user may pick several options. */
   multiSelect: boolean;
-  /** The user may type an answer of their own. */
   allowOther: boolean;
-  /** The typed answer is a secret, so the field hides it. */
   secret: boolean;
 }
 
-/** Questions a turn waits on, asked together. */
 export interface QuestionRequest {
   requestId: string;
-  /** Host-owned request: values go to a private file, never a provider question response. */
   secretRequest?: { description: string; expiresAt?: number };
   /**
    * Host-owned Milagre bug report (bug-reports.cjs): the exact redacted text to approve. The answer is `{ title, body }`
@@ -1056,7 +942,6 @@ export interface QuestionRequest {
   questions: AgentQuestion[];
 }
 
-/** The labels picked and any typed answer, per question id. */
 export type QuestionAnswers = Record<string, string[]>;
 
 /** Images attached to the answers, per question id: the agent gets their paths with that question's answer. */
@@ -1073,9 +958,7 @@ export interface Subagent {
   retryable?: boolean;
   archived?: boolean;
   parentId?: string;
-  /** Launched by the chat to run in the background: its result wakes the chat with a turn of its own. */
   background?: boolean;
-  /** The agent type it was launched as (Claude's subagent_type), such as a QA persona ("qa-mobile", qa-personas.ts). */
   agentType?: string;
   title: string;
   prompt?: string;
@@ -1084,9 +967,7 @@ export interface Subagent {
   updatedAt: number;
   endedAt?: number;
   latestActivity?: string;
-  /** The subagent's own to-do list (its TodoWrite, task tools or Codex plan), when it keeps one. */
   tasks?: AgentTask[];
-  /** Running totals over its whole transcript, kept by the host (subagent-glance.mjs). */
   progress?: SubagentProgress;
   transcript: SubagentTranscriptEntry[];
   /**
@@ -1100,30 +981,23 @@ export interface Subagent {
    */
   detailsOnDemand?: true;
 }
-/** `tool` is a tool call's step kind, when the host knew it. */
 export type SubagentTranscriptEntry = { id: string; kind: "tool" | "message"; text: string; tool?: StepKind };
-/** What a subagent's tool calls count under in its panel (subagent-glance.mjs). */
 export type ToolCategory = "commands" | "images" | "reads" | "searches" | "edits" | "other";
-/** How many steps a subagent has taken (things it said), the first sentence of the last, and its tool calls per category. */
 export type SubagentProgress = { steps: number; said?: string; tools: Partial<Record<ToolCategory, number>> };
 
-/** One item of the agent's to-do list. */
 export interface AgentTask {
   id: string;
   content: string;
-  /** Present-continuous wording for while the task is in progress ("Running tests"). */
   activeForm?: string;
   status: "pending" | "in_progress" | "completed";
 }
 
-/** A Chat task's state. A parent's is derived from its subtasks (chat-plan.mjs). */
 export type ChatTaskStatus = "pending" | "in_progress" | "completed";
 
 /** One item of a Chat's task list, at most three levels deep. Ids are Milagre's: "1", "1.2", "1.2.1". */
 export interface ChatTask {
   id: string;
   title: string;
-  /** Present-continuous wording shown while in progress ("Saving wishlist changes"). */
   activeForm?: string;
   status: ChatTaskStatus;
   children?: ChatTask[];
@@ -1134,11 +1008,9 @@ export type ChatPhase = "start" | "plan" | "build" | "test" | "review" | "merge"
 
 export interface ChatPhaseEntry {
   phase: ChatPhase;
-  /** When the agent moved to this phase, in milliseconds since epoch. */
   at: number;
 }
 
-/** A Chat's task list and phase history. Lives on the session, so it outlasts turns and restarts. */
 export interface ChatPlan {
   /** "milagre" once tasks_set or task_update wrote it; "native" while it mirrors the provider's own todo list. */
   source: "milagre" | "native";
@@ -1148,39 +1020,29 @@ export interface ChatPlan {
   updatedAt: number;
 }
 
-/** A TCP port a chat's commands listen on, such as a dev server. */
 export interface AgentPort {
   port: number;
   pid: number;
-  /** The listening process's name, as lsof reports it ("node"). */
   command: string;
-  /** The address it listens on: "*", "127.0.0.1", "::1". */
   address: string;
   /** Set by a desktop window on a port that listens on another computer, which `localhost` doesn't reach. */
   computerId?: string;
-  /** The agent's background command that serves it, which the port then stands for instead of the background line. */
   taskId?: string;
 }
 
-/** Every chat's listening ports, by chat key; a chat with none is absent. */
 export type AgentPorts = Record<string, AgentPort[]>;
 
 export type AgentEvent =
-  /** Milagre's own event: the user's message was saved, so a turn starts, or a running one is steered and its reply split. */
   | { type: "message-sent"; model: string; permissionMode?: PermissionMode }
-  /** Milagre's own event: the user's answers to a question were saved as their message, after the reply so far. */
   | { type: "answers-sent" }
   | { type: "subagent-update"; agent: Subagent }
-  /** Every piece of background work the agent's process runs besides its subagents, now: it replaces the last set. */
   | { type: "background-tasks"; tasks: BackgroundTask[] }
   | { type: "subagents-waiting"; waiting: boolean }
   | { type: "tasks-updated"; tasks: AgentTask[] }
-  /** Milagre's own event: a task tool changed the Chat's plan; null clears it. */
   | { type: "plan-updated"; plan: ChatPlan | null }
   | ({ type: "context-usage" } & ContextUsage)
   | { type: "prompt-suggestion"; text: string; turnId: string }
   | { type: "context-compacting" }
-  /** The provider compacted the conversation: token counts when reported; `manual` when `/compact` asked for it. */
   | { type: "context-compacted"; trigger: "manual" | "auto"; before?: number; after?: number }
   | { type: "session-started"; nativeId: string }
   | { type: "session-reset" }
@@ -1220,7 +1082,6 @@ export type AgentEvent =
   | { type: "question-resolved"; requestId: string; outcome: QuestionOutcome }
   | { type: "turn-completed"; quiet?: boolean; credits?: number }
   | { type: "turn-cancelled"; quit?: boolean }
-  /** `notice`: a message Milagre wrote (it names the CLI and the fix), shown as it is; otherwise it is the agent's own error. */
   | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };
 
 /**
@@ -1234,10 +1095,8 @@ export interface UsageLimit {
   resetsAt?: string;
 }
 
-/** A reply the plan's usage limit stopped: the Chat offers the Project's other Accounts for the provider. */
 export type UsageLimitContext = { kind: "limit" } & UsageLimit;
 
-/** The message that continued a Chat on another account after the usage limit, shown as a line like a handoff. `label` names the account. */
 export type AccountSwitchContext = { kind: "account-switch"; provider: ModelProvider; label: string };
 
 export interface LimitResume {
@@ -1251,7 +1110,6 @@ export interface LimitResume {
   expiresAt: number;
 }
 
-/** A message for a chat. The main process saves it, then starts or steers the chat's turn. */
 export interface ChatSendRequest {
   projectPath: string;
   /** While busy: wait for the current turn, or steer it (stop and send when steering isn't supported). Omitted preserves legacy/provider behavior. */
@@ -1288,10 +1146,8 @@ export interface ChatSendRequest {
   sentFrom?: SentFrom;
 }
 
-/** The device a message came from: a phone, an iPad, or another computer's Milagre. */
 export type SentFrom = "phone" | "tablet" | "computer";
 
-/** A code editor found on this Mac. */
 export interface EditorInfo {
   id: string;
   name: string;
@@ -1320,9 +1176,7 @@ export interface CoordinatorState {
   tasks: Record<string, { id: number; worktree_id: number; title: string; status: string }>;
 }
 
-/** Chats a linked worktree's old project file held, brought into the repository's project. */
 export interface RestoredChats {
-  /** The worktree's name, as the sidebar shows it. */
   worktree: string;
   count: number;
 }
@@ -1335,21 +1189,17 @@ export interface OpenProject {
   /** "chats" for the Chats home, the internal repository project-less Chats run in. Absent for every other Project. */
   kind?: ProjectKind;
   state: CoordinatorState;
-  /** Only on the first open after chats came back from linked worktrees' old files. */
   restoredChats?: RestoredChats[];
 }
 
-/** A folder an agent session on this computer worked in, for onboarding. */
 export interface AgentFolder {
   path: string;
   name: string;
   provider: ModelProvider;
-  /** ISO time of the newest session there. */
   lastUsed: string;
   git: boolean;
 }
 
-/** worktree:link-issue's answer: `renamed` when the branch took the issue's name, `stored` when only the key was kept. */
 export interface LinkIssueResult {
   project: OpenProject;
   mode: "renamed" | "stored";
@@ -1372,14 +1222,12 @@ export interface SkillOption {
   provider: string;
 }
 
-/** A skill discovery skipped because an earlier one has the same name; `shadowedBy` is the winner's path. */
 export interface ShadowedSkill extends SkillOption {
   shadowedBy: string;
 }
 
 export interface SkillCatalog {
   skills: SkillOption[];
-  /** Absent from an older host. */
   shadowed?: ShadowedSkill[];
   warnings: string[];
 }
@@ -1390,7 +1238,6 @@ export interface UsageWindow {
   shortLabel: string;
   usedPercent: number;
   resetsAt: string | null;
-  /** The amounts behind the percent, when the provider gives them: "453 of 10,000 credits". */
   detail?: string;
 }
 
@@ -1415,9 +1262,7 @@ export interface UsageSnapshot {
   providers: ProviderUsage[];
 }
 
-/** Provider identities only. Credentials stay with the CLI on the connected computer. */
 export type ProviderAccount = {
-  /** An explicit assignment whose saved profile was removed. */
   missing?: boolean;
   id: string;
   provider: ModelProvider;
@@ -1437,13 +1282,11 @@ export interface TranscriptState {
 }
 export type LinkSendRequest = Omit<ChatSendRequest, "projectPath" | "worktreeId"> & { linkId: string; operationId: string };
 
-/** Host-local account assignments; null follows the computer selection. */
 export type ProjectAccountScope = {
   key: string;
   name: string;
   kind: "project" | "link";
   projects: { id: string; path: string; name: string }[];
-  /** The computer's Chats home: a Project scope for every Chat without a Project, shown with the Chats mark, not a repository's. */
   chatsHome?: true;
 };
 export type ProjectAccountsSnapshot = {

@@ -1,6 +1,3 @@
-// The same repository cloned on two computers is one Project in the new-chat picker: its Git origin, read as one id,
-// says which copies belong together.
-
 /**
  * A remote URL as "host/owner/repo", lowercased: "git@github.com:Owner/Repo.git", "https://github.com/owner/repo" and
  * "ssh://git@github.com/owner/repo/" all read "github.com/owner/repo". A local-path remote names a folder only that

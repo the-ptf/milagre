@@ -1,4 +1,3 @@
-// Shared presentation data for desktop and phone. Only summarize facts in retained tool output.
 import { plainTaskOutput } from "./chat-activity.mjs";
 import { providerName } from "./providers.mjs";
 
@@ -13,14 +12,11 @@ export function toolMetadata(server, name, input) {
     try {
       args = JSON.stringify(input, (key, value) => (SECRET.test(key) ? "[redacted]" : value), 2);
       if (args?.length > INPUT_LIMIT) args = `${args.slice(0, INPUT_LIMIT)}\n… input truncated`;
-    } catch {
-      /* A non-serializable provider argument has no preview. */
-    }
+    } catch {}
   }
   return { source, ...(args && args !== "{}" ? { input: args } : {}) };
 }
 
-/** Old messages can identify an MCP server from the existing canonical title, without rewriting it. */
 export function stepSource(step) {
   const server = step.source?.server ?? /^Used `[^`]+` from ([\w .:-]+)$/.exec(step.title)?.[1];
   if (server) {
@@ -80,7 +76,6 @@ export function activityDuration(steps, active, now) {
   return formatStepDuration(Math.max(0, (active ? now : Math.max(...ends)) - Math.min(...starts)));
 }
 
-/** Keep the already bounded retained output distinct from the invocation. */
 export function stepSections(step, detail = step.detail) {
   const text = detail ?? "";
   if ((step.kind === "shell" || step.kind === "setup") && text.startsWith("$ ")) {
@@ -113,10 +108,7 @@ export function linkWorktreeProject(step) {
   }
 }
 
-/**
- * Words beside the running mark and turn timer, only for Worktree creation and setup. Tool calls and thinking already
- * name themselves in the transcript's activity row, so repeating them here showed the same title twice.
- */
+/** Words beside the running mark and turn timer, only for Worktree creation and setup. */
 export function runStatusLabel(steps = []) {
   const running = steps.filter((step) => step.status === "running");
   const creating = running.findLast((step) => linkWorktreeProject(step) !== null);
@@ -126,19 +118,16 @@ export function runStatusLabel(steps = []) {
   return null;
 }
 
-/** What a send waits on before its turn starts: its new Worktree, the host taking the message, then the agent starting. */
 export function sendStatusLabel({ creatingWorktree = false, sent = false, provider }) {
   if (creatingWorktree) return "Creating Worktree";
   return sent ? `Starting ${providerName(provider)}` : "Sending";
 }
 
-/** Approvals lead; otherwise show actual tool work ahead of concurrent thinking. */
 export function currentActivityStep(steps, waitingIds = []) {
   const running = steps.filter((step) => step.status === "running");
   return running.find((step) => waitingIds.includes(step.id)) ?? running.findLast((step) => step.kind !== "thinking") ?? running.at(-1);
 }
 
-/** Only complete, standalone summary headings become progress labels. Never lift a sentence from reasoning. */
 function thinkingHeading(detail = "") {
   const headings = [...detail.matchAll(/^(?:\*\*([^*\n]+)\*\*[ \t]*(?=\n|$)|#{1,6}[ \t]+([^\n]+)\n)/gm)];
   const last = headings.at(-1);
@@ -151,8 +140,8 @@ function thinkingHeading(detail = "") {
 }
 
 /**
- * A step's title as a row shows it: past tense once done ("Wrote a.txt"), "-ing" while it runs ("Writing a.txt"), and
- * the plain verb while it waits for the user's approval ("Write a.txt"), since nothing has happened yet.
+ * Past tense once done ("Wrote a.txt"), "-ing" while it runs ("Writing a.txt"), the plain verb while it waits for
+ * approval ("Write a.txt").
  */
 export function stepDisplayTitle(step, running = false, waiting = false) {
   if (running && step.kind === "thinking") return thinkingHeading(step.detail) || step.title;
@@ -177,9 +166,7 @@ export function stepDisplayTitle(step, running = false, waiting = false) {
         const args = JSON.parse(step.input);
         const key = args.identifier ?? args.id;
         if (typeof key === "string" && /^[A-Z][A-Z0-9]+-\d+$/i.test(key)) action = action.replace(/issue$/, `\`${key}\``);
-      } catch {
-        /* Truncated arguments keep the general action title. */
-      }
+      } catch {}
     }
     title = `${action}${step.source.server ? ` from ${stepSource(step).label}` : ""}`;
   }
@@ -218,7 +205,6 @@ export function stepDisplayTitle(step, running = false, waiting = false) {
   return title;
 }
 
-/** Used at completion, before output moves to a sidecar or the phone drops it. */
 export function summarizeStep(step) {
   if (step.kind === "thinking") return {};
   const output = plainTaskOutput(stepSections(step).output).trim();
@@ -251,9 +237,7 @@ export function summarizeStep(step) {
       const items = JSON.parse(output);
       const rows = Array.isArray(items) ? items : (items?.issues ?? items?.results ?? items?.rows);
       if (Array.isArray(rows)) return { summary: `${rows.length} result${rows.length === 1 ? "" : "s"}` };
-    } catch {
-      /* Text output stays text. */
-    }
+    } catch {}
   }
   return {};
 }

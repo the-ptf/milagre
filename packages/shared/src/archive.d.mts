@@ -14,26 +14,19 @@ export type ArchiveChoice = { mode: ArchiveMode; label: string; tone: "plain" | 
 /** What `worktree:remove` is sent besides the path: the daemon closes the chat's agent and checks again against `seen`. */
 export type RemoveOptions = { force: boolean; base: string; projectPath: string; chatId: string; seen: WorktreeStatus };
 
-/** What archiving a chat touches, passed in so the order of the steps can be tested. */
 export type ArchiveDeps = {
   /** The project the chat is in; the archive stops short of changing state if the app has moved on. */
   projectPath: string;
   chatId: string;
   getState: () => CoordinatorState | null;
   currentProjectPath: () => string | undefined;
-  /** Interrupts the chat's running turn, if it has one. */
   stop: () => Promise<unknown> | undefined;
   /** Holds the permanent steps back after `hide`; `true` when the user undid the deletion in it. */
   undoWindow?: () => Promise<boolean>;
-  /** Hides the chat (and leaves it if it is open). */
   hide: () => void | Promise<unknown>;
-  /** Permanently removes the conversation when its Worktree is kept. */
   destroy: () => void | Promise<unknown>;
-  /** Brings the chat back after `hide`, because its worktree is staying. */
   restore: () => void | Promise<unknown>;
-  /** Removes the worktree; the daemon closes the chat's agent and checks again against `seen`. */
   remove: (worktree: Worktree, options: RemoveOptions) => Promise<unknown>;
-  /** The worktree is gone, with these chats; the daemon has dropped them from the project's state. */
   applyRemoval: (removed: { worktreeId: number; sessionIds: number[] }) => void;
   refreshBranches: () => void;
   notify: (message: string) => void;
@@ -45,13 +38,11 @@ export function worktreeShared(state: CoordinatorState, sessionId: number): bool
 export function lossReason(status: WorktreeStatus): string;
 export function deleteNote(status: WorktreeStatus): string;
 export function homeLossReason(status: WorktreeStatus): string;
-/** The cleanup mode for immediate deletion. No confirmation or explanatory text is shown. */
 export function archiveChoices(options: { plan: ArchivePlan; running: boolean; chatsHome?: boolean }): {
   choices: ArchiveChoice[];
   reason: string | null;
   immediate: boolean;
 };
-/** Archive without confirmation, preserving work that cannot be safely removed. */
 export function archiveMode(plan: ArchivePlan | null): "hide" | "remove";
 export function terminalNote(busy: string[]): string | null;
 export function removeFailureNotice(error: unknown): string;

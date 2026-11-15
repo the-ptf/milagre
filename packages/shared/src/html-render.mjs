@@ -1,7 +1,6 @@
 import { artifactDocument, ARTIFACT_CSP } from "./artifact-document.mjs";
 
 export const HTML_RENDER_MESSAGE = "milagre:html-render";
-/** A saved page that never reports its initial layout must offer Retry instead of remaining empty. */
 export const HTML_RENDER_LOAD_TIMEOUT = 15_000;
 /** Bounds for a reply's height in pixels: what html_render accepts and what the transcript reserves or grows to. */
 export const HTML_RENDER_MIN_HEIGHT = 24;
@@ -10,10 +9,7 @@ const attribute = (value) => value.replace(/[&<>"']/g, (character) => `&#${chara
 export const htmlRenderHeight = (height) =>
   Number.isFinite(height) ? Math.max(HTML_RENDER_MIN_HEIGHT, Math.min(HTML_RENDER_MAX_HEIGHT, Math.ceil(height))) : 400;
 
-/**
- * Milagre Blue, the default theme, for previews and first paint. Desktop and phone pass the reader's live theme:
- * the transcript's background, ink ramp, controls, status colors and chat text font.
- */
+/** Milagre Blue, the default theme, for previews and first paint; clients pass the reader's live theme. */
 export const HTML_RENDER_THEMES = {
   light: {
     scheme: "light",
@@ -64,8 +60,8 @@ export const HTML_RENDER_THEMES = {
 };
 
 /**
- * The reader theme as CSS custom properties, run inside the isolated page (source text: Hermes keeps no function
- * source). Values that are not a plain color, font list or number are dropped.
+ * The reader theme as CSS custom properties; source text because Hermes keeps no function source. Values that are not a
+ * plain color, font list or number are dropped.
  */
 const THEME_ENTRIES = `(value)=>{
  if(!value||typeof value!=='object')return [];
@@ -81,7 +77,7 @@ const THEME_ENTRIES = `(value)=>{
  return entries;
 }`;
 
-/** Only these messages cross the isolated document boundary. Never forward tool calls or arbitrary bridge data. */
+/** Only these messages cross the isolated document boundary. */
 export function readHtmlRenderMessage(value) {
   try {
     const data = typeof value === "string" ? JSON.parse(value) : value;
@@ -93,13 +89,10 @@ export function readHtmlRenderMessage(value) {
       const url = new URL(data.url);
       if (!url.username && !url.password) return { type: "link", url: url.href };
     }
-  } catch {
-    /* Invalid messages have no effect. */
-  }
+  } catch {}
   return null;
 }
 
-// The page's own script runs first: it applies the initial theme before anything paints.
 const bootstrap = (theme) => `(()=>{
  const channel='${HTML_RENDER_MESSAGE}';
  const post=(type,extra={})=>parent.postMessage({channel,type,...extra},'*');
@@ -144,12 +137,6 @@ const bootstrap = (theme) => `(()=>{
  document.fonts?.ready.then(measure);
 })();`;
 
-/**
- * Plain HTML looks like the chat around it: chat text, compact headings, Markdown-style tables, and buttons, fields,
- * selects, sliders and disclosures in Milagre's control style, light and dark. All of it is zero-specificity (:where),
- * so any rule the page writes wins. The page itself has no frame: no outer margin, padding, background or height of its
- * own, so its first line sits where the reply's text would start.
- */
 const BASE_STYLE = `
 :root{--background:transparent;--surface:#fff;--field:#f5f5f5;--ink:#1c222b;--ink-2:#616770;--muted:#6e737b;--line:#edeeee;--line-strong:#e0e1e3;--accent:#007df3;--accent-ink:#0068cd;--accent-tint:#e3f0fe;--on-accent:#fff;--green:#199a4d;--orange:#ef720d;--red:#e3474c;--purple:#a855f7;--font:system-ui,sans-serif;--mono:ui-monospace,Menlo,monospace;--text-size:13px;--leading:1.55;--scheme:light;--chart-1:var(--accent);--chart-2:var(--orange);--chart-3:var(--green);--chart-4:var(--purple);--chart-5:var(--red);--radius:8px;--control-height:30px;color-scheme:var(--scheme)}
 @media (pointer:coarse){:root{--control-height:36px}}
@@ -218,15 +205,13 @@ table[data-milagre-overflow-table]{display:block!important;overflow-x:auto!impor
 :where(details[open] > summary){margin-bottom:.4em}
 `;
 
-/** A sealed outer page is used on desktop, native WebViews and in the screenshot browser alike. */
 export function htmlRenderShell(html, theme = {}) {
   const document = artifactDocument(
     `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><script>${bootstrap(theme)}</script><style>${BASE_STYLE}</style>${html}`,
   );
   const initialTheme = JSON.stringify(theme).replace(/</g, "\\u003c");
-  // Inline pages always let the transcript show through, including before the inner document loads.
-  // Every frame level shares the reader's color scheme: Chromium paints an opaque backdrop under a transparent page
-  // whose scheme differs from its frame's.
+  // Chromium paints an opaque backdrop under a transparent page whose color scheme differs from its frame's, so every
+  // frame level shares the reader's.
   const scheme = theme.scheme === "dark" ? "dark" : "light";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}; frame-src 'none'"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block}html{background:transparent;color-scheme:${scheme}}body{overflow:hidden}</style></head><body><iframe title="HTML reply" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(document)}"></iframe><script>(()=>{
  const frame=document.querySelector('iframe'),channel='${HTML_RENDER_MESSAGE}';

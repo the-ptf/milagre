@@ -1,5 +1,3 @@
-// While a reply streams, a bold phrase or inline code span stays open until its closing marker arrives, and Markdown
-// shows the raw marker meanwhile. Closing it in the live text keeps the formatting steady. Saved replies render as written.
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const THEMATIC_BREAK = /^ {0,3}([*_-])( *\1){2,} *$/;
 

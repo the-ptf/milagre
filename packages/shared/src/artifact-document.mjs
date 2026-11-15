@@ -1,9 +1,4 @@
-// Preview documents for designs and artifacts. Plain JavaScript: the packaged Electron main process loads it from
-// node_modules, where Node does not strip TypeScript types.
-/**
- * Generated previews need inline interaction code and image resources. Remote scripts and evaluation are blocked.
- * The desktop also sandboxes each preview in an iframe with no same origin.
- */
+// Plain JavaScript: the packaged Electron main process loads it from node_modules, where Node does not strip types.
 export const ARTIFACT_CSP = [
   "default-src 'none'",
   "script-src 'unsafe-inline'",
@@ -15,22 +10,13 @@ export const ARTIFACT_CSP = [
   "base-uri 'none'",
 ].join("; ");
 
-/**
- * The CDNs an interactive design loads its libraries from (React, Babel, Tailwind's browser build, icons), each script
- * by an exact version (checkDesignCode). Nothing else on the network runs in a design.
- */
 export const DESIGN_CODE_HOSTS = ["https://unpkg.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "https://esm.sh"];
 
-/**
- * An interactive design's policy: ARTIFACT_CSP, with scripts also from DESIGN_CODE_HOSTS and evaluation allowed, since
- * Babel compiles the design's JSX in the page. Still no requests of its own (fetch, forms), and the viewers sandbox it
- * with no same origin.
- */
 export const DESIGN_CODE_CSP = ARTIFACT_CSP.replace("script-src 'unsafe-inline'", `script-src 'unsafe-inline' 'unsafe-eval' ${DESIGN_CODE_HOSTS.join(" ")}`);
 
 /**
- * The policy with `assets` (a source, such as the desktop's preview scheme or the phone's file:) also allowed for
- * images, media and fonts: where the viewer keeps the page's files. `code` is an interactive design's (DESIGN_CODE_CSP).
+ * The policy with `assets` (the viewer's file source) also allowed for images, media and fonts. `code` selects the
+ * interactive design policy.
  */
 export function artifactCsp(assets = "", { code = false } = {}) {
   const policy = code ? DESIGN_CODE_CSP : ARTIFACT_CSP;
@@ -38,20 +24,12 @@ export function artifactCsp(assets = "", { code = false } = {}) {
   return policy.replace(/(^|; )(img-src|media-src|font-src) ([^;]*)/g, `$1$2 $3 ${assets}`);
 }
 
-// A version in a CDN address: package@1.2.3 (unpkg, jsdelivr, esm.sh) or /ajax/libs/name/1.2.3/ (cdnjs).
 const PINNED = /@\d+\.\d+\.\d+|\/ajax\/libs\/[^/]+\/\d+\.\d+\.\d+/;
 const SCRIPT_SOURCE = /<script\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
 
-// Any address on those CDNs anywhere in the page: a <script src>, an import or import(), an import map, a script the
-// design builds in JS. The policy allows the whole host, so each one written down must name its version.
 const CDN_ADDRESS = /(?:https?:)?\/\/(?:unpkg\.com|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|esm\.sh)(\/[^\s"'`<>()\\]*)?/gi;
 
-/**
- * The scripts an interactive design loads, checked: each <script src> from DESIGN_CODE_HOSTS over HTTPS, and every
- * address on those CDNs in the page at an exact version, so the design draws the same tomorrow. Returns the problems,
- * empty when there are none. An address the design assembles at run time can still pass; the design stays sandboxed
- * with no requests of its own either way.
- */
+/** Returns the problems, empty when there are none. An address the design assembles at run time can still pass. */
 export function checkDesignCode(html) {
   const problems = [];
   for (const match of html.matchAll(SCRIPT_SOURCE)) {
@@ -74,49 +52,29 @@ export function checkDesignCode(html) {
 }
 
 /**
- * The design's HTML with the policy as the first thing the parser meets after the doctype, before anything the design
- * wrote: searching for its <head> could land inside a comment or a script string and leave the design without one. A
- * <meta> ahead of <html> still goes into the head, and applies to everything after it.
- *
- * An Artifact page (`page`) also gets ARTIFACT_PAGE_SCRIPT, which its viewer drives for pins, comments and zoom; with
- * `diagrams` (Pele's browser build, pele/global) a page that has Mermaid blocks gets it too, and they render in place.
- * `assets` is the source its files load from (artifactCsp). An interactive design (`code`) runs under DESIGN_CODE_CSP.
+ * The design's HTML with the policy first after the doctype: searching for <head> could land inside a comment or a
+ * script string.
+ * A <meta> ahead of <html> still goes into the head.
  */
 export function artifactDocument(html, { page = false, diagrams = "", assets = "", code = false } = {}) {
   const policy = `<meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets, { code })}">`;
-  // Leading comments and whitespace, then the doctype; without one the design gets standards mode.
   const doctype = /^(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(html);
   const at = doctype ? doctype[0].length : 0;
-  // A bare fragment (no <html> of its own) also gets the charset and a phone-sized viewport a page would set.
   const bare = /<html[\s>]/i.test(html) ? "" : '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
   const pele = diagrams && hasDiagrams(html) ? `<script>${diagrams}</script>` : "";
   const helper = page ? `<script>${ARTIFACT_PAGE_SCRIPT}</script>` : "";
   return `${doctype ? html.slice(0, at) : "<!doctype html>"}${policy}${bare}${ESCAPE_OUT}${pele}${helper}${html.slice(at)}`;
 }
 
-/** Whether the HTML has a Mermaid block, the way Mermaid's own pages write one: `<pre class="mermaid">` or a fenced `language-mermaid`. */
 export function hasDiagrams(html) {
   return /\sclass\s*=\s*["']?[^"'>]*\b(?:mermaid|language-mermaid)\b/i.test(html);
 }
 
-/** The key every message between an Artifact page (ARTIFACT_PAGE_SCRIPT) and its viewer carries, as `milagre`. */
 export const ARTIFACT_PAGE = "milagre:artifact-page";
 
 /**
- * The helper inside an Artifact page. It renders the page's Mermaid blocks with Pele when the document carries it,
- * coloured from the page around them unless the page sets --pele-* itself. For the viewer that sends `mode` it also:
- *
- * - draws the pinned comments (`pins`) inside the page, so they scroll with it, each at its anchor (an element path and
- *   a point in its box, which survives the page reflowing) or else at its fractions of the page; `watch` names the
- *   one whose screen position it reports (`anchor`) as the page scrolls or changes;
- * - with the mouse, in comment mode a click pins (`press`: fractions of the page, the anchor, the text near it and the
- *   screen point), ctrl-wheel or a trackpad pinch asks to zoom (`zoom`), a double-click away from text and controls
- *   asks to fit (`fit`), and C outside a field asks to toggle comment mode (`key`);
- * - by touch, a hold pins, and the hold's tap, callout and selection are swallowed;
- * - reports its scroll width against its viewport's (`size`), so a viewer can fit a page wider than itself.
- *
- * `scale` is the viewer's zoom (pins keep their size on screen, and with a point the page keeps it in place);
- * `reveal` scrolls a pin near the top. Pins and the comment cover live in a closed shadow root, out of the page's CSS.
+ * Helper inside an Artifact page: renders Mermaid blocks with Pele and, for a viewer that sends `mode`, draws pins and
+ * reports press, zoom, fit, key, size and anchor messages.
  */
 export const ARTIFACT_PAGE_SCRIPT = String.raw`(function(){
 if(window.__milagrePage)return;window.__milagrePage=1;
@@ -184,23 +142,16 @@ addEventListener("load",function(){retheme();size();later()});
 if(d.readyState==="loading")d.addEventListener("DOMContentLoaded",boot);else boot();
 })()`;
 
-/** What a design posts its embedder when Escape is pressed in it: a key the design has the focus for is the design's. */
 export const ARTIFACT_ESCAPE = "milagre:artifact-escape";
-/** ⌘Enter (Ctrl+Enter) pressed in an artifact or design, which keeps the key: the page beneath sends the feedback waiting. */
 export const ARTIFACT_SEND = "milagre:artifact-send";
-// Escape with the focus in a design still leaves it, then closes the canvas, as it does outside: the design tells its
-// embedder, and so does ⌘Enter, which sends the feedback. Captured first, so a design that stops the key's
-// propagation still lets go of it.
 export const ARTIFACT_ESCAPE_SCRIPT = `addEventListener("keydown",function(e){if(e.key==="Escape")parent.postMessage("${ARTIFACT_ESCAPE}","*");else if(e.key==="Enter"&&(e.metaKey||e.ctrlKey))parent.postMessage("${ARTIFACT_SEND}","*")},true)`;
 const ESCAPE_OUT = `<script>${ARTIFACT_ESCAPE_SCRIPT}</script>`;
 
-/** Escapes text for an HTML attribute value in double quotes. */
 const attribute = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
 /**
- * The phone's go-between for an Artifact page in artifactShell: what the page's helper posts (ARTIFACT_PAGE_SCRIPT)
- * reaches the app through ReactNativeWebView, as known fields only, its screen points moved into the web view's
- * pinch zoom; `milagreArtifact.run(command)` hands the app's commands to the page.
+ * The phone's go-between for an Artifact page: forwards the helper's known fields through ReactNativeWebView;
+ * `milagreArtifact.run(command)` hands the app's commands to the page.
  */
 export const ARTIFACT_SHELL_SCRIPT = String.raw`(function(){
 var frame=document.querySelector("iframe"),KEY="${ARTIFACT_PAGE}",NUMBERS=["x","y","sx","sy","sw","cw","dy","cx","cy"],TEXTS=["t","k","a","near","key"];
@@ -212,34 +163,16 @@ window.milagreArtifact={run:function(c){if(!frame||!c||typeof c!=="object")retur
 })()`;
 
 /**
- * A page that shows the design in a sandboxed frame, for a web view with no sandbox of its own (the phone's). The
- * frame runs the design's scripts but has no same origin and no say over the page around it, so it can't navigate
- * it. The frame inherits the page's policy, so the page carries the design's, plus frame-src 'none': the frame loads
- * nothing but the design, so the design can't navigate it away either. With an opaque origin, the design can't read
- * the files beside the page, whatever the web view lets the page itself read. The page's one script is
- * ARTIFACT_SHELL_SCRIPT, which passes plain messages between the app and the Artifact page's helper.
+ * A page showing the design in a sandboxed frame with an opaque origin, for web views with no sandbox of their own (the
+ * phone's).
  */
 export function artifactShell(html, { diagrams = "", assets = "" } = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets)}; frame-src 'none'"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(artifactDocument(html, { page: true, diagrams, assets }))}"></iframe><script>${ARTIFACT_SHELL_SCRIPT}</script></body></html>`;
 }
 
 /**
- * The phone's canvas of a Chat's designs: every design on one board, a row per group as on the desktop canvas. A
- * design opens as the camera fitting it; pinching out past it, or the overview command, flies out to the whole board,
- * and a tap on a design there flies back in. Drag pans (a swipe at a design's fit pages to its neighbour in the row),
- * pinch zooms, double-tap fits or zooms in, and a hold on a design reports the spot for a comment. A design as wide as
- * the board (a desktop page) already fits there, so a tap on it zooms in, centred on the spot and filling the screen. A third finger is
- * ignored; reduced motion drops the flights and the glide.
- *
- * Fixed text, so the page's policy allows it by hash and nothing else. The app drives it through
- * `milagreCanvas.run(command)` (set, html, pins, focus, overview, reveal) and hears back through ReactNativeWebView:
- * ready, view (which design, or the whole board), press (a hold, as fractions of the design), pin (a tapped pin and
- * where it sits on screen), anchor (where a revealed spot landed), painted (a design's frame finished loading; until
- * then the design icon draws itself in its place) and play (which design takes touches, or none). `chosen` outlines
- * the chosen design and dims the other options in its row. Each design is a
- * sandboxed frame with no same origin; a layer design's runs no script, an interactive design's (`html` with `run`)
- * runs its own. `play` hands the shown interactive design the touches on it, so it can be tried; flying away from it,
- * or commenting, takes them back.
+ * The phone's canvas page. The app drives it through `milagreCanvas.run(command)` (set, html, pins, focus, overview,
+ * reveal) and hears back through ReactNativeWebView: ready, view, press, pin, anchor, painted, play.
  */
 export const DESIGNS_CANVAS_SCRIPT = `(function(){
 var port=document.getElementById("port"),world=document.getElementById("world"),marks=document.getElementById("marks");
@@ -347,13 +280,7 @@ fly({s:s,x:x+tx-px,y:y+ty-py},function(){post({t:"anchor",sx:x+(r.x+rx*r.w)*s,sy
 post({t:"ready"})})()`;
 const CANVAS_BACKGROUND = /^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s/]+\))$/i;
 
-/**
- * The page for DESIGNS_CANVAS_SCRIPT, empty until the app sends the designs. As in artifactShell, each design goes in a
- * sandboxed frame with no same origin, and the touches go to the canvas around it unless a design is being tried. The
- * frames inherit the page's policy, so it is an interactive design's (DESIGN_CODE_CSP), plus frame-src 'none': the
- * page itself runs only the canvas script, and nothing writes markup into it (the designs reach their frames as
- * srcdoc, the group names as text).
- */
+/** The page for DESIGNS_CANVAS_SCRIPT, empty until the app sends the designs; designs reach their frames as srcdoc. */
 export function designsCanvasShell(background = "#f2f2f2") {
   const color = CANVAS_BACKGROUND.test(background) ? background : "#f2f2f2";
   const policy = `${DESIGN_CODE_CSP}; frame-src 'none'`;

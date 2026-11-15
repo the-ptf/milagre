@@ -1,5 +1,3 @@
-// Geometry for a Chat's phase graph: phase history to points on a 0..1 time axis that ends at Now, with stretches
-// longer than `gapMs` drawn `gapMs` wide and labelled. Desktop and phone draw the same shapes with their own SVG.
 import { PHASES } from "./chat-plan.mjs";
 
 const HOUR = 3_600_000;
@@ -23,7 +21,6 @@ export function phaseGraph(phases, now, { gapMs = HOUR, formatTime = defaultForm
     const length = times[index + 1] - times[index];
     if (length <= gapMs) continue;
     const last = index + 1 === times.length - 1;
-    // `row` is the phase the gap starts in, `toRow` the one it ends in (the same when the gap runs on to Now).
     gaps.push({
       x0: x(index),
       x1: last ? 1 : x(index + 1),
@@ -63,9 +60,9 @@ export function phaseGraphPath(points, width, height, left = 0) {
 }
 
 /**
- * Pixel positions for an SVG `width` x `height` wide: the plot sits between `insetLeft` and `insetRight` so the first dot
- * and the Now line are never cut, and the tick labels and "Now" stay inside the SVG (iOS ignores overflow: visible).
- * A tick label is `tickWidth` wide and "Now" is `nowWidth` wide; a tick that would run into the previous label or Now is dropped.
+ * Pixel positions for an SVG `width` x `height`: the plot sits between `insetLeft` and `insetRight` so the first dot
+ * and the Now line
+ * are never cut (iOS ignores overflow: visible). A tick label that would run into the previous label or Now is dropped.
  */
 export function phaseGraphLayout(graph, width, { height, insetLeft = 6, insetRight = 6, tickWidth = 44, nowWidth = 28 }) {
   const plotWidth = Math.max(width - insetLeft - insetRight, 0);
@@ -79,7 +76,6 @@ export function phaseGraphLayout(graph, width, { height, insetLeft = 6, insetRig
     at: point.at,
     current: index === last,
   }));
-  // The chip sits on the line at the middle of the gap: the S-curve crosses the average of its two rows there.
   const gaps = graph.gaps.map((gap) => ({
     x: px((gap.x0 + gap.x1) / 2),
     y: Number(((rowY(gap.row, height) + rowY(gap.toRow, height)) / 2).toFixed(2)),

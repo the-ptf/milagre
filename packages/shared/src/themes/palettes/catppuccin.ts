@@ -25,7 +25,6 @@ type Flavor = Record<
   string
 >;
 
-// https://catppuccin.com/palette
 const latte: Flavor = {
   base: "#eff1f5",
   mantle: "#e6e9ef",

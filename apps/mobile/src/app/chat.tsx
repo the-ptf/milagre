@@ -53,7 +53,7 @@ import {
   pullRequestRefs,
   withPreview,
 } from "@milagre/shared/chats";
-import { runStatusLabel, sendStatusLabel } from "@milagre/shared/tool-activity";
+import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
@@ -69,7 +69,7 @@ import { composerQuote, quotedMessage, quoteSource, type ComposerQuote } from "@
 import { QuoteChips } from "../quote-chips";
 import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
-import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
+import { sameSession, useComposer, useMainSession, usePendingChats, useRunShape, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
@@ -102,7 +102,7 @@ import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanim
 import { ChatReply, type ReplyChat } from "../chat-reply";
 import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
-import { chosenDesign, designActivity } from "@milagre/shared/artifact";
+import { chosenDesign } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
@@ -208,7 +208,7 @@ import {
   SidebarToolbar,
   chatPaneMenu,
 } from "../chat-header";
-import { issueRunDivider, transcriptRows } from "../chat-transcript-rows";
+import { issueRunDivider, LiveReply, transcriptRows, useLiveSteps } from "../chat-transcript-rows";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -530,7 +530,7 @@ function ChatPane({
   useFocusEffect(readProjectGit);
   const mentionState = session.snapshot?.project.state;
   const mentionLink = session.snapshot?.project.link;
-  const liveRun = useRun(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
+  const liveRun = useRunShape(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
   useVisibleRunChatKeys(session.client, params.id && projectPath ? [`${projectPath}#${params.id}`] : []);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
@@ -683,8 +683,7 @@ function ChatPane({
   const prOpenThreads = pr && prDetail.pr?.state === "OPEN" && prDetail.pr.number === pr.number ? openThreads(prDetail.pr).length : 0;
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   const history = chatHistory(messages);
-  const liveSteps = liveRun?.steps;
-  const chatSteps = useMemo(() => (liveSteps?.length ? [...history.steps, ...liveSteps] : history.steps), [history.steps, liveSteps]);
+  const { liveSteps, onLiveSteps } = useLiveSteps();
   const chosen = useMemo(() => chosenDesign(history.userBodies), [history.userBodies]);
   const designChoice = chosen ? `${chosen.id}:${chosen.version}` : undefined;
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
@@ -952,7 +951,7 @@ function ChatPane({
         .then(() => session.expectActivity())
         .catch((e: Error) => setError(e.message));
     }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the counters are the trigger; the rest is read as it stands when one moves
   }, [compactRequests]);
   const planPanel = usePlanPanel(
     params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
@@ -1038,7 +1037,7 @@ function ChatPane({
           sent: pending.accepted,
           provider: pending.provider,
         })
-      : runStatusLabel(run?.steps);
+      : (run?.status ?? null);
   const heartbeat =
     chat && beating
       ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
@@ -1049,7 +1048,7 @@ function ChatPane({
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   const activity = chat ? chatActivity(chat, run) : undefined;
   const background = chat ? backgroundItems(chat, ports) : [];
-  const designsMoved = history.designActivity + designActivity(run?.steps ?? [], []);
+  const designsMoved = history.designActivity + (run?.designActivity ?? 0);
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
   const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode);
   const turn = turnTarget(composer.preferences[chatId], chat?.provider, composer.defaults);
@@ -2008,9 +2007,10 @@ function ChatPane({
   });
   const pendingInput = pending && pendingCanonicalId === null ? pending.preview.message : null;
   const liveReply = run ? (
-    <ChatReply
+    <LiveReply
       key="run"
-      run={run}
+      chatKey={chatId}
+      onSteps={onLiveSteps}
       media={media}
       basePath={worktree?.path || project.path}
       chatId={chatId}
@@ -2036,7 +2036,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={chatSteps}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={history.steps} liveSteps={liveSteps}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {!paired && <ChatStackOptions title={title} starting={startingChat} header={header} />}

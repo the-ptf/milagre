@@ -1,6 +1,3 @@
-// Edits to a project's saved state that the renderer asks for and the main process applies, the
-// only writer of each project's state (see project-states.cjs). Types: project-edits.d.mts.
-
 /** The state with one session changed; a field patched to undefined, false or "" is removed. Unchanged state is returned as is. */
 export function patchSession(state, sessionId, patch) {
   const session = state.sessions[sessionId];
@@ -8,7 +5,6 @@ export function patchSession(state, sessionId, patch) {
   const next = { ...session };
   for (const [field, value] of Object.entries(patch)) {
     if (!SESSION_FIELDS.has(field)) continue;
-    // The chat lists sort by it, so only a real number gets in.
     if ((field === "pin_order" || field === "done_at" || field === "snoozed_until") && value !== undefined && value !== false && !Number.isFinite(value))
       continue;
     if (value === undefined || value === false || value === "") delete next[field];
@@ -18,10 +14,9 @@ export function patchSession(state, sessionId, patch) {
   return { ...state, sessions: { ...state.sessions, [sessionId]: next } };
 }
 
-/** The session fields a patch may change; the renderer is untrusted input. */
 const SESSION_FIELDS = new Set(["title", "unread", "archived", "pinned", "pin_order", "done_at", "snoozed_until"]);
 
-/** Permanently removes one conversation, while keeping its Worktree and every other Chat. */
+/** Permanently removes one conversation, keeping its Worktree and every other Chat. */
 export function deleteSession(state, sessionId) {
   if (!state.sessions[sessionId]) return state;
   const sessions = { ...state.sessions };
@@ -42,7 +37,6 @@ export function withDiffStats(state, stats) {
   return worktrees === state.worktrees ? state : { ...state, worktrees };
 }
 
-/** The state with the worktree at `path` renamed, along with its chats still named after the old branch. */
 export function renameWorktree(state, { path, from, name }) {
   const worktree = Object.values(state.worktrees).find((item) => item.path === path && item.name === from);
   if (!worktree) return state;
@@ -59,10 +53,9 @@ export function renameWorktree(state, { path, from, name }) {
   };
 }
 
-/** Whether a subagent has ended, so "Archive finished" may hide it. */
 export const subagentFinished = (agent) => ["completed", "failed", "cancelled"].includes(agent.status);
 
-/** The state with one of a chat's subagents archived or brought back; archiving only hides it, the provider carries on. */
+/** The state with one of a chat's subagents archived or brought back; archiving only hides it. */
 export function archiveSubagent(state, sessionId, id, archived) {
   const session = state.sessions[sessionId];
   if (!session?.subagents?.some((agent) => agent.id === id)) return state;
@@ -75,7 +68,6 @@ export function archiveSubagent(state, sessionId, id, archived) {
   };
 }
 
-/** The state with a chat's finished subagents archived; unchanged state is returned as is. */
 export function archiveFinishedSubagents(state, sessionId, { keepAdvisors = false } = {}) {
   const session = state.sessions[sessionId];
   if (!session?.subagents?.some((agent) => !agent.archived && subagentFinished(agent) && !(keepAdvisors && agent.source === "milagre-advisor"))) return state;

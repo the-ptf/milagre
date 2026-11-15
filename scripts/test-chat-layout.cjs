@@ -279,7 +279,13 @@ async function browserChecks() {
     await waitFor("!!document.querySelector('[aria-label=\"Go to assistant message 55 of 55\"]')");
     assert.ok(await evaluate(`${distanceFromBottom} > 56`), "New messages preserve the position while reading earlier messages");
     await evaluate(`(${jumpButton}).click()`);
-    await waitFor(`${distanceFromBottom} <= 1 && !(${jumpButton})`);
+    // This wait timed out on Linux CI (11 of 107 runs, 2026-11) and never on a Mac: say where the jump stopped.
+    await waitFor(`${distanceFromBottom} <= 1 && !(${jumpButton})`).catch(async (error) => {
+      const where = await evaluate(
+        `(() => { const v = document.querySelector('[aria-label="Conversation"]'); return { scrollTop: v.scrollTop, scrollHeight: v.scrollHeight, clientHeight: v.clientHeight, jumpButton: !!(${jumpButton}) }; })()`,
+      );
+      throw new Error(`${error.message} ${JSON.stringify(where)}`);
+    });
     await evaluate("window.setMessageCount(60)");
     await waitFor(`!!document.querySelector('[aria-label="Go to assistant message 60 of 60"]') && ${distanceFromBottom} <= 1 && !(${jumpButton})`);
     await evaluate(readEarlier);

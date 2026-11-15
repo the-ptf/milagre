@@ -1,11 +1,5 @@
-// Subchats: a Chat a Delegation inside one Project reached keeps the requester's session id as `parent`
-// (AgentSession.parent, ChatHost.adoptSubchat). The Chat lists on desktop and phone nest it under its topmost ancestor
-// that is still listed. It opens alone, as any Chat does, with a bookmark back to the Chat above it (chatBookmark).
-
-/** A listed Chat's parent, by key (`<project>#<id>`), or undefined for a top-level Chat. */
 export type ParentOf = (key: string) => string | undefined;
 
-/** `<project>#<parent>` for a session that has one: subchats always share their parent's Project. */
 export function parentKey(key: string, parent: number | undefined): string | undefined {
   if (parent === undefined) return undefined;
   const hash = key.lastIndexOf("#");
@@ -34,10 +28,8 @@ export interface SubchatGroup<T> {
   depths: number[];
 }
 
-/** The sidebars indent a family this deep at most: anything further sits level with its parent. */
 export const MAX_SUBCHAT_DEPTH = 2;
 
-/** `children` of `root` in tree order, each after the listed Chat above it; siblings keep their order. */
 function treeOrder<T>(
   root: string,
   children: readonly T[],
@@ -70,7 +62,6 @@ function treeOrder<T>(
     }
   };
   walk(root, 1);
-  // A broken chain that loops never reaches `root`: its Chats stay in the family, directly under it.
   for (const child of children) {
     if (placed.has(keyOf(child))) continue;
     ordered.push(child);

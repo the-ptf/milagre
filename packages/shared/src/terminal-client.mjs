@@ -1,14 +1,9 @@
-// One viewer of a Terminal: reads its output in a loop and sends what the user types, in order. The desktop panel and
-// the phone's screen both drive their xterm through this.
-
 /**
- * Starts following a Terminal. `write(data)` appends output; `reset(data)` replaces everything shown; `ended()` runs
- * once when the shell is gone; `info(terminal)` gets the host's latest view of it. A failed read retries after
- * `retryMs`, so a viewer survives the host reconnecting.
- *
- * The next read waits for `write` and `reset` to settle when they return a promise: a viewer that has not drawn the
- * last output asks for no more, and one that falls behind the host's kept output is reset to its tail instead of
- * queueing everything a flood printed. `readLimit` caps how much one read carries.
+ * `reset(data)` replaces everything shown; `ended()` runs once when the shell is gone. A failed read retries after
+ * `retryMs`.
+ * The next read waits for `write` and `reset` to settle when they return a promise; a viewer that falls behind the
+ * host's kept
+ * output is reset to its tail. `readLimit` caps one read.
  */
 export function followTerminal({
   terminalId,
@@ -42,7 +37,7 @@ export function followTerminal({
         if (read.reset) await reset(read.data);
         else if (read.data) await write(read.data);
       } catch {
-        // The viewer dropped it (xterm refuses writes past its own queue); the next read goes on from what the host has.
+        // xterm refuses writes past its own queue.
       }
       if (stopped) return;
       offset = read.offset;
@@ -55,18 +50,14 @@ export function followTerminal({
     }
   }
 
-  // What the user types while a send is out is joined into the next one, so keys arrive in order and in few requests.
   async function flush() {
-    // `stop()` may run while a send is out; each turn checks it again.
     while (pending) {
       if (stopped) break;
       const data = pending;
       pending = "";
       try {
         await api.input({ terminalId, data });
-      } catch {
-        // The Terminal ended or the host is away; the read loop reports which.
-      }
+      } catch {}
     }
     sending = null;
   }
@@ -78,9 +69,7 @@ export function followTerminal({
       size = null;
       try {
         await api.resize({ terminalId, cols: next.cols, rows: next.rows });
-      } catch {
-        // As above.
-      }
+      } catch {}
     }
     sizing = null;
   }

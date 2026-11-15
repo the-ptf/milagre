@@ -4,8 +4,7 @@ const clamp = (value, maximum = 1) => Math.max(0, Math.min(maximum, value));
 const hex = (channels) => `#${channels.map((channel) => Math.round(clamp(channel, 255)).toString(16).padStart(2, "0")).join("")}`;
 const alpha = (value) => clamp(value?.endsWith("%") ? parseFloat(value) / 100 : Number(value ?? 1));
 
-// SVG 1.1 consumers do not all accept CSS's alpha hex, rgba or modern hsl syntax.
-// Keep the paint and its alpha separate so shape, text and ancestor opacity compose correctly.
+// SVG 1.1 consumers do not all accept CSS alpha hex, rgba or modern hsl, so paint and alpha stay separate.
 export function designPaint(value) {
   const source = value.trim();
   if (source.toLowerCase() === "transparent") return { color: "none", opacity: 1 };

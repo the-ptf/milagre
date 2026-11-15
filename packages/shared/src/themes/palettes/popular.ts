@@ -19,7 +19,6 @@ type Spec = {
   extra?: Partial<ThemeSource>;
 };
 
-/** Syntax per theme: plain = ink, comment = ink3, keyword = purple, string = green, number = orange, function = blue, type = yellow, tag = red, property = cyan. */
 function source(s: Spec): ThemeSource {
   return {
     page: s.page,

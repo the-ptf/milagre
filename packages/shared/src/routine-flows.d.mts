@@ -16,23 +16,18 @@ export const FLOW_LIMITS: Readonly<{
 
 export interface FlowStepType {
   kind: FlowStepKind;
-  /** The menu's name, "Open pull request". */
   name: string;
-  /** A tile's name, "Open PR". */
   short: string;
   description: string;
-  /** A Lucide icon name. */
   icon: string;
 }
 export const FLOW_STEP_TYPES: ReadonlyArray<FlowStepType>;
 
-/** A field a step can read, as `{{ref}}` in its texts or an If's field. */
 export interface FlowReadable {
   ref: string;
   label: string;
   type: FlowField["type"];
   choices?: string[];
-  /** The step that gives it, "Trigger" for the trigger's. */
   stepName: string;
 }
 

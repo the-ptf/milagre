@@ -1,5 +1,3 @@
-// The token usage page (desktop Usage page, phone Settings › Token usage): what the host's token-usage:read returns,
-// read from the Claude Code and Codex transcripts on that computer (packages/core/src/token-usage.cjs).
 import type { ModelProvider } from "./model.ts";
 
 export type TokenUsageRange = "24h" | "7d" | "30d" | "90d";
@@ -25,10 +23,9 @@ export interface TokenUsageDays {
   to: string;
 }
 
-/** Tokens and cost per provider. */
 export type TokenUsageSplit = Partial<Record<ModelProvider, { tokens: number; costUsd: number }>>;
 
-/** Token categories as prices split them. Input is uncached input; reasoning is part of output. */
+/** Token categories as prices split them: input is uncached input, reasoning is part of output. */
 export interface TokenCounts {
   input: number;
   cacheRead: number;
@@ -38,7 +35,6 @@ export interface TokenCounts {
 }
 
 export interface TokenUsageTotals extends TokenCounts {
-  /** Model requests (one per API call the agent made). */
   requests: number;
   /** Estimated API-equivalent cost of the priced tokens, in USD. */
   costUsd: number;
@@ -57,7 +53,6 @@ export interface TokenUsageBucket {
   providers: TokenUsageSplit;
 }
 
-/** One day of the calendar. */
 export interface TokenUsageDay {
   /** "2026-10-30", in the report's time zone. */
   key: string;
@@ -74,16 +69,14 @@ export interface TokenUsageModel {
 }
 
 export interface TokenUsageChat {
-  /** The Milagre Chat's id in its Project, Chats home or named Link, for a `chat`. */
   sessionId?: number;
   /**
-   * `chat`, an existing Chat in a Project, Chats home or named Link; `archived`, a session Milagre started that no Chat holds now (archived or
-   * deleted), titled from its transcript or Worktree; `outside`, a session started outside Milagre in the Project's
-   * folders; `folder`, under Outside Milagre, a folder no Project holds.
+   * `chat`: an existing Chat; `archived`: a session Milagre started that no Chat holds now, titled from its transcript
+   * or Worktree; `outside`: a session started outside Milagre in the Project's folders; `folder`: under Outside
+   * Milagre, a folder no Project holds.
    */
   kind: "chat" | "archived" | "outside" | "folder";
   title: string;
-  /** A folder's path (with ~), for a `folder`. */
   detail?: string;
   providers: ModelProvider[];
   totals: TokenUsageTotals;
@@ -103,7 +96,6 @@ export interface TokenUsageProject {
   count: number;
   /** Highest cost first, at most TOKEN_USAGE_TOP_CHATS. */
   chats: TokenUsageChat[];
-  /** The Chats and sessions past the top ones, together. */
   more?: { count: number; totals: TokenUsageTotals };
 }
 
@@ -128,7 +120,6 @@ export interface TokenUsageReport {
   providers: { provider: ModelProvider; totals: TokenUsageTotals }[];
   models: TokenUsageModel[];
   projects: TokenUsageProject[];
-  /** Projects past the top ones, together. */
   moreProjects?: { count: number; totals: TokenUsageTotals };
 }
 
@@ -188,8 +179,8 @@ export function formatMetric(metric: TokenUsageMetric, value: number) {
 }
 
 /**
- * Mark colors per provider: Claude orange and Codex blue, stepped to pass the categorical checks (lightness band,
- * colorblind separation, 3:1 on the surface) in light and dark themes alike. Text never wears them.
+ * Mark colors per provider, stepped to pass the categorical checks (lightness band, colorblind separation, 3:1 on the
+ * surface) in light and dark.
  */
 export const TOKEN_USAGE_PROVIDER_COLORS: Partial<Record<ModelProvider, string>> = { claude: "#D4704F", codex: "#6A86FF" };
 
@@ -199,7 +190,6 @@ export const TOKEN_USAGE_PROVIDERS: ModelProvider[] = ["claude", "codex"];
 /** Token categories drawn as one ink ramp, lightest for cache reads: how much ink each one mixes in, in %. */
 export const TOKEN_CATEGORY_INK: Record<keyof TokenUsageTotals["cost"], number> = { cacheRead: 22, cacheWrite: 45, input: 68, output: 90 };
 
-/** The value of a metric for totals or a provider split's entry. */
 export function metricOf(metric: TokenUsageMetric, totals: TokenUsageTotals) {
   return metric === "cost" ? totals.costUsd : tokenTotal(totals);
 }
@@ -221,7 +211,6 @@ export function periodLabel(report: Pick<TokenUsageReport, "range" | "days">) {
   return TOKEN_USAGE_RANGES.find((range) => range.value === report.range)?.label ?? "";
 }
 
-/** The calendar days the report covers, to draw at full strength. */
 export function coveredDays(report: Pick<TokenUsageReport, "calendar" | "since" | "until">) {
   const covered = new Set<string>();
   report.calendar.forEach((day, index) => {
@@ -232,8 +221,8 @@ export function coveredDays(report: Pick<TokenUsageReport, "calendar" | "since" 
 }
 
 /**
- * The calendar as week columns, Monday first: each column holds seven days or nulls before the first and after today.
- * `month` names the month a column starts, where it changes.
+ * The calendar as week columns, Monday first; each holds seven days or nulls before the first and after today. `month`
+ * names the month a column starts.
  */
 export function calendarWeeks(calendar: TokenUsageDay[]) {
   const weeks: { month?: string; days: (TokenUsageDay | null)[] }[] = [];
@@ -263,7 +252,7 @@ export function calendarWeeks(calendar: TokenUsageDay[]) {
 export function calendarLevels(calendar: TokenUsageDay[], metric: TokenUsageMetric) {
   const value = (day: TokenUsageDay) => (metric === "cost" ? day.costUsd : day.tokens);
   const busy = calendar.map(value).filter((v) => v > 0);
-  // oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh copy; Hermes on older phone builds lacks toSorted
+  // Hermes has no toSorted.
   busy.sort((a, b) => a - b);
   const cuts = [0.2, 0.4, 0.6, 0.8].map((q) => busy[Math.min(busy.length - 1, Math.floor(q * busy.length))] ?? 0);
   return new Map(
@@ -274,7 +263,6 @@ export function calendarLevels(calendar: TokenUsageDay[], metric: TokenUsageMetr
   );
 }
 
-/** The calendar's headline: its total, active days and busiest day. */
 export function calendarSummary(calendar: TokenUsageDay[], metric: TokenUsageMetric) {
   const value = (day: TokenUsageDay) => (metric === "cost" ? day.costUsd : day.tokens);
   let total = 0;

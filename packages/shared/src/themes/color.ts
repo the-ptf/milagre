@@ -56,7 +56,6 @@ export function oklchToHex({ l, c, h, alpha = 1 }: { l: number; c: number; h: nu
 }
 export const fromOklch = (l: number, c: number, h: number, alpha = 1) => oklchToHex({ l, c, h, alpha });
 
-/** `t` of the way from `a` to `b`, in OKLab so midpoints don't go muddy. */
 export function mix(a: string, b: string, t: number) {
   const x = toOklab(a);
   const y = toOklab(b);
@@ -74,7 +73,6 @@ export function over(color: string, background: string) {
   const blend = (f: number, b: number) => byte(f * fg.alpha + b * (1 - fg.alpha));
   return `#${blend(fg.r, bg.r)}${blend(fg.g, bg.g)}${blend(fg.b, bg.b)}`;
 }
-/** WCAG relative luminance; alpha is ignored. */
 export function luminance(hex: string) {
   const { r, g, b } = parse(hex);
   return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
@@ -87,8 +85,10 @@ export function contrastRatio(a: string, b: string) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** `color` with its OKLCH lightness moved toward `toward`'s only as far as it takes to reach `ratio` against every
- * background. Hue and chroma stay, so an orange stays orange instead of going brown. */
+/**
+ * Moves only OKLCH lightness toward `toward`'s, as far as it takes to reach `ratio` against every background; hue and
+ * chroma stay.
+ */
 export function readableOn(color: string, toward: string, backgrounds: readonly string[], ratio = 4.5) {
   const worst = (c: string) => Math.min(...backgrounds.map((bg) => contrastRatio(c, bg)));
   if (worst(color) >= ratio) return color;
@@ -104,5 +104,4 @@ export function readableOn(color: string, toward: string, backgrounds: readonly 
   return worst(at(hi)) >= ratio ? at(hi) : toward;
 }
 
-/** The better of white and `page` as text on `background`. */
 export const onColor = (background: string, page: string) => (contrastRatio("#ffffff", background) >= contrastRatio(page, background) ? "#ffffff" : page);

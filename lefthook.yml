@@ -4,6 +4,9 @@ pre-commit:
     lint:
       glob: "*.{js,jsx,ts,tsx,cjs,mjs}"
       run: npx oxlint {staged_files}
+    suppressions:
+      glob: "*.{js,jsx,ts,tsx,cjs,mjs,cts,mts}"
+      run: node scripts/check-suppressions.cjs {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx,cjs,mjs,cts,mts,json,md,yml,yaml,css}"
       exclude: ["package-lock.json"]

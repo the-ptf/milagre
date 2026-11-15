@@ -33,7 +33,6 @@ export function useCheckpoints(api: CheckpointApi, chatId: string) {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- invalidate in-flight work when the connection or Chat changes.
     [api, chatId],
   );
-  // Another Chat starts from nothing: its checkpoints, closed.
   useEffect(
     () => {
       // oxlint-disable-next-line react/set-state-in-effect -- the state belongs to the connection and Chat that just changed.
@@ -65,7 +64,6 @@ export function useCheckpoints(api: CheckpointApi, chatId: string) {
       }
     }
   }
-  /** The Chat's checkpoints, quietly: the transcript's undo buttons follow them. */
   const reload = useCallback(async () => {
     const current = generation.current;
     try {
@@ -117,7 +115,6 @@ export function useCheckpoints(api: CheckpointApi, chatId: string) {
         try {
           return await api.restore({ chatId, token: preview.token, decisions, approved: true });
         } catch (failure) {
-          // Files changed since the preview: show the new state instead of writing over it.
           if (failure instanceof Error && /preview again/i.test(failure.message)) {
             outcome.stale = true;
             return null;
@@ -156,7 +153,6 @@ export function useCheckpoints(api: CheckpointApi, chatId: string) {
     back,
     close,
     restore,
-    /** Conflicts still waiting for Keep current or Undo. */
     conflicts,
     restoreCount,
     resolved: !!preview && conflicts === 0,

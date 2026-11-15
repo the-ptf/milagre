@@ -31,7 +31,7 @@ export const SIDEBAR_SIZES = [
   { id: "larger", label: "Larger", delta: 2 },
 ];
 
-/** Desktop chat text. Default 14 at a 1.6 line (decided 2026-10-28); each step is one px up to Larger. */
+/** Desktop chat text; each step is one px up to Larger. */
 export const CHAT_SIZES = [
   { id: "small", label: "Small", px: 13 },
   { id: "default", label: "Default", px: 14 },
@@ -61,8 +61,8 @@ export const SIDEBAR_USAGE_MODES = [
 ];
 
 /**
- * The One list's Chat rows: Classic leads with the Project's icon; Title first (design "Alt A", status on the edge) puts
- * the title first with the Chat's state at its right edge and the Project, computer and PR on line two.
+ * Classic leads with the Project's icon; Title first puts the title first with the Chat's state at its right edge and
+ * the Project, computer and PR on line two.
  */
 export const SIDEBAR_ROW_STYLES = [
   { id: "classic", label: "Classic" },

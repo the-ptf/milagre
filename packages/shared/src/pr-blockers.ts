@@ -14,10 +14,6 @@ type BlockerStatus = {
 
 export type { PullRequestBlocker } from "./model.ts";
 
-/**
- * Most urgent first: conflicts must be fixed before a branch can be updated, and both before review lands.
- * Failed CI comes before an outdated branch, since updating the branch reruns the checks anyway.
- */
 const ORDER: PullRequestBlocker[] = ["conflicts", "changes-requested", "checks-failed", "behind"];
 
 export const BLOCKERS: Record<PullRequestBlocker, { short: string; long: string; action: string; tone: "red" | "orange" }> = {
@@ -35,7 +31,6 @@ function blocks(pr: BlockerStatus, blocker: PullRequestBlocker) {
   return Boolean(pr.changesRequested);
 }
 
-/** A false flag only proves the blocker is gone when GitHub actually computed the merge state. */
 function clears(pr: BlockerStatus, blocker: PullRequestBlocker) {
   if (pr.state !== "OPEN") return true;
   if (blocks(pr, blocker)) return false;
@@ -46,10 +41,6 @@ export function pullRequestBlockers(pr: BlockerStatus | null | undefined): PullR
   return pr ? ORDER.filter((blocker) => blocks(pr, blocker)) : [];
 }
 
-/**
- * The same PR badge status, color and label everywhere a PR shows: the chat lists, the Chat header, the PR tabs.
- * Merged is purple and closed grey; an open PR shows its first blocker, then draft, ready or running CI, else plain open.
- */
 export function pullRequestPresentation(pr: BlockerStatus & { readyToMerge?: boolean; isDraft?: boolean }) {
   const blocker = pullRequestBlockers(pr)[0];
   const merged = pr.state === "MERGED";
@@ -61,7 +52,6 @@ export function pullRequestPresentation(pr: BlockerStatus & { readyToMerge?: boo
   const tone = merged ? "purple" : closed || draft ? "ink3" : blocker ? BLOCKERS[blocker].tone : checking ? "orange" : "green";
   const icon = merged ? "merged" : closed ? "closed" : draft ? "draft" : ready ? "ready" : checking ? "checking" : "open";
   const label = merged ? "Merged" : closed ? "Closed" : blocker ? BLOCKERS[blocker].short : draft ? "Draft" : ready ? "Ready" : checking ? "CI running" : "";
-  /** The tooltip and spoken words: "Draft pull request #12", "CI checks failed · Pull request #12". */
   const description = merged
     ? `Merged pull request #${pr.number ?? ""}`
     : closed
@@ -75,7 +65,6 @@ export function pullRequestPresentation(pr: BlockerStatus & { readyToMerge?: boo
             : checking
               ? `CI checks running · Pull request #${pr.number ?? ""}`
               : `Open pull request #${pr.number ?? ""}`;
-  /** What a screen reader says after "Open": "merged pull request #12", "pull request #12, ci failed". */
   const spoken = `${merged ? "merged " : closed ? "closed " : draft ? "draft " : ""}pull request #${pr.number ?? ""}${
     blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : ready ? ", ready to merge" : checking ? ", CI running" : ""
   }`;
@@ -83,8 +72,6 @@ export function pullRequestPresentation(pr: BlockerStatus & { readyToMerge?: boo
 }
 
 export type PullRequestTone = ReturnType<typeof pullRequestPresentation>["tone"];
-/** A PR tone as palette keys, the same on both apps: the icon in the fill color, the label in its -ink shade. The
- * number beside them stays ink2. Purple is Ultracode's brand purple (ULTRACODE_PURPLE in ./themes). */
 export const PR_TONE = {
   ink3: { icon: "ink3", label: "ink3" },
   green: { icon: "green", label: "greenInk" },
@@ -93,15 +80,12 @@ export const PR_TONE = {
   purple: { icon: "purple", label: "purpleInk" },
 } as const satisfies Record<PullRequestTone, { icon: string; label: string }>;
 
-/** The pill after a PR's number in its header: Draft, Merged or Closed; an open PR ready for review has none. Fill and
- * label are palette keys; the pill is full-round, 11 semibold. */
 export function pullRequestStatePill(pr: { state: string; isDraft?: boolean }) {
   if (pr.state === "MERGED") return { label: "Merged", fill: "purpleTint", ink: "purpleInk" } as const;
   if (pr.state === "CLOSED") return { label: "Closed", fill: "redTint", ink: "redInk" } as const;
   return pr.isDraft ? ({ label: "Draft", fill: "hover", ink: "ink2" } as const) : null;
 }
 
-/** The auto-merge button's words once it is armed. */
 export const AUTO_MERGE_LABEL = "Merges when ready";
 
 /** Blocked PRs first, then other open PRs, then merged ones, then closed ones; retain creation order within each group. */
@@ -113,10 +97,7 @@ export function rowPullRequests(prs: PullRequest[]): PullRequest[] {
     .map(({ pr }) => pr);
 }
 
-/**
- * The composer's PR action: the first blocker among the PRs the Chat's row shows, in the row's order, that the agent
- * isn't already fixing. Reading the row's list keeps the action and the row's status about the same PRs.
- */
+/** The first blocker among the PRs the Chat's row shows, in the row's order, that the agent isn't already fixing. */
 export function pullRequestAction(prs: PullRequest[], dismissed: string[] = []): { pr: PullRequest; blocker: PullRequestBlocker } | null {
   for (const pr of rowPullRequests(prs)) {
     const blocker = pullRequestBlockers(pr).find((candidate) => !isBlockerDismissed(dismissed, candidate, pr));
@@ -131,10 +112,6 @@ export function isBlockerDismissed(dismissed: string[], blocker: PullRequestBloc
   return dismissed.includes(key(blocker, pr.url));
 }
 
-/**
- * Once the agent is asked to fix a blocker, its action stays hidden through refreshes and failed lookups,
- * and comes back only after GitHub confirms that blocker cleared and it then recurs.
- */
 export function updateBlockerDismissals(dismissed: string[], pr: BlockerStatus | null, clicked?: PullRequestBlocker): string[] {
   if (!pr) return dismissed;
   if (clicked) {

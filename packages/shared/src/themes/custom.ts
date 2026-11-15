@@ -3,7 +3,6 @@ import { contrastRatio, fromOklch, hexToOklch, mix } from "./color.ts";
 import { getTheme } from "./registry.ts";
 import type { CustomTheme, ThemeId, ThemeSeeds, ThemeSource } from "./types.ts";
 
-/** A status hue at a lightness that reads on this background: lighter on dark backgrounds, darker on light ones, judged by the background itself. */
 function status(hue: number, chroma: number, background: string) {
   const bgL = hexToOklch(background).l;
   const lighter = bgL < 0.5;
@@ -76,7 +75,6 @@ export function parseCustomTheme(value: unknown): CustomTheme | null {
 
 export const serializeCustomTheme = (theme: CustomTheme) => JSON.stringify(theme, null, 2);
 
-/** Page, ink and accent of a registered theme, for "Start from". */
 export function seedsFrom(id: ThemeId): CustomTheme {
   const theme = getTheme(id)!;
   const seeds = (src: ThemeSource) => ({ background: src.page, text: src.ink, accent: src.accent });

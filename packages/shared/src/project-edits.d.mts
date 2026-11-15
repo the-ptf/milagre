@@ -13,7 +13,6 @@ export type SessionPatch = Partial<Pick<AgentSession, "title" | "unread" | "arch
   kept?: true;
 };
 
-/** A new worktree's branch, renamed from its prompt's first words to the name picked for its chat. */
 export type WorktreeRename = { projectPath: string; path: string; from: string; name: string };
 
 export function patchSession(state: CoordinatorState, sessionId: number, patch: SessionPatch & Pick<AgentSession, "done_at">): CoordinatorState;

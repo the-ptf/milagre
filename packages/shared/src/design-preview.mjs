@@ -1,4 +1,3 @@
-/** Strip sources an image renderer cannot draw, preserving the design's grey image placeholder. */
 export function designImageDocument(document, keep = (src) => src.startsWith("data:")) {
   return {
     ...document,
@@ -10,8 +9,7 @@ export function designImageDocument(document, keep = (src) => src.startsWith("da
   };
 }
 
-// SVG images cannot load catalog fonts. Keep explicit generic stacks, including monospace, and give catalog-only
-// families a sans-serif fallback rather than the SVG default serif. Quoted family names aren't generic keywords.
+// SVG images cannot load catalog fonts: keep generic stacks and give catalog-only families a sans-serif fallback.
 const generic = /^(?:serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|emoji|math|fangsong)$/i;
 export function designPreviewDocument(document) {
   const copy = designImageDocument(document);
@@ -19,8 +17,6 @@ export function designPreviewDocument(document) {
   for (let index = 0; index < copy.nodes.length; index++) {
     const node = copy.nodes[index];
     if (node.type !== "text" || !node.fontFamily || node.fontFamily.split(",").some((family) => generic.test(family.trim()))) continue;
-    // Preserve the schema limits too. Omitting an unavailable family uses designSvg's default Inter/Arial/sans-serif
-    // stack, and makes a near-limit document smaller instead of forcing it back to a live iframe.
     characters ??= JSON.stringify(copy).length;
     const suffix = ", sans-serif";
     if (node.fontFamily.length + suffix.length > 160 || characters + suffix.length > 1000000) {
