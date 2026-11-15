@@ -19,10 +19,8 @@ const ALLOWED: Record<string, string[]> = {
     // Triage an issue diagnoses this Mac's own host, as New chat opens on this Mac.
     "prepareTriage",
     "getAppVersion",
-    "onAccountsChanged",
     "listRecentProjects",
     "onQuitFailed",
-    "updateCli",
     "getCurrentProject",
     "onRuntimeConnection",
     "getRuntimeConnection",
@@ -47,6 +45,7 @@ const ALLOWED: Record<string, string[]> = {
   "app/useAppDialogs.ts": ["listRecentProjects"],
   "app/useAppShortcuts.ts": ["onAppShortcut"],
   "app/StartupScreens.tsx": ["restartHost", "retryQuit"],
+  "app/useModelSelection.ts": ["onAccountsChanged", "updateCli"],
   "components/AddProjectDialog.tsx": ["openProject", "chooseFolder"],
   "components/FloatingInbox.tsx": [
     "getFloatingInboxOpen",

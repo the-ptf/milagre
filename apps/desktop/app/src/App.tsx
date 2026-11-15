@@ -14,6 +14,8 @@ import { useAppDialogs } from "./app/useAppDialogs";
 import { useAppShortcuts, useJumpToChat } from "./app/useAppShortcuts";
 import { useFindInChat } from "./app/useFindInChat";
 import { useChatLayout } from "./app/useChatLayout";
+import { useModelSelection } from "./app/useModelSelection";
+import { usePrPanel } from "./app/usePrPanel";
 import { ChatApproval, PermissionCard, approvalShown, type ChatApprovalProps } from "./app/ChatApproval";
 import { ChooseProjectScreen, HostNotices, QuitErrorDialog, StartupErrorScreen } from "./app/StartupScreens";
 import { WorkspaceSlots } from "./app/WorkspaceSlots";
@@ -37,8 +39,6 @@ import { reportChatAction } from "./lib/chat-action";
 import { confirmHeldState, isLean, numberedState, seedHeldState, stateEvents } from "./lib/state-events";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { cliName } from "@milagre/shared/providers";
-import { requiredCliVersion } from "./lib/cli-status";
 import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type SetStateAction } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -47,8 +47,6 @@ import {
   AgentSession,
   CoordinatorState,
   Isolation,
-  MODEL_CATALOG,
-  ModelOption,
   ModelProvider,
   OpenProject,
   PermissionDecision,
@@ -56,8 +54,6 @@ import {
   QuestionImages,
   PermissionMode,
   PullRequestActionContext,
-  AgentCliStatus,
-  AgentModels,
   capabilityFor,
   effortFor,
   sessionForWorktree,
@@ -85,7 +81,7 @@ import { attachmentPrompt } from "./lib/media";
 import { BLOCKERS, pullRequestAction, rowPullRequests } from "./lib/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
-import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
+import { providerForId, resolveModel } from "./lib/models";
 import { chatMark, chatTitle, fullChatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import type { SessionPatch } from "@milagre/shared/project-edits";
 import { patchChatShowingDone } from "./lib/done-pending.ts";
@@ -98,18 +94,10 @@ import { setKeyContext } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
-import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
 import { DiffToolbar, useDiffPreferences, useDiffPresence } from "./components/changes/DiffPrefs";
-import { useChanges } from "./components/changes/useChanges";
-import { useLocalChanges, usePullRequest } from "./components/changes/usePullRequest";
-import type { PullRequestPanelActions } from "./components/changes/PullRequestPanel";
-import type { ThreadActions } from "./components/changes/PullRequestReview";
-import type { PrDiffReview } from "./components/changes/DiffView";
 import { PullRequestOpenContext } from "./components/sidebar/ChatRow";
-import { prRange, threadFixMessage } from "./lib/pull-request-view";
-import type { DiffSelection } from "./lib/diff-comments";
-import { openThreads, type PullRequestThread, type ReviewEvent } from "@milagre/shared/pull-request-review";
+import { openThreads } from "@milagre/shared/pull-request-review";
 import { gitChatContext } from "./lib/git-dialog";
 import { useWorktreePullRequests } from "./components/useWorktreePullRequests";
 import { useLinear } from "./components/useLinear";
@@ -130,7 +118,7 @@ import { chatRevealPath } from "./lib/reveal";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
-import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
+import { getSettings, toggleTheme, useApplyTheme, useSettings } from "./lib/settings";
 import { pinChat, useChatPins } from "./lib/chat-pins";
 import { keepsOnPin, sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
@@ -207,7 +195,6 @@ function latestSessionId(state: CoordinatorState) {
 }
 
 // How long a scope's model lists and CLI status, and its branches, count as current: a switch back within it reads none again.
-const PROVIDERS_FRESH_MS = 60_000;
 const BRANCHES_FRESH_MS = 60_000;
 /** A PR's state in a word, for the Details panel's Links. */
 function prStateWord(pr: { state?: string; isDraft?: boolean } | undefined) {
@@ -242,16 +229,6 @@ type PendingSend = PendingChat & {
   provider?: ModelProvider;
 };
 const NO_WORKTREE = -1;
-// The model picked in each open chat, by chat key.
-const CHAT_MODELS_KEY = "milagre.chatModels";
-function readChatModels(): Record<string, string> {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(CHAT_MODELS_KEY) ?? "{}");
-    return saved && typeof saved === "object" ? (saved as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
 type PreparedSendTarget = { view: number; projectPath: string; sessionId: number | null; worktreeId: number };
 type FailedSend = PendingSend & { draft: string; error: string; target: PreparedSendTarget | null };
 
@@ -308,9 +285,6 @@ function App() {
   }
   // Catches a project change that did not go through the setter above.
   useLayoutEffect(() => draftStore.select(draftKey(project?.path ?? "", selectedSessionId)), [project?.path, selectedSessionId]);
-  const [selectedModel, setSelectedModel] = useState<ModelOption>(() =>
-    resolveModel(MODEL_CATALOG, getSettings().defaultModelId, providerForId(getSettings().defaultModelId)),
-  );
   const accountScope = selectedLink ? `milagre-link:${selectedLink.link.id}` : project?.path;
   // A Chats home's account is shared by every Chat without a Project on its computer; the usage card says so.
   const accountScopeIsHome = !selectedLink && isChatsHomeProject(project);
@@ -322,112 +296,6 @@ function App() {
   const setUltracode = composerPrefs.setUltracode;
   const fastMode = composerPrefs.fastMode;
   const setFastMode = composerPrefs.setFastMode;
-  // The agents' own model lists; the maintained list stands in until they arrive, and for a missing CLI.
-  const accountScopeRef = useRef(accountScope);
-  accountScopeRef.current = accountScope;
-  const accountGeneration = useRef(0);
-  const [loadedAccountScope, setLoadedAccountScope] = useState<string | undefined>(undefined);
-  const [rawReported, setReported] = useState<AgentModels | null>(null);
-  const reported = loadedAccountScope === accountScope ? rawReported : null;
-  const models = useMemo(() => mergeModels(reported, MODEL_CATALOG), [reported]);
-  // Whether each agent's CLI is missing, outdated, broken or logged out, for the model picker. Loaded at
-  // startup and again each time the picker opens, so a fix shows without a restart.
-  const [rawCliStatus, setCliStatus] = useState<AgentCliStatus | null>(null);
-  // The model lists come along: the main process keeps a good list for the run but asks again for an agent
-  // that had none (a CLI that was missing, or Claude Code before it was logged in).
-  const cliStatus = loadedAccountScope === accountScope ? rawCliStatus : null;
-  const refreshCliStatus = () => {
-    const generation = ++accountGeneration.current;
-    const live = () => generation === accountGeneration.current && accountScopeRef.current === accountScope;
-    // A refetch that changed nothing keeps the old objects, so opening the picker doesn't re-render the app or
-    // re-apply anything that depends on the lists.
-    void bridgeForKey(accountScope)
-      .getCliStatus(accountScope)
-      .then((next) => {
-        if (live()) {
-          setLoadedAccountScope(accountScope);
-          setCliStatus((previous) => keepIfSame(previous, next));
-          if (accountScope)
-            providerCache.current.set(accountScope, {
-              ...(providerCache.current.get(accountScope) ?? { reported: null }),
-              cliStatus: next,
-              cliStatusAt: Date.now(),
-            });
-        }
-      })
-      .catch(() => undefined);
-    void bridgeForKey(accountScope)
-      .getModels(accountScope)
-      .then((next) => {
-        if (live()) {
-          setLoadedAccountScope(accountScope);
-          setReported((previous) => keepIfSame(previous, next));
-          if (accountScope)
-            providerCache.current.set(accountScope, {
-              ...(providerCache.current.get(accountScope) ?? { cliStatus: null }),
-              reported: next,
-              reportedAt: Date.now(),
-            });
-        }
-      })
-      .catch(() => undefined);
-  };
-  // Each Project's or Link's last model lists and CLI status, with when each was read: switching back shows them at once,
-  // and reads them again (a provider CLI on the scope's computer) only once they are older than PROVIDERS_FRESH_MS. The
-  // picker's open, a CLI update and an accounts change read them at once.
-  const providerCache = useRef(
-    new Map<string, { reported: AgentModels | null; cliStatus: AgentCliStatus | null; reportedAt?: number; cliStatusAt?: number }>(),
-  );
-  // A CLI updated, or a sign-in that failed, changes the status every scope shows: each reads it again when next shown.
-  const staleProviders = () => {
-    for (const [scope, entry] of providerCache.current) providerCache.current.set(scope, { reported: entry.reported, cliStatus: entry.cliStatus });
-  };
-  useEffect(() => {
-    const reset = (dropCache: boolean) => {
-      if (dropCache) providerCache.current.clear();
-      const hit = accountScope ? providerCache.current.get(accountScope) : undefined;
-      setReported(hit?.reported ?? null);
-      setCliStatus(hit?.cliStatus ?? null);
-      if (hit) setLoadedAccountScope(accountScope);
-      const fresh = (at: number | undefined) => at !== undefined && Date.now() - at < PROVIDERS_FRESH_MS;
-      if (!hit || !fresh(hit.reportedAt) || !fresh(hit.cliStatusAt)) refreshCliStatus();
-    };
-    reset(false);
-    const off = window.milagre.onAccountsChanged?.(() => reset(true));
-    return () => {
-      accountGeneration.current++;
-      off?.();
-    };
-  }, [accountScope]);
-  const capabilities = useMemo(() => capabilitiesFrom(reported), [reported]);
-  // The Settings default applies once, when the agents' lists first arrive, if the user hasn't picked a model
-  // and the open chat isn't on the other agent. After that a model the agents don't offer only gives way to
-  // its provider's recommended model (see nextSelection).
-  const pickedModel = useRef(false);
-  const appliedDefault = useRef(false);
-  const preferredProviderRef = useRef<ModelProvider | undefined>(undefined);
-  useEffect(() => {
-    const applyDefault = reported !== null && !appliedDefault.current && !pickedModel.current;
-    if (reported !== null) appliedDefault.current = true;
-    setSelectedModel((current) =>
-      nextSelection(models, current, { defaultId: getSettings().defaultModelId, applyDefault, preferredProvider: preferredProviderRef.current }),
-    );
-  }, [models]);
-  // A pick in an open chat stays with that chat (a Link's composer names its chat); on a new-chat screen it becomes the default.
-  const chatModels = useRef<Record<string, string>>(readChatModels());
-  const chooseModel = (model: ModelOption, linkChat?: string | null) => {
-    pickedModel.current = true;
-    setSelectedModel(model);
-    const sessionId = selectedSessionRef.current;
-    const chat = selectedLinkRef.current ? linkChat : sessionId !== null && projectRef.current ? chatKey(projectRef.current.path, sessionId) : null;
-    if (!chat) {
-      updateSettings({ defaultModelId: model.id });
-      return;
-    }
-    chatModels.current = { ...chatModels.current, [chat]: model.id };
-    localStorage.setItem(CHAT_MODELS_KEY, JSON.stringify(chatModels.current));
-  };
-  const selectedCapability = capabilityFor(selectedModel, capabilities);
   const [view, setView] = useState<"chat" | "canvas" | "routines">("chat");
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -467,39 +335,22 @@ function App() {
   const [quitError, setQuitError] = useState<string | null>(null);
   useEffect(() => window.milagre.onQuitFailed?.(setQuitError), []);
   const [notice, setNotice] = useState<string | null>(null);
-  const [updatingCli, setUpdatingCli] = useState<ModelProvider | null>(null);
-
-  const refreshCliStatusRef = useRef(refreshCliStatus);
-  refreshCliStatusRef.current = refreshCliStatus;
-  const updateCli = async (provider: ModelProvider) => {
-    setUpdatingCli(provider);
-    try {
-      // The picker status says which release this Milagre needs. Keep it through IPC so a Codex update that leaves
-      // an older executable first on PATH cannot be reported as successful.
-      const result = await window.milagre.updateCli(provider, requiredCliVersion(cliStatus?.[provider]));
-      // Updating the CLI is global; read authentication and models for the scope open now, and for the others when shown.
-      staleProviders();
-      refreshCliStatusRef.current();
-      if (result.ok) {
-        setNotice(`${cliName(provider)} updated to version ${result.version ?? "latest"} successfully!`);
-      } else {
-        setNotice(result.error ?? `Failed to update ${cliName(provider)}.`);
-      }
-    } catch (error) {
-      setNotice(`Error updating ${cliName(provider)}: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setUpdatingCli(null);
-    }
-  };
-  // Every finished message card gets this (an outdated CLI's reply shows an Update button), so it keeps one identity
-  // across renders: a new function per keystroke or streamed batch would re-render the whole transcript (see sendRecommendation).
-  const updateCliRef = useRef(updateCli);
-  updateCliRef.current = updateCli;
-  const handleUpdateCli = useCallback((provider: ModelProvider) => updateCliRef.current(provider), []);
-  const handleProvidersUpdated = useCallback(() => {
-    staleProviders();
-    refreshCliStatusRef.current();
-  }, []);
+  const {
+    selectedModel,
+    setSelectedModel,
+    models,
+    capabilities,
+    selectedCapability,
+    cliStatus,
+    refreshCliStatus,
+    staleProviders,
+    preferredProviderRef,
+    chatModels,
+    chooseModel,
+    updatingCli,
+    handleUpdateCli,
+    handleProvidersUpdated,
+  } = useModelSelection({ accountScope, selectedSessionRef, selectedLinkRef, projectRef, setNotice });
 
   useEffect(() => {
     if (!notice) return;
@@ -778,33 +629,16 @@ function App() {
   const linear = useLinear();
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
   const sidePanels = useSidePanels();
-  // The PR the open Chat's branch opened: the Changes panel's "PR #n" mode and its diff.
-  const branchPr = showGit && selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
-  const prChatKey = project && selectedSession ? chatKey(project.path, selectedSession.id) : null;
-  const [prWanted, setPrWanted] = useState(false);
-  // A PR picked in the panel's menu (or opened from a row's PR chip), over the branch's own, while its Chat is open.
-  const [prPick, setPrPick] = useState<{ chat: string; number: number } | null>(null);
-  // The PR the Chat's row shows first (its latest open PR), as the phone opens on; set below, where the row's PRs are read.
-  const [rowPr, setRowPr] = useState<{ chat: string; number: number } | null>(null);
-  const prNumber = prPick && prPick.chat === prChatKey ? prPick.number : rowPr && rowPr.chat === prChatKey ? rowPr.number : branchPr?.number;
-  // Read while the panel shows it, and while its Chat is open so the composer's Review pill counts open threads.
-  const prReview = usePullRequest({
-    cwd: selectedWorktree?.path,
-    number: prNumber,
-    active: prWanted || (view === "chat" && Boolean(selectedSession && selectedWorktree && prNumber)),
-    bridge: bridgeForKey(prChatKey),
-  });
-  const changes = useChanges({
-    cwd: selectedWorktree?.path,
-    base: selectedWorktree?.base,
-    chatId: prChatKey,
-    available: view === "chat" && showGit && Boolean(selectedSession && selectedWorktree),
-    pullRequest: prNumber ? { number: prNumber, range: prRange(prReview.pr) } : undefined,
-  });
-  const prShown = changes.open && changes.mode === "pr";
-  const localChanges = useLocalChanges({ cwd: selectedWorktree?.path, active: prShown, bridge: bridgeForKey(prChatKey) });
-  useEffect(() => setPrWanted(prShown), [prShown]);
-  const diffComments = useDiffComments(project && selectedSession ? chatKey(project.path, selectedSession.id) : null, changes);
+  const { branchPr, prChatKey, setPrPick, setRowPr, prNumber, prReview, changes, prShown, localChanges, diffComments, prDiffReview, prPanelActions } =
+    usePrPanel({
+      showGit,
+      projectPath: project?.path,
+      selectedSession,
+      selectedWorktree,
+      chatView: view === "chat",
+      branchPullRequests: pullRequests,
+      sendPrToChat: (text) => sendPrToChat(text),
+    });
   const diffPrefs = useDiffPreferences();
   const diffPresence = useDiffPresence(changes.diffOpen);
   const changesAvailable = view === "chat" && showGit && Boolean(selectedSession && selectedWorktree);
@@ -2267,62 +2101,6 @@ function App() {
     changes.closeDiff();
     void executeSend(text, permissionMode, [], [], true);
   });
-  const prThreadActions = useMemo<ThreadActions>(
-    () => ({
-      reply: async (thread, body) => (await latestPr.current.write("reply", (pr, cwd, number) => pr.reply({ cwd, number, threadId: thread.id, body }))).ok,
-      resolve: (thread, resolved) =>
-        void latestPr.current.write(
-          "resolve",
-          (pr, cwd) => pr.resolveThread({ cwd, threadId: thread.id, resolved }),
-          (current) => ({ ...current, threads: current.threads.map((entry) => (entry.id === thread.id ? { ...entry, resolved } : entry)) }),
-        ),
-      deleteComment: (commentId) =>
-        void latestPr.current.write(
-          "delete",
-          (pr, cwd) => pr.deleteComment({ cwd, commentId }),
-          (current) => ({
-            ...current,
-            threads: current.threads
-              .map((thread) => ({ ...thread, comments: thread.comments.filter((comment) => comment.id !== commentId) }))
-              .filter((thread) => thread.comments.length > 0),
-          }),
-        ),
-      fixInChat: (thread: PullRequestThread) => {
-        const pr = latestPr.current.pr;
-        if (pr) sendPrToChat(threadFixMessage(pr, thread));
-      },
-    }),
-    [sendPrToChat],
-  );
-  const latestPr = useRef(prReview);
-  latestPr.current = prReview;
-  const addToReview = useEvent(
-    (selection: DiffSelection, path: string, body: string) =>
-      void prReview.write("comment", (pr, cwd, number) =>
-        pr.comment({
-          cwd,
-          number,
-          path,
-          line: selection.end,
-          startLine: selection.start < selection.end ? selection.start : undefined,
-          side: selection.side === "old" ? "LEFT" : "RIGHT",
-          body,
-        }),
-      ),
-  );
-  const submitPrReview = useEvent(
-    async (event: ReviewEvent, body: string) => (await prReview.write("submit", (pr, cwd, number) => pr.submitReview({ cwd, number, event, body }))).ok,
-  );
-  const prDiffReview: PrDiffReview | undefined =
-    changes.mode === "pr" && prReview.pr
-      ? { pr: prReview.pr, threadActions: prThreadActions, addToReview, submit: submitPrReview, error: prReview.writeError }
-      : undefined;
-  const prPanelActions = useMemo<PullRequestPanelActions>(
-    () => ({
-      openFile: (path) => changes.selectFile(path),
-    }),
-    [changes.selectFile],
-  );
   // A sidebar row's PR chip: the Chat's own PR opens in its panel; any other PR (or another computer's) on GitHub.
   const openRowPullRequest = useEvent((item: { id: string; details?: { path?: string } }, pr: { number: number }) => {
     const path = item.details?.path;
