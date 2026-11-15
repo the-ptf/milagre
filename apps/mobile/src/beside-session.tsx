@@ -6,6 +6,8 @@ import { AppState } from "react-native";
 import { allComputers } from "./all-computers";
 import { createClient, type Client, type Snapshot } from "./client";
 import { syncProject } from "./live";
+import { mergeRunsReply } from "./runs-reply";
+import { visibleRunChats, watchVisibleRunChats } from "./visible-run-chats";
 import { relayRuntime } from "./relay-native";
 import { SessionScope, useMainSession, useRetireCaughtUp, type Session } from "./session";
 import { closeBeside, openBeside, type BesideChat } from "./split-chats";
@@ -96,12 +98,12 @@ function useProjectSession(main: Session, target: BesideChat | null): Session | 
   const refreshRuns = useCallback(async () => {
     const current = run.current;
     if (!client || !path || !current || !opened.current) return;
-    const runs = await client.runs(path);
+    const runs = await client.runs(path, visibleRunChats(client, path));
     if (current !== run.current) return;
     // A snapshot that landed meanwhile may already hold later runs.
     setHeld((previous) =>
-      previous?.client === client && previous.path === path && (runs.seq ?? 0) >= (previous.snapshot.runs.seq ?? 0)
-        ? { ...previous, snapshot: reconcileState(previous.snapshot, { ...previous.snapshot, runs }) }
+      previous?.client === client && previous.path === path
+        ? { ...previous, snapshot: reconcileState(previous.snapshot, { ...previous.snapshot, runs: mergeRunsReply(previous.snapshot.runs, runs) }) }
         : previous,
     );
     setError("");
@@ -157,6 +159,7 @@ function useProjectSession(main: Session, target: BesideChat | null): Session | 
       connect: (options) => client.live(path, options),
       snapshot: refresh,
       runs: refreshRuns,
+      watchRuns: (listener) => watchVisibleRunChats(client, path, listener),
       accounts: () => void refreshProviders(),
       ...(sameHost ? {} : { designs: () => void refreshDesigns(), liveStatus: connectionChanged }),
       onError: (failure) => setError(failure.message),

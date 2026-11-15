@@ -684,11 +684,20 @@ a {
   inherits: false;
   initial-value: 0px;
 }
+/* The mask is on only while an edge fades. A mask is an offscreen pass every frame even when fully opaque (the sidebar
+ * list showed it as GPU memory, scripts/perf). Leaving the last fade, it goes after the 180ms fade-out (a discrete
+ * transition delayed that long), so nothing snaps; arriving, it is on at once. */
 .scroll-fade {
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
+  mask-image: none;
   transition:
     --fade-top 180ms ease-out,
-    --fade-bottom 180ms ease-out;
+    --fade-bottom 180ms ease-out,
+    mask-image 0s linear 180ms;
+  transition-behavior: allow-discrete;
+}
+.scroll-fade:is([data-fade-top], [data-fade-bottom]) {
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
+  transition-delay: 0s;
 }
 /* --scroll-fade-size shortens the fade for a list whose rows sit close to its edge (the command palette). */
 .scroll-fade[data-fade-top] {

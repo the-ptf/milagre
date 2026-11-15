@@ -104,7 +104,7 @@ function createLinkedWorktrees({
   /**
    * An active Worktree of the Chat's own Project (or a Project granted to this Chat) as a Delegation target, with no
    * Link, or null. A shared Link Chat's own Projects are its Link's members; its own Worktrees there belong to it alone
-   * (ADR-0005), so they are refused.
+   * (docs/links.md), so they are refused.
    */
   async function ownWorktree(chatId, worktreePath) {
     const scope = projectOfKey(chatId);

@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const path = require("node:path");
 
-// A Project's messages, one row each, in <project>/.milagre/chats.db (see ADR-0007). coordination.json keeps everything
+// A Project's messages, one row each, in <project>/.milagre/chats.db (see docs/chat-storage.md). coordination.json keeps everything
 // else, with `messages` set to MESSAGES_MARKER. The rows keep each message's place in the Project's order (`position`, a
 // sort key: increasing along the Project's array, with gaps), so the array reads back in the order it had, and its global
 // id, which numbers messages across Chats. The daemon holds only some Chats' messages in memory (see message-store.cjs);
@@ -317,7 +317,7 @@ function writeMessages(
             stats.removed++;
           }
         for (const chat of drop) stats.removed += Number(removeChat.run(chat).changes);
-        // Positions go back to 0..n-1 in the Project's order, as releases before ADR-0009 wrote and expect them: one
+        // Positions go back to 0..n-1 in the Project's order, as releases before idle unloading (docs/chat-storage.md) wrote and expect them: one
         // of those adds a message at the array's length, which must come after every row.
         const { last, count } = db.prepare("SELECT MAX(position) AS last, COUNT(*) AS count FROM messages").get();
         if (count && last !== count - 1) {

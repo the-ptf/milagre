@@ -8,7 +8,7 @@ const { pickOption } = require("./acp-session.cjs");
 const { readConfigOptions } = require("./acp-events.cjs");
 const { ANTIGRAVITY_TEXT_FAMILY } = require("@milagre/shared/antigravity-models");
 
-// One-shot text generation through the Antigravity agent (docs/adr/0006-antigravity-over-acp.md), for the calls the
+// One-shot text generation through the Antigravity agent (docs/providers.md), for the calls the
 // user never sees: chat titles, commit text, handover briefs. A fresh agent process in an empty temporary
 // folder, no tools (mcpServers: []), a fast model, every permission request turned down; the JSON is
 // taken from the reply text.

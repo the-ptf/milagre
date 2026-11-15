@@ -10,6 +10,7 @@ import { Markdown } from "../markdown";
 import { useSession } from "../session";
 import { CircleButton, PageScroll, PillButton, SheetHeader, useStyles } from "../ui";
 import { useChatPage } from "../chat-pages";
+import { useVisibleRunChatKeys } from "../visible-run-chats";
 
 /** A reply's tools and notes, like desktop's expanded ActivityBlock; live while the turn runs. Each tool expands to its output. */
 export default function ActivitySheet() {
@@ -19,6 +20,7 @@ export default function ActivitySheet() {
   const project = session.snapshot?.project;
   const chatId = `${project?.path}#${id}`;
   const run = message === "run" ? session.snapshot?.runs.runs[chatId] : undefined;
+  useVisibleRunChatKeys(session.client, message === "run" && project?.path ? [chatId] : []);
   // A host that keeps messages by Chat sends the snapshot without them: the sheet reads its Chat's as a page.
   const page = useChatPage(project?.state.messagesInChats ? session.client : null, project?.path, Number(id), session.snapshot, session.reconnects);
   const chatMessages = project?.state.messagesInChats ? page.messages : (project?.state.messages ?? []);

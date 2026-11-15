@@ -470,6 +470,36 @@ function projectRuns({ runs, seq }, projectPath) {
   for (const key in runs ?? {}) if (Object.hasOwn(runs, key) && chatInProject(projectPath, key)) own[key] = runs[key];
   return { runs: own, seq };
 }
+/** Full live detail only for the requested Chats; every other live turn still has its status and requests. */
+function projectRunsForPhone(all, projectPath, chats) {
+  const own = projectRuns(all, projectPath);
+  if (chats === undefined) return runsForPhone(own);
+  const detailChats = [...new Set(chats)].sort((a, b) => a - b);
+  const selected = new Set(detailChats.map((id) => `${projectPath}#${id}`));
+  const runs = {};
+  const summaries = {};
+  for (const [key, run] of Object.entries(own.runs)) {
+    if (selected.has(key)) runs[key] = run;
+    else {
+      const { text: _text, steps: _steps, ...summary } = run;
+      summaries[key] = summary;
+    }
+  }
+  return { ...runsForPhone({ seq: own.seq, runs }), summaries, detailChats };
+}
+
+function requestedRunChats(params) {
+  if (!params.has("chats")) return undefined;
+  let chats;
+  try {
+    chats = JSON.parse(params.get("chats"));
+  } catch {
+    throw failure(400, "Choose a valid array of Chat ids");
+  }
+  if (params.getAll("chats").length !== 1 || !Array.isArray(chats) || chats.some((id) => !Number.isSafeInteger(id) || id <= 0))
+    throw failure(400, "Choose a valid array of Chat ids");
+  return [...new Set(chats)].sort((a, b) => a - b);
+}
 /**
  * One host read shared by the requests that arrive while it is on its way, as long as no host event came in since it
  * started (`changed()`): an event may be a change that read missed, so a request after one reads again. A streaming
@@ -944,7 +974,8 @@ async function startMobileBridge({
           const projectPath = target.searchParams.get("projectPath");
           if (!validScope(projectPath)) throw failure(400, "Choose a valid Project or Link");
           await confine?.check(projectPath);
-          reply(200, { result: runsForPhone(projectRuns(await hostRuns.read(), projectPath)) }, { etag: true });
+          const chats = requestedRunChats(target.searchParams);
+          reply(200, { result: projectRunsForPhone(await hostRuns.read(), projectPath, chats) }, { etag: true });
           return;
         }
         // The chat keys, in every Project, whose turn waits on the user: a few bytes the phone polls for its attention dots.
@@ -1138,4 +1169,4 @@ async function startMobileBridge({
   }
   return { url, close, lost };
 }
-module.exports = { startMobileBridge, forPhone, forChatList, runsForPhone, projectRuns, sharedRead, METHODS };
+module.exports = { startMobileBridge, forPhone, forChatList, runsForPhone, projectRuns, projectRunsForPhone, sharedRead, METHODS };
