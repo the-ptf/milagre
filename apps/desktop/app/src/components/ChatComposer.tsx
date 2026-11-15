@@ -140,7 +140,7 @@ import { NewChatGlance } from "./NewChatGlance";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
-import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
+import { LinkedMessageHeader, LinkedMessageLine, linkedContext, linkedLine } from "./LinkedMessage";
 import { linkedHeading } from "@milagre/shared/linked-message";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
@@ -437,6 +437,14 @@ const MessageSection = memo(function MessageSection({
     return (
       <article id={`message-${message.id}`} data-slot="message" data-linked={linked.kind} className="flex min-w-0 w-full flex-col">
         <DelegationReportLine marker={marker} body={message.body} chat={linkedHeading(linked).chat} onOpenChat={onOpenChat} />
+      </article>
+    );
+  // So is a message another Chat's agent sent here: a line like a model switch, its text opening in a dialog.
+  const line = isUser ? linkedLine(linked) : null;
+  if (line)
+    return (
+      <article id={`message-${message.id}`} data-slot="message" data-linked={linked?.kind} className="flex min-w-0 w-full flex-col">
+        <LinkedMessageLine message={message} line={line} onOpenChat={onOpenChat} />
       </article>
     );
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;

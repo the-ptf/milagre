@@ -762,7 +762,7 @@ test("chat_search returns Chat refs and snippets", async (t) => {
   assert.deepEqual(await host.searchChats({ projectPath, query: "found", limit: 5 }), [{ chatId, title: "Target", messageId: 7, snippet: "found it" }]);
 });
 
-test("chat_start tells the receiving agent who sent it, and leaves the Chat's own bubble as typed", async (t) => {
+test("chat_start tells the receiving agent who sent it, and the Chat shows it as a line from that sender", async (t) => {
   const { host, projectPath, chatId, calls } = steeringHost(t);
   await host.startChat({ projectPath, chatId, prompt: "Please rebase" }, "a", () => {}, `${projectPath}#2`);
   const fromChat = calls.at(-1)[1];
@@ -773,9 +773,11 @@ test("chat_start tells the receiving agent who sent it, and leaves the Chat's ow
     ),
     fromChat.prompt,
   );
+  assert.deepEqual(fromChat.context, { kind: "chat-message", from: `${projectPath}#2`, fromLabel: `${path.basename(projectPath)} / main / Chat` });
   await host.startChat({ projectPath, chatId, prompt: "Please rebase" }, "b", () => {}, undefined, "Local editor");
   const fromClient = calls.at(-1)[1];
   assert.equal(fromClient.body, "Please rebase");
+  assert.deepEqual(fromClient.context, { kind: "chat-message", from: null, fromLabel: "Local editor" });
   assert.equal(fromClient.prompt, "Message sent by Local editor through Milagre's MCP (not the user):\n\nPlease rebase");
   await host.startChat({ projectPath, chatId, prompt: "Hi" }, "c", () => {});
   assert.match(calls.at(-1)[1].prompt, /^Message sent by an outside client through Milagre's MCP \(not the user\):/);

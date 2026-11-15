@@ -34,6 +34,8 @@ function senderHeading(message) {
       return `Delegation from ${context.fromLabel} (another Chat, not the user)`;
     case "delegation-report":
       return `Delegation report from ${context.fromLabel} (another Chat's agent, not the user)`;
+    case "chat-message":
+      return `Message from ${context.fromLabel} (${context.from ? "another Chat's agent" : "an outside client"}, sent with chat_start; not the user)`;
     case "negotiation-agreement":
       return `Negotiation agreement with ${context.with} (written by Milagre)`;
     case "advisor-result":

@@ -3817,6 +3817,7 @@ function chatHost({
     "../turn-options": require("../apps/mobile/src/turn-options.ts"),
     "../handoff-sides": require("../apps/mobile/src/handoff-sides.ts"),
     "../handoff-divider": { HandoffDivider: "HandoffDivider" },
+    "../linked-message-line": { LinkedMessageLine: "LinkedMessageLine" },
     "../worktree-link-divider": { WorktreeLinkDivider: "WorktreeLinkDivider" },
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
     "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
@@ -3830,7 +3831,7 @@ function chatHost({
     "@milagre/shared/checkpoint-restore": require("@milagre/shared/checkpoint-restore"),
     "@milagre/shared/use-checkpoints": { useCheckpoints: (api, chatId) => Object.assign(undo, { api, chatId }) },
     "../undo-panel": { UndoPanel: "UndoPanel" },
-    "../handoff-brief-store": { showBrief() {} },
+    "../handoff-brief-store": { showBrief: (...args) => globalThis.showBrief?.(...args) },
     "@milagre/shared/handoff": require("@milagre/shared/handoff"),
     "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
     "@milagre/shared/compaction": require("@milagre/shared/compaction"),
@@ -7623,6 +7624,37 @@ test("quiet heartbeats collapse into one line and their replies are hidden", () 
     transcriptMessages(screen).map((message) => message.id),
     [1],
   );
+});
+
+test("a message another Chat sent is one line, and its text opens in the brief sheet with its sender", (t) => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const context = { kind: "chat-message", from: "/api#7", fromLabel: "api / main / Rules to checks" };
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Is the copy fixed?", context },
+    { id: 2, session_id: 42, role: "assistant", body: "Yes." },
+  ];
+  const briefs = [];
+  globalThis.showBrief = (...args) => briefs.push(args);
+  t.after(() => delete globalThis.showBrief);
+  const tree = screen.render();
+  const line = find(tree, (node) => node.type === "LinkedMessageLine");
+  assert.deepEqual(line.props.line, { verb: "Message from", name: "Rules to checks", label: "api / main / Rules to checks", chat: "/api#7" });
+  const replies = [];
+  find(tree, (node) => {
+    if (node.type === "ChatReply" && node.props.message) replies.push(node.props.message.id);
+    return false;
+  });
+  assert.deepEqual(replies, [2], "the message itself draws no bubble");
+  line.props.onOpen();
+  assert.equal(briefs.length, 1);
+  const [text, title, extra] = briefs[0];
+  assert.equal(text, "Is the copy fixed?");
+  assert.equal(title, "Message from Rules to checks");
+  assert.equal(extra.subtitle, "api / main / Rules to checks");
+  assert.equal(typeof extra.openChat, "function");
 });
 
 test("a Linear Run's first message shows the routine divider, then its issue card", () => {

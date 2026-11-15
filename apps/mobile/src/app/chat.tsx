@@ -107,6 +107,8 @@ import { chosenDesign, designActivity } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
+import { linkedContext, linkedLine } from "@milagre/shared/linked-message";
+import { LinkedMessageLine } from "../linked-message-line";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider, LimitResetDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
@@ -2310,6 +2312,25 @@ function ChatPane({
       />
     ) : null;
   };
+  // A message another Chat's agent sent here is one line, as a model switch is; its text opens in the brief sheet.
+  const renderLinkedLine = (message: ChatMessage) => {
+    const line = message.role === "user" ? linkedLine(linkedContext(message)) : null;
+    if (!line) return null;
+    const chat = line.chat;
+    return (
+      <LinkedMessageLine
+        line={line}
+        attachments={(message.images?.length ?? 0) + (message.files?.length ?? 0)}
+        onOpen={() => {
+          showBrief(message.body, `${line.verb} ${line.name}`, {
+            ...(line.label !== line.name ? { subtitle: line.label } : {}),
+            ...(chat ? { openChat: () => openFamilyChat(chat) } : {}),
+          });
+          router.push("/handoff-brief");
+        }}
+      />
+    );
+  };
   const pendingInput = pending && pendingCanonicalId === null ? pending.preview.message : null;
   const renderToolApproval = (approval: NonNullable<typeof run>["approvals"][number]) => (
     <Approval
@@ -2537,6 +2558,7 @@ function ChatPane({
                             }}
                           >
                             {renderSubchatNote(message) ??
+                              renderLinkedLine(message) ??
                               (isHandoff(message) ? (
                                 <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
                               ) : isWorktreeLinked(message) ? (

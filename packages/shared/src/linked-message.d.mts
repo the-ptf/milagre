@@ -4,3 +4,8 @@ import type { ChatMessage, LinkedContext } from "./model.ts";
 export function linkedContext(message: Pick<ChatMessage, "context"> | undefined): LinkedContext | null;
 /** What the sender line says, and the Chat key it opens (null when there is none to open). */
 export function linkedHeading(context: LinkedContext): { text: string; chat: string | null };
+/**
+ * The one line a message another Chat sent stands for in the transcript, its text opening on a tap; null for one that
+ * keeps its full text (reports have their own line, Negotiation rounds stay whole).
+ */
+export function linkedLine(context: LinkedContext | null | undefined): { verb: string; name: string; label: string; chat: string | null } | null;
