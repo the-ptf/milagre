@@ -10,7 +10,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { UpdateShell, useAppUpdates, UpdateSettingsBadge } from "/src/components/UpdateNotice";
-import { AboutSettings } from "/src/components/Settings";
+import { AboutSettings } from "/src/components/settings/AboutSettings";
 import { ChatComposer } from "/src/components/ChatComposer";
 import SidebarNav from "/src/components/SidebarNav";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";

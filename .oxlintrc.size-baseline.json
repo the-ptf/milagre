@@ -551,20 +551,6 @@
       }
     },
     {
-      "files": ["apps/desktop/app/src/components/Settings.tsx"],
-      "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 2871,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 47]
-      }
-    },
-    {
       "files": ["apps/desktop/app/src/components/sidebar/ChatRow.tsx"],
       "rules": {
         "max-lines": [
