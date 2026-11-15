@@ -45,7 +45,7 @@ npm run typecheck && npm run lint && npm test -- --unit
 npm run mobile:demo        # phone app with a demo agent, no provider account
 ```
 
-More in [development](docs/development.md), the [desktop guide](docs/desktop-guide.md), [phone setup](docs/mobile-local.md), the [local daemon](docs/local-daemon.md), [local MCP](docs/local-mcp.md) and the [glossary](GLOSSARY.md).
+More in [development](docs/development.md), the [desktop guide](docs/desktop-guide.md), [phone setup](docs/mobile-local.md), the [local daemon](docs/development.md#local-daemon), [architecture notes](docs/architecture.md), [local MCP](docs/local-mcp.md) and the [glossary](GLOSSARY.md).
 
 ## Contribute
 

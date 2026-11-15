@@ -2,8 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createGit } = require("./git/client.cjs");
 
-// Brings the selected source branch up to its remote before a new Worktree is made (see
-// docs/superpowers/specs/2026-10-08-main-branch-sync-design.md). Only ever a fast-forward: a branch with
+// Brings the selected source branch up to its remote before a new Worktree is made. Only ever a fast-forward: a branch with
 // commits of its own, a dirty checkout or one mid-merge is left alone and the reason comes back.
 
 // Files in a checkout's git dir that mean an operation is half done.

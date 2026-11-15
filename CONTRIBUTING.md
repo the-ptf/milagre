@@ -4,7 +4,7 @@ Thanks for helping improve Milagre. The project is still an early desktop alpha,
 
 ## Before you start
 
-1. Read the product/domain notes in [`docs/agents/domain.md`](docs/agents/domain.md).
+1. Read the [glossary](GLOSSARY.md) and the decisions in [`docs/adr/`](docs/adr/).
 2. Check existing GitHub Issues before starting a larger change.
 3. Keep local project data, credentials and generated files out of commits.
 

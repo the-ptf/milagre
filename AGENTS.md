@@ -21,7 +21,7 @@ Issues and specs live in GitHub Issues. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
-This is a single-context repo. See `docs/agents/domain.md`.
+Before exploring an area, read `GLOSSARY.md` and the ADRs in `docs/adr/` that touch it. Name domain concepts with the glossary's terms, not synonyms it avoids. If your change contradicts an ADR, say so explicitly instead of overriding it silently. `docs/architecture.md` explains how some subsystems work.
 
 ### UI rules
 

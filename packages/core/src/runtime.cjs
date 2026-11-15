@@ -300,7 +300,7 @@ function createRuntime(options) {
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
-  // Comments the user left on Browser panel pages (spec docs/superpowers/specs/2026-10-28-internal-browser-design.md).
+  // Comments the user left on Browser panel pages.
   const { commentAtPoint, createChatPageComments, pageCommentToolDefinitions, pageElement } = require("./chat-page-comments.cjs");
   const pageComments = createChatPageComments({
     directory: path.join(dataDir, "page-comments"),
@@ -2040,7 +2040,7 @@ function createRuntime(options) {
       accountMutation = pending.catch(() => {});
       return pending;
     });
-  // Settings › MCP (docs/superpowers/specs/2026-10-09-mcp-settings-design.md): each account's servers and their status.
+  // Settings › MCP: each account's servers and their status.
   // The tab checks every account in parallel; saves, switches and sign-ins go through the same module.
   const mcp = createMcp({
     accounts,

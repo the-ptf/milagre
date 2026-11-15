@@ -1,4 +1,4 @@
-// MCP servers as Settings › MCP shows them, shared by desktop and phone (docs/superpowers/specs/2026-10-15-mcp-connect-design.md).
+// MCP servers as Settings › MCP shows them, shared by desktop and phone.
 
 export type McpProvider = "claude" | "codex" | "antigravity" | "kiro";
 export type McpChipState = "connected" | "failed" | "needs-sign-in" | "pending" | "disabled" | "unchecked";

@@ -4,7 +4,7 @@ Issue [#783](https://github.com/the-ptf/milagre/issues/783). Desktop and mobile 
 
 ## History
 
-The checked-in [October 8 computers design](../superpowers/specs/2026-10-08-computers-design.md), including its references to `sidebar-c-sections` v3, specifies a disabled composer and explicitly says "nothing is queued". Commit `1cc2acbf` (#354) implemented that policy. The prior orange notice/automatic outbox alternative was not found in the checked-in implementation history. The existing agent-turn queue and short-lived transport retries do not persist a message on the sending device while its computer is offline. This changes the product policy; it does not restore a removed outbox.
+The October 8 computers design (removed with the other finished specs; see git history), specifies a disabled composer and explicitly says "nothing is queued". Commit `1cc2acbf` (#354) implemented that policy. The prior orange notice/automatic outbox alternative was not found in the checked-in implementation history. The existing agent-turn queue and short-lived transport retries do not persist a message on the sending device while its computer is offline. This changes the product policy; it does not restore a removed outbox.
 
 ## Delivery contract
 

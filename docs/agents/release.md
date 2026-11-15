@@ -1,4 +1,6 @@
-# Desktop packages
+# Releases
+
+## Desktop packages
 
 macOS is available through the [public Homebrew tap](https://github.com/the-ptf/homebrew-tap):
 
@@ -16,7 +18,7 @@ The tap starts with the signed, notarized `v0.88.0` release for Apple Silicon an
 
 Windows ARM64, Linux ARM64, Chocolatey, Scoop, Flatpak and Snap remain outside this implementation. Git and a supported, logged-in agent CLI are still required. Electron bundles the host's Node runtime.
 
-## Build and metadata
+### Build and metadata
 
 After `npm ci`, run on the target OS:
 
@@ -44,7 +46,7 @@ node scripts/finalize-update-feeds.cjs --tag v1.2.3 --check
 
 The cask follows the [Homebrew Cask Cookbook](https://docs.brew.sh/Cask-Cookbook). WinGet uses Microsoft's [singleton manifest format](https://learn.microsoft.com/en-us/windows/package-manager/package/manifest), user scope, and `/currentuser`. Its proposed identifier is `Milagre.Milagre`. Generating a manifest does not create a public WinGet listing.
 
-## Validation and release
+### Validation and release
 
 **Build package candidates** runs on every push to `main`, on dispatch, and on a PR once it carries the `preview:installers` label. Windows pipe, ACL and process tests and Linux repository signing run on every PR in CI's `native-tests` job without an installer. It builds on native macOS, Windows and Ubuntu runners. It installs the NSIS/DEB packages and runs the real desktop against temporary profiles, including saved Chats, shared-host updates, crash recovery, and ownership errors. Windows also runs real named-pipe, NTFS ACL and process tests. Candidate installers are unsigned/ad-hoc Actions artifacts, kept for 14 days.
 
@@ -57,9 +59,9 @@ The `release` job of CI cuts a candidate (a tag and a draft release) for every p
 | `beta`   | weekdays 09:00 UTC, or dispatch                            | a `vX.Y.Z-beta.N` prerelease, never latest                                                                                            | macOS                   |
 | `stable` | dispatch (`gh workflow run publish.yml -f channel=stable`) | the draft itself, marked latest, with Homebrew/WinGet metadata and `SHA256SUMS`; then **Deploy Linux package repository** runs for it | every platform it built |
 
-macOS (`build-macos.yml`) and Linux always build. Windows builds for every beta, unsigned until the `RELEASE_WINDOWS` repository variable is `true`. Enable it after configuring certificate credentials or Azure Artifact Signing and verifying a signed candidate: it signs Windows betas and adds Windows to stable releases, which require Authenticode. An unsigned beta warns in SmartScreen on a first install, and its updates rest on GitHub's HTTPS and the feed's SHA-512, with no publisher check. See [Windows signing setup](windows-signing.md) for both options. A stable Linux build signs the RPM and the APT/RPM indexes and bundles `milagre-linux-repository.tar.gz`; a beta Linux build skips the package repository, which only ever carries stable releases. DMG notarization and RPM signing are followed by feed hash refreshes. **Deploy Linux package repository** can still be dispatched by hand to redeploy a tag.
+macOS (`build-macos.yml`) and Linux always build. Windows builds for every beta, unsigned until the `RELEASE_WINDOWS` repository variable is `true`. Enable it after configuring certificate credentials or Azure Artifact Signing and verifying a signed candidate: it signs Windows betas and adds Windows to stable releases, which require Authenticode. An unsigned beta warns in SmartScreen on a first install, and its updates rest on GitHub's HTTPS and the feed's SHA-512, with no publisher check. See [Windows signing setup](#windows-signing) for both options. A stable Linux build signs the RPM and the APT/RPM indexes and bundles `milagre-linux-repository.tar.gz`; a beta Linux build skips the package repository, which only ever carries stable releases. DMG notarization and RPM signing are followed by feed hash refreshes. **Deploy Linux package repository** can still be dispatched by hand to redeploy a tag.
 
-## Beta channel
+### Beta channel
 
 Installs set to Beta in Settings read `beta-mac.yml` (`beta-linux.yml`, `beta.yml` on Windows); Stable installs read the `latest*` feeds and never see a beta. A beta takes the draft candidate (`vX.Y.Z`), builds and signs it on the beta channel, and publishes `vX.Y.Z-beta.N`, where N counts up from that candidate's highest existing beta. It skips the run when a beta for the same commit already exists. Ship one by hand with `gh workflow run publish.yml`, optionally `-f tag=vX.Y.Z` to pick a specific draft. A platform whose beta build fails is left out of that beta with a warning.
 
@@ -85,23 +87,23 @@ The repository key fingerprint is `0AC0E3D496374278E689EC0F6605D632D39BA587`. It
 
 After a signed Windows EXE is public, validate the attached manifest with `winget validate`, test `winget install --manifest`, and submit it to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). `winget install --id Milagre.Milagre` becomes available after Microsoft accepts the submission.
 
-## Repository rename
+### Repository rename
 
 Installed builds up to this release read their update feed from `the-ptf/milagre-ade` through GitHub's redirect to `the-ptf/milagre`. Never create a repository named `the-ptf/milagre-ade`: it would take over that update feed and strand those installs.
 
-## In-app updates
+### In-app updates
 
 Desktop checks at launch, every five minutes, when a window regains focus, and when the computer wakes. Automatic checks are throttled to one per minute; a manual check bypasses that throttle. Checks share one pending request and leave a downloading or downloaded update intact.
 
 Downloads run in the background. A ready update opens a dismissible card with its release notes and an explicit **Install & restart** action. Dismissal keeps an update button available on every screen. Settings opens the same card before installation, which warns that restarting stops running agents. Installation saves and stops the shared host first; failed shutdown leaves the downloaded update available for retry. Normal quit never installs an update. These client checks do not change the publication schedules above.
 
-## Runtime
+### Runtime
 
 Windows uses a local named pipe with mutual HMAC authentication. NTFS permissions restrict its token to the current Windows SID and SYSTEM. Unauthenticated peers receive no events or commands. Unix retains its private socket transport. Windows CLI shims run through their JavaScript entry points with literal arguments; Linux setup falls back to `sh`.
 
 Run `npm test -- --unit` and `npm run build`. Real Windows behavior must pass its native runner before support is announced.
 
-## Evidence from this implementation
+### Evidence from this implementation
 
 Local macOS x64/arm64 DMG/ZIP builds and source/packaged desktop checks passed. Homebrew parsed and fetched the published cask, both public DMGs passed stapled-ticket validation, and the tap's release updater passed on GitHub Actions.
 
@@ -110,3 +112,83 @@ Linux x64 AppImage, DEB and RPM builds passed. Isolated Debian and Fedora contai
 Windows manifest fixtures passed Microsoft's singleton schema. Native Windows checks passed the Codex protocol, named-pipe authentication, NTFS permissions, process cleanup, PowerShell 7 inheritance, fresh host startup, and real Git worktree identity. A real npm-installed Codex launcher and NSIS installation passed. Source and installed desktop checks preserved saved Chats, provider IDs, settings and drafts across shared clients, host restart and crash recovery; Project ownership errors and Retry also passed.
 
 Full repository CI passed for the final runtime changes: [CI run](https://github.com/the-ptf/milagre-ade/actions/runs/37349549214). Native installer evidence is in the [candidate run](https://github.com/the-ptf/milagre-ade/actions/runs/37349549112); its unsigned artifacts are for testing, while public Windows/Linux publication still requires the credentials and release steps above.
+
+## macOS signing
+
+Public releases use a **Developer ID Application** certificate for direct distribution, not an Apple Development, Apple Distribution or Developer ID Installer certificate. Both Intel and Apple Silicon builds require signing and Apple notarization.
+
+### Configure the Apple credentials
+
+1. In [Apple Developer Certificates](https://developer.apple.com/account/resources/certificates/list), create a Developer ID Application certificate using a certificate signing request generated on your Mac. Follow [Apple's instructions](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/). Install the downloaded certificate in Keychain Access.
+2. In Keychain Access, select the certificate and its private key under **My Certificates**, then export the signing identity as a password-protected `.p12`. A `.cer` alone does not include the private key and cannot sign releases.
+3. Find the Team ID in [Apple Developer membership details](https://developer.apple.com/account/).
+4. Generate an [app-specific password](https://support.apple.com/pt-br/102654) for notarization from your Apple Account. Use a dedicated password for Milagre, not the account's login password.
+5. Add the following repository secrets in [GitHub Actions settings](https://github.com/the-ptf/milagre-ade/settings/secrets/actions):
+
+| Secret                        | Value                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `CSC_LINK`                    | Base64-encoded Developer ID Application `.p12`, including its private key |
+| `CSC_KEY_PASSWORD`            | Password used when exporting the `.p12`                                   |
+| `APPLE_ID`                    | Apple Account email used for notarization                                 |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Dedicated app-specific password                                           |
+| `APPLE_TEAM_ID`               | Team ID associated with the signing certificate                           |
+
+Use the GitHub CLI without placing secret values in shell arguments or history:
+
+```bash
+## Replace the path with the exported certificate. Its contents go directly to GitHub.
+base64 -i /absolute/path/DeveloperIDApplication.p12 | gh secret set CSC_LINK --repo the-ptf/milagre-ade
+
+## Each command prompts for its value. Do not paste credentials into chat or source files.
+gh secret set CSC_KEY_PASSWORD --repo the-ptf/milagre-ade
+gh secret set APPLE_ID --repo the-ptf/milagre-ade
+gh secret set APPLE_APP_SPECIFIC_PASSWORD --repo the-ptf/milagre-ade
+gh secret set APPLE_TEAM_ID --repo the-ptf/milagre-ade
+```
+
+Do not commit certificates, private keys, passwords or credential files. Keep the exported `.p12` outside the repository. `electron-builder` imports the certificate into a temporary keychain on each macOS runner.
+
+### Release checks
+
+The workflow checks that all five secrets exist before it builds; the tag and GitHub Release are created only after the builds pass. Each macOS job also checks the app-specific password format and authenticates with Apple before installing dependencies. The installer build requires code signing, uses hardened runtime and notarizes the app with `electron-builder`. The app's notarization ticket is stapled before the ZIP and DMG are built.
+
+Apple ID, app-specific password and Team ID have surrounding whitespace removed before both app and DMG notarization. The certificate export password is preserved exactly.
+
+The workflow also signs the DMG, uploads it to Apple and retains the submission ID while waiting. Temporary network failures use up to four attempts with increasing delays; retries during the wait reuse the same submission instead of uploading again. Rejected submissions and authentication failures stop immediately. The workflow requires the explicit `Accepted` status and staples the DMG ticket. The macOS job has a 90-minute limit to allow both app and DMG analysis to finish. Before uploading installers, it verifies the app and DMG signatures, validates stapled tickets, checks Gatekeeper acceptance for the app and verifies DMG integrity. A missing credential, rejected submission or failed check stops the workflow. `npm test -- --only release-workflow` exercises these failure paths without real credentials or Apple requests.
+
+After configuring secrets, merge a Conventional Commit with a `fix:` or `feat:` prefix into `main` to generate a new release. Existing release installers are not automatically replaced by this setup. Download the new DMG through a browser and test installation on a Mac that has no existing Milagre security exception.
+
+### Local builds
+
+Use `npm run package:mac:local` for an ad-hoc build without Apple credentials. It explicitly skips notarization and does not provide Gatekeeper trust. Public releases never use this command.
+
+## Windows signing
+
+The release workflow supports a certificate (`WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`) or Azure Artifact Signing. Candidate builds in `package-candidates.yml` remain unsigned. The separate **Build signed Windows candidate** workflow creates a signed installer as an Actions artifact without publishing a release.
+
+### Azure Artifact Signing
+
+Individual developers in Canada and the United States can apply for Public Trust. The Microsoft account's Azure billing account must be Individual; its legal name and sold-to address must match the government ID used for validation. Complete identity validation in the Azure portal. The certificate publisher is the validated legal name, including for an app named Milagre.
+
+The account owner completes sign-in, billing and identity validation. Use the Basic tier unless more capacity is needed; check current regional pricing before creating the resource. Creating a local self-signed certificate does not replace Public Trust validation.
+
+1. Follow [Microsoft's quickstart](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart): create an Artifact Signing account, complete Individual identity validation, and create a **Public Trust** certificate profile.
+2. Create an Entra app registration and service principal for GitHub Actions. Assign the certificate profile's **Artifact Signing Certificate Profile Signer** role (previously Trusted Signing Certificate Profile Signer). Grant access at the certificate profile scope.
+3. Create the repository environment `windows-signing`. Configure its allowed deployment branches before enabling signing. Add an Entra federated credential for this repository and environment, with issuer `https://token.actions.githubusercontent.com` and audience `api://AzureADTokenExchange`. Use the actual OIDC subject emitted by this repository: renamed repositories can use immutable repository IDs, so do not assume the older `repo:owner/name:environment:windows-signing` format. Follow [GitHub's Azure OIDC guide](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure).
+4. Store `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` as secrets in that environment. No client secret or exported signing key is needed; `azure/login` authenticates using OIDC and electron-builder uses its Azure CLI session.
+5. Add these environment variables in GitHub:
+
+| Variable                   | Value                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| `AZURE_SIGNING_ENDPOINT`   | The account's regional endpoint, for example `https://eus.codesigning.azure.net` |
+| `AZURE_SIGNING_ACCOUNT`    | Artifact Signing account name                                                    |
+| `AZURE_SIGNING_PROFILE`    | Public Trust certificate profile name                                            |
+| `AZURE_SIGNING_PUBLISHER`  | The certificate's exact Common Name (CN)                                         |
+| `WINDOWS_SIGNING_PROVIDER` | `azure`                                                                          |
+
+6. Run **Build signed Windows candidate** against the desired branch with an `X.Y.Z` version. It verifies Authenticode on both the installer and app executable, installs into a disposable destination, exercises the packaged app, and uploads `signed-windows-X.Y.Z`. The workflow must exist on the default branch before its first dispatch. The existing unsigned candidate remains available while identity validation is pending.
+7. After the signed candidate passes, set the repository variable `RELEASE_WINDOWS=true` to include Windows in releases. Keep it disabled while setting up credentials. The Publish workflow uses the same Azure configuration and still supports the original certificate mode when `WINDOWS_SIGNING_PROVIDER` is unset or `certificate`.
+
+The Azure build uses `scripts/windows-azure-signing.cjs` with electron-builder v26's `win.azureSignOptions`; it preserves the normal packaging configuration and requires code signing. A missing publisher/profile/endpoint fails instead of falling back to an unsigned build. Signing establishes publisher identity, but does not guarantee that a new release bypasses SmartScreen reputation checks.
+
+Sources: [electron-builder v26 Azure signing](https://www.electron.build/v26/docs/features/code-signing/code-signing-win/), [Microsoft signing options and SmartScreen](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options).
