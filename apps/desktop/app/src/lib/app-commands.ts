@@ -11,7 +11,7 @@ import { settingsCommands, settingsPageCommands } from "./settings-commands";
 
 type Run = void | Promise<unknown>;
 
-export type AppCommandActions = {
+type AppCommandActions = {
   newChat: () => Run;
   newTerminal: (chatId: string) => Run;
   openProject: () => Run;
