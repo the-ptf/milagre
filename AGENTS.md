@@ -39,7 +39,7 @@ The most common defect is a change that works where you tried it and is missing 
 
 ### Desktop and mobile stay in sync
 
-Every change on desktop also lands on mobile, and the reverse, in the same task. Skip it only when the user says to keep the change on one platform.
+Every change on desktop must also be applied on mobile, and every change on mobile must also be applied on desktop, in the same task. Skip syncing only when the user explicitly says to keep the change on one platform or not to sync it.
 
 - Inspect both implementations before editing. Keep behavior, copy, states and fixes in sync; use each platform's native controls.
 - Prefer shared logic in `packages/shared`. A missing counterpart is work to do, not an exemption.
