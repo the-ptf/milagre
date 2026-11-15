@@ -74,6 +74,10 @@ function hookHost({ effects = false } = {}) {
     useContext(context) {
       return context?.defaultValue;
     },
+    // A test renders each update in full: a deferred value is the latest one.
+    useDeferredValue(value) {
+      return value;
+    },
     effect(fn, deps) {
       const index = cursor++;
       const previous = slots[index];
@@ -178,6 +182,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      // The sidebar's pure rows (navigation-rows.ts) name their imports with extensions for Node's own tests.
+      if (file === "navigation-rows.ts" && /^\.\/.+\.ts$/.test(id)) id = id.slice(0, -3);
       if (/^\.\.?\/offline-tray$/.test(id) && !(id in modules))
         return { ComposerTray: ({ children }) => children, OfflineTray: "OfflineTray", WaitingLabel: () => null };
       if (/^\.\.?\/outbox$/.test(id) && !(id in modules))
@@ -389,6 +395,11 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "split-context" && !(id in modules))
         return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
+      // The sidebar's parts (project-navigation.tsx and its navigation-*.ts[x]) load as one module graph with the screen's fakes.
+      if (relative?.startsWith("navigation-") && !(id in modules)) {
+        const target = [`${relative}.tsx`, `${relative}.ts`].find((candidate) => fs.existsSync(path.join(__dirname, "../apps/mobile/src", candidate)));
+        if (target) return load(target, modules, "", cache);
+      }
       // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
       if (base === "split-chats" && !(id in modules))
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
@@ -4495,8 +4506,8 @@ function navigationHost(
     ...require("@milagre/shared/chats"),
     isListedChat: (chat, count, waiting) => !require("@milagre/shared/chats").isHiddenRunChat(chat, waiting),
   };
-  // A row renders apart (NavigationRow, memoized); renderItem hands the tests the row as drawn, as before.
-  const drawRows = (type, props, key) => (type?.name === "NavigationRow" ? type(props) : jsx(type, props, key));
+  // A row renders apart (NavigationRow, memoized, and the row kinds it draws); renderItem hands the tests the row as drawn.
+  const drawRows = (type, props, key) => (/^Navigation\w*Row$/.test(type?.name ?? "") ? type(props) : jsx(type, props, key));
   // A route to a Chat ends any split first (split-chats.ts); `closedSplits` counts how often.
   const closedSplits = [];
   const { ProjectNavigation } = load("project-navigation.tsx", {

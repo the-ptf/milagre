@@ -936,23 +936,14 @@
     {
       "files": ["apps/mobile/src/project-navigation.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 3251,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 1488,
+            "max": 603,
             "skipBlankLines": true,
             "skipComments": true
           }
-        ],
-        "complexity": ["error", 270]
+        ]
       }
     },
     {
