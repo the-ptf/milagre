@@ -2,6 +2,7 @@ import { Pressable, Text, View } from "react-native";
 import { Findable } from "./settings-find";
 import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES, PROVIDER_ICON_STYLES } from "@milagre/shared/appearance";
 import { DEFAULT_THEME_ID, seedsFrom, themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
+import { AppIconSection } from "./app-icon-section";
 import { CustomThemeSection } from "./custom-theme-section";
 import { useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
@@ -166,6 +167,7 @@ export function AppearanceSection() {
           />
         </View>
       </View>
+      <AppIconSection />
       <View style={{ gap: 8 }}>
         <SectionLabel>Icons</SectionLabel>
         <View style={styles.card}>

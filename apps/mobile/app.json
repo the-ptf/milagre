@@ -79,7 +79,60 @@
       ],
       "./plugins/with-live-activity.cjs",
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-alternate-app-icons",
+        [
+          {
+            "name": "Dawn",
+            "ios": "./assets/app-icons/dawn.png",
+            "android": {
+              "foregroundImage": "./assets/app-icons/dawn.png",
+              "backgroundColor": "#F3E7D3"
+            }
+          },
+          {
+            "name": "MonoDark",
+            "ios": "./assets/app-icons/mono-dark.png",
+            "android": {
+              "foregroundImage": "./assets/app-icons/mono-dark.png",
+              "backgroundColor": "#000000"
+            }
+          },
+          {
+            "name": "MonoLight",
+            "ios": "./assets/app-icons/mono-light.png",
+            "android": {
+              "foregroundImage": "./assets/app-icons/mono-light.png",
+              "backgroundColor": "#F4F1EA"
+            }
+          },
+          {
+            "name": "Sunset",
+            "ios": "./assets/app-icons/sunset.png",
+            "android": {
+              "foregroundImage": "./assets/app-icons/sunset.png",
+              "backgroundColor": "#F0563A"
+            }
+          },
+          {
+            "name": "Aurora",
+            "ios": "./assets/app-icons/aurora.png",
+            "android": {
+              "foregroundImage": "./assets/app-icons/aurora.png",
+              "backgroundColor": "#06142B"
+            }
+          },
+          {
+            "name": "Glass",
+            "ios": "./assets/app-icons/glass.png",
+            "android": {
+              "foregroundImage": "./assets/app-icons/glass.png",
+              "backgroundColor": "#8A8FF0"
+            }
+          }
+        ]
+      ]
     ],
     "ios": {
       "supportsTablet": true,
