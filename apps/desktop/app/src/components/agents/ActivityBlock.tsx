@@ -17,11 +17,11 @@ import { Button } from "../primitives/Button";
 
 const NO_WAITING_STEPS: string[] = [];
 
-function Title({ step, running }: { step: ChatStep; running: boolean }) {
+function Title({ step, running, waiting = false }: { step: ChatStep; running: boolean; waiting?: boolean }) {
   const sweep = useStepTitleSweep(running);
   return (
     <>
-      {titleSpans(stepDisplayTitle({ ...step, description: undefined, detail: undefined }, running)).map((span, index) =>
+      {titleSpans(stepDisplayTitle({ ...step, description: undefined, detail: undefined }, running, waiting)).map((span, index) =>
         span.code ? (
           <code key={index} className={`${CODE_CHIP} ${sweep.className ?? ""}`}>
             {span.text}
@@ -118,7 +118,7 @@ export function ActivityBlock({
           steps.filter((step) => step.status === "running").length > 1 && !waiting ? (
             `Running ${steps.filter((step) => step.status === "running").length} calls`
           ) : (
-            <Title key={current.id} step={current} running={!waiting} />
+            <Title key={current.id} step={current} running={!waiting} waiting={waiting} />
           )
         ) : streaming ? (
           "Working"
@@ -147,7 +147,7 @@ export function ActivityBlock({
   return (
     <div data-slot="activity" className="my-1 flex min-w-0 flex-col">
       {approval && current ? (
-        <InlineApproval approval={approval} title={stepDisplayTitle(current, false)}>
+        <InlineApproval approval={approval} title={stepDisplayTitle(current, false, true)}>
           {line}
         </InlineApproval>
       ) : (

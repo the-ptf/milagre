@@ -149,3 +149,12 @@ test("parallel activity keeps a concrete tool visible, with approvals ahead of t
   assert.equal(currentActivityStep([{ ...shell, status: "done" }, thought]), thought);
   assert.equal(currentActivityStep([{ ...shell, status: "done" }]), undefined);
 });
+
+test("a step waiting for approval takes the plain verb: nothing has happened yet", () => {
+  const write = { id: "w", kind: "edit", title: "Wrote `approved.txt`", status: "running" };
+  assert.equal(stepDisplayTitle(write, false, true), "Write `approved.txt`");
+  assert.equal(stepDisplayTitle(write, true), "Writing `approved.txt`");
+  assert.equal(stepDisplayTitle({ ...write, status: "done" }), "Wrote `approved.txt`");
+  assert.equal(stepDisplayTitle({ id: "r", kind: "shell", title: "Ran `rm -rf build`", status: "running" }, false, true), "Run `rm -rf build`");
+  assert.equal(stepDisplayTitle({ id: "e", kind: "edit", title: "Edited `a.ts`", status: "running" }, false, true), "Edit `a.ts`");
+});

@@ -150,7 +150,11 @@ function thinkingHeading(detail = "") {
     : "";
 }
 
-export function stepDisplayTitle(step, running = false) {
+/**
+ * A step's title as a row shows it: past tense once done ("Wrote a.txt"), "-ing" while it runs ("Writing a.txt"), and
+ * the plain verb while it waits for the user's approval ("Write a.txt"), since nothing has happened yet.
+ */
+export function stepDisplayTitle(step, running = false, waiting = false) {
   if (running && step.kind === "thinking") return thinkingHeading(step.detail) || step.title;
   if (running && step.kind === "shell" && step.description) return step.description;
   let title = step.kind === "thinking" && Number.isFinite(step.durationMs) && step.title.startsWith("Thought for ") ? "Thought" : step.title;
@@ -178,6 +182,22 @@ export function stepDisplayTitle(step, running = false) {
       }
     }
     title = `${action}${step.source.server ? ` from ${stepSource(step).label}` : ""}`;
+  }
+  if (waiting && !running) {
+    const verbs = {
+      Ran: "Run",
+      Read: "Read",
+      Edited: "Edit",
+      Wrote: "Write",
+      Searched: "Search",
+      Used: "Use",
+      Fetched: "Fetch",
+      Listed: "List",
+      Updated: "Update",
+      Saved: "Save",
+      Created: "Create",
+    };
+    title = title.replace(/^(Ran|Read|Edited|Wrote|Searched|Used|Fetched|Listed|Updated|Saved|Created)\b/, (word) => verbs[word]);
   }
   if (running) {
     const verbs = {
