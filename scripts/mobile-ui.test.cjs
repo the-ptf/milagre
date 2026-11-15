@@ -477,6 +477,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           ...load("confirm-store.ts", modules, "", cache),
           ...(modules["react-native"]?.Alert?.alert ? { confirmSheet: modules["react-native"].Alert.alert } : {}),
         };
+      // A text question (rename): answered with globalThis.promptAnswer, or cancelled.
+      if (base === "text-prompt" && !(id in modules))
+        return { promptText: async () => globalThis.promptAnswer ?? null, setPromptPresenter() {}, currentPrompt: () => null };
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
       // /storage's name and hint, which the Chat lists beside /undo.
       if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");

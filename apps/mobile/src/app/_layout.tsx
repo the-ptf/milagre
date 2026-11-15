@@ -19,6 +19,7 @@ import { stackScreenOptions } from "../stack-options";
 import { SidePanelsHost, SidePanelsProvider, enterUnderPanel } from "../side-panels";
 import { setConfirmPresenter } from "../confirm-store";
 import { setChoicePresenter } from "../choice-store";
+import { setPromptPresenter } from "../text-prompt";
 import { setChatPageDisk } from "../chat-pages";
 import { chatPageDisk } from "../chat-page-disk";
 import { setLinkPresenter } from "../link-chat-store";
@@ -29,6 +30,7 @@ import { paneScreenLayout } from "../beside-session";
 // Confirmations open as a bottom sheet over whatever is showing, the side panels included.
 setConfirmPresenter(() => router.push("/confirm-sheet"));
 setChoicePresenter(() => router.push("/choice-sheet"));
+setPromptPresenter(() => router.push("/prompt-sheet"));
 setChatPageDisk(chatPageDisk);
 setLinkPresenter(() => router.push("/link-chat"));
 
@@ -92,6 +94,7 @@ export default function Layout() {
                           <Stack.Screen name="update-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="update-notes" options={{ ...sheet, sheetAllowedDetents: [0.75, 1] }} />
                           <Stack.Screen name="confirm-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
+                          <Stack.Screen name="prompt-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           {/* Native search needs the header visible at presentation: enabling it later remounts the sheet. */}
                           <Stack.Screen
                             name="choice-sheet"

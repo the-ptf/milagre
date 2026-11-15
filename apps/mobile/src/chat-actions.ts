@@ -1,4 +1,3 @@
-import { Alert } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { AgentSession, OpenLink } from "@milagre/shared/model";
 import type { Client } from "./client";
@@ -9,6 +8,7 @@ import { UI_COPY } from "@milagre/shared/model-copy";
 import { pinPatch } from "./pins";
 import { keepsOnPin, sessionsWithPins, type DevicePins } from "@milagre/shared/chat-pins";
 import { snoozeMenuSection, snoozePatch } from "./snooze-actions";
+import { promptText } from "./text-prompt";
 
 /**
  * Desktop's ⋯ menu for a Chat, less what only makes sense at the Mac (Finder, editor, commit). `links` is the Link
@@ -175,18 +175,7 @@ export async function runChatAction({
   if (action === "copy-path" && worktree) await Clipboard.setStringAsync(worktree.path);
   if (action === "copy-branch" && worktree) await Clipboard.setStringAsync(worktree.name);
   if (action === "rename") {
-    const title = await new Promise<string | null>((resolve) =>
-      Alert.prompt(
-        UI_COPY.renameChat,
-        undefined,
-        [
-          { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
-          { text: "Save", onPress: (value?: string) => resolve(value ?? null) },
-        ],
-        "plain-text",
-        chat.title || chat.generatedTitle || "",
-      ),
-    );
+    const title = await promptText(UI_COPY.renameChat, { value: chat.title || chat.generatedTitle || "" });
     if (!title?.trim()) return;
     await client.call("chat:patch", [projectPath, chat.id, { title: title.trim() }]);
   }

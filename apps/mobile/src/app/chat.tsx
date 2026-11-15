@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -210,6 +210,7 @@ import { BESIDE_PARENT, familyMenu } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
+import { promptText } from "../text-prompt";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -1977,20 +1978,8 @@ function ChatPane({
     } else if (id === "pr" && pr) openPr(pr.number);
     else if (id === "agents" && chat) router.push({ pathname: "/agents", params: { id: String(chat.id) } });
     else if (id === "rename" && chat)
-      Alert.prompt(
-        "Rename Chat",
-        undefined,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Save",
-            onPress: (value?: string) => {
-              if (value?.trim()) void action(() => client.call("chat:patch", [project.path, chat.id, { title: value.trim() }]));
-            },
-          },
-        ],
-        "plain-text",
-        title,
+      void promptText(UI_COPY.renameChat, { value: title }).then((value) =>
+        value?.trim() ? action(() => client.call("chat:patch", [project.path, chat.id, { title: value.trim() }])) : undefined,
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
