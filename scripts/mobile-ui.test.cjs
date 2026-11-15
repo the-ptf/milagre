@@ -12505,10 +12505,10 @@ test("the designs sheet loads the version it opened, on a canvas page that runs 
   assert.ok(frame);
   assert.equal(frame.props.useExpoModulesBridge, false);
   assert.equal(typeof frame.props.onMessage, "function", "the canvas script reports holds, pins and the view");
-  // The page runs only the canvas script, by its hash; each design's frame is made sandboxed with no scripts.
+  // The page runs only the canvas script; its policy is an interactive design's, which the design frames inherit.
   const page = web.files.get(frame.props.source.uri);
-  assert.match(page, /script-src 'sha256-/);
-  assert.doesNotMatch(page, /script-src 'unsafe-inline'/);
+  assert.match(page, /script-src 'unsafe-inline' 'unsafe-eval' https:\/\/unpkg\.com/);
+  assert.equal(page.match(/<script>/g)?.length, 1);
   assert.match(page, /frame-src 'none'/);
   web.cleanup();
   assert.equal(web.files.size, 0);

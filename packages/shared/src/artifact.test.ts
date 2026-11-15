@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
   artifactTab,
@@ -9,6 +8,7 @@ import {
   ARTIFACT_PAGE_SCRIPT,
   ARTIFACT_SHELL_SCRIPT,
   DESIGNS_CANVAS_SCRIPT,
+  DESIGN_CODE_CSP,
   RESOLVED_STEP,
   artifactDocument,
   artifactShell,
@@ -276,19 +276,19 @@ test("only the page helper's own messages, by shape, reach the viewer", () => {
     assert.equal(readPageMessage(bad), null, JSON.stringify(bad));
 });
 
-test("the phone's designs canvas runs only its own script, and the designs run none", () => {
+test("the phone's designs canvas runs only its own script; layer designs run none, interactive designs their own", () => {
   const page = designsCanvasShell("#1c1c1e");
-  const hash = createHash("sha256").update(DESIGNS_CANVAS_SCRIPT).digest("base64");
-  assert.ok(page.includes(`script-src 'sha256-${hash}'`), "the policy allows the canvas script by its hash");
-  assert.doesNotMatch(page, /script-src 'unsafe-inline'/, "and no other script");
-  assert.match(page, /frame-src 'none'/);
+  // The frames inherit the page's policy, so it is an interactive design's: pinned CDNs, no requests of its own.
+  assert.ok(page.includes(`content="${DESIGN_CODE_CSP}; frame-src 'none'"`));
   assert.match(page, /background:#1c1c1e/);
   assert.equal(page.match(/<script>/g)?.length, 1, "the page runs the canvas script only");
   assert.ok(page.includes(`<script>${DESIGNS_CANVAS_SCRIPT}</script>`));
   assert.doesNotMatch(DESIGNS_CANVAS_SCRIPT, /<\/script/i);
-  // Each design's frame is made by the script, sandboxed with no permissions: the design runs no script of its own.
-  assert.match(DESIGNS_CANVAS_SCRIPT, /setAttribute\("sandbox",""\)/);
-  assert.doesNotMatch(DESIGNS_CANVAS_SCRIPT, /allow-scripts|allow-same-origin/);
+  // Each design's frame is made by the script and sandboxed with no same origin: scripts only for an interactive one.
+  assert.match(DESIGNS_CANVAS_SCRIPT, /var box=run\?"allow-scripts":""/);
+  assert.doesNotMatch(DESIGNS_CANVAS_SCRIPT, /allow-same-origin/);
+  // Group names go in as text, never markup.
+  assert.doesNotMatch(DESIGNS_CANVAS_SCRIPT, /\.innerHTML=(?!DRAW)/);
   assert.match(designsCanvasShell("red;}body{x:y"), /background:#f2f2f2/, "only a plain color reaches the style");
 });
 

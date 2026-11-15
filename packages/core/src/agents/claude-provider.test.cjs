@@ -1416,7 +1416,7 @@ test("Claude's subagents are told to keep a to-do list as they start, and to des
       },
     });
   }
-  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /show a mockup or visual design \(not to implement UI in code\), use the milagre design_show tool/);
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /show a mockup, prototype or visual design \(not to implement UI in code\), use the milagre design_show tool/);
   assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /Don't write HTML or image files.*names another design tool, use that one/s);
   assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite, or TaskCreate and TaskUpdate.*Never use the milagre tasks_set/s);
 });

@@ -4,7 +4,7 @@
  * chip popovers use role="dialog" too, but they are not modal: the app's shortcuts keep working over them.
  * The full-page design editor also owns focus so a Chat shortcut cannot discard its drafts.
  */
-const MODAL_SELECTOR = '[aria-modal="true"], [data-focus-scope="design-editor"]';
+const MODAL_SELECTOR = '[aria-modal="true"]';
 
 /** The open modal, if any. */
 export function openModal(root: ParentNode = document): HTMLElement | null {

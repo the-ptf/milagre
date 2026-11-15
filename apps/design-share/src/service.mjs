@@ -1,5 +1,7 @@
 export { createQuotaService, quotaLimits } from "./quota.mjs";
 import { MAX_ASSET_BYTES, assetInline, byteRange } from "@milagre/shared/artifact-assets";
+import { DESIGN_CODE_HOSTS } from "@milagre/shared/artifact-document";
+import { designPageRunsCode } from "@milagre/shared/design-page";
 export const CHUNK_BYTES = 96 * 1024;
 const encoder = new TextEncoder();
 export const SECURITY_HEADERS = {
@@ -17,9 +19,20 @@ export function response(body, status = 200, type = "text/plain; charset=utf-8",
   return new Response(body, { status, headers: { ...SECURITY_HEADERS, "Content-Type": type, ...headers } });
 }
 
-/** A public page's policy also lets it show its own files, which the service keeps at `origin`. */
-const pagePolicy = (origin) =>
-  SECURITY_HEADERS["Content-Security-Policy"].replace("img-src data:", `img-src data: ${origin}; media-src ${origin}; font-src ${origin}`);
+/**
+ * A public page's policy also lets it show its own files, which the service keeps at `origin`. A page of interactive
+ * designs (`code`) runs them in sandboxed frames that inherit it, so it also allows their libraries from the pinned
+ * CDNs, evaluation (Babel), and HTTPS images, styles and fonts; the page's own markup is still only Milagre's.
+ */
+const pagePolicy = (origin, code = false) => {
+  const policy = SECURITY_HEADERS["Content-Security-Policy"].replace("img-src data:", `img-src data: ${origin}; media-src ${origin}; font-src ${origin}`);
+  if (!code) return policy;
+  return policy
+    .replace("script-src 'unsafe-inline'", `script-src 'unsafe-inline' 'unsafe-eval' ${DESIGN_CODE_HOSTS.join(" ")}`)
+    .replace("style-src 'unsafe-inline'", "style-src 'unsafe-inline' https:")
+    .replace(`img-src data: ${origin}`, `img-src data: blob: https: ${origin}`)
+    .replace(`font-src ${origin}`, `font-src data: https: ${origin}`);
+};
 
 /** Where a page's file lives in the bucket. */
 export const fileKey = (id, hash) => `pages/${id}/${hash}`;
@@ -387,7 +400,9 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
               },
               { highWaterMark: 0 },
             );
-            return response(stream, 200, "text/html; charset=utf-8", { "Content-Security-Policy": pagePolicy(new URL(request.url).origin) });
+            return response(stream, 200, "text/html; charset=utf-8", {
+              "Content-Security-Policy": pagePolicy(new URL(request.url).origin, meta.code === true),
+            });
           }
           if (request.method === "DELETE") {
             if (!meta?.deleted) await remove(meta);
@@ -453,6 +468,7 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
               operation,
               expiresAt: now() + PAGE_TTL_MS,
               ...(named.size ? { files: [...named] } : {}),
+              ...(designPageRunsCode(snapshot) ? { code: true } : {}),
             });
             // Files of an earlier version the new one doesn't name go.
             const dropped = Object.entries(files).filter(([file]) => !named.has(file));

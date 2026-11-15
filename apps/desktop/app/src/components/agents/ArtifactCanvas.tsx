@@ -1,8 +1,17 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  CheckmarkCircle02Icon,
+  Delete02Icon,
+  Download04Icon,
+  MoreHorizontalIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
+  DESIGN_CODE_CSP,
   ARTIFACT_ESCAPE,
   ARTIFACT_PAGE,
   artifactCsp,
@@ -11,11 +20,11 @@ import {
   restoreDesignFonts,
   designGroups,
   designKitLabel,
+  isInteractiveDesign,
   readPageMessage,
   type Artifact,
   type ArtifactAsset,
   type ArtifactPageMessage,
-  type DesignArtifact,
   type PagePin,
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
@@ -26,8 +35,9 @@ import { InlineError } from "../primitives/InlineError";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
-import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
-import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
+import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
+import { DesignExportDialog } from "./DesignExportDialog";
+import { MenuRow, Popover } from "../primitives/Popover";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
@@ -100,7 +110,6 @@ const GAP = 80;
 const HEADER = 32;
 // A group's name above its block, in screen pixels, and the block's padding around its frames, in canvas pixels.
 const GROUP_LABEL = 30;
-const GROUP_PADDING = 48;
 const MIN_SCALE = 0.05;
 // Fit leaves this much room around the designs, in screen pixels; at the bottom, room for the zoom bar floating there
 // (ArtifactDock: 16px from the edge, 32px tall), so neither a frame nor the agent's cursor on it goes under the bar.
@@ -214,6 +223,7 @@ export function ArtifactFrame({
   title,
   preview = false,
   format = "design",
+  code = false,
   page,
   onPage,
   frameRef,
@@ -224,6 +234,8 @@ export function ArtifactFrame({
   title: string;
   preview?: boolean;
   format?: "design" | "html";
+  /** An interactive design: the agent's HTML, run under DESIGN_CODE_CSP with its libraries from the pinned CDNs. */
+  code?: boolean;
   /** An Artifact page's files, which its `assets/<name>` references load. */
   files?: PageFiles;
   page?: PageState;
@@ -231,7 +243,7 @@ export function ArtifactFrame({
   frameRef?: React.RefObject<HTMLIFrameElement | null>;
   onLoad?: () => void;
 }) {
-  const document = useMemo(() => artifactDocument(html, { page: format === "html" }), [html, format]);
+  const document = useMemo(() => artifactDocument(html, { page: format === "html", code }), [html, format, code]);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const ready = useRef(false);
   const told = useRef<Record<string, string>>({});
@@ -288,12 +300,14 @@ export function ArtifactFrame({
   const filesRef = useRef(files);
   filesRef.current = files;
   useEffect(() => {
-    if (format !== "html" || !window.milagre?.createArtifactPreview) return;
+    // An interactive design loads from the preview scheme too: a srcdoc frame would inherit the renderer's policy,
+    // which runs no script but the app's own.
+    if ((format !== "html" && !code) || !window.milagre?.createArtifactPreview) return;
     let live = true;
     let url: string | undefined;
     setPreviewError("");
     void window.milagre
-      .createArtifactPreview(html, filesRef.current)
+      .createArtifactPreview(html, code ? { code: true } : filesRef.current)
       .then((value) => {
         url = value;
         if (live) setRegistered({ html, files: filesKey, url });
@@ -306,13 +320,13 @@ export function ArtifactFrame({
       live = false;
       if (url) void window.milagre.releaseArtifactPreview(url);
     };
-  }, [html, format, filesKey]);
-  const isolated = format === "html" && !!window.milagre?.createArtifactPreview;
+  }, [html, format, code, filesKey]);
+  const isolated = (format === "html" || code) && !!window.milagre?.createArtifactPreview;
   const url = registered?.html === html && registered.files === filesKey ? registered.url : undefined;
   if (isolated && !url)
     return (
       <div role={previewError ? "alert" : "status"} className={`grid size-full place-items-center text-12 ${previewError ? "text-red-ink" : "text-ink-3"}`}>
-        {previewError || "Loading artifact…"}
+        {previewError || (code ? "Loading design…" : "Loading artifact…")}
       </div>
     );
   return (
@@ -324,7 +338,7 @@ export function ArtifactFrame({
       src={isolated ? url : undefined}
       sandbox="allow-scripts"
       // The policy a second time, as the embedder's (Chromium holds the document to it), beside the <meta> inside.
-      {...{ csp: isolated ? PREVIEW_CSP : ARTIFACT_CSP }}
+      {...{ csp: code ? DESIGN_CODE_CSP : isolated ? PREVIEW_CSP : ARTIFACT_CSP }}
       referrerPolicy="no-referrer"
       tabIndex={preview ? -1 : undefined}
       className={`block size-full border-0 bg-paper ${preview ? "pointer-events-none" : ""}`}
@@ -508,7 +522,7 @@ export const ArtifactCanvas = forwardRef<
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[data-slot=design-editor]")) return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
       // Leaves the design, not the canvas.
       event.preventDefault();
       setActive(null);
@@ -612,7 +626,7 @@ export const ArtifactCanvas = forwardRef<
           transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
         }}
       >
-        {rows.map((row, index) => (
+        {rows.map((row) => (
           <section
             key={row.group ?? ""}
             data-slot={grouped ? "artifact-canvas-group" : undefined}
@@ -621,23 +635,26 @@ export const ArtifactCanvas = forwardRef<
             className={grouped ? "flex flex-col items-start" : "contents"}
           >
             {grouped && (
-              <div className="relative shrink-0" style={{ height: GROUP_LABEL / view.scale }}>
+              // The group's name and count, then a hairline across the row: a label, not a box around the designs.
+              <div className="relative shrink-0 self-stretch" style={{ height: GROUP_LABEL / view.scale }}>
                 <div
-                  className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-13 whitespace-nowrap"
-                  style={{ transform: `scale(${1 / view.scale})` }}
+                  className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-2 pb-2 text-13 whitespace-nowrap"
+                  style={{ transform: `scale(${1 / view.scale})`, width: `${view.scale * 100}%` }}
                 >
-                  <span className={`font-medium ${row.group ? "text-ink" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
+                  <span className={`font-medium ${row.group ? "text-ink-2" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
                   <span className="text-ink-3 tabular-nums">{row.designs.length}</span>
+                  <span aria-hidden className="h-px min-w-6 flex-1 bg-line" />
                 </div>
               </div>
             )}
-            <div className={`flex items-start ${grouped ? "rounded-card bg-hover" : ""}`} style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}>
+            <div className="flex items-start" style={{ gap: GAP }}>
               {row.designs.map((design, offset) => (
                 <DesignFrame
                   key={`${chatId}\n${design.id}`}
                   chatId={chatId}
                   design={design}
-                  number={rows.slice(0, index).reduce((total, row) => total + row.designs.length, 0) + offset + 1}
+                  label={optionLabel(offset)}
+                  dimmed={dimmedInRow(row.designs, design.id, choice)}
                   version={versions[design.id] ?? null}
                   onVersion={onVersion}
                   commenting={commenting}
@@ -670,11 +687,23 @@ export const ArtifactCanvas = forwardRef<
   );
 });
 
+/** An option's letter within its row: A to Z, then AA, AB… */
+function optionLabel(index: number): string {
+  return index < 26 ? String.fromCharCode(65 + index) : optionLabel(Math.floor(index / 26) - 1) + optionLabel(index % 26);
+}
+
+/** Whether a design steps back because another design in its row is chosen (waiting for Send, or sent). */
+function dimmedInRow(row: ArtifactRef[], id: string, choice: ChoiceControls): boolean {
+  const chosen = choice.pending ?? choice.sent;
+  return !!chosen && chosen.id !== id && row.some((design) => design.id === chosen.id);
+}
+
 // Memoized: panning re-renders the canvas, not its frames.
 const DesignFrame = memo(function DesignFrame({
   chatId,
   design,
-  number,
+  label,
+  dimmed,
   version,
   onVersion,
   commenting,
@@ -689,7 +718,10 @@ const DesignFrame = memo(function DesignFrame({
 }: {
   chatId: string;
   design: ArtifactRef;
-  number: number;
+  /** The option's letter within its group (A, B, C), as the agent's message and the Chat's cards name it. */
+  label: string;
+  /** Another option in the same group is chosen: this one steps back until the pointer is on it. */
+  dimmed: boolean;
   version: number | null;
   onVersion: (id: string, version: number | null) => void;
   commenting: boolean;
@@ -720,26 +752,11 @@ const DesignFrame = memo(function DesignFrame({
   const { live, hold } = useLiveDesign(chatId, design, version === null);
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
   const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
-  const [editing, setEditing] = useState<DesignArtifact | null>(null);
-  const [openingEditor, setOpeningEditor] = useState(false);
   const [editError, setEditError] = useState("");
-  const edit = async () => {
-    setOpeningEditor(true);
-    setEditError("");
-    try {
-      // Versions remain immutable; an editor always begins at the newest saved document.
-      const latest = await bridgeForKey(chatId).artifacts.get({
-        chatId,
-        id: design.id,
-      });
-      if (latest.format !== "design" || !latest.document) throw new Error("The latest version has no editable layers.");
-      setEditing({ ...latest, document: latest.document });
-    } catch (cause) {
-      setEditError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setOpeningEditor(false);
-    }
-  };
+  // The shown version's export: the dialog renders it as JSON, SVG or PNG.
+  const moreAnchor = useRef<HTMLSpanElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   // Delete asks once more in place: the first press arms it, the second deletes every version.
   const [deleting, setDeleting] = useState<"confirm" | "busy" | null>(null);
   const remove = async () => {
@@ -791,11 +808,11 @@ const DesignFrame = memo(function DesignFrame({
     return pin.design.version === shown.version ? [pin] : [];
   });
   const go = (next: number) => onVersion(design.id, next >= last ? null : next);
-  // Too narrow on screen for the title and its controls on one row, the controls go under the title. Zoomed out
-  // further, the controls wouldn't fit under it either: the row keeps the number and title, and the controls float
-  // over the frame's top edge while the pointer or focus is on it, clear of the group's name above the row.
-  const compact = width * scale < 260;
-  const narrow = !compact && width * scale < 300;
+  // The actions float over the frame's top edge while the pointer or focus is on it. Zoomed out too far for the chips,
+  // the row keeps the letter, the title and a chosen tick.
+  const compact = width * scale < 200;
+  // Narrow on screen, the interactive chip keeps only its dot so the title has the room.
+  const tight = width * scale < 320;
   const controls = (
     <>
       {design.format !== "html" && (
@@ -829,9 +846,34 @@ const DesignFrame = memo(function DesignFrame({
         </>
       )}
       {artifact?.format === "design" && (
-        <Button variant="secondary" size={24} data-slot="artifact-edit" aria-label={`Edit ${shown.title}`} disabled={openingEditor} onClick={() => void edit()}>
-          {openingEditor ? "Opening…" : "Edit"}
-        </Button>
+        <span ref={moreAnchor} className="inline-flex">
+          <Tooltip label="More" asChild>
+            <IconButton
+              data-slot="artifact-more"
+              label={`More actions for ${shown.title}`}
+              icon={MoreHorizontalIcon}
+              size={24}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((open) => !open)}
+            />
+          </Tooltip>
+          {moreOpen && (
+            <Popover anchor={moreAnchor} label={`${shown.title} actions`} onClose={() => setMoreOpen(false)}>
+              <MenuRow
+                data-slot="artifact-export"
+                icon={Download04Icon}
+                title={isInteractiveDesign(artifact) ? "Download HTML" : "Export…"}
+                onClick={() => {
+                  setMoreOpen(false);
+                  // An interactive design is its own page: it downloads as it is, with nothing to choose.
+                  if (isInteractiveDesign(artifact)) downloadHtml(artifact.html, `${artifact.id}-v${artifact.version}.html`);
+                  else setExporting(true);
+                }}
+              />
+            </Popover>
+          )}
+        </span>
       )}
       {design.format === "design" &&
         (deleting ? (
@@ -862,25 +904,54 @@ const DesignFrame = memo(function DesignFrame({
             />
           </Tooltip>
         ))}
-      {sentHere ? (
-        <span data-slot="artifact-chosen" className="flex h-6 items-center gap-1.5 rounded-control bg-hover-2 px-2 font-medium text-ink">
-          <Icon icon={CheckmarkCircle02Icon} size={14} />
+      {!sentHere && choice.onChoose && (
+        <button
+          type="button"
+          aria-label={pendingHere ? `Unchoose ${shown.title}` : `Choose ${shown.title}, version ${shown.version}`}
+          aria-pressed={pendingHere}
+          data-slot={pendingHere ? "artifact-choice-pending" : undefined}
+          onClick={() => choice.onChoose?.(shown)}
+          className={`flex h-6 items-center gap-1.5 rounded-control px-2 font-medium transition-colors ${pendingHere ? "bg-hover-2 text-ink" : "bg-surface text-ink shadow-btn hover:bg-hover"}`}
+        >
+          {pendingHere && <Icon icon={CheckmarkCircle02Icon} size={14} />}
+          {pendingHere ? "Chosen" : "Choose"}
+        </button>
+      )}
+    </>
+  );
+  // What the frame is, at a glance and always shown: interactive (live while it has the mouse), its version when it
+  // has more than one, and chosen. The actions stay out of the way until the pointer or focus is on the frame.
+  const chips = (
+    <>
+      {isInteractiveDesign(artifact) && (
+        <span
+          data-slot="artifact-interactive"
+          title={active ? "Live: clicks go to the design. Click outside it to let go." : "Interactive: click the design to try it"}
+          aria-label={active ? "Live" : "Interactive"}
+          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip bg-field text-11 font-medium text-ink-2 ${tight ? "w-5 justify-center" : "px-1.5"}`}
+        >
+          <span aria-hidden className={`size-1.5 rounded-full ${active ? "bg-green" : "bg-ink-4"}`} />
+          {!tight && (active ? "Live" : "Interactive")}
+        </span>
+      )}
+      {last > 1 && (
+        <span
+          data-slot="artifact-version-chip"
+          title={`Version ${shown.version} of ${last}`}
+          className="flex h-5 shrink-0 items-center rounded-chip bg-field px-1.5 text-11 font-medium text-ink-2 tabular-nums"
+        >
+          v{shown.version}
+        </span>
+      )}
+      {isChosen && (
+        <span
+          data-slot={sentHere ? "artifact-chosen" : undefined}
+          title={sentHere ? undefined : "Chosen here; Send tells the agent"}
+          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip px-1.5 text-11 font-semibold ${sentHere ? "bg-ink text-on-ink" : "text-ink ring-1 ring-ink ring-inset"}`}
+        >
+          <Icon icon={Tick02Icon} size={12} />
           Chosen
         </span>
-      ) : (
-        choice.onChoose && (
-          <button
-            type="button"
-            aria-label={pendingHere ? `Unchoose ${shown.title}` : `Choose ${shown.title}, version ${shown.version}`}
-            aria-pressed={pendingHere}
-            data-slot={pendingHere ? "artifact-choice-pending" : undefined}
-            onClick={() => choice.onChoose?.(shown)}
-            className={`flex h-6 items-center gap-1.5 rounded-control px-2 font-medium transition-colors ${pendingHere ? "bg-hover-2 text-ink" : "bg-surface text-ink shadow-btn hover:bg-hover"}`}
-          >
-            {pendingHere && <Icon icon={CheckmarkCircle02Icon} size={14} />}
-            {pendingHere ? "Chosen" : "Choose"}
-          </button>
-        )
       )}
     </>
   );
@@ -893,43 +964,35 @@ const DesignFrame = memo(function DesignFrame({
       className="group/frame flex shrink-0 flex-col"
       style={{ width }}
     >
-      <div
-        className={`relative shrink-0 ${compact ? "group-focus-within/frame:z-20 group-hover/frame:z-20" : ""}`}
-        style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}
-      >
+      <div className="relative z-10 shrink-0 group-focus-within/frame:z-20 group-hover/frame:z-20" style={{ height: HEADER / scale }}>
         <div
-          className={`absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 pb-1.5 text-12 text-ink ${narrow ? "flex-wrap content-end" : ""}`}
-          style={{
-            width: width * scale,
-            height: narrow ? HEADER * 2 : HEADER,
-            transform: `scale(${1 / scale})`,
-          }}
+          className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1.5 pb-1.5 text-12"
+          style={{ width: width * scale, height: HEADER, transform: `scale(${1 / scale})` }}
         >
-          <span className="text-ink-3">{number}</span>
-          <span className={`min-w-0 flex-1 truncate ${narrow ? "basis-[calc(100%-1.5rem)]" : ""}`} title={compact ? shown.title : undefined}>
+          <span className="shrink-0 font-semibold text-ink-3" data-slot="artifact-frame-label">
+            {label}
+          </span>
+          <span className={`min-w-0 flex-1 truncate font-medium ${dimmed ? "text-ink-2" : "text-ink"}`} title={shown.title}>
             {shown.title}
           </span>
-          {compact ? (
-            <>
-              {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />}
-              <div
-                data-slot="artifact-frame-controls"
-                className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
-              >
-                {controls}
-              </div>
-            </>
-          ) : (
-            controls
-          )}
+          {compact
+            ? isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />
+            : chips}
+          <div
+            data-slot="artifact-frame-controls"
+            className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 text-ink shadow-raised ${deleting || moreOpen ? "" : "pointer-events-none opacity-0 transition-opacity group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
+          >
+            {controls}
+          </div>
         </div>
       </div>
-      <div className="relative" style={{ width, height }}>
+      {/* On the canvas colour, so a dimmed design steps back instead of letting the dot grid through. */}
+      <div className="relative rounded-card bg-canvas" style={{ width, height }}>
         <div
           data-design-body
           data-painted={(!!artifact && painted === artifact) || undefined}
           data-active={active || undefined}
-          className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised ${active ? "border-accent" : isChosen ? "border-ink" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
+          className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised transition-opacity ${active ? "border-accent" : isChosen ? "border-ink" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"} ${dimmed && !active ? "opacity-45 group-hover/frame:opacity-100" : ""}`}
         >
           {artifact ? (
             <CanvasDesignBody
@@ -969,7 +1032,13 @@ const DesignFrame = memo(function DesignFrame({
             commenting={commenting}
             title={shown.title}
             onPin={(x, y) =>
-              artifact && comments.onPin(shown, x, y, artifact.format === "design" ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined)
+              artifact &&
+              comments.onPin(
+                shown,
+                x,
+                y,
+                artifact.format === "design" && artifact.document ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined,
+              )
             }
           >
             {sentPins.map((pin) => (
@@ -992,10 +1061,22 @@ const DesignFrame = memo(function DesignFrame({
       <InlineError size={12} className="max-w-full px-2">
         {editError}
       </InlineError>
-      {editing && <DesignEditor chatId={chatId} artifact={editing} latestVersion={last} onClose={() => setEditing(null)} />}
+      {exporting && artifact?.format === "design" && artifact.document && (
+        <DesignExportDialog designs={[{ id: artifact.id, title: artifact.title, document: artifact.document }]} onClose={() => setExporting(false)} />
+      )}
     </div>
   );
 });
+
+/** Saves an interactive design's HTML as a file, through the browser's download. */
+function downloadHtml(html: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /** Keyed by the artifact actually shown, including a live edit's held version. Readiness never crosses versions. */
 function CanvasDesignBody({
@@ -1139,7 +1220,7 @@ function PaintedFrame({ artifact, title, onPainted }: { artifact: Artifact; titl
       className="absolute inset-0 transition-opacity duration-[120ms] motion-reduce:transition-none"
       style={{ opacity: ready ? 1 : 0 }}
     >
-      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} onLoad={() => setReady(true)} />
+      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} code={isInteractiveDesign(artifact)} onLoad={() => setReady(true)} />
     </div>
   );
 }

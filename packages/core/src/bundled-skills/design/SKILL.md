@@ -1,20 +1,27 @@
 ---
 name: design
-description: Create editable screen designs in a Milagre Chat with named layers, layout and color tokens. Offer variants, edit with the user, act on their comments and build the chosen design.
+description: Create screen designs in a Milagre Chat, as named layers with layout and color tokens or as interactive HTML prototypes. Offer variants, act on the user's comments and build the chosen design.
 ---
 
 # Designing in a Chat
 
-Use this tool for UI screens, mockups and visual designs. For a page explaining a topic, a report or an interactive explainer, use `artifact_show` and the artifacts skill. Each Chat has one live HTML artifact page, separate from its editable designs.
+Use this tool for UI screens, mockups, prototypes and visual designs. For a page explaining a topic, a report or an interactive explainer, use `artifact_show` and the artifacts skill. Each Chat has one live HTML artifact page, separate from its designs.
+
+Only agents change designs. The user views them on the Designs canvas on desktop and phone, tries interactive ones, pins comments, chooses one and asks for changes through Chat.
+
+A design is one of two kinds, fixed for all its versions:
+
+- **Layers** (`document`): a static screen Milagre draws from named layers. Best for quick visual exploration, many variants, and work held to the Project's kit.
+- **Interactive** (`html` with `width` and `height`): your own HTML page, run live at that screen size. Best when the screen has behaviour worth trying (navigation, tabs, toggles, forms, onboarding steps, menus, animation) or the user asks for a prototype or something to click through. See Interactive designs below.
 
 If the user named another design tool (Pencil, Figma, Paper or any other MCP or app), use that tool. Their choice wins over Milagre designs.
 
-1. **Ground it.** Read `design_kit_read` first when available: all Chats in this Project share that kit. Reuse its pinned snapshot in `document.kit`. On takeover or after user edits, call `design_inspect` to see the current saved screen without making a version. In a project with an app, read its screens, colors, type and components first, and design in that style. Ask one question only if the platform or screen is unclear.
-2. **Show it.** Call `design_show` with a title and one document per screen. Set its width and height (390 by 844 for a phone). Give layers stable, meaningful ids and names. Use real content: the dates, names, badges and chips a real screen would show, not a simplified placeholder. When the Chat covers more than one part of the app (onboarding, settings, a workout screen), give each design a `group` naming its part, the same name for every screen and variant of it; the canvas lays out one block per group.
-3. **Look before you reply.** `design_show` and `design_apply` return the saved design as an image, plus warnings for clipped text, layers outside their parent or the screen, and low contrast. Look at the image. Fix every warning unless the overflow is deliberate (an edge bleed or a scroll peek), and fix anything that looks off (alignment, uneven spacing, icons, crowding), with `design_apply`. Do at most two fix rounds, then reply. Remote `https:` images show as placeholders in your image only; the user sees them. If no image comes back, the design is still saved; work from the warnings and don't call the tool again just to get one. If your image shows a family that is not bundled (see Fonts) in Inter, that is expected; don't change the font for it. Characters your image can't draw (a note names their layers) are blank there only; keep them.
-4. **Offer variants when the direction is open.** Show two or three designs, each with its own id and a title that names the idea ("Alt B, dark timeline"), in the group of the screen they are variants of. When the user was specific, show one. A variant that keeps most of a saved design (another color, a different header, one section changed) starts from it: `design_show` with a new `id`, its `title`, `from: { "id": "<saved id>" }` and only the `operations` that differ (the same ones `design_apply` takes), no `document`. Milagre copies the saved design, applies them and keeps its group. Draw a whole new document only when the layout itself changes.
-5. **Act on feedback.** Read the latest document with `design_read`, then call `design_apply` with that version as `expectedVersion` and one batch of operations. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. If a version conflict occurs, read again and adapt your changes to the latest document. After addressing a comment, call `artifact_resolve_comment` with its id and a one-line note. Resolve only what you addressed.
-6. **Build when asked.** Read the chosen design with `design_read` and implement it in the project's own code and components. A choice means continue from that design only. `design_export` returns JSON or SVG when the user needs a file.
+1. **Ground it.** Read `design_kit_read` first when available: all Chats in this Project share that kit. Reuse its pinned snapshot in `document.kit`. On takeover, call `design_inspect` to see the current saved screen without making a version. In a project with an app, read its screens, colors, type and components first, and design in that style. Ask one question only if the platform or screen is unclear.
+2. **Show it.** Call `design_show` with a title and one document per screen, or for an interactive design the `html` of the flow. Set its width and height (390 by 844 for a phone). Give layers stable, meaningful ids and names. Use real content: the dates, names, badges and chips a real screen would show, not a simplified placeholder. When the Chat covers more than one part of the app (onboarding, settings, a workout screen), give each design a `group` naming its part, the same name for every screen and variant of it; the canvas lays out one block per group.
+3. **Look before you reply.** `design_show` and `design_apply` return the saved design as an image. A layer design also gets warnings for clipped text, layers outside their parent or the screen, and low contrast; an interactive design gets its first screen drawn in Chrome and what its console logged (fix every error). Look at the image. Fix every warning unless the overflow is deliberate (an edge bleed or a scroll peek), and fix anything that looks off (alignment, uneven spacing, icons, crowding), with `design_apply`. Do at most two fix rounds, then reply. Remote `https:` images show as placeholders in your image only; the user sees them. If no image comes back, the design is still saved; work from the warnings and don't call the tool again just to get one. If your image shows a family that is not bundled (see Fonts) in Inter, that is expected; don't change the font for it. Characters your image can't draw (a note names their layers) are blank there only; keep them.
+4. **Offer variants when the direction is open.** Show two or three designs, each with its own id and a title that names the idea ("Alt B, dark timeline"), in the group of the screen they are variants of. When the user was specific, show one. A variant that keeps most of a saved design (another color, a different header, one section changed) starts from it: `design_show` with a new `id`, its `title`, `from: { "id": "<saved id>" }` and only the `operations` (layers) or `edits` (interactive) that differ (the same ones `design_apply` takes), no `document` or `html`. Milagre copies the saved design, applies them and keeps its group. Draw a whole new document only when the layout itself changes.
+5. **Act on feedback.** Read the latest version with `design_read`, then call `design_apply` with that version as `expectedVersion` and one batch of operations (layers) or edits (interactive). If a version conflict occurs, another agent changed it: read again and adapt your changes to the latest version. After addressing a comment, call `artifact_resolve_comment` with its id and a one-line note. Resolve only what you addressed.
+6. **Build when asked.** Read the chosen design with `design_read` and implement it in the project's own code and components. A choice means continue from that design only. `design_export` returns JSON, SVG or HTML (interactive designs: HTML) when the user needs a file. An interactive design's HTML is a reference to rebuild in the project's stack, not code to copy in.
 
 ## Craft
 
@@ -118,7 +125,7 @@ Albert Sans, Anton, Archivo, Barlow, Barlow Condensed, Bebas Neue, Besley, Big S
 
 Composition may vary: positions, dimensions, content and hierarchy are not kit rules. Colors (including defaults and instance property overrides), complete typography, padding/gap and corner radii must use kit values. Zero spacing/radius and transparent paint are allowed. Minimum dimensions are layout constraints unless bound to a kit token. Existing component links and typed property options must remain intact unless the user requests a detach/change.
 
-Documents default to advisory consistency. Opt in with `consistency: {mode: "strict"}` (also through a `document` patch). Omitting `consistency` in a full replacement preserves the existing policy; changing it requires an explicit mode. Strict saves and `design_validate` reject kit drift, including in the desktop editor. Reads and draft previews remain possible. A strict document needs a pinned kit with at least one color, text style, spacing and radius. Never switch off strict mode, change the kit or add exceptions to evade an error.
+Documents default to advisory consistency. Opt in with `consistency: {mode: "strict"}` (also through a `document` patch). Omitting `consistency` in a full replacement preserves the existing policy; changing it requires an explicit mode. Strict saves and `design_validate` reject kit drift. Reads and draft previews remain possible. A strict document needs a pinned kit with at least one color, text style, spacing and radius. Never switch off strict mode, change the kit or add exceptions to evade an error.
 
 When the user deliberately requests a variation, record `consistency.exceptions`: `{nodeId, field, value, reason}`. Copy `id`, `field` and `actual` from the diagnostic into `nodeId`, `field` and `value`; explain the user's intent in `reason`. The exception applies only to that layer/field and exact effective value. It stays visible as `kit-exception`; changing a token's resolved color invalidates the old exception. Typography values contain the normalized full font family, size, weight and line height. An exception documents intent, not independent proof of user approval. Hidden source layers are skipped, but their visible component instances are checked. Public pages omit consistency metadata and private reasons.
 
@@ -170,7 +177,7 @@ An instance can change its properties, position, parent, name, visibility and lo
 }
 ```
 
-Use `insert` with a `node` (the same fields as a `design_show` node) and optional `index` to add a layer, and `delete` with an `id` to remove a layer and its descendants. To replace the whole screen, call `design_show` with the design's id and the latest `expectedVersion`. Keep ids stable across edits so the user can keep working with the same layers.
+Use `insert` with a `node` (the same fields as a `design_show` node) and optional `index` to add a layer, and `delete` with an `id` to remove a layer and its descendants. To replace the whole screen, call `design_show` with the design's id and the latest `expectedVersion`. Keep ids stable across edits so comments and later edits keep pointing at the same layers.
 
 More atomic operations:
 
@@ -181,7 +188,47 @@ More atomic operations:
 
 ## Export
 
-`design_export` returns lossless JSON or SVG with native shapes, editable text and images. SVG keeps external image URLs and font names as references. The desktop editor also downloads PNG; remote images must allow cross-origin access or be embedded data URLs. A failed image export shows an error and produces no partial download.
+`design_export` returns lossless JSON or SVG with native shapes, editable text and images. SVG keeps external image URLs and font names as references. `html` returns a layer design's drawn page or an interactive design's own HTML. The desktop's Export in a design's menu also downloads PNG; remote images must allow cross-origin access or be embedded data URLs. A failed image export shows an error and produces no partial download.
+
+## Interactive designs
+
+Send `design_show` with `html`, `width` and `height` (390 by 844 for a phone, 1280 by 800 for a desktop app). The page runs live on the canvas and the phone, sandboxed: no `fetch`, no forms to servers, no `localStorage` or cookies (they throw). Keep state in memory and use realistic sample data.
+
+Start every React design with these exact tags (versions pinned, integrity checked), then write the app inline in `<script type="text/babel">`:
+
+```html
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>html,body{margin:0;height:100%}body{font-family:Inter,system-ui,sans-serif}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+function App() {
+  const [screen, setScreen] = React.useState("home");
+  return screen === "home"
+    ? <main data-screen-label="Home">…<button onClick={() => setScreen("detail")}>Open</button></main>
+    : <main data-screen-label="Detail">…</main>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
+```
+
+- **Libraries.** Scripts load only from unpkg.com, cdn.jsdelivr.net, cdnjs.cloudflare.com or esm.sh, each at an exact version (`react@18.3.1`, not `react@18` or `latest`); `design_show` refuses others. Tailwind's browser build is `https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.17`. Plain HTML and JavaScript need no libraries at all.
+- **Icons.** Lucide: load `https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js` (integrity `sha384-ieG+IKD0d/ZPXyCBTMVAbqsQdns8QGJR/e26WMw7M4fkaI/rHcS/YIoi+ah9WGge`, crossorigin `anonymous`), then draw one with `lucide.createElement(lucide.ChevronLeft)`, which returns an SVG element; in React, append it to a span's ref in `useEffect`. Never a Unicode glyph, emoji or hand-drawn SVG for an icon.
+- **Screens.** Put a flow in one design and switch its screens with state; mark each screen's root with `data-screen-label`. A second design is for a variant, not the next screen.
+- **Fit the screen.** The design fills exactly `width` by `height`: no sideways scroll, the main view sized to the screen (`height:100%`), long content scrolling inside it. A phone design draws its status bar (54 px) and home indicator.
+- **Make it feel real.** Every visible control does something plausible: tabs switch, toggles toggle, forms validate, lists open their item. Give buttons hover and pressed states and transitions of 150 to 250 ms. Lay out with flex or grid and `gap`.
+- **The same craft rules apply:** Inter or a fitting family from Google Fonts (`<link>` to fonts.googleapis.com works), a 4 px grid, the type scale above, 44 px touch targets, real content and the app's own colors.
+- **Edit with `edits`.** `design_apply` takes `{ id, expectedVersion, edits: [{ find, replace, all? }] }`: exact text from the HTML `design_read` returns, long enough to occur once, applied in order. To change most of the page, send the whole `html` again with `design_show` (same id, latest `expectedVersion`).
+- **Check it.** The result draws the first screen and lists console messages; a blank screen means the scripts failed. `design_validate` with `html`, `width` and `height` does the same without saving. Comments on an interactive design carry `x` and `y` as fractions of the screen the user saw.
 
 ## Availability
 

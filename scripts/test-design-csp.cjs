@@ -1,5 +1,5 @@
 // Production CSP regression: the real minified renderer must run its trusted
-// controller inside an opaque srcdoc iframe without allowing arbitrary scripts.
+// design preview inside an opaque srcdoc iframe without allowing arbitrary scripts.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -27,24 +27,11 @@ async function check() {
     await delay(100);
     const frame = window.webContents.mainFrame.frames.find((item) => item.url === "about:srcdoc");
     assert.ok(frame, "the preview is an opaque srcdoc iframe");
-    assert.equal(await frame.executeJavaScript("!!document.getElementById('design-guides')"), true, "the controller runs under the built renderer CSP");
+    assert.equal(await frame.executeJavaScript("!!document.getElementById('design-root')"), true, "the design preview renders under the built renderer CSP");
     assert.equal(await frame.executeJavaScript("typeof window.untrustedScriptRan"), "undefined", "unapproved inline scripts remain blocked");
     assert.equal(await frame.executeJavaScript("!!window.require || !!window.milagre"), false, "the frame has no host bridge");
     await window.webContents.executeJavaScript("window.designMessages=[];addEventListener('message',event=>window.designMessages.push(event.data))");
     window.webContents.debugger.attach("1.3");
-    await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: 60, y: 125, button: "left", clickCount: 1 });
-    await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: 60, y: 125, button: "left", clickCount: 1 });
-    for (let tries = 0; tries < 50; tries++) {
-      if (await window.webContents.executeJavaScript("window.designMessages.some(message=>message.type==='milagre:design-select'&&message.id==='heading')"))
-        break;
-      await delay(20);
-    }
-    assert.equal(
-      await window.webContents.executeJavaScript("window.designMessages.some(message=>message.type==='milagre:design-select'&&message.id==='heading')"),
-      true,
-      "a real pointer click selects the text layer",
-    );
-    assert.notEqual(await frame.executeJavaScript("document.getElementById('design-selection').style.display"), "none");
     await frame.executeJavaScript("dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
     for (let tries = 0; tries < 50; tries++) {
       if (await window.webContents.executeJavaScript("window.designMessages.includes('milagre:artifact-escape')")) break;
@@ -79,9 +66,36 @@ async function check() {
       "HTML artifact cannot read the parent app",
     );
     assert.equal(await htmlFrame.executeJavaScript("fetch('https://example.com').then(()=>false,()=>true)"), true, "artifact script requests remain blocked");
+    // An interactive design: its own inline scripts and Babel's evaluation run, scripts off the pinned CDNs and its
+    // own requests don't, and it can't reach the app.
+    const { DESIGN_CODE_CSP } = require("@milagre/shared/artifact-document");
+    const code = previews.register(
+      window.webContents.id,
+      '<!doctype html><html><head><script>window.blocked=[];addEventListener("securitypolicyviolation",e=>blocked.push(e.blockedURI))</script><script src="https://evil.example/x@1.0.0/a.js"></script></head><body><button id="go" onclick="this.textContent=eval(\'1+1\')">0</button><script>window.designScriptRan=true</script></body></html>',
+      { code: true },
+    );
+    await window.webContents.executeJavaScript(
+      `(() => { const frame=document.createElement('iframe');frame.sandbox='allow-scripts';frame.setAttribute('csp',${JSON.stringify(DESIGN_CODE_CSP)});frame.src=${JSON.stringify(code)};document.body.append(frame); })()`,
+    );
+    let codeFrame;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      codeFrame = window.webContents.mainFrame.frames.find((item) => item.url === code);
+      if (codeFrame && (await codeFrame.executeJavaScript("!!document.getElementById('go')"))) break;
+      await delay(20);
+    }
+    assert.ok(codeFrame, "an interactive design loads under production frame-src");
+    assert.equal(await codeFrame.executeJavaScript("window.designScriptRan"), true, "an interactive design's inline scripts run");
+    await codeFrame.executeJavaScript("document.getElementById('go').click()");
+    assert.equal(await codeFrame.executeJavaScript("document.getElementById('go').textContent"), "2", "evaluation runs, for Babel");
+    assert.ok(
+      (await codeFrame.executeJavaScript("window.blocked")).some((uri) => uri.includes("evil.example")),
+      "scripts off the pinned CDNs are blocked",
+    );
+    assert.equal(await codeFrame.executeJavaScript("fetch('https://unpkg.com/').then(()=>false,()=>true)"), true, "the design's own requests are blocked");
+    assert.equal(await codeFrame.executeJavaScript("!!window.require || !!window.milagre"), false, "interactive designs have no host bridge");
     previews.clear(window.webContents.id);
     window.webContents.debugger.detach();
-    console.log("PASS: production CSP isolates interactive HTML artifacts and permits trusted design controllers");
+    console.log("PASS: production CSP isolates interactive HTML artifacts and interactive designs, and keeps layer previews inert");
   } finally {
     window.destroy();
     app.quit();
@@ -107,7 +121,7 @@ async function run() {
       write: false,
     });
     const { designHtml, createExampleDesign } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
-    const preview = artifactDocument(designHtml(createExampleDesign(), { interactive: true })) + "<script>window.untrustedScriptRan=true</script>";
+    const preview = artifactDocument(designHtml(createExampleDesign())) + "<script>window.untrustedScriptRan=true</script>";
     await fs.writeFile(
       path.join(temp, "index.html"),
       `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{margin:0}iframe{display:block;width:390px;height:844px;border:0}</style><iframe sandbox="allow-scripts" srcdoc="${attribute(preview)}"></iframe>`,

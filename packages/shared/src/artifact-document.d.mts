@@ -1,6 +1,9 @@
 export const ARTIFACT_CSP: string;
-export function artifactCsp(assets?: string): string;
-export function artifactDocument(html: string, options?: { page?: boolean; diagrams?: string; assets?: string }): string;
+export function artifactCsp(assets?: string, options?: { code?: boolean }): string;
+export const DESIGN_CODE_HOSTS: string[];
+export const DESIGN_CODE_CSP: string;
+export function checkDesignCode(html: string): string[];
+export function artifactDocument(html: string, options?: { page?: boolean; diagrams?: string; assets?: string; code?: boolean }): string;
 export function hasDiagrams(html: string): boolean;
 export const ARTIFACT_PAGE: "milagre:artifact-page";
 export const ARTIFACT_PAGE_SCRIPT: string;

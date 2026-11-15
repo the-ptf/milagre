@@ -16,12 +16,61 @@ export const ARTIFACT_CSP = [
 ].join("; ");
 
 /**
- * The policy with `assets` (a source, such as the desktop's preview scheme or the phone's file:) also allowed for
- * images, media and fonts: where the viewer keeps the page's files.
+ * The CDNs an interactive design loads its libraries from (React, Babel, Tailwind's browser build, icons), each script
+ * by an exact version (checkDesignCode). Nothing else on the network runs in a design.
  */
-export function artifactCsp(assets = "") {
-  if (!assets) return ARTIFACT_CSP;
-  return ARTIFACT_CSP.replace(/(^|; )(img-src|media-src|font-src) ([^;]*)/g, `$1$2 $3 ${assets}`);
+export const DESIGN_CODE_HOSTS = ["https://unpkg.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "https://esm.sh"];
+
+/**
+ * An interactive design's policy: ARTIFACT_CSP, with scripts also from DESIGN_CODE_HOSTS and evaluation allowed, since
+ * Babel compiles the design's JSX in the page. Still no requests of its own (fetch, forms), and the viewers sandbox it
+ * with no same origin.
+ */
+export const DESIGN_CODE_CSP = ARTIFACT_CSP.replace("script-src 'unsafe-inline'", `script-src 'unsafe-inline' 'unsafe-eval' ${DESIGN_CODE_HOSTS.join(" ")}`);
+
+/**
+ * The policy with `assets` (a source, such as the desktop's preview scheme or the phone's file:) also allowed for
+ * images, media and fonts: where the viewer keeps the page's files. `code` is an interactive design's (DESIGN_CODE_CSP).
+ */
+export function artifactCsp(assets = "", { code = false } = {}) {
+  const policy = code ? DESIGN_CODE_CSP : ARTIFACT_CSP;
+  if (!assets) return policy;
+  return policy.replace(/(^|; )(img-src|media-src|font-src) ([^;]*)/g, `$1$2 $3 ${assets}`);
+}
+
+// A version in a CDN address: package@1.2.3 (unpkg, jsdelivr, esm.sh) or /ajax/libs/name/1.2.3/ (cdnjs).
+const PINNED = /@\d+\.\d+\.\d+|\/ajax\/libs\/[^/]+\/\d+\.\d+\.\d+/;
+const SCRIPT_SOURCE = /<script\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
+// Any address on those CDNs anywhere in the page: a <script src>, an import or import(), an import map, a script the
+// design builds in JS. The policy allows the whole host, so each one written down must name its version.
+const CDN_ADDRESS = /(?:https?:)?\/\/(?:unpkg\.com|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|esm\.sh)(\/[^\s"'`<>()\\]*)?/gi;
+
+/**
+ * The scripts an interactive design loads, checked: each <script src> from DESIGN_CODE_HOSTS over HTTPS, and every
+ * address on those CDNs in the page at an exact version, so the design draws the same tomorrow. Returns the problems,
+ * empty when there are none. An address the design assembles at run time can still pass; the design stays sandboxed
+ * with no requests of its own either way.
+ */
+export function checkDesignCode(html) {
+  const problems = [];
+  for (const match of html.matchAll(SCRIPT_SOURCE)) {
+    const source = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    let url;
+    try {
+      url = new URL(source);
+    } catch {
+      problems.push(
+        `${source || "A script"} isn't a full address. Load libraries from ${DESIGN_CODE_HOSTS.join(", ")}, and write the design's own code inline.`,
+      );
+      continue;
+    }
+    if (!DESIGN_CODE_HOSTS.includes(url.origin)) problems.push(`${source} isn't on an allowed CDN (${DESIGN_CODE_HOSTS.join(", ")}).`);
+  }
+  const unpinned = new Set();
+  for (const match of html.matchAll(CDN_ADDRESS)) if (!PINNED.test(match[1] ?? "/")) unpinned.add(match[0]);
+  for (const address of unpinned) problems.push(`${address} has no exact version. Pin it, such as react@18.3.1.`);
+  return problems;
 }
 
 /**
@@ -31,10 +80,10 @@ export function artifactCsp(assets = "") {
  *
  * An Artifact page (`page`) also gets ARTIFACT_PAGE_SCRIPT, which its viewer drives for pins, comments and zoom; with
  * `diagrams` (Pele's browser build, pele/global) a page that has Mermaid blocks gets it too, and they render in place.
- * `assets` is the source its files load from (artifactCsp).
+ * `assets` is the source its files load from (artifactCsp). An interactive design (`code`) runs under DESIGN_CODE_CSP.
  */
-export function artifactDocument(html, { page = false, diagrams = "", assets = "" } = {}) {
-  const policy = `<meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets)}">`;
+export function artifactDocument(html, { page = false, diagrams = "", assets = "", code = false } = {}) {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets, { code })}">`;
   // Leading comments and whitespace, then the doctype; without one the design gets standards mode.
   const doctype = /^(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(html);
   const at = doctype ? doctype[0].length : 0;
@@ -185,15 +234,19 @@ export function artifactShell(html, { diagrams = "", assets = "" } = {}) {
  * Fixed text, so the page's policy allows it by hash and nothing else. The app drives it through
  * `milagreCanvas.run(command)` (set, html, pins, focus, overview, reveal) and hears back through ReactNativeWebView:
  * ready, view (which design, or the whole board), press (a hold, as fractions of the design), pin (a tapped pin and
- * where it sits on screen), anchor (where a revealed spot landed) and painted (a design's frame finished loading; until
- * then the design icon draws itself in its place). Each design is a frame that runs no script.
+ * where it sits on screen), anchor (where a revealed spot landed), painted (a design's frame finished loading; until
+ * then the design icon draws itself in its place) and play (which design takes touches, or none). `chosen` outlines
+ * the chosen design and dims the other options in its row. Each design is a
+ * sandboxed frame with no same origin; a layer design's runs no script, an interactive design's (`html` with `run`)
+ * runs its own. `play` hands the shown interactive design the touches on it, so it can be tried; flying away from it,
+ * or commenting, takes them back.
  */
 export const DESIGNS_CANVAS_SCRIPT = `(function(){
 var port=document.getElementById("port"),world=document.getElementById("world"),marks=document.getElementById("marks");
 var still=matchMedia("(prefers-reduced-motion: reduce)");
 var GAP=80,EDGE=48,PAD=16,HOLD=450;
 var boards=new Map(),fonts=new Map(),order=[],rows=[],W=1,H=1,pins=[],pinNodes=new Map(),labels=[];
-var x=0,y=0,s=1,pad={top:0,bottom:0},ink="#888",accent="#888",current=null,mode="design",sent="",placed=false,commenting=false;
+var x=0,y=0,s=1,pad={top:0,bottom:0},ink="#888",accent="#888",current=null,mode="design",sent="",placed=false,commenting=false,playing=null,chosenId=null;
 var flight=0,glide=0,points=new Map(),track=[],down=null,lastTap=null,hold=0,pinched=false;
 var ring=document.createElement("div");ring.className="ring";marks.appendChild(ring);
 var DRAW='<div class="draw" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="100" d="M22 12C22 6.477 17.523 2 12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C12.842 22 14 22.116 14 21C14 20.391 13.683 19.921 13.369 19.454C12.908 18.772 12.452 18.095 13 17C13.667 15.667 14.778 15.667 16.481 15.667C17.333 15.667 18.333 15.667 19.5 15.5C21.601 15.2 22 13.908 22 12Z"/><circle pathLength="100" cx="9.5" cy="8.5" r="1.5"/><circle pathLength="100" cx="16.5" cy="9.5" r="1.5"/><path pathLength="100" d="M7.25 15C7.25 15.138 7.138 15.25 7 15.25C6.862 15.25 6.75 15.138 6.75 15C6.75 14.862 6.862 14.75 7 14.75C7.138 14.75 7.25 14.862 7.25 15Z"/></svg></div>';
@@ -215,11 +268,14 @@ if(b.frame){b.frame.width=b.w;b.frame.height=b.h;b.frame.style.width=b.w+"px";b.
 H=Math.max(1,top-gap);
 labels.forEach(function(l){l.el.remove()});labels=[];
 rows.forEach(function(row){if(!row.group)return;var el=document.createElement("div");el.className="label";el.textContent=row.group;el.style.color=ink;marks.insertBefore(el,ring);labels.push({el:el,row:row})});
-if(current&&!boards.has(current))current=null}
-function setDoc(id,doc,font){var b=boards.get(id);if(!b)return;
+if(current&&!boards.has(current))current=null;markChosen()}
+function setDoc(id,doc,font,run){var b=boards.get(id);if(!b)return;
 if(font){var at=doc.toLowerCase().indexOf("</head>");if(!fonts.has(font)||at<0)return;doc=doc.slice(0,at)+"<style>"+fonts.get(font)+"</style>"+doc.slice(at)}
-if(!b.frame){var f=document.createElement("iframe");f.setAttribute("sandbox","");f.setAttribute("referrerpolicy","no-referrer");f.setAttribute("tabindex","-1");f.width=b.w;f.height=b.h;f.style.width=b.w+"px";f.style.height=b.h+"px";f.addEventListener("load",function(){if(!b.doc)return;b.el.classList.add("ready");post({t:"painted",id:b.id})});b.el.appendChild(f);b.frame=f}
+if(!b.frame){var f=document.createElement("iframe");f.setAttribute("referrerpolicy","no-referrer");f.setAttribute("tabindex","-1");f.width=b.w;f.height=b.h;f.style.width=b.w+"px";f.style.height=b.h+"px";f.addEventListener("load",function(){if(!b.doc)return;b.el.classList.add("ready");post({t:"painted",id:b.id})});b.el.appendChild(f);b.frame=f}
+var box=run?"allow-scripts":"";if(b.frame.getAttribute("sandbox")!==box){b.frame.setAttribute("sandbox",box);b.doc=""}b.frame.style.pointerEvents=playing===b.id?"auto":"none";
 if(b.doc!==doc){b.doc=doc;b.el.classList.remove("ready");b.frame.srcdoc=doc}}
+function markChosen(){rows.forEach(function(row){var has=row.items.some(function(b){return b.id===chosenId});row.items.forEach(function(b){b.el.classList.toggle("chosen",b.id===chosenId);b.el.classList.toggle("dim",has&&b.id!==chosenId)})})}
+function setPlay(id){playing=id&&boards.has(id)&&boards.get(id).frame&&boards.get(id).frame.getAttribute("sandbox")==="allow-scripts"?id:null;boards.forEach(function(b){if(b.frame)b.frame.style.pointerEvents=b.id===playing?"auto":"none"});post({t:"play",id:playing})}
 function setPins(next){pinNodes.forEach(function(el){el.remove()});pinNodes.clear();pins=Array.isArray(next)?next:[];
 pins.forEach(function(p){var el=document.createElement("div"),k=String(p.k);el.className="pin";el.setAttribute("data-k",k);el.setAttribute("role","button");el.setAttribute("aria-label",String(p.label||"Comment"));el.textContent=String(p.n);el.style.background=String(p.fill||accent);el.style.color=String(p.ink||"#fff");marks.appendChild(el);pinNodes.set(k,el)});place()}
 function fitOf(b){return Math.max(.01,Math.min((pw()-2*PAD)/b.w,(room()-2*PAD)/b.h))}
@@ -235,7 +291,7 @@ function boardAt(px,py){for(var i=order.length-1;i>=0;i--){var b=order[i],l=x+b.
 function nearest(px,py){var best=null,far=Infinity;order.forEach(function(b){var l=x+b.x*s,t=y+b.y*s,r=l+b.w*s,d=t+b.h*s,dx=px<l?l-px:px>r?px-r:0,dy=py<t?t-py:py>d?py-d:0;if(dx*dx+dy*dy<far){far=dx*dx+dy*dy;best=b}});return best}
 function rowOf(b){for(var i=0;i<rows.length;i++)if(rows[i].items.indexOf(b)>=0)return rows[i];return null}
 function judge(){var b=nearest(pw()/2,pad.top+room()/2);if(!b)return;var next=s>=fitOf(b)*.7?"design":"canvas";if(next==="design"||!current)current=b.id;
-var key=next+"|"+current;if(key!==sent){sent=key;mode=next;post({t:"view",mode:mode,id:current})}}
+var key=next+"|"+current;if(key!==sent){sent=key;mode=next;post({t:"view",mode:mode,id:current})}if(playing&&(mode!=="design"||current!==playing))setPlay(null)}
 function place(){var canvas=mode==="canvas";
 labels.forEach(function(l){var first=l.row.items[0];l.el.style.transform="translate("+(x+(first?first.x:0)*s)+"px,"+(y+l.row.y*s-24)+"px)";l.el.style.opacity=canvas?"1":"0";l.el.style.visibility=canvas?"visible":"hidden"});
 var b=boards.get(current);if(b&&canvas){ring.style.display="block";ring.style.borderColor=accent;ring.style.transform="translate("+(x+b.x*s-4)+"px,"+(y+b.y*s-4)+"px)";ring.style.width=(b.w*s+8)+"px";ring.style.height=(b.h*s+8)+"px"}else ring.style.display="none";
@@ -278,25 +334,27 @@ window.milagreCanvas={run:function(c){if(!c||typeof c!=="object")return;
 if(c.t==="set"){if(c.ink)ink=String(c.ink);if(c.accent)accent=String(c.accent);if(c.pad)pad={top:+c.pad.top||0,bottom:+c.pad.bottom||0};var was=boards.get(current),wx=was&&was.x,wy=was&&was.y;layout(Array.isArray(c.rows)?c.rows:[]);if(was&&boards.get(current)===was){x-=(was.x-wx)*s;y-=(was.y-wy)*s}if(Array.isArray(c.pins))setPins(c.pins);
 var b=boards.get(String(c.focus||""))||boards.get(current)||order[0];if(b&&(!placed||!boards.has(current))){current=b.id;var v=focusView(b);x=v.x;y=v.y;s=v.s;placed=true}paint()}
 else if(c.t==="fonts"){if(typeof c.key==="string"&&typeof c.css==="string"&&c.css)fonts.set(c.key,c.css)}
-else if(c.t==="html")setDoc(String(c.id),String(c.doc||""),c.font);
+else if(c.t==="html")setDoc(String(c.id),String(c.doc||""),c.font,c.run===true);
+else if(c.t==="play")setPlay(c.id==null?null:String(c.id));
+else if(c.t==="chosen"){chosenId=c.id==null?null:String(c.id);if(typeof c.ink==="string")world.style.setProperty("--chosen",c.ink);markChosen()}
 else if(c.t==="pins")setPins(c.pins);
-else if(c.t==="comment")commenting=!!c.on;
+else if(c.t==="comment"){commenting=!!c.on;if(commenting&&playing)setPlay(null)}
 else if(c.t==="focus"){var f=boards.get(String(c.id));if(f){current=f.id;fly(focusView(f))}}
 else if(c.t==="overview")fly(overview());
 else if(c.t==="reveal"){var r=boards.get(String(c.id));if(!r)return;var rx=unit(+c.x),ry=unit(+c.y),px=x+(r.x+rx*r.w)*s,py=y+(r.y+ry*r.h)*s,tx=Math.min(Math.max(px,PAD),pw()-280),ty=pad.top+Math.max(PAD,room()*.14);
 fly({s:s,x:x+tx-px,y:y+ty-py},function(){post({t:"anchor",sx:x+(r.x+rx*r.w)*s,sy:y+(r.y+ry*r.h)*s})})}}};
 post({t:"ready"})})()`;
-// Hash of DESIGNS_CANVAS_SCRIPT; artifact.test.ts checks it.
-const DESIGNS_CANVAS_HASH = "sha256-fQu9zAEUbv5Bzm9raH8EJipSFkqtJuP8UIKhqh0VQuo=";
 const CANVAS_BACKGROUND = /^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s/]+\))$/i;
 
 /**
  * The page for DESIGNS_CANVAS_SCRIPT, empty until the app sends the designs. As in artifactShell, each design goes in a
- * sandboxed frame, here one that can't run scripts at all, and the touches go to the canvas around it. The page runs
- * only the canvas script.
+ * sandboxed frame with no same origin, and the touches go to the canvas around it unless a design is being tried. The
+ * frames inherit the page's policy, so it is an interactive design's (DESIGN_CODE_CSP), plus frame-src 'none': the
+ * page itself runs only the canvas script, and nothing writes markup into it (the designs reach their frames as
+ * srcdoc, the group names as text).
  */
 export function designsCanvasShell(background = "#f2f2f2") {
   const color = CANVAS_BACKGROUND.test(background) ? background : "#f2f2f2";
-  const policy = `${ARTIFACT_CSP.replace("script-src 'unsafe-inline'", `script-src '${DESIGNS_CANVAS_HASH}'`)}; frame-src 'none'`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{margin:0;height:100%;overflow:hidden;background:${color}}#port{position:fixed;inset:0;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}#world{position:absolute;left:0;top:0;transform-origin:0 0}.board{position:absolute;background:#fff;box-shadow:0 2px 16px rgba(0,0,0,.18);overflow:hidden}iframe{display:block;border:0;pointer-events:none;opacity:0;transition:opacity .25s}.board.ready iframe{opacity:1}.draw{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#c4c7cf;transition:opacity .2s}.board.ready .draw{opacity:0}.board.ready .draw *{animation:none;stroke-dashoffset:0}.draw svg{width:18%;min-width:28px;max-width:96px}.draw *{stroke-dasharray:100;stroke-dashoffset:100;animation:draw 1.8s ease-in-out infinite}@keyframes draw{0%{stroke-dashoffset:100;opacity:1}55%{stroke-dashoffset:0;opacity:1}85%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:0;opacity:0}}@media (prefers-reduced-motion:reduce){.draw *{animation:none;stroke-dashoffset:0}iframe{transition:none}}#marks{position:absolute;inset:0;pointer-events:none}#marks>*{position:absolute;left:0;top:0}.label{font:600 11px/14px -apple-system,system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;transition:opacity .2s}.ring{display:none;box-sizing:border-box;border:2px solid;border-radius:12px}.pin{pointer-events:auto;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:0 12px 12px 12px;font:700 11px -apple-system,system-ui,sans-serif;box-shadow:0 0 0 1.5px #fff,0 1px 3px rgba(0,0,0,.3)}</style></head><body><main id="port" aria-label="Designs canvas. Pinch to zoom, drag to pan, double-tap to fit, enable comments, then tap a design to comment."><div id="world"></div><div id="marks"></div></main><script>${DESIGNS_CANVAS_SCRIPT}</script></body></html>`;
+  const policy = `${DESIGN_CODE_CSP}; frame-src 'none'`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{margin:0;height:100%;overflow:hidden;background:${color}}#port{position:fixed;inset:0;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}#world{position:absolute;left:0;top:0;transform-origin:0 0}.board{position:absolute;background:#fff;box-shadow:0 2px 16px rgba(0,0,0,.18);overflow:hidden;transition:opacity .2s}.board.dim{opacity:.45}.board.chosen{outline:2px solid var(--chosen,#fff);outline-offset:3px}iframe{display:block;border:0;pointer-events:none;opacity:0;transition:opacity .25s}.board.ready iframe{opacity:1}.draw{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;color:#c4c7cf;transition:opacity .2s}.board.ready .draw{opacity:0}.board.ready .draw *{animation:none;stroke-dashoffset:0}.draw svg{width:18%;min-width:28px;max-width:96px}.draw *{stroke-dasharray:100;stroke-dashoffset:100;animation:draw 1.8s ease-in-out infinite}@keyframes draw{0%{stroke-dashoffset:100;opacity:1}55%{stroke-dashoffset:0;opacity:1}85%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:0;opacity:0}}@media (prefers-reduced-motion:reduce){.draw *{animation:none;stroke-dashoffset:0}iframe{transition:none}}#marks{position:absolute;inset:0;pointer-events:none}#marks>*{position:absolute;left:0;top:0}.label{font:500 13px/16px -apple-system,system-ui,sans-serif;white-space:nowrap;transition:opacity .2s}.ring{display:none;box-sizing:border-box;border:2px solid;border-radius:12px}.pin{pointer-events:auto;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:0 12px 12px 12px;font:700 11px -apple-system,system-ui,sans-serif;box-shadow:0 0 0 1.5px #fff,0 1px 3px rgba(0,0,0,.3)}</style></head><body><main id="port" aria-label="Designs canvas. Pinch to zoom, drag to pan, double-tap to fit, enable comments, then tap a design to comment."><div id="world"></div><div id="marks"></div></main><script>${DESIGNS_CANVAS_SCRIPT}</script></body></html>`;
 }

@@ -4,7 +4,6 @@ import type { DesignDocument } from "@milagre/shared/design";
 import type { ArtifactRef, Subagent } from "../../model";
 import { stateEvents, type AgentEventUpdate } from "../../lib/state-events";
 import { readArtifact } from "./ArtifactCanvas";
-import { DESIGN_SAVED, type DesignSaved } from "./DesignEditor";
 
 /**
  * The agent at work on the Designs canvas, like a collaborator's cursor in Figma or Pencil. Two sources:
@@ -335,12 +334,6 @@ function replay(chatId: string, id: string, from: number, to: number) {
     })
     .catch(stop);
 }
-
-if (typeof window !== "undefined")
-  window.addEventListener(DESIGN_SAVED, (event) => {
-    const { chatId, artifact } = (event as CustomEvent<DesignSaved>).detail;
-    covered.add(versionKey(chatId, artifact.id, artifact.version));
-  });
 
 // --- Hooks ---
 

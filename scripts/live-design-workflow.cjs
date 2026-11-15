@@ -42,38 +42,34 @@ async function main() {
     assert.equal(first.format, "design");
     assert.equal(first.version, 1);
     assert.ok(created.cards.some((card) => card.id === first.id && card.version === 1));
-    const userEdit = await fixture.edit(first.id, 1, [{ op: "update", id: "subtitle", patch: { text: "My own words" } }]);
-    assert.equal(userEdit.version, 2);
-    await assert.rejects(fixture.edit(first.id, 1, [{ op: "update", id: "subtitle", patch: { text: "Stale overwrite" } }]), /version conflict/i);
-    results.checks.push("Real provider created version 1 and its Chat card", "Manual artifact:apply created version 2", "Stale version 1 edit was rejected");
-    console.log("Created version 1; manual edit saved version 2; stale edit rejected.");
+    results.checks.push("Real provider created version 1 and its Chat card");
+    console.log("Created version 1.");
     const revised = await fixture.turn(
       "revise",
-      "Revise daily-notes. I edited the subtitle myself while you were away. Read its latest source with milagre design_read, then use milagre design_apply with the returned version to change only heading.text to A better morning and heading.fontSize to 34. Preserve every other layer and property, especially my subtitle. Do not use design_show or HTML. Finish with one short sentence.",
+      "Revise daily-notes. Read its latest source with milagre design_read, then use milagre design_apply with the returned version to change only heading.text to A better morning and heading.fontSize to 34. Preserve every other layer and property. Do not use design_show or HTML. Finish with one short sentence.",
     );
     results.turns.push(summarizedTurn(revised));
     const names = revised.tools.map((tool) => tool.name);
     assert.ok(names.indexOf("design_read") >= 0 && names.indexOf("design_read") < names.indexOf("design_apply"));
-    assert.ok(revised.tools.some((tool) => tool.name === "design_apply" && tool.arguments.expectedVersion === 2 && !tool.error));
+    assert.ok(revised.tools.some((tool) => tool.name === "design_apply" && tool.arguments.expectedVersion === 1 && !tool.error));
     const latest = await fixture.artifact(first.id);
-    assert.equal(latest.version, 3);
-    assert.equal(latest.document.nodes.find((node) => node.id === "subtitle").text, "My own words");
+    assert.equal(latest.version, 2);
     assert.equal(latest.document.nodes.find((node) => node.id === "heading").text, "A better morning");
     const expected = {
-      ...userEdit.document,
-      nodes: userEdit.document.nodes.map((node) => (node.id === "heading" ? { ...node, text: "A better morning", fontSize: 34 } : node)),
+      ...first.document,
+      nodes: first.document.nodes.map((node) => (node.id === "heading" ? { ...node, text: "A better morning", fontSize: 34 } : node)),
     };
     assert.deepEqual(latest.document, expected);
     assert.deepEqual((await fixture.artifact(first.id, 1)).document, first.document);
-    assert.ok(revised.cards.some((card) => card.id === first.id && card.version === 3));
+    assert.ok(revised.cards.some((card) => card.id === first.id && card.version === 2));
     results.checks.push(
-      "Agent read version 2 and applied a small batch against it",
-      "Version 3 preserves the manual subtitle and all unrelated properties",
+      "Agent read version 1 and applied a small batch against it",
+      "Version 2 preserves all unrelated properties",
       "Version 1 remains immutable",
-      "The revision produced a version 3 Chat card",
+      "The revision produced a version 2 Chat card",
     );
     results.status = "passed";
-    console.log("Agent read version 2, saved version 3, and preserved the manual edit and version 1.");
+    console.log("Agent read version 1, saved version 2, and left version 1 untouched.");
   } catch (error) {
     results.status = "failed";
     results.error = error.message;

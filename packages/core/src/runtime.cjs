@@ -290,7 +290,6 @@ function createRuntime(options) {
   commands.handle("artifact:get", (_context, request) => artifacts.get(request));
   commands.handle("artifact:asset", (_context, request) => artifacts.asset(request));
   commands.handle("artifact:list", (_context, request) => artifacts.list(request));
-  commands.handle("artifact:apply", (_context, request) => artifacts.apply(request));
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));

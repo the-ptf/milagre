@@ -147,13 +147,15 @@ async function embedPageImages(snapshot, { fetchImage = fetchRaster, resize = re
   const signal = AbortSignal.timeout(30_000);
   // The largest box each image is drawn in across the page, so one download serves every use.
   const boxes = new Map();
-  for (const design of result.designs)
+  // Interactive designs load their own images in the page; only layer designs embed theirs.
+  const layered = result.designs.filter((design) => design.document);
+  for (const design of layered)
     for (const node of design.document.nodes) {
       if (node.type !== "image" || !/^https:/i.test(node.src ?? "")) continue;
       const box = boxes.get(node.src) ?? { width: 1, height: 1 };
       boxes.set(node.src, { width: Math.max(box.width, node.width ?? 1), height: Math.max(box.height, node.height ?? 1) });
     }
-  for (const design of result.designs) {
+  for (const design of layered) {
     for (const node of design.document.nodes) {
       if (node.type !== "image" || !/^https:/i.test(node.src ?? "")) continue;
       if (!images.has(node.src)) {

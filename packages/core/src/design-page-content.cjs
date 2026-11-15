@@ -5,7 +5,10 @@ function publicPageContent(snapshot) {
   return {
     schemaVersion: snapshot.schemaVersion,
     title: snapshot.title,
-    designs: snapshot.designs.map(({ title, group, document: input }) => {
+    designs: snapshot.designs.map(({ title, group, document: input, interactive }) => {
+      // An interactive design is published as the agent wrote it: its HTML has no private layer names to strip.
+      if (interactive)
+        return { title, ...(group ? { group } : {}), interactive: { html: interactive.html, width: interactive.width, height: interactive.height } };
       const document = validateDesignDocument(input);
       const byId = new Map(document.nodes.map((node) => [node.id, node]));
       const visible = document.nodes.filter((node) => {

@@ -9,6 +9,7 @@ import {
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Comment01Icon,
+  Cursor01Icon,
   PaintBoardIcon,
   File01Icon,
   Share08Icon,
@@ -20,6 +21,7 @@ import {
   designActivity,
   designFeedbackMessage,
   designFeedbackText,
+  isInteractiveDesign,
   newCommentId,
   parseDesignFeedback,
   resolutionNotes,
@@ -54,7 +56,7 @@ import { Select } from "../primitives/Select";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
-import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } from "./DesignEditor";
+import { DESIGN_DELETED, type DesignDeleted } from "./design-events";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
 import { ZoomBar } from "../primitives/ZoomBar";
 import { COMMENT_KEY, useCommentKey } from "./comment-key";
@@ -206,11 +208,14 @@ function ScaledPreview({
   height = 800,
   pin,
   format,
+  code,
   files,
 }: {
   html: string;
   title: string;
   format?: "design" | "html";
+  /** An interactive design, run under its own policy. */
+  code?: boolean;
   /** An Artifact page's files, which its preview loads. */
   files?: PageFiles;
   width?: number;
@@ -256,6 +261,7 @@ function ScaledPreview({
             title={title}
             preview
             format={format}
+            code={code}
             files={files}
             page={
               format === "html" && pin
@@ -316,6 +322,7 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
           <ScaledPreview
             html={artifact.html}
             format={artifact.format}
+            code={isInteractiveDesign(artifact)}
             title={`Preview of ${title}`}
             width={artifact.width}
             height={artifact.height}
@@ -426,6 +433,7 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
             files={pageFiles(chatId, artifact)}
             html={artifact.html}
             format={artifact.format}
+            code={isInteractiveDesign(artifact)}
             title={`Preview of ${comment.design.title}`}
             width={artifact.width}
             height={artifact.height}
@@ -525,6 +533,7 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
           <ScaledPreview
             html={artifact.html}
             format={artifact.format}
+            code={isInteractiveDesign(artifact)}
             title={`Preview of ${design.title}`}
             width={artifact.width}
             height={artifact.height}
@@ -594,7 +603,7 @@ export function ArtifactsProvider({
   useEffect(() => {
     if (savedDesigns.chatId) remember(lastSavedDesigns, savedDesigns.chatId, savedDesigns);
   }, [savedDesigns]);
-  // Direct edits create versions without a new Chat reply. Read their metadata on open and when agent versions change.
+  // Read the catalog on open and when agent versions change.
   useEffect(() => {
     if (!chatId || !window.milagre) return;
     const list = bridgeForKey(chatId).artifacts?.list;
@@ -635,22 +644,6 @@ export function ArtifactsProvider({
     };
   }, [chatId, revisionKey, enabled]);
   useEffect(() => {
-    const changed = (event: Event) => {
-      const detail = (event as CustomEvent<DesignSaved>).detail;
-      if (!enabled || detail.chatId !== chatId || detail.artifact.format !== "design") return;
-      const ref: ArtifactRef = {
-        id: detail.artifact.id,
-        title: detail.artifact.title,
-        version: detail.artifact.version,
-        format: "design",
-        ...(detail.artifact.group ? { group: detail.artifact.group } : {}),
-      };
-      setSavedDesigns((current) =>
-        current.chatId === chatId
-          ? { ...current, refs: [...current.refs.filter((item) => item.id !== ref.id), ref] }
-          : { chatId, refs: [ref], htmlAliases: [] },
-      );
-    };
     const deleted = (event: Event) => {
       const detail = (event as CustomEvent<DesignDeleted>).detail;
       if (detail.chatId !== chatId) return;
@@ -660,10 +653,8 @@ export function ArtifactsProvider({
           : { chatId, refs: [], htmlAliases: [], deleted: [detail.id] },
       );
     };
-    window.addEventListener(DESIGN_SAVED, changed);
     window.addEventListener(DESIGN_DELETED, deleted);
     return () => {
-      window.removeEventListener(DESIGN_SAVED, changed);
       window.removeEventListener(DESIGN_DELETED, deleted);
     };
   }, [chatId, enabled]);
@@ -1168,20 +1159,22 @@ function ArtifactDock({
           </Tooltip>
         )}
         {sharingAvailable && <IconButton label="Share page" icon={Share08Icon} size={24} onClick={() => setSharingChat(chatId)} />}
-        <CommentOptions shown={showResolved} onChange={setShowResolved}>
-          <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY}>
-            {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
-            <IconButton
-              label={commentLabel}
-              icon={Comment01Icon}
-              size={24}
-              tone="accent"
-              aria-pressed={commenting}
-              disabled={!onSend}
-              onClick={toggleComment}
-            />
-          </Tooltip>
-        </CommentOptions>
+        {kind === "artifacts" && (
+          <CommentOptions shown={showResolved} onChange={setShowResolved}>
+            <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY}>
+              {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
+              <IconButton
+                label={commentLabel}
+                icon={Comment01Icon}
+                size={24}
+                tone="accent"
+                aria-pressed={commenting}
+                disabled={!onSend}
+                onClick={toggleComment}
+              />
+            </Tooltip>
+          </CommentOptions>
+        )}
         {!cramped && (
           <IconButton
             label={expanded ? `Show the Chat beside the ${kind}` : `Fill the window with the ${kind}`}
@@ -1256,9 +1249,43 @@ function ArtifactDock({
             }}
             onView={setView}
           />
+          {/* The Designs canvas's one floating bar: what a click on a design does (View or Comment), then the zoom. */}
           <ZoomBar
             data-slot="artifact-zoom-bar"
-            className="absolute bottom-4 left-4"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2"
+            leading={
+              <div role="group" aria-label="Canvas mode" className="flex items-center gap-0.5">
+                <Tooltip label="View and try designs" asChild>
+                  <button
+                    type="button"
+                    data-slot="artifact-mode-view"
+                    aria-pressed={!commenting}
+                    onClick={() => commenting && toggleComment()}
+                    className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-12 font-medium transition-colors ${commenting ? "text-ink-2 hover:bg-hover" : "bg-hover-2 text-ink"}`}
+                  >
+                    <Icon icon={Cursor01Icon} size={14} />
+                    View
+                  </button>
+                </Tooltip>
+                <CommentOptions shown={showResolved} onChange={setShowResolved}>
+                  <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY} asChild>
+                    {/* Comment mode is armed: it changes what a click on a design does, so it's the accent pressed look. */}
+                    <button
+                      type="button"
+                      data-slot="artifact-mode-comment"
+                      aria-label={commentLabel}
+                      aria-pressed={commenting}
+                      disabled={!onSend}
+                      onClick={toggleComment}
+                      className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-12 font-medium transition-colors disabled:opacity-40 ${commenting ? "bg-accent-tint text-accent-ink" : "text-ink-2 enabled:hover:bg-hover"}`}
+                    >
+                      <Icon icon={Comment01Icon} size={14} />
+                      Comment
+                    </button>
+                  </Tooltip>
+                </CommentOptions>
+              </div>
+            }
             zoom={view?.scale ?? null}
             onZoomOut={() => canvas.current?.zoomBy(1 / 1.25)}
             onReset={() => canvas.current?.zoomTo(1)}

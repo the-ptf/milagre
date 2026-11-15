@@ -1,5 +1,5 @@
 import type { ArtifactRef } from "./model.ts";
-import type { DesignDocument, DesignOperation, DesignEditIntent } from "./design.mjs";
+import type { DesignDocument } from "./design.mjs";
 import type { ArtifactAsset } from "./artifact-assets.mjs";
 export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
 
@@ -11,18 +11,25 @@ export type ArtifactSummary = ArtifactRef & {
   width: number;
   height: number;
   format: "design" | "html";
+  /** A design that is the agent's own HTML, run live in the viewers, instead of layers Milagre draws. */
+  interactive?: boolean;
   kit?: { id: string; version: number; title: string };
   consistency?: { mode: "advisory" | "strict" };
 };
+
+/** Whether a design is interactive: its HTML runs under DESIGN_CODE_CSP, and it has no layer document. */
+export const isInteractiveDesign = (design: { format?: string; interactive?: boolean } | null | undefined): boolean =>
+  design?.format === "design" && design.interactive === true;
 
 /** The pinned visual identity, shared by desktop and phone. */
 export function designKitLabel(design: Pick<ArtifactSummary, "kit" | "consistency"> | null | undefined): string {
   return design?.kit ? `${design.consistency?.mode === "strict" ? "Strict · " : ""}${design.kit.title} · kit v${design.kit.version}` : "";
 }
 
-/** One version of a design an agent showed, as `artifact:get` returns it. */
-export type DesignArtifact = ArtifactSummary & {
+/** One version of a layer design an agent showed, as `artifact:get` returns it. */
+export type LayerDesignArtifact = ArtifactSummary & {
   format: "design";
+  interactive?: false;
   latest: number;
   html: string;
   document: DesignDocument;
@@ -30,6 +37,17 @@ export type DesignArtifact = ArtifactSummary & {
   fontKey?: string;
   fontCss?: string;
 };
+/** One version of an interactive design: the agent's HTML page, with no layer document. */
+export type InteractiveDesignArtifact = ArtifactSummary & {
+  format: "design";
+  interactive: true;
+  latest: number;
+  html: string;
+  document?: never;
+  fontKey?: never;
+  fontCss?: never;
+};
+export type DesignArtifact = LayerDesignArtifact | InteractiveDesignArtifact;
 /** One tab of an Artifact page: a page of its own, under a title in the page's tab bar. */
 export type ArtifactTab = { id: string; title: string; html: string };
 /** `html` is the page, or its first tab when the agent split it into `tabs`. `assets` are the files its HTML shows as `assets/<name>`. */
@@ -78,8 +96,6 @@ export interface ArtifactApi {
   /** Part of a file of the Chat's Artifact page, by its name; `length` caps the bytes (256 KB at most). */
   asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
-  /** Saves an atomic batch against the version the editor loaded. A stale version leaves the design unchanged. */
-  apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[]; intent?: DesignEditIntent }): Promise<DesignArtifact>;
   /** Deletes a design with every version and the comments on it. Its id is never reused. */
   delete(request: { chatId: string; id: string }): Promise<{ id: string }>;
   /** Records comments the user is sending; returns them with their ids. */
@@ -289,6 +305,7 @@ export {
   ARTIFACT_PAGE_SCRIPT,
   ARTIFACT_SHELL_SCRIPT,
   DESIGNS_CANVAS_SCRIPT,
+  DESIGN_CODE_CSP,
   artifactDocument,
   artifactShell,
   designsCanvasShell,

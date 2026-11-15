@@ -226,8 +226,8 @@ window.milagre = {
       window.shares = window.shares.map((row) => row.id === id ? { ...row, revoked: true } : row);
     },
     list: async () => [
-      { id: "login", version: window.latest, title: "Login screen, warmer", format: "design", versions: window.latest, width: 1280, height: 800 },
-      { id: "home", version: 1, title: "Home", format: "design", versions: 1, width: 390, height: 844 },
+      { id: "login", version: window.latest, title: "Login screen, warmer", format: "design", versions: window.latest, width: 1280, height: 800, ...(window.groups?.login ? { group: window.groups.login } : {}) },
+      { id: "home", version: 1, title: "Home", format: "design", versions: 1, width: 390, height: 844, ...(window.groups?.home ? { group: window.groups.home } : {}) },
       { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, width: 1280, height: 800 },
     ].filter((ref) => (window.designsEnabled !== false || ref.format === "html") && !(window.deletedIds ?? []).includes(ref.id)),
     delete: async ({ id }) => {
@@ -272,6 +272,9 @@ function Fixture() {
   useSidePanelRoom("changes", changes, 332, () => setChanges(false));
   window.setDiff = setDiff;
   window.revise = () => { window.latest = 3; setRevised(true); };
+  // The agent changes the catalog without a new version: the Chat showing a design_delete step makes the canvas read it again.
+  const [catalogReads, setCatalogReads] = useState(0);
+  window.rereadCatalog = () => setCatalogReads((count) => count + 1);
   const [htmlRevised, setHtmlRevised] = useState(false);
   window.reviseHtml = () => { window.htmlVersion = 2; window.htmlId = "current-artifact"; setHtmlRevised(true); };
   const [said, setSaid] = useState([]);
@@ -286,6 +289,7 @@ function Fixture() {
     { id: 3, session_id: 1, context: null, role: "user", body: "warmer, please" },
     { id: 4, session_id: 1, context: null, role: "assistant", body: "Warmer greens, and the home screen.", steps: [step(2, 0), { id: "h1", kind: "artifact", title: "Showed \`Home\`", status: "done", offset: 0, artifact: { id: "home", version: 1, title: "Home" } }] },
     ...(revised ? [{ id: 5, session_id: 1, context: null, role: "assistant", body: "Orange accent.", steps: [step(3, 0)] }] : []),
+    ...Array.from({ length: catalogReads }, (_, index) => ({ id: 40 + index, session_id: 1, context: null, role: "assistant", body: "Regrouped.", steps: [{ id: "reread-" + index, kind: "tool", title: "design_delete", status: "done", offset: 0 }] })),
     ...(htmlRevised ? [{ id: 31, session_id: 1, context: null, role: "assistant", body: "Updated explanation.", steps: [{ id: "html-update", kind: "artifact", status: "done", title: "Updated artifact", offset: 0, artifact: { id: "current-artifact", version: 2, title: "Explanation", format: "html" } }] }] : []),
     ...said.map((body, index) => ({ id: 10 + index, session_id: 1, context: null, role: "user", body })),
     ...(resolvedReply ? [{ id: 30, session_id: 1, context: null, role: "assistant", body: "Made it bigger.", steps: [{ id: "r1", kind: "other", title: "Resolved a design comment", status: "done", offset: 0 }] }] : []),
@@ -552,15 +556,12 @@ async function browserChecks() {
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     await waitFor(`${inView("login")} && ${inView("home")}`);
     assert.equal(await evaluate(`${frame("home")}.querySelector("[data-design-body]").parentElement.style.width`), "390px");
-    // The zoom floats at the canvas's bottom-left, as on the main Canvas; the header keeps Share as an icon.
+    // One bar floats at the bottom centre of the Designs canvas: View/Comment, then the zoom; the header keeps Share as an icon.
     const zoomBar = `${dock}.querySelector("[data-slot=artifact-zoom-bar]")`;
     const barPlace = await evaluate(
       `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const b = ${zoomBar}.getBoundingClientRect(); return { left: b.left - c.left, bottom: c.bottom - b.bottom, right: c.right - b.right }; })()`,
     );
-    assert.ok(
-      barPlace.left > 0 && barPlace.left <= 24 && barPlace.bottom > 0 && barPlace.bottom <= 24 && barPlace.right > 100,
-      "the zoom bar sits at the bottom-left",
-    );
+    assert.ok(barPlace.bottom > 0 && barPlace.bottom <= 24 && Math.abs(barPlace.left - barPlace.right) <= 2, "the mode and zoom bar sits at the bottom centre");
     assert.equal(await evaluate(`!!${dock}.querySelector("header [aria-label='Zoom in']")`), false, "the zoom left the header");
     assert.equal(await evaluate(`${dock}.querySelector("header [aria-label='Share page']").textContent.trim()`), "", "Share is an icon button");
     const zoom = await evaluate(`${dock}.querySelector("[data-slot=artifact-zoom]").textContent`);
@@ -643,7 +644,7 @@ async function browserChecks() {
     await waitFor(`!!${homeControls} && !!${loginControls}`);
     assert.equal(await evaluate(`getComputedStyle(${homeControls}).opacity`), "0");
     await screenshot("canvas-zoomed-out");
-    await evaluate(`${homeControls}.querySelector("[data-slot=artifact-edit]").focus()`);
+    await evaluate(`${homeControls}.querySelector("[data-slot=artifact-more]").focus()`);
     await waitFor(`getComputedStyle(${homeControls}).opacity === "1"`);
     await screenshot("canvas-zoomed-out-focus");
     await evaluate(`document.activeElement.blur()`);
@@ -709,20 +710,9 @@ async function browserChecks() {
     await waitFor(`!${frame("login")}.querySelector("[data-design-body]").dataset.active && !!${dock}`);
     assert.notEqual(await evaluate("document.activeElement?.tagName"), "IFRAME", "the focus comes back to the canvas");
 
-    // Designs grouped by the part of the app they belong to sit in one named block per group, numbered across blocks.
+    // Designs grouped by the part of the app they belong to sit under one named label per group, lettered as options in it.
     // (Last of the iframe checks: regrouping remounts the frames, which reorders mainFrame.frames.)
-    const regroup = (groups) =>
-      evaluate(`(() => {
-        const groups = ${JSON.stringify(groups)};
-        const refs = [
-          { id: "login", version: window.latest, title: "Login screen, warmer", width: 1280, height: 800 },
-          { id: "home", version: 1, title: "Home", width: 390, height: 844 },
-        ];
-        for (const ref of refs) {
-          const artifact = { ...ref, format: "design", versions: ref.version, ...(groups[ref.id] ? { group: groups[ref.id] } : {}) };
-          window.dispatchEvent(new CustomEvent("milagre:design-saved", { detail: { chatId: "milagre-link:fixture#1", artifact } }));
-        }
-      })()`);
+    const regroup = (groups) => evaluate(`window.groups = ${JSON.stringify(groups)}; window.rereadCatalog()`);
     const groups = `[...${dock}.querySelectorAll("[data-slot=artifact-canvas-group]")]`;
     await regroup({ login: "Sign in", home: "Home tab" });
     await waitFor(`${groups}.length === 2`);
@@ -733,7 +723,7 @@ async function browserChecks() {
       true,
       "a group's block sits below the one before it",
     );
-    assert.equal(await evaluate(`${frame("home")}.textContent.trim().startsWith("2")`), true, "frames are numbered across blocks");
+    assert.equal(await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-frame-label]").textContent`), "A", "each group letters its own options");
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     await screenshot("canvas-groups");
     // Zoomed out, a frame's floating controls sit over its top edge, clear of its group's name above the row.
@@ -741,7 +731,7 @@ async function browserChecks() {
       await evaluate(`${dock}.querySelector("[aria-label='Zoom out']").click()`);
       await delay(50);
     }
-    await evaluate(`${homeControls}.querySelector("[data-slot=artifact-edit]").focus()`);
+    await evaluate(`${homeControls}.querySelector("[data-slot=artifact-more]").focus()`);
     await waitFor(`getComputedStyle(${homeControls}).opacity === "1"`);
     const clear = await evaluate(`(() => {
       const box = (element) => element.getBoundingClientRect();
@@ -1203,6 +1193,17 @@ async function browserChecks() {
     // A design is deleted from its frame on the canvas after a second press, and leaves the canvas and the Chat's cards.
     await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
     await waitFor(`${frames}?.length === 2`);
+    // Layers are the agent's to edit: no Edit button, and the frame's ⋯ menu holds Export.
+    assert.equal(await evaluate(`${frame("home")}.querySelectorAll("[data-slot=artifact-edit]").length`), 0, "users no longer edit layers");
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-more]").click()`);
+    await waitFor('!!document.querySelector("[role=menu] [data-slot=artifact-export]")');
+    assert.match(await evaluate('document.querySelector("[data-slot=artifact-export]").textContent'), /Export/);
+    await screenshot("frame-more-menu");
+    await evaluate('document.querySelector("[data-slot=artifact-export]").click()');
+    await waitFor('!!document.querySelector("[data-slot=design-export-dialog]")');
+    await screenshot("frame-export-dialog");
+    await evaluate("document.querySelector(\"[aria-label='Cancel export']\").click()");
+    await waitFor('!document.querySelector("[data-slot=design-export-dialog]")');
     await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
     await screenshot("delete-confirm");
@@ -1224,7 +1225,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
     await evaluate('document.querySelector("[data-panel-toggle=artifacts]").click()');
     await waitFor(`${dock}?.getAttribute("aria-label") === "Artifacts" && !!document.querySelector("[data-slot=artifact-page] iframe")`);
-    assert.equal(await evaluate(`${dock}.querySelectorAll('[data-slot=artifact-edit], [data-slot=artifact-frame-version], [aria-label^="Choose"]').length`), 0);
+    assert.equal(await evaluate(`${dock}.querySelectorAll('[data-slot=artifact-more], [data-slot=artifact-frame-version], [aria-label^="Choose"]').length`), 0);
     assert.equal(await evaluate(`${dock}.querySelectorAll('iframe').length`), 1, "a single HTML page is shown");
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true);
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=login]")'), false, "Designs OFF hides only structured designs");
