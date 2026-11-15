@@ -522,6 +522,37 @@ test("a switch whose recovery fails reads Reconnecting… and the call waiting o
   assert.deepEqual(await called, { echo: ["x"] });
 });
 
+// Found by the ComputerLink model (.agents/skills/verify-snooze-and-computer-link): a LAN channel that opens while a
+// reconnect over the relay waits for its last first call closed the relay on that call's answer, and the runtime read
+// connected on a closed channel with no reconnect left. It stayed Online and every call failed as disconnected.
+test("a LAN channel that opens during a reconnect's last first call still moves the runtime to the LAN", async (t) => {
+  const mac = fakeMac({ lan: [LAN] });
+  let lanAnswers = false;
+  const probes = [];
+  const { computers, state } = await paired(t, mac, {
+    lanWaitMs: 20,
+    fetch: () => new Promise((resolve) => (lanAnswers ? resolve(helloAnswer()) : probes.push(() => resolve(helloAnswer())))),
+  });
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online over the relay");
+  await until(() => probes.length > 0, "the LAN address learned and probed");
+  const id = computers.list()[0].id;
+  // The reconnect's last first call (its snapshot's only page) waits on the relay.
+  mac.hold = (socket, frame) => !socket.url.startsWith(LAN) && frame.method === "daemon:snapshot-page";
+  mac.drop();
+  await until(() => mac.held.length === 1, "the reconnect waiting for its last first call");
+  // The LAN answers now: its channel opens and asks the relay channel to close once idle.
+  lanAnswers = true;
+  for (const reply of probes.splice(0)) reply();
+  await until(() => mac.open().some((socket) => socket.url.startsWith(LAN)), "the LAN channel open");
+  await delay(20);
+  mac.hold = null;
+  mac.release();
+  await until(() => computers.list()[0].route === "lan" && state() === "online", "on the LAN");
+  assert.deepEqual(await computers.invoke(id, "project:recent", ["x"]), { echo: ["x"] });
+});
+
 test("a call made while a computer reconnects waits for it instead of failing as offline, and fails once it is offline", async (t) => {
   const mac = fakeMac();
   const lines = [];
