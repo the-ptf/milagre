@@ -69,6 +69,7 @@ const { registerGitHandlers } = require("./git-ipc.cjs");
 const { readPullRequestState } = require("./pull-request.cjs");
 const { registerPullRequests } = require("./runtime/pull-requests.cjs");
 const { registerSettingsCommands } = require("./runtime/settings-commands.cjs");
+const { createToolServices } = require("./runtime/tool-services.cjs");
 const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases } = require("./project-state.cjs");
@@ -207,297 +208,46 @@ function createRuntime(options) {
   }
   const commands = require("./command-dispatcher.cjs").createRuntimeCommands();
   const handlers = commands;
-  const { createChatSimulators, simulatorToolDefinitions } = require("./chat-simulators.cjs");
+  const { simulatorToolDefinitions } = require("./chat-simulators.cjs");
+  const { artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
+  const { designKitToolDefinitions } = require("./design-kits.cjs");
+  const { pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
   const existingChat = (action) => async (chatId) => {
     const scope = projectOfKey(chatId),
       id = sessionIdFromKey(chatId);
     if (!scope || !Number.isSafeInteger(id) || id < 1 || !scopeStates.has(scope) || !(await scopeStates.get(scope)).sessions[id])
       throw new Error(`Open an existing Chat before ${action}.`);
   };
-  // Experimental: agents operate desktop apps through agent-desktop, asking once per app per Chat.
-  const { createComputerUseSettings, createComputerUse, agentDesktopBinary, runCli } = require("./computer-use.cjs");
-  const computerUseSettings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json"), emit });
-  // The Chat's live screen: the window its agent last used, captured while it works.
-  let desktopCli;
-  const computerUseScreen = require("./computer-use-screen.cjs").createScreenFeed({
-    exec: (args, runOptions) => runCli({ ...(desktopCli ??= agentDesktopBinary()), home: path.join(dataDir, "agent-desktop") }, args, runOptions),
-    dir: path.join(dataDir, "computer-use", "frames"),
+  const {
+    computerUseSettings,
+    computerUseScreen,
+    computerUse,
+    simlockSettings,
+    simlock,
+    simulators,
+    leaseSimlock,
+    releaseSimlock,
+    designKits,
+    artifacts,
+    pageComments,
+    agentProcesses,
+    browsers,
+    panelForwarders,
+    chatWorktrees,
+    terminals,
+  } = createToolServices({
+    options,
+    dataDir,
+    emit,
+    commands,
+    existingChat,
+    agents: () => agents,
+    scopeStates: () => scopeStates,
+    chats: () => chats,
+    ports: () => ports,
+    advisors: () => advisors,
+    sendAsUser,
   });
-  const computerUse =
-    options.computerUse ??
-    createComputerUse({
-      dataDir,
-      settings: computerUseSettings,
-      approve: (chatId, request) => agents.askApproval(chatId, request),
-      // The desktop app on this computer draws the agent cursor (apps/desktop/electron/agent-cursor.cjs).
-      emit,
-      onAction: ({ chatId, app, data }) => {
-        void existingChat("capturing its screen")(chatId)
-          .then(() => computerUseScreen.touch({ chatId, app, windowId: data?.window?.id, title: data?.window?.title }))
-          .catch(() => {});
-      },
-    });
-  // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
-  const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
-  const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
-  const simlock =
-    options.simlock ??
-    createSimlockHost({
-      settings: simlockSettings,
-      directory: path.join(dataDir, "simlock"),
-      log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
-    });
-  const simulators = createChatSimulators({
-    simulators:
-      options.simulators ??
-      require("./simulators.cjs").createSimulators({
-        adapter: require("./simlock-channel.cjs").withSimlock(require("./simulators-helper.cjs").createSimulatorAdapter(), simlock),
-      }),
-    file: path.join(dataDir, "simulator-attachments.json"),
-    validateChat: existingChat("attaching a simulator"),
-    ended: (device) => simlock.isDevice(device.id),
-  });
-  const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
-  const { createDesignKits, designKitToolDefinitions } = require("./design-kits.cjs");
-  const designKits = createDesignKits({
-    directory: path.join(dataDir, "design-kits"),
-    projectForChat: async (chatId) => {
-      await existingChat("using a design kit")(chatId);
-      return projectOfKey(chatId);
-    },
-  });
-  const artifacts = createChatArtifacts({
-    directory: path.join(dataDir, "artifacts"),
-    validateChat: existingChat("showing a design"),
-    readKit: (request) => designKits.read(request),
-  });
-  let pageSharing;
-  // Public-page validation imports the renderer too; create the service on its first request.
-  const designPageSharing = () =>
-    (pageSharing ??= require("./design-page-sharing.cjs").createDesignPageSharing({
-      directory: path.join(dataDir, "design-page-shares"),
-      artifacts,
-      validateChat: existingChat("sharing Designs"),
-      chatTitle: async (chatId) => {
-        const session = (await scopeStates.get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
-        return session?.title || session?.generatedTitle || null;
-      },
-      ...options.designSharing,
-    }));
-  commands.handle("artifact:page-shares", (_context, request) => designPageSharing().list(request));
-  commands.handle("artifact:sharing-status", (_context, request) => designPageSharing().status(request));
-  commands.handle("artifact:all-page-shares", () => designPageSharing().listAll());
-  commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing().revokeSaved(request));
-  commands.handle("artifact:share-page", (_context, request) => designPageSharing().publish(request));
-  commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing().revoke(request));
-  // Designs are always on. Older apps and paired computers still read the switch, and saving it changes nothing.
-  commands.handle("designs:enabled:read", () => ({ enabled: true }));
-  commands.handle("designs:enabled:save", () => ({ enabled: true }));
-  commands.handle("artifact:get", (_context, request) => artifacts.get(request));
-  commands.handle("artifact:asset", (_context, request) => artifacts.asset(request));
-  commands.handle("artifact:list", (_context, request) => artifacts.list(request));
-  commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
-  commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
-  commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
-  // Comments the user left on Browser panel pages.
-  const { commentAtPoint, createChatPageComments, pageCommentToolDefinitions, pageElement } = require("./chat-page-comments.cjs");
-  const pageComments = createChatPageComments({
-    directory: path.join(dataDir, "page-comments"),
-    validateChat: existingChat("commenting on a page"),
-  });
-  commands.handle("browser-comments:add", (_context, request) => pageComments.add(request));
-  commands.handle("browser-comments:list", (_context, request) => pageComments.list(request));
-  // A comment from the phone's view of a Browser panel page: the element at the tapped point (as fractions of the page),
-  // its screenshot, and the message, sent as the user's in the Chat's own provider, model and mode, then recorded.
-  const PAGE_COMMENTS_PER_SEND = 50;
-  commands.handle("browser-comments:send-from-page", async (_context, request) => {
-    const chatId = typeof request?.chatId === "string" ? request.chatId : "";
-    // `comments`: the phone's queued comments on its own page views, sent as one message. Older phones send one.
-    const batch = Array.isArray(request?.comments) ? request.comments : null;
-    // Refused whole rather than cut short: a comment the user queued is never dropped without a word.
-    if (batch && batch.length > PAGE_COMMENTS_PER_SEND) throw new Error(`Send at most ${PAGE_COMMENTS_PER_SEND} page comments at once.`);
-    const items = (batch ?? [request]).map((item) => ({
-      page: item?.page,
-      text: typeof item?.text === "string" ? item.text.trim().slice(0, 4000) : "",
-    }));
-    const point = [request?.x, request?.y];
-    if (!chatId || !items.length || items.some((item) => !item.text)) throw new Error("Write the comment first.");
-    if (batch && items.some((item) => !item.page)) throw new Error("Tap an element on the page before sending a comment.");
-    if (!batch && !request.page && !point.every((value) => typeof value === "number" && value >= 0 && value <= 1))
-      throw new Error("Tap the page to place a comment pin.");
-    const scope = projectOfKey(chatId);
-    const sessionId = sessionIdFromKey(chatId);
-    const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
-    if (!session) throw new Error("Open an existing Chat before commenting on a page.");
-    const { pageCommentId, pageCommentsMessage } = await import("@milagre/shared/page-comments");
-    const comments = [];
-    let shot = null;
-    for (const item of items) {
-      // A native page describes its own element. Never read coordinates from a different page on the computer.
-      const local = item.page;
-      const remote = local ? null : await browsers.devtools({ chatId, page: typeof request.targetId === "string" ? request.targetId : undefined });
-      const target = local ? { url: String(local.url ?? "").slice(0, 2000), title: String(local.title ?? "").slice(0, 200) } : remote.target;
-      const read = local ? { element: pageElement(local.element), shot: null } : await commentAtPoint(remote.session, point[0], point[1]);
-      if (!read.element) throw new Error("Tap an element on the page before sending a comment.");
-      shot = read.shot;
-      comments.push({ id: pageCommentId(), url: target.url, title: target.title, element: read.element, text: item.text });
-    }
-    // Recorded first: a comment the store refuses is never sent, and the agent can resolve every one it reads.
-    await pageComments.add({ chatId, comments });
-    const settings = chats.turnSettings(chatId) ?? {};
-    // The phone user's own message, so a Run Chat treats it like one typed in the composer.
-    try {
-      await sendAsUser({
-        ...settings,
-        provider: session.provider ?? settings.provider ?? "claude",
-        model: chats.runs[chatId]?.model || require("@milagre/shared/agent-runs").lastUserModel(await scopeStates.get(scope), sessionId) || settings.model,
-        permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
-        projectPath: scope,
-        sessionId,
-        body: pageCommentsMessage(comments, { screenshots: !!shot }),
-        images: shot ? [{ id: `page-comment-${comments[0].id}`, name: `page-comment-${comments[0].id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
-        files: [],
-      });
-    } catch (error) {
-      await pageComments.forget({ chatId, ids: comments.map((comment) => comment.id) }).catch(() => {});
-      throw error;
-    }
-    return batch ? { ids: comments.map((comment) => comment.id) } : { id: comments[0].id };
-  });
-  for (const method of ["list", "attach", "detach"])
-    commands.handle(`simulator:${method}`, async (context, request) => {
-      if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");
-      // Detaching a Chat's own Simlock lease returns it, so a phone or older desktop doesn't keep it until its maximum age.
-      const lease = method === "detach" ? simlock.get(request?.deviceId) : null;
-      if (lease && lease.chatId === request?.chatId) await simlock.release(lease.deviceId).catch(() => {});
-      return simulators[method](request);
-    });
-  for (const method of ["open", "offer", "frame", "status", "control", "input", "repair", "close"]) {
-    commands.handle(`simulator:${method}`, (context, request) => {
-      if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");
-      return simulators[method === "close" ? "closeViewer" : method](request, context.clientId);
-    });
-  }
-  /** Leases a Simlock device for a Chat and attaches it there; installs are accepted from the Chat's folder. */
-  async function leaseSimlock(request) {
-    const chatId = request?.chatId;
-    await existingChat("leasing a Simlock device")(chatId);
-    // Installs come from the Chat's own Worktree (a shared Chat's workspace), the folder its agent works in.
-    const roots = await chatWorktrees(chatId);
-    const session = (await scopeStates.get(projectOfKey(chatId))).sessions[sessionIdFromKey(chatId)];
-    const installDirectory = isLinkScopeKey(projectOfKey(chatId)) ? (session?.workspacePath ?? roots[0]?.path) : roots[0]?.path;
-    if (!installDirectory) throw new Error("This Chat has no Worktree yet. Send it a message first, then lease a device.");
-    const leased = await simlock.lease({ platform: request?.platform, model: request?.model || undefined, chatId, installDirectory });
-    try {
-      await simulators.attach({ chatId, deviceId: leased.deviceId });
-    } catch (error) {
-      await simlock.release(leased.deviceId).catch(() => {});
-      throw error;
-    }
-    return leased;
-  }
-  async function releaseSimlock(request) {
-    const lease = simlock.get(request?.deviceId);
-    const released = await simlock.release(request?.deviceId);
-    if (lease?.chatId) await simulators.detach({ chatId: lease.chatId, deviceId: lease.deviceId }).catch(() => {});
-    return released;
-  }
-  commands.handle("computer-use:settings:read", () => computerUseSettings.read());
-  commands.handle("computer-use:settings:save", (_context, patch) => computerUseSettings.save(patch));
-  commands.handle("computer-use:status", () => computerUse.status());
-  commands.handle("computer-use:guide", () => computerUse.guide());
-  commands.handle("computer-use:frame", async (_context, request) => {
-    await existingChat("viewing its screen")(request?.chatId);
-    const frame = await computerUseScreen.next({ chatId: request.chatId, after: Number(request.after) || 0 });
-    // The Chat may have been deleted while this viewer was waiting for a frame.
-    await existingChat("viewing its screen")(request.chatId);
-    return frame;
-  });
-  commands.handle("simlock:settings:read", () => simlockSettings.read());
-  commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
-  commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));
-  commands.handle("simlock:models", async () => ({ models: await simlock.models(), leases: simlock.leases() }));
-  commands.handle("simlock:lease", (context, request) => {
-    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
-    return leaseSimlock(request);
-  });
-  commands.handle("simlock:release", (context, request) => {
-    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
-    return releaseSimlock(request);
-  });
-  // `agents` is created below; ownership roots are read only once the service polls.
-  function agentProcesses() {
-    const roots = agents.processes();
-    for (const [chatId, root] of roots) root.active = agents.isTurnActive(chatId) || agents.backgroundWork(chatId) > 0;
-    for (const [chatId, children] of advisors?.processes() ?? []) {
-      roots.set(chatId, { cwd: children[0].cwd, ...roots.get(chatId), agents: children.map((child) => child.pid), active: true });
-    }
-    return roots;
-  }
-  const browsers = options.browsers ?? require("./browsers.cjs").createBrowsers({ roots: agentProcesses });
-  commands.handle("browser:list", (_context, request) => browsers.list(request));
-  commands.handle("browser:attach", (_context, request) => browsers.attach(request));
-  commands.handle("browser:detach", (_context, request) => browsers.detach(request));
-  commands.handle("browser:open-page", (context, request) => {
-    if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
-    return require("./browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
-  });
-  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint. A paired
-  // desktop's pages for this host's Chats (#832) come `via: "peer"`: the endpoint is on that desktop's loopback, reached
-  // through a forwarder here that carries each connection back over its channel.
-  const panelForwarders = require("./panel-forwarders.cjs").createPanelForwarders();
-  commands.handle("browser:panel-pages", async (context, request) => {
-    if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
-    if (request?.via !== "peer") return browsers.setPanelPages(request, context.clientId);
-    if (typeof context.openStream !== "function") throw new Error("Only a paired desktop's channel carries its Browser pages.");
-    if (!Array.isArray(request.pages) || !request.pages.length) {
-      await panelForwarders.close(context.clientId);
-      return browsers.setPanelPages({ pages: [] }, context.clientId);
-    }
-    const port = await panelForwarders.forward(context.clientId, context.openStream, request.port);
-    return browsers.setPanelPages({ port, prefix: request.prefix, pages: request.pages, remote: true }, context.clientId);
-  });
-  for (const method of ["open", "frame", "status", "control", "input", "close"]) {
-    commands.handle(`browser:${method}`, (context, request) => {
-      if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
-      return browsers[method === "close" ? "closeViewer" : method](request, context.clientId);
-    });
-  }
-  // A Chat's Terminals start in its Worktree, or in one of a shared Chat's Worktrees. The host resolves them from the
-  // saved Chat: a client never names a folder it could not otherwise reach.
-  async function chatWorktrees(chatId) {
-    const scope = projectOfKey(chatId),
-      id = sessionIdFromKey(chatId);
-    if (!scope || !Number.isSafeInteger(id) || id < 1 || !scopeStates.has(scope)) throw new Error("Open this Chat before opening a Terminal.");
-    const state = await scopeStates.get(scope);
-    const session = state.sessions[id];
-    if (!session) throw new Error("Open an existing Chat before opening a Terminal.");
-    if (session.archived) throw new Error("This Chat is archived.");
-    if (isLinkScopeKey(scope)) {
-      const worktrees = (session.worktrees ?? []).map((member) => ({ path: member.worktreePath, label: member.alias }));
-      // Shared Chats create Worktrees on demand. Before the first one exists, the user can still open a shell
-      // in the Chat's own workspace, just as its agent does, without creating branches in every linked Project.
-      return worktrees.length ? worktrees : session.workspacePath ? [{ path: session.workspacePath, label: "Workspace" }] : [];
-    }
-    const worktree = state.worktrees?.[session.worktree_id];
-    return worktree?.path ? [{ path: worktree.path, label: path.basename(worktree.path) }] : [];
-  }
-  const terminals =
-    options.terminals ??
-    require("./terminals.cjs").createTerminals({
-      resolveChat: chatWorktrees,
-      settingsFile: path.join(dataDir, "terminal-settings.json"),
-      onChange: (chatId) => emit("terminal:changed", { chatId }),
-      onPreferencesChanged: () => emit("terminal:preferences-changed", {}),
-      onShellsChanged: () => ports.wake(),
-    });
-  commands.handle("terminal:list", (_context, request) => terminals.list(request));
-  for (const method of ["profiles", "setShell", "open", "read", "input", "resize", "close"]) {
-    commands.handle(`terminal:${method}`, (context, request) => {
-      if (!context?.clientId) throw new Error("Terminal access requires an authenticated connection");
-      return terminals[method](request);
-    });
-  }
   const searchFiles = createFileSearch();
   const environmentReady =
     options.environmentReady ??
