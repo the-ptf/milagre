@@ -10,8 +10,8 @@ import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
-import { AddComputerDialog } from "./components/AddComputerDialog";
-import { AddProjectDialog } from "./components/AddProjectDialog";
+import { AppDialogs, AppSettingsModal, SettingsNav } from "./app/AppDialogs";
+import { useAppDialogs } from "./app/useAppDialogs";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
@@ -104,7 +104,7 @@ import { PullRequestOpenContext } from "./components/sidebar/ChatRow";
 import { prRange, threadFixMessage } from "./lib/pull-request-view";
 import type { DiffSelection } from "./lib/diff-comments";
 import { openThreads, type PullRequestThread, type ReviewEvent } from "@milagre/shared/pull-request-review";
-import { gitChatContext, type GitChatContext } from "./lib/git-dialog";
+import { gitChatContext } from "./lib/git-dialog";
 import { useWorktreePullRequests } from "./components/useWorktreePullRequests";
 import { useLinear } from "./components/useLinear";
 import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
@@ -123,7 +123,6 @@ import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunP
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "./lib/grid-drop";
 import { chatRevealPath } from "./lib/reveal";
-import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
@@ -159,7 +158,6 @@ import { newChatProject, PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentPr
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
 import { appShortcutsBlocked, isModalOpen } from "./lib/modal";
-import { SettingsModal } from "./components/settings/SettingsModal";
 import { createDraftStore, draftKey } from "./lib/draft-store";
 import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
@@ -191,12 +189,9 @@ import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-acti
 import { playNotificationChime } from "./lib/notification-chime";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
-import { OPEN_STORAGE, openStorage } from "./lib/storage-open";
-import { WorktreeCleanup } from "./components/settings/WorktreeCleanup";
+import { openStorage } from "./lib/storage-open";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
-const SettingsNav = lazyView(() => import("./components/Settings").then((module) => module.SettingsNav));
-const SettingsPanel = lazyView(() => import("./components/Settings").then((module) => module.SettingsPanel));
 const PermissionCard = lazyView(() => import("./components/agents/PermissionCard").then((module) => module.PermissionCard));
 const CanvasView = lazyView(() => import("./components/CanvasView").then((module) => module.CanvasView));
 const RoutinesPage = lazyView(() => import("./components/routines/RoutinesPage").then((module) => module.RoutinesPage));
@@ -481,23 +476,6 @@ function App() {
   const [closingTile, setClosingTile] = useState<string | null>(null);
   // A Chat a split tile's menu swapped in (swapSplitTile): the split waits for it to take focus instead of ending while it loads.
   const [splitTarget, setSplitTarget] = useState<string | null>(null);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
-  useEffect(() => {
-    if (!commandPaletteOpen) return;
-    let cancelled = false;
-    window.milagre
-      .listRecentProjects()
-      .then((projects) => {
-        if (!cancelled) setRecentProjects(projects);
-      })
-      .catch(() => {
-        if (!cancelled) setRecentProjects([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [commandPaletteOpen]);
   const [pickedIsolation, setIsolation] = useState<Isolation>(() => loadChatPreferences(localStorage, "").isolation);
   // A Project outside Git has one Worktree, the folder itself: its Chats always work there. A Chat without a Project
   // always gets its own Worktree of the Chats home, a new empty folder.
@@ -557,28 +535,28 @@ function App() {
     const timer = window.setTimeout(() => setNotice(null), 12_000);
     return () => window.clearTimeout(timer);
   }, [notice]);
-  // Settings is a modal over whatever view is on screen; closing it goes back to that view as it was.
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsOpenRef = useRef(settingsOpen);
-  settingsOpenRef.current = settingsOpen;
-  // Opening another Chat, Project or Link (from the palette, a notification or a shortcut) leaves Settings. The first
-  // Project or Link to load at startup is no move: Settings opened while the window loads stays open.
-  const settingsPlace = `${selectedLink?.link.id ?? ""}|${project?.path ?? ""}|${selectedSessionId ?? ""}`;
-  const shownPlace = useRef(settingsPlace);
-  useEffect(() => {
-    const before = shownPlace.current;
-    shownPlace.current = settingsPlace;
-    if (before !== settingsPlace && !before.startsWith("||")) setSettingsOpen(false);
-  }, [settingsPlace]);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
-  // Which Project the Settings page shows; any recent Project can be picked there, the open one by default.
-  const [settingsProject, setSettingsProject] = useState<{ path: string; name: string } | null>(null);
-  // The Chats home is no Project to the user: it is never the Settings Project, and a leftover Project section falls back.
-  const shownSettingsProject = settingsProject ?? (surfaces.settings ? (project ?? undefined) : undefined);
-  const shownSettingsSection = settingsSection === "project" && !shownSettingsProject ? "general" : settingsSection;
-  const [settingsComputer, setSettingsComputer] = useState<string | null>(null);
-  const [addComputerOpen, setAddComputerOpen] = useState(false);
-  const [addProjectOpen, setAddProjectOpen] = useState(false);
+  const dialogs = useAppDialogs(`${selectedLink?.link.id ?? ""}|${project?.path ?? ""}|${selectedSessionId ?? ""}`);
+  const {
+    commandPaletteOpen,
+    setCommandPaletteOpen,
+    openCommandPalette,
+    recentProjects,
+    settingsOpen,
+    setSettingsOpen,
+    settingsOpenRef,
+    settingsSection,
+    setSettingsSection,
+    openSettingsAt,
+    openSettings,
+    openAccounts,
+    setSettingsProject,
+    openComputerSettings,
+    openAddComputer,
+    setAddProjectOpen,
+    gitDialog,
+    setGitDialog,
+    settingsProject,
+  } = dialogs;
   // A send may finish after the user opens another Chat. Its feedback and completion belong to the view that sent it.
   const chatView = useRef(0);
   const nextChatView = useRef(0);
@@ -607,14 +585,6 @@ function App() {
   const [firstChat, setFirstChat] = useState<string | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const update = useAppUpdates();
-  const [gitDialog, setGitDialog] = useState<{
-    sessionId: number;
-    worktreeId: number;
-    cwd: string;
-    base?: string;
-    provider?: ModelProvider;
-    chat: GitChatContext;
-  } | null>(null);
   useApplyTheme();
   useApplyOtherComputers();
   useEffect(() => startOfflineCache(), []);
@@ -2977,7 +2947,6 @@ function App() {
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   // One identity each, so memo(SidebarNav) skips the renders a streaming reply or a run change makes here.
   const switchLinkFromSidebar = useEvent((id: string) => void selectLink(id));
-  const addComputerFromSidebar = useEvent(() => setAddComputerOpen(true));
   const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
   const deleteLinkFromSidebar = useEvent((id: string) => void deleteLink(id));
   // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
@@ -3016,31 +2985,6 @@ function App() {
     });
     void openCanvasChat(scopeKey, sessionId);
   });
-  const openSettings = useEvent(() => setSettingsOpen(true));
-  const openAccounts = useEvent(() => {
-    setSettingsSection("accounts");
-    setSettingsOpen(true);
-  });
-  // The computers popover's gears: a computer's own section, or This Mac's.
-  const openComputerSettings = useEvent((id: string | null) => {
-    if (id === null) setSettingsSection("this-mac");
-    else {
-      setSettingsComputer(id);
-      setSettingsSection("computer");
-    }
-    setSettingsOpen(true);
-  });
-  // /storage in a Chat: Clean up worktrees for its computer, opened right over the Chat. undefined while closed.
-  const [storageComputer, setStorageComputer] = useState<string | null | undefined>(undefined);
-  const onOpenStorage = useEvent((event: Event) => setStorageComputer((event as CustomEvent<string | null>).detail ?? null));
-  useEffect(() => {
-    window.addEventListener(OPEN_STORAGE, onOpenStorage);
-    return () => window.removeEventListener(OPEN_STORAGE, onOpenStorage);
-  }, [onOpenStorage]);
-  const selectSettingsComputer = (id: string) => {
-    setSettingsComputer(id);
-    setSettingsSection("computer");
-  };
   const openCanvas = useEvent(() => {
     changes.closeDiff();
     setView("canvas");
@@ -3072,7 +3016,6 @@ function App() {
     setSettingsSection("project");
     setSettingsOpen(true);
   });
-  const openCommandPalette = useEvent(() => setCommandPaletteOpen(true));
   // Saved message cards also receive this callback: keep their memoization during sends and streamed updates.
   const openLinkedChat = useEvent((key: string) => void openCanvasChat(projectOfKey(key), sessionIdFromKey(key)));
   // The one way a route opens a Chat that belongs to a family (the Subchats pill, a transcript's line, the bookmark, a tile's
@@ -3336,69 +3279,28 @@ function App() {
       {deletingLink ? <DeleteLinkDialog link={deletingLink} onClose={() => setDeletingLink(null)} onDeleted={linkDeleted} /> : null}
     </>
   );
-  const storageDialog =
-    storageComputer === undefined ? null : (
-      <WorktreeCleanup
-        bridge={bridgeFor(storageComputer)}
-        computerName={storageComputer ? (pairedComputers.find((computer) => computer.id === storageComputer)?.name ?? null) : null}
-        onClose={() => setStorageComputer(undefined)}
-      />
-    );
-  const addComputerDialog = addComputerOpen ? <AddComputerDialog onClose={() => setAddComputerOpen(false)} onAdded={() => setAddComputerOpen(false)} /> : null;
-  const addProjectDialog = addProjectOpen ? (
-    <AddProjectDialog
-      onClose={() => setAddProjectOpen(false)}
-      onLinkProjects={() => {
-        setAddProjectOpen(false);
-        setLinkDialogOpen(true);
-      }}
-      onOpened={(opened) => {
-        setAddProjectOpen(false);
-        void replaceProject(async () => opened);
-      }}
+  const appDialogs = (
+    <AppDialogs
+      dialogs={dialogs}
+      computerName={(id) => pairedComputers.find((computer) => computer.id === id)?.name ?? null}
+      onLinkProjects={() => setLinkDialogOpen(true)}
+      onOpened={(opened) => void replaceProject(async () => opened)}
     />
-  ) : null;
-  // Settings beside a Project shows that Project's sections; over a Link or the Chats home, only a Project picked in it.
-  const settingsInProject = Boolean(project) && !selectedLink;
-  const settingsModal = settingsOpen ? (
-    <SettingsModal
-      onClose={() => setSettingsOpen(false)}
-      nav={
-        <SettingsNav
-          showProjectSettings={settingsInProject || !!settingsProject}
-          section={settingsInProject ? shownSettingsSection : settingsSection}
-          project={(settingsInProject ? shownSettingsProject : settingsProject) ?? undefined}
-          current={settingsInProject && surfaces.settings ? (project ?? undefined) : undefined}
-          onSelect={setSettingsSection}
-          computerId={settingsComputer ?? undefined}
-          onSelectComputer={selectSettingsComputer}
-          onSelectProject={(picked) => {
-            setSettingsProject(picked);
-            setSettingsSection("project");
-          }}
-        />
-      }
-    >
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        {notice && settingsInProject && (
-          <NoticeCard className="mx-auto mt-2 mb-1 max-w-2xl" onDismiss={() => setNotice(null)}>
-            {notice}
-          </NoticeCard>
-        )}
-        <SettingsPanel
-          section={settingsInProject ? shownSettingsSection : settingsSection}
-          project={(settingsInProject ? shownSettingsProject : settingsProject) ?? undefined}
-          computerId={settingsComputer ?? undefined}
-          accountScope={accountScope}
-          models={models}
-          update={update}
-          onSectionChange={setSettingsSection}
-          onAddComputer={() => setAddComputerOpen(true)}
-          onOpenUsageChat={openUsageChat}
-        />
-      </div>
-    </SettingsModal>
-  ) : null;
+  );
+  const settingsModal = (
+    <AppSettingsModal
+      dialogs={dialogs}
+      project={project}
+      inProject={Boolean(project) && !selectedLink}
+      projectSettings={surfaces.settings}
+      notice={notice}
+      onDismissNotice={() => setNotice(null)}
+      accountScope={accountScope}
+      models={models}
+      update={update}
+      onOpenUsageChat={openUsageChat}
+    />
+  );
   const shownLink = selectedLink ?? lastLink;
   const linkWorkspace = shownLink && (
     <LinkWorkspace
@@ -3430,15 +3332,12 @@ function App() {
       onSwitchProject={(path) => void switchProject(path)}
       onSwitchLink={(id) => void selectLink(id)}
       onLinkProject={() => setLinkDialogOpen(true)}
-      onAddComputer={() => setAddComputerOpen(true)}
+      onAddComputer={openAddComputer}
       onOpenComputerSettings={openComputerSettings}
       onEditLink={(id) => void editLink(id)}
       onDeleteLink={deleteLinkFromSidebar}
       onOpenProject={() => void openProject()}
-      onSettings={() => {
-        setSettingsSection("accounts");
-        setSettingsOpen(true);
-      }}
+      onSettings={() => openSettingsAt("accounts")}
       onOpenAccounts={openAccounts}
       linkedWork={linkedWork}
       onCanvasChat={(path, id) => void openCanvasChat(path, id)}
@@ -3455,9 +3354,7 @@ function App() {
   const linkDialogs = (
     <>
       {linkDialog}
-      {addComputerDialog}
-      {storageDialog}
-      {addProjectDialog}
+      {appDialogs}
     </>
   );
   // A Link with no Project to stand behind it (none open yet) is the whole window.
@@ -3488,7 +3385,7 @@ function App() {
               onSwitchLink={(id) => void selectLink(id)}
               onEditLink={(id) => void editLink(id)}
               onDeleteLink={deleteLinkFromSidebar}
-              onAddComputer={() => setAddComputerOpen(true)}
+              onAddComputer={openAddComputer}
               onOpenComputerSettings={openComputerSettings}
               onOpenProjectSettings={openProjectSettings}
               onNewChatInScope={newChatInScope}
@@ -3662,7 +3559,7 @@ function App() {
                   workspaceName={surfaces.name}
                   workspaceImage={projectImage(project.path)}
                   onSwitchLink={switchLinkFromSidebar}
-                  onAddComputer={addComputerFromSidebar}
+                  onAddComputer={openAddComputer}
                   onOpenComputerSettings={openComputerSettings}
                   onEditLink={editLinkFromSidebar}
                   onDeleteLink={deleteLinkFromSidebar}
@@ -4138,9 +4035,7 @@ function App() {
             />
           </div>
           {linkDialog}
-          {addComputerDialog}
-          {storageDialog}
-          {addProjectDialog}
+          {appDialogs}
           {commandPaletteOpen && (
             <CommandPalette
               commands={paletteCommands(project)}
