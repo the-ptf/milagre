@@ -8,3 +8,8 @@ pre-commit:
       glob: "*.{js,jsx,ts,tsx,cjs,mjs,cts,mts,json,md,yml,yaml,css}"
       exclude: ["package-lock.json"]
       run: npx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+
+commit-msg:
+  commands:
+    attribution:
+      run: node scripts/check-attribution.cjs --commit-msg {1}
