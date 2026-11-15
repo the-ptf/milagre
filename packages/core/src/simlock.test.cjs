@@ -282,22 +282,47 @@ test("a lease needs the Chat's own folder and never falls back to another", asyn
   assert.deepEqual(host.leases(), []);
 });
 
+// Runs `call` on a mocked setTimeout that moves only once the child has written `ready`: a slow start on a busy runner
+// used to meet the 100 ms deadline before the child ignored SIGTERM, so SIGTERM ended it.
+async function pastDeadline(t, ready, call) {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const run = { settled: false };
+  const result = call();
+  result.then(
+    () => (run.settled = true),
+    () => (run.settled = true),
+  );
+  while (!run.settled && !fs.existsSync(ready)) await new Promise((resolve) => setImmediate(resolve));
+  while (!run.settled) {
+    t.mock.timers.tick(50);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  t.mock.timers.reset();
+  return result;
+}
+
 test("a command that ignores SIGTERM, or holds its pipes open, still settles at its deadline", async (t) => {
   const dir = temp(t);
   const stubborn = path.join(dir, "stubborn.cjs");
-  fs.writeFileSync(stubborn, "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);");
+  const ready = path.join(dir, "ready");
+  fs.writeFileSync(stubborn, "process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(process.argv[2], ''); setInterval(() => {}, 1000);");
   const started = Date.now();
-  const result = await runCli({ nodePath: process.execPath, entryPath: stubborn }, [], { cwd: dir, env: process.env, timeoutMs: 100, killGraceMs: 200 });
+  const result = await pastDeadline(t, ready, () =>
+    runCli({ nodePath: process.execPath, entryPath: stubborn }, [ready], { cwd: dir, env: process.env, timeoutMs: 100, killGraceMs: 200 }),
+  );
   assert.equal(result.signal, "SIGKILL");
   assert.ok(Date.now() - started < 5000, "settled well within the bound");
   // A grandchild that inherits stdout keeps the pipe open past the child's exit; the call must not wait on it.
   const holder = path.join(dir, "holder.cjs");
+  const holding = path.join(dir, "holding");
   fs.writeFileSync(
     holder,
-    "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: ['ignore', 'inherit', 'inherit'] }); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);",
+    "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: ['ignore', 'inherit', 'inherit'] }); process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(process.argv[2], ''); setInterval(() => {}, 1000);",
   );
   const begun = Date.now();
-  const held = await runCli({ nodePath: process.execPath, entryPath: holder }, [], { cwd: dir, env: process.env, timeoutMs: 100, killGraceMs: 200 });
+  const held = await pastDeadline(t, holding, () =>
+    runCli({ nodePath: process.execPath, entryPath: holder }, [holding], { cwd: dir, env: process.env, timeoutMs: 100, killGraceMs: 200 }),
+  );
   assert.equal(held.signal, "SIGKILL");
   assert.ok(Date.now() - begun < 5000, "a held pipe does not stall the call");
 });

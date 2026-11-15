@@ -36,6 +36,12 @@ function alive(pid) {
   }
 }
 
+// A killed process answers signal 0 until it is reaped, which happens after the kill returns; a survivor stays for 30 s.
+async function gone(pid) {
+  for (let n = 0; n < 100 && alive(pid); n++) await new Promise((resolve) => setTimeout(resolve, 20));
+  return !alive(pid);
+}
+
 test("the repo file wins over the setting, which wins over nothing", async (t) => {
   const project = await tempDir(t);
   assert.deepEqual(await resolveSetupCommand(project, ""), { source: "none", command: null });
@@ -127,13 +133,32 @@ test("a Windows setup reads cmd.exe's own output as UTF-8, and its command means
   assert.equal(literal.output.trim(), "100%% !OS! a&b");
 });
 
+// The deadline runs on a mocked setTimeout that moves only once the command has written child.pid: on a busy runner the
+// login shell could take longer than TIMEOUT_MS to start, and the timeout then stopped it before it wrote the file.
+async function pastDeadline(t, ready, call) {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const run = { settled: false };
+  const result = call();
+  result.then(
+    () => (run.settled = true),
+    () => (run.settled = true),
+  );
+  while (!run.settled && !(await fs.readFile(ready, "utf8").catch(() => "")).trim()) await new Promise((resolve) => setImmediate(resolve));
+  while (!run.settled) {
+    t.mock.timers.tick(50);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  t.mock.timers.reset();
+  return result;
+}
+
 test("a timeout stops the command and everything it started", async (t) => {
   const dir = await tempDir(t);
   await writeLongCommand(dir);
-  const result = await runSetupCommand({ command: LONG_COMMAND, cwd: dir, timeoutMs: TIMEOUT_MS });
+  const result = await pastDeadline(t, path.join(dir, "child.pid"), () => runSetupCommand({ command: LONG_COMMAND, cwd: dir, timeoutMs: TIMEOUT_MS }));
   assert.equal(result.status, "timed-out");
   const pid = Number(await fs.readFile(path.join(dir, "child.pid"), "utf8"));
-  assert.equal(alive(pid), false);
+  assert.equal(await gone(pid), true);
   assert.ok(result.durationMs < TIMEOUT_MS + 5000);
 });
 
@@ -154,7 +179,7 @@ test("cancelling a chat's setup stops the tree and the turn reports it", async (
   assert.deepEqual(await turn, { cancelled: true, note: "" });
   assert.deepEqual(await steer, { cancelled: true, note: "" });
   const pid = Number(await fs.readFile(path.join(dir, "child.pid"), "utf8"));
-  assert.equal(alive(pid), false);
+  assert.equal(await gone(pid), true);
   assert.equal(events[0].event.type, "step-started");
   assert.equal(events[0].event.step.title, `Running setup \`${LONG_COMMAND}\``);
   assert.equal(events[0].event.step.kind, "setup");
