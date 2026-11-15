@@ -8,8 +8,6 @@ type History = {
   promptHistory: string[];
   designActivity: number;
 };
-// The immutable completed history is shared by transcript/composer consumers. A live delta doesn't change it.
-// Weak ownership releases the projection with its source, including after cache eviction or a saved-message edit.
 const histories = new WeakMap<ChatMessage[], History>();
 
 export function chatHistory(messages: ChatMessage[]): History {

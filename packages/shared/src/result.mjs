@@ -3,7 +3,6 @@ export function ipcErrorMessage(error) {
   const message = typeof error?.message === "string" ? error.message : String(error);
   return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 }
-/** Recognize an explicit wire code, including the legacy CODE: detail message. */
 export function ipcErrorCode(error) {
   if (typeof error?.code === "string") return error.code;
   const message = ipcErrorMessage(error);

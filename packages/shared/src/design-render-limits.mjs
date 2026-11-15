@@ -1,4 +1,3 @@
-// A document can be small while its wrapped text produces megabytes of markup.
 export const MAX_DESIGN_RENDER_BYTES = 8 * 1024 * 1024;
 const encoder = new TextEncoder();
 
@@ -14,8 +13,6 @@ export function designRenderBudget(format, limit = MAX_DESIGN_RENDER_BYTES) {
   };
 }
 
-// Keep a partially visible last line and any glyph overhang from a short line-height.
-// Borders reduce the content box; source text and layout measurements remain intact.
 export function visibleDesignTextLines(node, box, layout) {
   const border = node.stroke ? (node.strokeWidth ?? 1) : 0;
   const height = Math.max(0, box.height - 2 * border);

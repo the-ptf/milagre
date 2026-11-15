@@ -1,5 +1,4 @@
 import { designError } from "./design-errors.mjs";
-/** Instances keep expanded layers so every renderer and export consumes the same ordinary scene tree. */
 export function designInstanceRoot(document, nodeId, byId = new Map(document.nodes.map((node) => [node.id, node]))) {
   let node = byId.get(nodeId);
   for (let depth = 0; node && depth < 33; depth++) {
@@ -142,7 +141,6 @@ export function synchronizeDesignComponents(document) {
       }
       return copy;
     });
-    // Preserve the instance root's position in its parent's paint order.
     const at = document.nodes.indexOf(instance);
     const insertion = document.nodes.filter((node, index) => !ownedIds.has(node.id) && index < at).length;
     document.nodes = document.nodes.filter((node) => !ownedIds.has(node.id));

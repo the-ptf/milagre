@@ -1,9 +1,8 @@
 import type { ModelOption, ModelCapabilities, ModelCapability, EffortLevel } from "./model.ts";
 
-/** The Claude models Claude Code 2.1.288 offers fast mode on; a guess until Claude reports its own list. */
+// Claude Code 2.1.288 offers fast mode on these; a guess until Claude reports its own list.
 const CLAUDE_FAST_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]);
 
-/** What the agent reported for this model, or a cautious guess while it hasn't answered. */
 export function capabilityFor(model: ModelOption, capabilities: ModelCapabilities | null): ModelCapability {
   const reported = capabilities?.[model.provider][model.id];
   if (reported) return reported;
@@ -41,7 +40,6 @@ export function contextWindowFor(model: Pick<ModelOption, "provider" | "id">): n
   return model.id.startsWith("gemini") ? GEMINI_WINDOW : undefined;
 }
 
-/** Keeps the chosen effort when the model takes it, else its default, else the nearest middle level. */
 export function effortFor(capability: ModelCapability, effort: EffortLevel): EffortLevel | undefined {
   const { efforts } = capability;
   if (efforts.length === 0) return undefined;
@@ -50,7 +48,6 @@ export function effortFor(capability: ModelCapability, effort: EffortLevel): Eff
   return efforts.includes("high") ? "high" : efforts[Math.floor(efforts.length / 2)];
 }
 
-// Antigravity's per-level models are grouped into families in antigravity-models.mjs, which core loads too.
 export {
   ANTIGRAVITY_AGENT_OPTIONS,
   ANTIGRAVITY_FAMILY_COPY,
@@ -75,11 +72,7 @@ function antigravityCatalog(): ModelOption[] {
   });
 }
 
-/**
- * The maintained list: what codex-cli 0.160.0, Claude Code 2.1.288, Antigravity 1.3.0 and kiro-cli 2.34.2 report, recommended model first.
- * The picker shows it until the agents report their own lists (agent:models), and for an agent whose
- * CLI is missing, too old or couldn't be asked.
- */
+/** The maintained list, recommended model first: the picker shows it until the agents report their own lists. */
 export const MODEL_CATALOG: [ModelOption, ...ModelOption[]] = [
   { id: "gpt-6.1-sol", name: "GPT-6.1-Sol", provider: "codex", description: "Latest generation workhorse model", recommended: true },
   { id: "gpt-6-astra", name: "GPT-6-Astra", provider: "codex", description: "Frontier intelligence for the most demanding work" },

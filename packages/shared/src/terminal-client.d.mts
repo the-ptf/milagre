@@ -10,7 +10,6 @@ export type TerminalFollower = {
 export function followTerminal(options: {
   terminalId: string;
   api: Pick<TerminalApi, "read" | "input" | "resize">;
-  /** May return a promise: the next read waits for it, so output is read no faster than the viewer draws it. */
   write(data: string): unknown;
   reset(data: string): unknown;
   ended?(): void;

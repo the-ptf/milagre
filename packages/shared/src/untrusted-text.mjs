@@ -1,8 +1,3 @@
-// Milagre wraps text that other Chats, issues, tools and earlier Chats wrote in tagged blocks and tells the agent the
-// block is data. Text inside a block must not be able to close it or open one of Milagre's own, so these tags are
-// neutralized in whatever is put inside.
-
-// untrusted-data is a Routine's fence (routine-prompt.mjs), which escapes every bracket of what it fences itself.
 const MILAGRE_TAGS = [
   "chat_mentions",
   "computer_mentions",

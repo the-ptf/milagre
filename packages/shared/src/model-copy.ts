@@ -6,22 +6,17 @@ export const PERMISSION_MODES: Array<{ id: PermissionMode; name: string; descrip
   { id: "full", name: "Full permissions", description: "Remove filesystem and network limits" },
 ];
 
-/** The composer chip's word for each mode. */
 export const PERMISSION_MODE_LABEL: Record<PermissionMode, string> = { ask: "Ask", auto: "Auto", full: "Full" };
 /**
- * How a permission mode looks on both apps. `icon`: shield (Shield01Icon), security-check (SecurityCheckIcon) or
- * shield-alert (ShieldAlertIcon). `tone` colors the icon, `ink` the label, as palette keys. Full is the only orange
- * mode; nothing is green or accent.
+ * `icon`: shield (Shield01Icon), security-check (SecurityCheckIcon) or shield-alert (ShieldAlertIcon). `tone` colors
+ * the icon, `ink` the label, as palette keys.
  */
 export function permissionPresentation(mode: PermissionMode) {
   if (mode === "full") return { icon: "shield-alert", tone: "orange", ink: "orangeInk" } as const;
   return { icon: mode === "auto" ? "security-check" : "shield", tone: "ink2", ink: "ink2" } as const;
 }
 
-/**
- * Words both apps share. Product nouns (Project, Chat, Routine, Run, Link, Heartbeat, Worktree, and the Done state) are
- * capitalised.
- */
+/** Product nouns (Project, Chat, Routine, Run, Link, Heartbeat, Worktree, and the Done state) are capitalised. */
 export const UI_COPY = {
   /** The composer's send and stop buttons; `queue` while a turn runs. */
   send: "Send",
@@ -29,7 +24,6 @@ export const UI_COPY = {
   queue: "Queue message",
   stop: "Stop agent",
   renameChat: "Rename Chat",
-  /** Command palette and Chat menus. */
   newChat: "New Chat",
   currentChat: "Current Chat",
   findInChat: "Find in Chat",
@@ -61,7 +55,6 @@ export function effortCopy(level: EffortLevel) {
   return EFFORT_COPY[level] ?? { name: level, description: "" };
 }
 
-/** The recovery action is the same on desktop and phone; raw errors stay available for other save failures. */
 export function persistenceFailureDetail(failure: PersistenceFailure) {
   if (failure.code === "ENOSPC") return "Disk is full. Free space on your computer, then retry.";
   if (failure.code === "EACCES" || failure.code === "EPERM" || /readonly|read-only/i.test(failure.error))

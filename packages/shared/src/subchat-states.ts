@@ -1,6 +1,3 @@
-// What each Subchat of a Chat is doing, for the Subchats pill above that Chat's composer on desktop and phone. A
-// Subchat is a Chat whose session keeps this Chat's id as `parent` (subchats.ts). Its finished report shows in the
-// transcript as one line (`reportMarker`); the pill and its list carry the rest.
 import { formatElapsed } from "./display-clock.ts";
 import type { AgentQuestion, PermissionRequest } from "./model.ts";
 
@@ -18,14 +15,12 @@ const LABELS: Record<SubchatKind, string> = {
   done: "Done",
 };
 
-/** A pending question or approval of a Subchat's turn, answered from the parent Chat. */
 export type SubchatRequest = { kind: "question"; requestId: string; questions: AgentQuestion[] } | { kind: "approval"; request: PermissionRequest };
 
 export interface SubchatInput {
   key: string;
   title: string;
   session: { done_at?: number; summary?: { lastOutcome?: "completed" | "failed" | "cancelled"; lastAt?: number } };
-  /** The Subchat's live turn, when one runs. */
   run?: {
     text?: string;
     startedAt?: number;
@@ -33,11 +28,8 @@ export interface SubchatInput {
     questions?: { requestId: string; questions: AgentQuestion[] }[];
     answered?: Record<string, unknown>;
   } | null;
-  /** A Delegation to it waits in its queue. */
   queued?: boolean;
-  /** Its enabled Heartbeat, when it has one. */
   heartbeat?: { nextRunAt?: number; runCount?: number; maxRuns?: number } | null;
-  /** How its last report to this Chat ended, from the transcript. */
   report?: string;
 }
 
@@ -50,14 +42,11 @@ export interface SubchatState {
   detail: string;
   /** Elapsed time of a live turn, as "3m 05s". */
   elapsed?: string;
-  /** The first unanswered question or approval, for the inline answers. */
   request?: SubchatRequest;
   /** For a Subchat deeper than this Chat's own: the title of the Chat that delegated to it. */
   via?: string;
 }
 
-/** The last line the agent wrote, for a live row: one line, cut at the front when long. */
-// Markdown read as plain text for a one-line detail: no code ticks, emphasis marks or link targets.
 const plain = (text: string) =>
   text
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -119,20 +108,15 @@ export function subchatState(input: SubchatInput, now: number): SubchatState {
 }
 
 export interface SubchatSummary {
-  /** The kind that leads the pill (its dot), the first one present in SUBCHAT_KINDS order. */
   lead: SubchatKind | null;
-  /** "1 needs you", "2 need you", "2 working", …, in SUBCHAT_KINDS order; Stopped and Done count together as ended. */
   parts: { kind: SubchatKind; text: string }[];
-  /** The one Subchat waiting on the user, when exactly one is: the pill shows who and what, and a tap opens it. */
   asking?: { key: string; title: string; ask: string };
 }
 
-/** What a waiting Subchat wants, in the pill's few words. */
 export function subchatAsk(request: SubchatRequest): string {
   return request.kind === "approval" ? "wants to run a command" : (request.questions[0]?.question ?? "has a question");
 }
 
-/** The pill's words for a set of Subchats. */
 export function subchatSummary(states: readonly SubchatState[]): SubchatSummary {
   const count = (kinds: SubchatKind[]) => states.filter((state) => kinds.includes(state.kind)).length;
   const parts: SubchatSummary["parts"] = [];

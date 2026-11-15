@@ -36,7 +36,6 @@ export function nearestDesignWeight(weights, requested = 400) {
   return weights.reduce((best, weight) => (Math.abs(weight - requested) < Math.abs(best - requested) ? weight : best));
 }
 
-/** The measured Inter weight a requested weight renders with. */
 export function designInterWeight(fontWeight = 400) {
   return nearestDesignWeight(DESIGN_INTER_WEIGHTS, fontWeight);
 }
@@ -46,16 +45,13 @@ export function designUsesInter(fontFamily = DESIGN_DEFAULT_FONT_FAMILY) {
   return fontFamily.split(",")[0].trim().toLowerCase() === "inter";
 }
 
-/** The catalog families a design can name besides Inter, measured and bundled like Inter. */
 export const DESIGN_CATALOG_FAMILIES = Object.values(DESIGN_FONT_CATALOG).map((entry) => entry.family);
 
-/** The catalog entry for a font list's first family. Like Inter, a catalog family only counts first in the list. */
 export function designCatalogFont(fontFamily) {
   if (!fontFamily) return undefined;
   return DESIGN_FONT_CATALOG[fontFamily.split(",")[0].trim().toLowerCase()];
 }
 
-/** The weight a text layer draws with: the nearest measured face in Inter or a catalog family, as requested otherwise. */
 export function designDrawnWeight(fontFamily, fontWeight = 400) {
   if (designUsesInter(fontFamily)) return designInterWeight(fontWeight);
   const entry = designCatalogFont(fontFamily);
@@ -75,7 +71,6 @@ function weightRange(weights, weight) {
   return `${previous === undefined ? 1 : (previous + weight) / 2 + 1} ${next === undefined ? 1000 : (weight + next) / 2}`;
 }
 
-// Catalog faces are loaded per family on demand, so a viewer pays only for the families its designs name.
 const loadedCatalogFonts = new Map();
 
 /** Loads the catalog families a document names. Until it resolves, their text renders in the fallback the document names. */
@@ -88,7 +83,6 @@ export async function loadDesignFonts(document) {
   );
 }
 
-/** Whether every catalog family a document names is loaded. */
 export function designFontsLoaded(document) {
   return visibleText(document).every((node) => {
     const entry = designCatalogFont(node.fontFamily);
@@ -96,7 +90,6 @@ export function designFontsLoaded(document) {
   });
 }
 
-/** The measured faces a document's visible text draws with: family, weight and TrueType data as base64. */
 function usedFaces(document) {
   const faces = new Map();
   for (const node of visibleText(document)) {
@@ -111,7 +104,6 @@ function usedFaces(document) {
   return [...faces.values()].toSorted((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight);
 }
 
-/** Data-URI faces for the measured weights a document's visible text uses, so every viewer renders the measured fonts. */
 export function designFontFaces(document) {
   return usedFaces(document)
     .map(
@@ -121,7 +113,6 @@ export function designFontFaces(document) {
     .join("");
 }
 
-/** TrueType data (base64) for a rasterizer that reads fonts from buffers: every Inter weight, plus the loaded catalog faces in use. */
 export function designFontBuffers(document) {
   const catalog = usedFaces(document).filter((face) => face.family !== "Inter");
   return [...DESIGN_INTER_WEIGHTS.map((weight) => designInterFonts[weight]), ...catalog.map((face) => face.data)];

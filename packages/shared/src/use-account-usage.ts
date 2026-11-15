@@ -15,7 +15,6 @@ function fresh(snapshot: UsageSnapshot) {
   const ready = snapshot.providers.filter((item) => !item.account?.state || item.account.state === "ready");
   const hostNow = snapshot.generatedAt ? Date.parse(snapshot.generatedAt) : Date.now();
   return ready.every((item) => {
-    // An unavailable placeholder has no check time. A recent failed check still counts, without relabeling old quotas.
     const checkedAt = Date.parse(item.checkedAt ?? (item.status === "ok" ? item.updatedAt : ""));
     const age = hostNow - checkedAt;
     return age >= 0 && age < FRESH_MS;
@@ -89,7 +88,6 @@ export function useAccountUsage(source: AccountUsageSource | null) {
     };
     refreshRef.current = refresh;
     const accountsChanged = () => {
-      // Discard in-flight responses, but preserve windows while the cache updates default flags.
       revision++;
       cacheGeneration++;
       inFlight = null;

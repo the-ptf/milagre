@@ -25,7 +25,6 @@ export type HtmlRenderTheme = {
   mono?: string;
   size?: number;
   leading?: number;
-  /** Letter spacing in em. */
   tracking?: number;
 };
 export const HTML_RENDER_THEMES: { light: HtmlRenderTheme; dark: HtmlRenderTheme };

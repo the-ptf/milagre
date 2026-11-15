@@ -1,10 +1,8 @@
 import type { AgentRun } from "./agent-runs.mjs";
 import type { AgentEvent, AgentPort, BackgroundTask, ChatSummary, ModelProvider, Subagent } from "./model.ts";
 
-/** What a Chat is doing: see activityOf in chat-activity.mjs for which wins. */
 export type ChatActivityState = "waiting" | "working" | "failed" | "background" | "idle";
 
-/** What the activity reads from a Chat's saved session. */
 export type ActivitySession = {
   provider?: ModelProvider;
   subagents?: Subagent[];
@@ -17,7 +15,6 @@ export interface ChatActivity {
   activity: ChatActivityState;
   /** Background work still going on (subagents, tasks, advisors), whatever the activity: a failed Chat can still have some. */
   background: number;
-  /** When the oldest of it started, while any goes on. */
   since?: number;
 }
 
@@ -29,7 +26,6 @@ export function processWork(session: ActivitySession | undefined): Array<Subagen
 export function outlivesTurn(agent: Pick<Subagent, "background" | "source"> | undefined): boolean;
 export function backgroundWork(session: ActivitySession | undefined): Array<Subagent | BackgroundTask>;
 
-/** What a piece of background work is: a background subagent, an advisor, a command (with output), a workflow, or another task. */
 export type BackgroundItemType = "subagent" | "advisor" | "command" | "workflow" | "task";
 export const BACKGROUND_ITEM_LABELS: Readonly<Record<BackgroundItemType, string>>;
 export interface BackgroundItem {
@@ -52,7 +48,6 @@ export function backgroundBusyMessage(action: "switch" | "reload" | "move", coun
 export function notificationPreview(previous: string | undefined, text: string, startsMessage?: boolean): string;
 export function holdsAnnouncement(task: Pick<BackgroundTask, "kind"> | undefined): boolean;
 
-/** A Chat's work that just ended, to announce: how its last turn ended. */
 export interface ActivityCompletion {
   failed: boolean;
   body: string;

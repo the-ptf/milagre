@@ -2,7 +2,6 @@ import { formatImageMention, promptParts } from "./prompt-parts.mjs";
 import { chatTitle, isListedChat } from "./chats.mjs";
 import { prosePrompt } from "./prompt-skills.mjs";
 
-/** An empty composer's hint, on desktop and phone: what @ and / open. */
 export const PROMPT_PLACEHOLDER = "Type @ for files, Chats and computers, / for skills";
 
 /**
@@ -17,12 +16,10 @@ export function mentionedFile(path, files, root) {
   return suffixed.length === 1 ? suffixed[0] : undefined;
 }
 
-/** Whether `@path` in a sent prompt names one of the message's files, for `promptParts`. */
 export function isMentionOfFile(files, root) {
   return (path) => mentionedFile(path, files, root) !== undefined;
 }
 
-/** The absolute files a prompt renders inline as chips; their attachment tiles are left out. */
 export function mentionedFiles(prompt, files, root) {
   const found = new Set();
   if (!files.length) return found;
@@ -34,7 +31,6 @@ export function mentionedFiles(prompt, files, root) {
   return found;
 }
 
-/** The 1-based image indices a prompt renders inline as chips. */
 export function mentionedImages(prompt, count) {
   const found = new Set();
   if (!count || count < 1) return found;
@@ -87,7 +83,6 @@ export function remapImageMentions(prompt, indices) {
   );
 }
 
-/** Expand a native text edit across any image chip it touches, preserving surrounding text. */
 export function editImageMentions(previous, next, images, selection) {
   let start = 0;
   while (start < previous.length && start < next.length && previous[start] === next[start]) start++;
@@ -97,7 +92,6 @@ export function editImageMentions(previous, next, images, selection) {
     end--;
     nextEnd--;
   }
-  // Repeated tokens have long matching prefixes. The native selection identifies which one was edited.
   const matches = (from, to) =>
     from >= 0 &&
     to <= previous.length &&
@@ -137,7 +131,6 @@ export function editImageMentions(previous, next, images, selection) {
   return { value: previous.slice(0, from) + inserted + previous.slice(to), caret: from + inserted.length };
 }
 
-/** Summary-only Chat references, including unavailable entries so old chips have a neutral label. */
 export function chatMentionChoices(state) {
   return Object.values(state.sessions).map((session) => ({
     id: session.id,
@@ -155,7 +148,7 @@ export function matchingMentionChats(chats, query, currentId) {
   return (
     chats
       .filter((chat) => chat.available && chat.id !== currentId && chat.title.toLowerCase().includes(needle))
-      // oxlint-disable-next-line unicorn/no-array-sort -- Hermes lacks toSorted; filter creates a private array.
+      // Hermes has no toSorted.
       .sort((a, b) => b.at - a.at || b.id - a.id)
       .slice(0, 5)
   );
@@ -176,7 +169,7 @@ export function matchingMentionComputers(computers, query) {
         seen.add(key);
         return true;
       })
-      // oxlint-disable-next-line unicorn/no-array-sort -- Hermes lacks toSorted; filter creates a private array.
+      // Hermes has no toSorted.
       .sort((a, b) => Number(Boolean(b.self)) - Number(Boolean(a.self)) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
       .slice(0, 5)
   );

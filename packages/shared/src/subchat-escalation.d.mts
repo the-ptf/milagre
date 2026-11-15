@@ -7,13 +7,10 @@ export const ESCALATION_BATCH_MS: number;
 export const ESCALATION_TOOL_CALLS: number;
 export const ESCALATION_TOOL_GRACE: number;
 
-/** In the Subchat, above its question: the wait, and that the Chat above knows. */
 export type SubchatWaitingContext = { kind: "subchat-waiting"; ask: "question" | "approval"; parentTitle: string; waitedMs: number };
 
-/** In the parent: the line that opens the waiting Subchat. `paused` once the family's wakes are spent. */
 export type SubchatEscalationContext = { kind: "subchat-escalation"; from: string; fromTitle: string; requestId: string; waitedMs: number; paused?: boolean };
 
-/** In the parent: an agent's suggested answer, for the user to send. */
 export type SubchatSuggestionContext = {
   kind: "subchat-suggestion";
   id: string;
@@ -21,12 +18,10 @@ export type SubchatSuggestionContext = {
   fromTitle: string;
   requestId: string;
   question: string;
-  /** The picked labels or typed text, as the answer reads. */
   answerLabel: string;
   answers: QuestionAnswers;
 };
 
-/** In the parent: what became of suggestion `id`. `label` is the answer that went in, when one did. */
 export type SubchatSuggestionOutcomeContext = {
   kind: "subchat-suggestion-outcome";
   id: string;
@@ -35,7 +30,6 @@ export type SubchatSuggestionOutcomeContext = {
   label?: string;
 };
 
-/** In the Subchat: the Chat above answered in Full. */
 export type SubchatAnsweredByContext = { kind: "subchat-answered-by"; parentTitle: string; label: string };
 
 /** In the parent: the message that starts a wake's turn. Nobody typed it, and the transcript draws nothing for it. */

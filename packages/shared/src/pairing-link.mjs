@@ -1,7 +1,3 @@
-// The pairing link a Mac shows in Settings › Phone & sharing, as the phone (apps/mobile/src/pairing.ts) and the desktop's Add
-// computer (apps/desktop/electron/computers.cjs) read it. Moved from apps/mobile/src/client.ts and pairing.ts unchanged,
-// with `allowLocalRelay` added for tests that run their own relay.
-
 /** A Cloudflare Access service token: the edge drops any request to the host's tunnel without it. */
 export function validAccess(value) {
   const access = value;
@@ -69,7 +65,6 @@ export function validRelay(value, { allowLocalRelay = false } = {}) {
     ...(direct.length ? { direct } : {}),
   };
 }
-/** A relay computer's address and saved id: there is no URL to show, so its id on the relay stands in. */
 export const relayAddress = (hostId) => `relay://${hostId}`;
 
 /** Removes the public fallback from a pairing invitation while keeping its pinned identity and private routes. */
@@ -84,7 +79,6 @@ export function privatePairingLink(input) {
   return `milagre://pair?relay=${encodeURIComponent(direct[0])}&host=${relay.hostId}&key=${relay.key}&token=${pairing.token}&name=${encodeURIComponent(pairing.name)}&direct=${encodeURIComponent(JSON.stringify(direct))}`;
 }
 
-/** Reads the link the host prints and encodes in its QR code: a direct address (scripts/mobile-pairing.cjs) or the relay (apps/daemon/src/mobile-pairing.cjs). */
 export function parsePairing(input, { allowLocalRelay = false } = {}) {
   // React Native's URL does not parse custom schemes or query strings, so the link is read by hand.
   const match = /^milagre(?:-local)?:\/\/\/?pair\/?\?(.*)$/i.exec(input.trim());
@@ -101,7 +95,6 @@ export function parsePairing(input, { allowLocalRelay = false } = {}) {
   const token = params.token || "";
   if (!/^[a-f0-9]{64}$/i.test(token)) throw new Error("This pairing link has no valid token. Restart the host on your Mac and scan the new code.");
   if (params.relay !== undefined || params.host !== undefined || params.key !== undefined) {
-    // A link names one way to reach the Mac; one with both was not made by Milagre.
     if (params.address !== undefined) throw new Error("This pairing link is damaged. Scan the code again in Settings → Phone & sharing on your computer.");
     let direct;
     try {

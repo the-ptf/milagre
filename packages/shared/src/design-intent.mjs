@@ -15,7 +15,6 @@ const fail = (message, path) => {
 };
 const layoutKinds = new Set(["clipped-text", "overflow", "off-canvas"]);
 
-/** Check the resolved result, including component propagation and automatic layout, before any write. */
 export function assertDesignEditIntent(before, after, value) {
   if (value === undefined) return;
   const intent = designEditIntentSchema.parse(value);
@@ -87,7 +86,6 @@ export function assertDesignEditIntent(before, after, value) {
       .warnings.filter((w) => layoutKinds.has(w.kind))
       .map((w) => [`${w.kind}:${w.id}`, w]),
   );
-  // Existing defects elsewhere are not a reason to widen the edit. Defects in scope, or new/worse defects, reject it.
   const problems = designDiagnostics(after).warnings.filter((warning) => {
     if (!layoutKinds.has(warning.kind)) return false;
     const previous = oldProblems.get(`${warning.kind}:${warning.id}`);

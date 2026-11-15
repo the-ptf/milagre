@@ -14,7 +14,6 @@ export function startRefreshLoop({ refresh, isActive = () => true, onActive, int
     try {
       await refresh();
     } catch {
-      // The caller owns error presentation; a failed read must not stop subsequent retries.
     } finally {
       busy = false;
       if (!disposed && repeat && isActive()) timer = schedule(run, intervalMs);

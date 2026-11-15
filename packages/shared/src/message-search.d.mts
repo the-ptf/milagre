@@ -1,4 +1,3 @@
-/** The fields search reads; any ChatMessage fits. */
 export interface SearchableMessage {
   id: number;
   session_id: number;
@@ -8,11 +7,8 @@ export interface SearchableMessage {
 export interface MessageMatch<M extends SearchableMessage = SearchableMessage> {
   message: M;
   score: number;
-  /** About one line of the body around the first match, whitespace collapsed. */
   snippet: string;
-  /** Where the matched text sits in `snippet`. */
   highlight: [start: number, end: number];
-  /** The matched text as written in the body, for seeding find-in-chat. */
   term: string;
 }
 

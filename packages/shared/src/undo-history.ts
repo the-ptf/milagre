@@ -1,14 +1,6 @@
-/**
- * The Chat list's undo history, desktop and phone alike: Done, Reopen, pins, deletions and Links, each recorded with how
- * to take it back. ⌘Z walks back through it and ⇧⌘Z forward again, long after the toast has gone, like Finder. The
- * toast always shows the step just taken, so its button undoes (or redoes) exactly what it names.
- */
-
-/** The icon a toast leads with. */
 export type ToastKind = "done" | "deleted" | "undone";
 
 export type UndoAction = {
-  /** What the toast says once the action is done, "Moved to Done". */
   text: string;
   kind?: ToastKind;
   /** Takes it back. Returning false means it can't be any more (the deletion went ahead), and the toast says so. */
@@ -21,7 +13,6 @@ export type UndoAction = {
   redo?: () => unknown;
   /** How long the undo keeps working after the action (a deletion's Undo window); forever when not given. */
   undoWindowMs?: number;
-  /** Which screen's toast shows it, where two are on screen at once (the iPad's list beside a Chat). */
   place?: string;
 };
 
@@ -29,7 +20,6 @@ export type UndoToast = {
   id: number;
   text: string;
   kind?: ToastKind;
-  /** The button the toast offers: undo the step it names, redo it, or none for a plain notice. */
   button: "undo" | "redo" | null;
   place?: string;
 };
@@ -42,7 +32,6 @@ export function createUndoHistory(now: () => number = Date.now) {
   let past: Entry[] = [];
   let future: UndoAction[] = [];
   let toast: UndoToast | null = null;
-  /** The action the toast names, so dropping that action takes its toast too. */
   let shown: UndoAction | null = null;
   let nextId = 1;
   const listeners = new Set<() => void>();
@@ -54,7 +43,6 @@ export function createUndoHistory(now: () => number = Date.now) {
     emit();
   };
   const entry = (action: UndoAction): Entry => ({ action, until: action.undoWindowMs === undefined ? Infinity : now() + action.undoWindowMs });
-  /** The latest step that can still be undone; ones past their window drop off. */
   const live = () => {
     while (past.length && past[past.length - 1]!.until <= now()) past.pop();
     return past.at(-1);
@@ -67,13 +55,11 @@ export function createUndoHistory(now: () => number = Date.now) {
       future = [];
       show({ text: action.text, kind: action.kind, button: "undo", place: action.place }, action);
     },
-    /** Takes back an action that failed: out of the history, and its toast goes. */
     drop(action: UndoAction) {
       past = past.filter((item) => item.action !== action);
       future = future.filter((item) => item !== action);
       if (shown === action) show(null);
     },
-    /** A toast with nothing to undo, such as an error; the history stays as it was. */
     notify(text: string, place?: string) {
       show({ text, button: null, place });
     },
@@ -123,5 +109,4 @@ export function createUndoHistory(now: () => number = Date.now) {
 
 export type UndoHistory = ReturnType<typeof createUndoHistory>;
 
-/** The app's one history (one per window on desktop, one on the phone): every list and screen records into it. */
 export const undoHistory = createUndoHistory();

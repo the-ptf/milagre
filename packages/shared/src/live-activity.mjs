@@ -1,4 +1,3 @@
-// Small OS surfaces consume presentation data, never pairing credentials or full tool output.
 const short = (value, length) =>
   Array.from(
     String(value ?? "")
@@ -11,7 +10,6 @@ const short = (value, length) =>
 const active = new Set(["initializing", "running"]);
 const recommendation = /\s*\(recommended\)\s*$/i;
 
-/** The same content drives iOS Live Activities and Android ongoing notifications. */
 export function activityContent({ chats = [], pending = [], now = Date.now(), mode = "all" }) {
   const ordered = pending.toSorted((a, b) => a.at - b.at);
   let runningCount = 0;

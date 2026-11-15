@@ -13,7 +13,6 @@ const TYPES = {
   heif: "image/heif",
 };
 
-/** Only GitHub uploads and repository images are read with the computer's GitHub credentials. */
 export function githubImageSource(source) {
   if (typeof source !== "string") return null;
   if (ATTACHMENT.test(source)) return { kind: "attachment", url: source };

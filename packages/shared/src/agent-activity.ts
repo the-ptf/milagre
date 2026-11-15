@@ -1,9 +1,6 @@
 import { providerName } from "./providers.mjs";
 import type { Subagent } from "./model.ts";
 
-/** Compact action labels shared by the canvas and mobile's subagent rows.
- * Match action prefixes rather than words in file paths or tool output.
- */
 export function agentActivityLabel(activity = ""): string {
   const text = activity.trim();
   if (/^(?:running|ran|run|testing|test)\b.*\b(?:tests?|pytest|vitest|jest|playwright)\b/i.test(text) || /^testing\b/i.test(text)) return "Running tests";
@@ -38,7 +35,6 @@ export function subagentActivityLabel(agent: Pick<Subagent, "status" | "latestAc
   }[agent.status];
 }
 
-/** Host-owned advisors have controls independent of their parent's provider-native children. */
 export function advisorAction(agent: Pick<Subagent, "status" | "source" | "retryable">): "stop" | "retry" | null {
   if (agent.source !== "milagre-advisor") return null;
   if (["initializing", "running", "waiting"].includes(agent.status)) return "stop";

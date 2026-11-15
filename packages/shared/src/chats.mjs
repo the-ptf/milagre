@@ -1,9 +1,7 @@
-// How a chat is named, shared by the sidebar and the main process's notifications. Types: chats.d.mts.
 export { pullRequestRefs, pullRequestRefsCache, chatPullRequests, createdPullRequestUrl, associatedPullRequest } from "./chat-pull-requests.mjs";
 import { chatSummary, summarizeChat } from "./chat-summary.mjs";
 import { promptTitle } from "./prompt-parts.mjs";
 
-/** The same status palette for desktop and mobile chat lists. */
 export function chatMarkTone(mark) {
   if (mark === "waiting" || mark === "interrupted") return "orange";
   if (mark === "failed") return "red";
@@ -23,7 +21,6 @@ const CHAT_MARKS = {
   idle: { icon: "dot", label: "" },
 };
 
-/** A Chat mark as both apps draw it: its glyph, its fill tone (a palette key) and its words. Idle is a solid ink4 dot. */
 export function chatMarkPresentation(mark) {
   return { ...CHAT_MARKS[mark], tone: mark === "idle" ? "ink4" : chatMarkTone(mark) };
 }
@@ -50,7 +47,6 @@ function titleOf(session, messages, shorten) {
   if (session.title?.trim()) return session.title.trim();
   if (session.generatedTitle?.trim()) return session.generatedTitle.trim();
   const first = session.summary ? undefined : messages.find((message) => message.role !== "assistant" && message.body.trim());
-  // A summary kept before it counted the first message's images has no count: its tokens all count.
   const line = session.summary
     ? promptTitle(session.summary.titleLine ?? "", session.summary.titleImages)
     : promptTitle(first?.body.trim().split("\n")[0] ?? "", first?.images?.length ?? 0);
@@ -58,12 +54,10 @@ function titleOf(session, messages, shorten) {
   return shorten(line);
 }
 
-/** A legacy handover chat (before in-place handoff) that is still being prepared or holds its brief as a draft: it is a live, provider-locked chat even with no messages. */
 export function isHandoverChat(session) {
   return Boolean(session?.handoverPending) || session?.handoverDraft !== undefined;
 }
 
-/** A Chat a Routine's Run created and keeps out of the lists: hidden, and not waiting on an approval or question. */
 export function isHiddenRunChat(session, waiting = false) {
   return session?.routine?.hidden === true && !waiting;
 }
@@ -95,7 +89,6 @@ export function pinOrderAt(orders, index) {
 
 let nextPreviewId = -2;
 
-/** A local message preview. It is never written into the Project's persisted state. */
 export function createPendingChat({ state, worktreeId, sessionId = null, body, images = [], files = [], model, provider, context = null, clientMessageId }) {
   const id = nextPreviewId--;
   const session = state.sessions[sessionId] ?? {
@@ -135,11 +128,9 @@ export function createResendMemory() {
   const failed = new Map();
   const signature = (body, attachments) => JSON.stringify([body, ...attachments]);
   return {
-    /** Keeps `clientMessageId` for the next send of the same body and attachments from `key`. */
     remember(key, clientMessageId, body, attachments = []) {
       failed.set(key, { clientMessageId, signature: signature(body, attachments) });
     },
-    /** The id to resend with, or undefined for a fresh message. Anything that differs from the failed send forgets it. */
     reuse(key, body, attachments = []) {
       const entry = failed.get(key);
       if (!entry) return undefined;
@@ -147,26 +138,20 @@ export function createResendMemory() {
       failed.delete(key);
       return undefined;
     },
-    /** The send went through. */
     forget(key) {
       failed.delete(key);
     },
   };
 }
 
-/** The saved Chat may arrive over the live connection before the send response does. */
 export function pendingChatSessionId(state, pending) {
   if (!pending) return null;
   const canonical = state.messages.find((message) => message.clientMessageId === pending.message.clientMessageId);
   if (canonical) return canonical.session_id;
-  // A message sent while a turn that can't be steered runs waits in its Chat's queue.
   const queued = Object.values(state.sessions).find((session) => session.queued?.some((item) => item.clientMessageId === pending.message.clientMessageId));
   if (queued) return queued.id;
-  // A window that holds no messages (chat-pages-v1) has each Chat's last sends in its summary.
   const summarized = Object.values(state.sessions).find((session) => session.summary?.clientMessageIds?.includes(pending.message.clientMessageId));
   if (summarized) return summarized.id;
-  // Older hosts omit clientMessageId. Only use their persisted input after the send response
-  // confirms its target; existing inputs and messages tagged by another client cannot match.
   if (pending.acceptedSessionId == null) return null;
   return (
     state.messages.find(
@@ -189,14 +174,11 @@ export function withPreview(messages, pending) {
   return id && messages.some((message) => message.clientMessageId === id) ? messages : [...messages, pending.message];
 }
 
-/** A display projection shared by desktop's sidebar and the phone's drawer; canonical input replaces its preview. */
 export function withPendingChat(state, pending) {
   if (!pending || pendingChatSessionId(state, pending) !== null) return state;
   const message = { ...pending.message, id: pending.sortId };
   const messages = [...state.messages, message];
   const session = state.sessions[pending.session.id] ?? pending.session;
-  // The host may keep every saved message off the client. Extend its summary rather than replacing the Chat's
-  // history with this one input, and keep settings that changed since the send began (pins, title, etc.).
   const saved = chatSummary(
     session,
     state.messages.filter((item) => item.session_id === session.id),

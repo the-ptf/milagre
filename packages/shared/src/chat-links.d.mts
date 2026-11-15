@@ -1,4 +1,3 @@
-/** One end of a canvas Link: a whole Project, or one of its Worktrees. */
 export type LinkEnd = { project_id: string; worktree_path?: string };
 export type CanvasLink = {
   id: string;
@@ -9,9 +8,7 @@ export type CanvasLink = {
   chatModeTransition?: "shared" | "separate";
 };
 export const CHAT_MODE_COPY: { shared: string; separate: string; shareDetail: string; separateDetail: string };
-/** A Chat's Worktree as a Link sees it. */
 export type LinkWorktree = { project_id: string; worktree_path: string };
-/** "Só estas worktrees" (Worktree↔Worktree) or "Os projetos inteiros" (Project↔Project). */
 export type LinkScope = "worktrees" | "projects";
 
 export function endpointCovers(endpoint: LinkEnd | undefined, worktree: LinkWorktree | undefined): boolean;

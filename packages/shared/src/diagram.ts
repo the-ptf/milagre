@@ -1,7 +1,3 @@
-// Mermaid diagrams in replies, drawn by Pele (pele.run). Pele's SVG colours itself from --pele-* custom properties;
-// where nothing evaluates CSS (React Native's SVG, an <img> of the SVG), the colours are written into it instead.
-
-/** Whether a fenced block is a Mermaid diagram. */
 export const isMermaidFence = (fence: string | undefined | null) => (fence ?? "").trim().toLowerCase() === "mermaid";
 
 const LABELS: Record<string, string> = {
@@ -34,19 +30,13 @@ const LABELS: Record<string, string> = {
   zenuml: "Sequence diagram",
 };
 
-/** What a diagram is, in words, from the type Pele detects (detectType); "Diagram" for one it doesn't know. */
 export function diagramLabel(type: string | null | undefined): string {
   if (!type) return "Diagram";
   return LABELS[type] ?? LABELS[type.replace(/-?(?:v\d+|beta)$/i, "")] ?? "Diagram";
 }
 
-/** Pele's colour and font properties, by name (`--pele-bg`, `--pele-fg`, ...). */
 export type DiagramTheme = Record<string, string>;
 
-/**
- * The theme for a diagram on `background` in `ink`: Pele's surfaces and borders as mixes of the two, so it reads on
- * light and dark alike. `accent` marks highlights. Plain colours (hex or rgb), since React Native can't mix.
- */
 export function diagramTheme({
   background,
   ink,
@@ -72,7 +62,6 @@ export function diagramTheme({
   };
 }
 
-/** `a` over `b` at `amount`, for two hex colours; `b` when either isn't one. */
 function mix(a: string, b: string, amount: number): string {
   const from = hex(a),
     to = hex(b);
@@ -92,10 +81,6 @@ function hex(color: string): number[] | null {
 
 const VARIABLE = /var\((--[\w-]+)\s*(?:,\s*((?:[^()]|\([^()]*\))*))?\)/g;
 
-/**
- * Pele's SVG with every var() written out: the theme's values first, then the diagram's own (its root declares
- * `--_bg: var(--pele-bg, #fff)` and so on), then each fallback. For an <img> of the SVG, which sees no outside CSS.
- */
 export function resolveDiagramSvg(svg: string, theme: DiagramTheme = {}): string {
   const rootStyle = /^\s*<svg\b[^>]*?\sstyle="([^"]*)"/.exec(svg)?.[1] ?? "";
   const own = new Map<string, string>();
@@ -114,40 +99,31 @@ export function resolveDiagramSvg(svg: string, theme: DiagramTheme = {}): string
   return resolve(svg);
 }
 
-/** Presentation properties Pele sets in style attributes, which React Native's SVG reads only as attributes. */
 const PRESENTATION = new Set(["fill", "stroke", "rx", "ry", "opacity", "font-weight", "font-size", "font-style", "stroke-width", "stroke-dasharray"]);
 
-/**
- * Pele's SVG for React Native's SVG renderer: colours written out (resolveDiagramSvg), style properties moved into
- * attributes, and what it can't draw or doesn't need dropped (links, titles, classes, ARIA, data attributes). The root
- * keeps its size and gets its font size and colour as attributes; its font is the device's unless the theme names one.
- */
 export function nativeDiagramSvg(svg: string, theme: DiagramTheme = {}): string {
   const resolved = resolveDiagramSvg(svg, theme);
-  return (
-    resolved
-      .replace(/^(\s*<svg\b[^>]*?)\sstyle="([^"]*)"/, (_match, head: string, style: string) => {
-        const font = /(?:^|;)\s*font:\s*([\d.]+)px/.exec(style)?.[1];
-        const color = /(?:^|;)\s*color:\s*([^;]+)/.exec(style)?.[1]?.trim();
-        const family = theme["--pele-font"];
-        return `${head}${font ? ` font-size="${font}"` : ""}${color ? ` color="${color}"` : ""}${family ? ` font-family="${family.replace(/"/g, "'")}"` : ""}`;
-      })
-      // A style property outranks the attribute of the same name, as in CSS: it replaces it.
-      .replace(/<(\w+)([^>]*?)\sstyle="([^"]*)"/g, (_match, tag: string, attributes: string, style: string) => {
-        let kept = attributes;
-        const moved = style
-          .split(";")
-          .map((declaration) => declaration.split(":").map((part) => part.trim()))
-          .filter(([name, value]) => name && value && PRESENTATION.has(name))
-          .map(([name, value]) => {
-            kept = kept.replace(new RegExp(`\\s${name}="[^"]*"`), "");
-            return ` ${name}="${(name === "rx" || name === "ry" || name === "font-size" ? value!.replace(/px$/, "") : value!).replace(/"/g, "'")}"`;
-          })
-          .join("");
-        return `<${tag}${kept}${moved}`;
-      })
-      .replace(/<title>[\s\S]*?<\/title>/g, "")
-      .replace(/<a\b[^>]*>|<\/a>/g, "")
-      .replace(/\s(?:class|role|aria-[\w-]+|data-[\w-]+)="[^"]*"/g, "")
-  );
+  return resolved
+    .replace(/^(\s*<svg\b[^>]*?)\sstyle="([^"]*)"/, (_match, head: string, style: string) => {
+      const font = /(?:^|;)\s*font:\s*([\d.]+)px/.exec(style)?.[1];
+      const color = /(?:^|;)\s*color:\s*([^;]+)/.exec(style)?.[1]?.trim();
+      const family = theme["--pele-font"];
+      return `${head}${font ? ` font-size="${font}"` : ""}${color ? ` color="${color}"` : ""}${family ? ` font-family="${family.replace(/"/g, "'")}"` : ""}`;
+    })
+    .replace(/<(\w+)([^>]*?)\sstyle="([^"]*)"/g, (_match, tag: string, attributes: string, style: string) => {
+      let kept = attributes;
+      const moved = style
+        .split(";")
+        .map((declaration) => declaration.split(":").map((part) => part.trim()))
+        .filter(([name, value]) => name && value && PRESENTATION.has(name))
+        .map(([name, value]) => {
+          kept = kept.replace(new RegExp(`\\s${name}="[^"]*"`), "");
+          return ` ${name}="${(name === "rx" || name === "ry" || name === "font-size" ? value!.replace(/px$/, "") : value!).replace(/"/g, "'")}"`;
+        })
+        .join("");
+      return `<${tag}${kept}${moved}`;
+    })
+    .replace(/<title>[\s\S]*?<\/title>/g, "")
+    .replace(/<a\b[^>]*>|<\/a>/g, "")
+    .replace(/\s(?:class|role|aria-[\w-]+|data-[\w-]+)="[^"]*"/g, "");
 }

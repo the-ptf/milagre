@@ -9,7 +9,6 @@ export function normalizeContextSettings(value) {
     buttonThreshold,
     autoThreshold: percent(value?.autoThreshold, 85, buttonThreshold + 5, 95),
     autoCompact: value?.autoCompact === true,
-    // Messages sent while a turn runs: steer it (default) or wait in the queue.
     followUps: value?.followUps === "queue" ? "queue" : "now",
   };
 }

@@ -6,8 +6,7 @@ import { designDefaultFill } from "./design-paint.mjs";
 
 const xml = (value) =>
   String(value)
-    // XML 1.0 excludes these controls and lone UTF-16 surrogates; valid surrogate pairs survive /u.
-    // eslint-disable-next-line no-control-regex
+    // oxlint-disable-next-line no-control-regex -- XML 1.0 excludes these controls and lone surrogates; valid pairs survive /u.
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ud800-\udfff\ufffe\uffff]/gu, "\ufffd")
     .replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]);
 const number = (value) => String(Math.round(value * 10000) / 10000);
@@ -24,7 +23,6 @@ function shape(node, box, inset = 0) {
 }
 
 /**
- * Render a validated, expanded design without HTML, scripts, browser measurement or a DOM.
  * bounds: Map<nodeId, {x,y,width,height}> in absolute canvas coordinates.
  * textLayout(node, width): {lines: string[], width, height, lineHeight}, with lineHeight in pixels.
  * resolveColor(value, fallback): a token-resolved CSS color.
@@ -56,8 +54,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
     const anchor = node.textAlign === "center" ? "middle" : node.textAlign === "right" ? "end" : "start";
     const x = box.x + border + (anchor === "middle" ? contentWidth / 2 : anchor === "end" ? contentWidth : 0);
     const baseline = box.y + border + (lineHeight - fontSize) / 2 + fontSize * 0.8;
-    // Inter and catalog text names the measured face it draws with. Browsers already pick that face through the @font-face weight
-    // ranges; renderers that match by weight alone (resvg) would otherwise round 650 up to Bold, wider than the layout measured.
+    // Renderers that match by weight alone (resvg) would round 650 up to Bold, wider than the layout measured.
     const fontWeight = designDrawnWeight(node.fontFamily, node.fontWeight);
     const spans = visibleDesignTextLines(node, box, layout)
       .map((line, index) => take(`<tspan x="${number(x)}" y="${number(baseline + index * lineHeight)}">${xml(line)}</tspan>`, node))
@@ -98,7 +95,6 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
           contents = clipContent(renderText(node, box));
           if (stroke) contents += take(`<${geometry} fill="none"${stroke}/>`, node);
         } else if (node.type === "image") {
-          // Only a missing image gets the placeholder; a transparent one shows what is behind it.
           contents = node.fill || !node.src ? take(`<${shape(node, box)} ${colorAttributes("fill", node.fill, designDefaultFill(node))}/>`, node) : "";
           if (node.src)
             contents += clipContent(

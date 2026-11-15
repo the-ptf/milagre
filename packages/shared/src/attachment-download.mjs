@@ -1,4 +1,3 @@
-/** Transfer whole binary files in bounded chunks on local, LAN and relay connections. */
 export async function downloadAttachment(read, write, progress = () => {}) {
   let offset = 0;
   let version;

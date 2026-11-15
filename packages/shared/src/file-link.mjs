@@ -1,16 +1,14 @@
-/** A Windows path from its drive: `C:\repo`, `C:/repo`, or `C:%5Crepo` as markdown writes a backslash in a link. */
+/** A Windows path from its drive: `C:\repo`, `C:/repo`, or `C:%5Crepo` (markdown's escaped backslash). */
 export function isWindowsPath(path) {
   return /^[a-z]:(?:[\\/]|%5c)/i.test(path);
 }
 
 const separator = (path) => (isWindowsPath(path) ? /[\\/]/ : "/");
 
-/** The file name at the end of a path from `localFileLink`. */
 export function fileLinkName(path) {
   return path.split(separator(path)).pop() || path;
 }
 
-/** The folder holding a path from `localFileLink`, to resolve the links inside that file. */
 export function fileLinkFolder(path) {
   const name = fileLinkName(path);
   const folder = path.slice(0, -name.length - 1);
@@ -18,11 +16,10 @@ export function fileLinkFolder(path) {
 }
 
 /**
- * The file a reply's markdown link points at, or null when it is a web link or nothing a file viewer can show.
- * Agents link files as absolute paths (`/Users/me/repo/docs/spec.md`, `C:\repo\docs\spec.md`) or paths relative to the chat's folder
- * (`docs/spec.md`), sometimes with `:12`, `#L12` or `#L12-L20` after them. A relative link needs `root`, the chat's
- * worktree; `..` segments are folded so the computer checks the real target. URLs with a scheme, `file:` included,
- * are not files here: the renderers drop `file:` links, and the computer checks whether a file belongs to an open Worktree or was shared in a Chat.
+ * The file a reply's markdown link points at, or null for a web link or nothing a file viewer can show. Takes absolute
+ * paths and
+ * paths relative to `root` (the chat's worktree), with `:12`, `#L12` or `#L12-L20` after them; `..` is folded. `file:`
+ * URLs are not files here.
  */
 export function localFileLink(href, root) {
   let text = href.trim();
@@ -55,7 +52,6 @@ export function localFileLink(href, root) {
   }
   const parts = [];
   for (const part of text.split(windows ? /[\\/]/ : "/")) {
-    // A Windows path keeps its drive, however many `..` a link has.
     if (part === "..") {
       if (parts.length > (windows ? 1 : 0)) parts.pop();
     } else if (part && part !== ".") parts.push(part);
@@ -64,13 +60,10 @@ export function localFileLink(href, root) {
   return { path: windows ? parts.join("\\") : "/" + parts.join("/"), ...(line ? { line } : {}) };
 }
 
-/** Markdown files open formatted; the viewer offers the source too. */
 export function isMarkdownFile(name) {
   return /\.(md|mdx|markdown)$/i.test(name);
 }
 
-// Extensions that make a bit of inline code read as a file. A list rather than any ".word", so
-// `console.log`, `Math.max` and `example.com` stay code.
 const EXTENSIONS = new Set(
   (
     "ts tsx js jsx mjs cjs mts cts json jsonc md mdx css scss sass less html htm yml yaml toml ini cfg conf " +
@@ -82,9 +75,8 @@ const DOTFILES = new Set(["gitignore", "gitattributes", "env", "npmrc", "nvmrc",
 const PATH_CHARS = /^[\w.@+()[\]-]+(\/[\w.@+()[\]-]+)*$/;
 
 /**
- * The file a bit of inline code names, or null when it reads as something else: a relative path with a known
- * extension, optionally ending in `:line`, `:line:column` or `:line-line`. Commands, words, versions, URLs and
- * absolute or parent-relative paths are not files. The renderer can't tell whether the file exists; the computer does.
+ * The file a bit of inline code names, or null: a relative path with a known extension, optionally ending in `:line`,
+ * `:line:column` or `:line-line`.
  */
 export function fileLinkTarget(code) {
   const match = /^(.+?)(?::(\d+)(?::(\d+)|-\d+)?)?$/.exec(code);
@@ -105,14 +97,11 @@ export function fileLinkTarget(code) {
   return { path, ...(line === undefined ? {} : { line }), ...(match[3] === undefined ? {} : { column: Number(match[3]) }) };
 }
 
-/** A Windows absolute path: from a drive (`C:\`, `C:/`) or a network share (`\\server\share`). */
 const WINDOWS_ABSOLUTE = /^(?:[a-z]:[\\/]|\\\\[^\\/])/i;
 
 /**
- * The files steps worked on that a relative path may mean, the latest first: each step's `file`, and every file of a
- * change that touched several. An agent working in a subfolder names files relative to it (`casos/a.md` for
- * `C:\proj\.routines\r\casos\a.md`), which misses under the Chat's folder. Windows paths match with either slash and in
- * any case, as Windows does. Absolute and parent-relative paths have none.
+ * The files steps worked on that a relative path may mean, latest first. Windows paths match with either slash and in
+ * any case. Absolute and parent-relative paths have none.
  */
 export function touchedFileMatches(relative, steps) {
   const tail = relative.replace(/\\/g, "/").replace(/^(\.\/)+/, "");

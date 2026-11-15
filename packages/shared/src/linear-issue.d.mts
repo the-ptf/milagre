@@ -8,7 +8,6 @@ export function linearIssuePrompt(issue: Pick<LinearIssue, "key" | "title" | "ur
 export function isLinearIssueContext(context: unknown): context is LinearIssueContext;
 /** https://linear.app/<workspace>/issue/<KEY> when `url` is that issue's in `workspace` (case-insensitive), else null. */
 export function linearIssueUrl(url: string | undefined, key: string | undefined, workspace: string | undefined): string | null;
-/** The card a Linear Routine's Run opens its Chat with, carrying the Run and the label "Routine · <name>". */
 export function routineIssueContext(
   issue: LinearIssueSnapshot,
   routine: { routineId: string; runId: string; name: string; at: number },

@@ -2,7 +2,6 @@ import { ansi, syntax } from "../build.ts";
 import { fromOklch } from "../color.ts";
 import type { ThemeDefinition, ThemeSource } from "../types.ts";
 
-// Today's GitHub-style terminal and code colors, shared by Gray and Milagre Blue.
 const lightAnsi = ansi({
   black: "#24292f",
   red: "#cf222e",
@@ -66,8 +65,6 @@ const darkSyntax = syntax({
   punctuation: "#e1e4e8",
 });
 
-// Gray: today's colors, from apps/mobile/src/theme.ts, except ink-2 (derived, a clear step above ink-3) and
-// hover and hover-2, which are translucent ink in every theme.
 const grayLight: ThemeSource = {
   page: "#fafafb",
   canvas: "#f1f2f3",
@@ -125,7 +122,6 @@ const grayDark: ThemeSource = {
   syntax: darkSyntax,
 };
 
-// Milagre Blue: Gray's status, ANSI and syntax colors on blue-tinted surfaces; the rest is derived from them.
 const blue = (gray: ThemeSource, surfaces: Pick<ThemeSource, "page" | "canvas" | "surface" | "ink" | "accent">): ThemeSource => ({
   ...surfaces,
   green: gray.green,

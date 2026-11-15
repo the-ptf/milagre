@@ -1,8 +1,3 @@
-// Scripts the Browser panel runs inside a page (webview executeJavaScript, later CDP Runtime.evaluate for the phone).
-// They run in the page's own world, so they can read React's fibers off the DOM; everything they draw lives in a closed
-// shadow root on a custom element, so the page's styles can't reach it and its scripts can't read it.
-
-// Computed styles worth sending: what decides an element's size, place and look.
 const STYLES = [
   "display",
   "position",
@@ -22,7 +17,6 @@ const STYLES = [
   "border-radius",
 ];
 
-/** The page background covers the whole document, including blank space below a short body. */
 // Keep injected functions as source: Hermes does not preserve Function.prototype.toString() bodies.
 const BOUNDS = `function bounds(el) {
   return el === document.documentElement
@@ -30,7 +24,6 @@ const BOUNDS = `function bounds(el) {
     : el.getBoundingClientRect();
 }`;
 
-/** Reads an element into the shape PageElement describes. Runs in the page; kept as source for the scripts below. */
 const DESCRIBE = `function describe(el, styleNames, bounds) {
   const DEBUG_SOURCE = "_debugSource";
   const SECRET_NAME = /token|secret|password|passwd|api[-_]?key|auth|session|cookie|signature/i;
@@ -138,11 +131,7 @@ const DESCRIBE = `function describe(el, styleNames, bounds) {
   };
 }`;
 
-/**
- * Arms the picker in the page: the element under the pointer is outlined and labelled, a click (or Enter) picks it, and
- * Escape cancels. Evaluates to a promise of the picked PageElement, null when cancelled (by Escape, by PAGE_PICK_CANCEL,
- * by the page navigating), or undefined when a newer picker replaced it. The page doesn't see the click.
- */
+/** Evaluates to the picked PageElement, null when cancelled, or undefined when a newer picker replaced it. */
 export function pagePickScript(accent = "#007df3") {
   return `(() => new Promise((resolve) => {
   const bounds = ${BOUNDS};
@@ -243,8 +232,8 @@ export function pagePickScript(accent = "#007df3") {
 }
 
 /**
- * The element at a point of the page, as fractions of the viewport (a tap on the phone's view of it), read like a pick:
- * evaluates to its PageElement with the point on it, or null when there is nothing to comment on there.
+ * Evaluates to the PageElement at a point given as fractions of the viewport, or null when there is nothing to comment
+ * on.
  */
 export function pageDescribeAtScript(x, y) {
   const fraction = (value) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5);
@@ -270,16 +259,13 @@ export function pageDescribeAtScript(x, y) {
 })()`;
 }
 
-/** Ends a picker the page is showing, if any; its promise resolves to null. */
+/** The pending picker's promise resolves to null. */
 export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
 
 /**
- * Shows unresolved `pins` on the page: a numbered or sent pin on each element its selector finds, at the spot
- * the comment was left (`point`, fractions of the element's box; else its top-right corner), its tip on that spot,
- * following it as the page scrolls and changes. Resolved comments remain in Chat history. Pins whose
- * element is gone are hidden. Running it again replaces the pins; an empty list removes the layer.
- * Each pin: { n, id?, selector, point?, text, state: "pending" | "open" | "resolved", note? }. When the page defines
- * window.__milagrePinTap, tapping a pin calls it with the pin's id (or its number) instead of showing the tip.
+ * `point` is fractions of the element's box (default top-right corner). An empty list removes the layer; running again
+ * replaces the pins. When the page defines window.__milagrePinTap, tapping a pin calls it with the pin's id (or
+ * number).
  */
 export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", ink = "#4b5563", onInk = "#fff", showResolved = false } = {}) {
   return `(() => {
@@ -382,10 +368,8 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d", in
 })()`;
 }
 
-/** Hides the pins (true) or shows them again (false), for a screenshot of the page without them. */
 export const pagePinsHidden = (hidden) => `window.__milagrePins?.hide(${hidden ? "true" : "false"}); true`;
 
-/** Screen positions for native/React comment bubbles, using the same element bounds as the page picker. */
 export function pagePinPositionsScript(pins) {
   return `(() => {
     const bounds = ${BOUNDS};
