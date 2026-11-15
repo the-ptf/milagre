@@ -1,7 +1,16 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { installQuestion, noDesktopUpdate, updateAvailable, updateBusy, updateDescription, type HostUpdate } from "@milagre/shared/app-update";
+import {
+  installQuestion,
+  noDesktopUpdate,
+  RESTART_GIVE_UP_MS,
+  restartLost,
+  updateAvailable,
+  updateBusy,
+  updateDescription,
+  type HostUpdate,
+} from "@milagre/shared/app-update";
 import type { Client } from "./client";
 import { confirm } from "./confirm-store";
 import { radius } from "./design-tokens";
@@ -30,6 +39,16 @@ export function useMacUpdate(client: Client | null) {
   // with the update done (or refused), the row says it is restarting.
   const [restarting, setRestarting] = useState(false);
   const following = restarting || updateBusy(update ?? null);
+  // A Mac that never answers again (its install failed with no host left to say so) ends "Restarting" with what to do.
+  const restartingOn = useRef("");
+  useEffect(() => {
+    if (!restarting) return;
+    const timer = setTimeout(() => {
+      setRestarting(false);
+      setError(restartLost(restartingOn.current));
+    }, RESTART_GIVE_UP_MS);
+    return () => clearTimeout(timer);
+  }, [restarting]);
   useFocusEffect(
     useCallback(() => {
       if (!client) return;
@@ -66,6 +85,7 @@ export function useMacUpdate(client: Client | null) {
     const question = installQuestion(macName, update.version);
     if (!(await confirm(question.title, question.message, question.action))) return;
     setError("");
+    restartingOn.current = macName;
     setRestarting(true);
     try {
       setUpdate(await client.call<HostUpdate>("app-update:install", []));
@@ -83,7 +103,12 @@ export function MacUpdateRows({ state, macName }: { state: ReturnType<typeof use
   const styles = useStyles();
   const { colors } = useTheme();
   const { update, error, restarting, following } = state;
-  if (update === undefined && !restarting) return null;
+  if (update === undefined && !restarting)
+    return error ? (
+      <View style={{ paddingBottom: 8 }}>
+        <ErrorNotice message={error} />
+      </View>
+    ) : null;
   if (update === null && !restarting)
     return (
       <View style={{ paddingBottom: 8 }}>

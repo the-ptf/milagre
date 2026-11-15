@@ -26,6 +26,8 @@ export function updateDescription(update: AppUpdateState | null): string {
     case "downloading":
       return `Downloading ${update.version ? `Milagre ${update.version}` : "update"}… ${Math.round(update.progress)}%`;
     case "downloaded":
+      // An install that failed says why; the update stays ready to try again.
+      if (update.error) return `${update.error} ${update.version ? `Milagre ${update.version}` : "The update"} is still ready to install.`;
       return `${update.version ? `Milagre ${update.version}` : "The update"} is ready to install.${update.auto ? " Auto update installs it once nothing is running." : ""}`;
     case "installing":
       return "Saving your work and restarting Milagre.";
@@ -57,3 +59,13 @@ export function installQuestion(computer: string, version: string | null) {
 
 /** Shown in place of the update while that Mac's host runs with no desktop app open. */
 export const noDesktopUpdate = (computer: string) => `Open Milagre on ${computer} to check for updates.`;
+
+/**
+ * How long another computer may take to restart into an update before the phone or a paired desktop stops saying
+ * "Restarting": past the longest a Mac takes to prepare the update (3 min), stop its host and quit (1 min) before it
+ * gives up and starts Milagre again by itself (apps/desktop/electron/app-updates.cjs).
+ */
+export const RESTART_GIVE_UP_MS = 6 * 60_000;
+
+/** Shown once that time has passed and the computer still hasn't answered. */
+export const restartLost = (computer: string) => `Milagre on ${computer} hasn't come back from the restart. Open Milagre there to finish the update.`;

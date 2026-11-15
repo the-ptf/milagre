@@ -490,6 +490,38 @@ test("a host without result pages still serves the desktop, says so, and can be 
   await assert.rejects(fs.stat(path.join(dataDir, "runtime.lock")), { code: "ENOENT" }, "the new host stopped");
 });
 
+test("an update that stopped the host and then did not install starts it again (reopen)", NEEDS_UNIX_SOCKET, async (t) => {
+  const { dataDir } = await fakeHost(t, {
+    capabilities: ["desktop-v1", "snapshot-pages-v1"],
+    onStop: async (connection, server) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      connection.end();
+      server.close();
+    },
+  });
+  const events = [];
+  const desktop = await connectDesktopRuntime({
+    dataDir,
+    version: "test",
+    cwd: dataDir,
+    reconnectMs: 20,
+    emit: (channel, payload) => events.push({ channel, payload }),
+  });
+  let hostStarted = false;
+  t.after(async () => {
+    if (hostStarted) await desktop.close({ stopHost: true }).catch(() => {});
+    else await desktop.close().catch(() => {});
+  });
+  await desktop.close({ stopHost: true });
+  await assert.rejects(desktop.invoke("daemon:status"), /disconnected/, "closed for the install");
+  hostStarted = true;
+  await desktop.reopen();
+  assert.ok((await desktop.invoke("daemon:status")).capabilities.includes("result-pages-v1"), "a new host runs and answers");
+  assert.deepEqual(events.findLast((event) => event.channel === "runtime:connection")?.payload, { connected: true });
+  await desktop.close({ stopHost: true });
+  hostStarted = false;
+});
+
 test("a restart whose new host fails to start says why, and its retries start one", NEEDS_UNIX_SOCKET, async (t) => {
   const { dataDir } = await fakeHost(t, {
     capabilities: ["desktop-v1", "snapshot-pages-v1"],

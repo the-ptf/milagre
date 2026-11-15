@@ -1,7 +1,15 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
-const { deferUpdater, createAppUpdates, createAutoInstall, watchAppUpdates, INPUT_IDLE_SECONDS } = require("./app-updates.cjs");
+const {
+  deferUpdater,
+  createAppUpdates,
+  createAutoInstall,
+  stageNativeUpdate,
+  watchAppUpdates,
+  INPUT_IDLE_SECONDS,
+  QUIT_TIMEOUT_MS,
+} = require("./app-updates.cjs");
 function fixture() {
   let time = 0,
     checks = 0,
@@ -171,10 +179,12 @@ test("only a downloaded update can stop agents; duplicate install clicks stop th
   assert.deepEqual(f.counts(), { checks: 0, stops: 1, installs: 1 });
   assert.equal(f.controller.get().status, "installing");
 });
-test("failed host shutdown keeps the downloaded update retryable and does not run the installer", async () => {
+test("failed host shutdown starts the host again, keeps the update retryable and does not run the installer", async () => {
   const updater = new EventEmitter();
   let attempts = 0,
-    installs = 0;
+    installs = 0,
+    resumes = 0;
+  const lines = [];
   updater.quitAndInstall = () => {
     installs++;
   };
@@ -186,14 +196,127 @@ test("failed host shutdown keeps the downloaded update retryable and does not ru
     stopHost: async () => {
       if (++attempts === 1) throw new Error("save failed");
     },
+    resumeHost: async () => {
+      resumes++;
+    },
+    log: (line) => lines.push(line),
+    setTimer: () => {},
   });
   updater.emit("update-downloaded", { version: "1.2.3" });
   await controller.install();
   assert.equal(controller.get().status, "downloaded");
-  assert.match(controller.get().error, /restart/i);
+  assert.match(controller.get().error, /background host/i);
   assert.equal(installs, 0);
+  assert.equal(resumes, 1, "the host the stop may have stopped anyway comes back");
+  assert.ok(
+    lines.some((line) => line.includes("save failed")),
+    "the reason is in updates.log",
+  );
   await controller.install();
   assert.equal(installs, 1);
+  assert.equal(resumes, 1);
+});
+
+test("the update is prepared before the host stops; a failed preparation leaves the host alone", async () => {
+  const updater = new EventEmitter();
+  const order = [];
+  let staged = 0;
+  updater.quitAndInstall = () => order.push("quit");
+  const controller = createAppUpdates({
+    updater,
+    enabled: true,
+    prepare: async () => {},
+    publish() {},
+    stage: async () => {
+      order.push("stage");
+      // macOS's updater reports its failure through electron-updater too; the install step owns it.
+      if (++staged === 1) {
+        updater.emit("error", new Error("code signature invalid"));
+        throw new Error("code signature invalid");
+      }
+    },
+    stopHost: async () => order.push("stop"),
+    prepareQuit: async () => order.push("prepare quit"),
+    setTimer: () => {},
+  });
+  updater.emit("update-downloaded", { version: "1.2.3" });
+  await controller.install();
+  assert.deepEqual(order, ["stage"]);
+  assert.equal(controller.get().status, "downloaded");
+  assert.match(controller.get().error, /prepare the update/);
+  await controller.install();
+  assert.deepEqual(order, ["stage", "stage", "stop", "prepare quit", "quit"]);
+  assert.equal(controller.get().status, "installing");
+});
+
+test("an install that never quits, or whose installer fails after the host stopped, starts Milagre again", async () => {
+  for (const failure of ["timeout", "updater error", "quit throws"]) {
+    const updater = new EventEmitter();
+    let relaunches = 0;
+    let timer = null;
+    updater.quitAndInstall = () => {
+      if (failure === "quit throws") throw new Error("No update available, can't quit and install");
+    };
+    const controller = createAppUpdates({
+      updater,
+      enabled: true,
+      prepare: async () => {},
+      publish() {},
+      stopHost: async () => {},
+      relaunch: () => relaunches++,
+      setTimer: (callback, ms) => {
+        assert.equal(ms, QUIT_TIMEOUT_MS);
+        timer = callback;
+      },
+    });
+    updater.emit("update-downloaded", { version: "1.2.3" });
+    await controller.install();
+    if (failure === "timeout") timer();
+    if (failure === "updater error") updater.emit("error", new Error("ShipIt could not launch"));
+    assert.equal(relaunches, 1, failure);
+    assert.equal(controller.get().status, "downloaded", failure);
+    assert.match(controller.get().error, /restart Milagre/, failure);
+    // A late timer after the relaunch was asked for does not ask twice.
+    timer?.();
+    assert.equal(relaunches, 1, failure);
+  }
+});
+
+test("macOS's updater is handed the download once, and its failures and silence reject", async () => {
+  const native = () => {
+    const emitter = new EventEmitter();
+    emitter.checks = 0;
+    emitter.checkForUpdates = () => emitter.checks++;
+    return emitter;
+  };
+  const ready = native();
+  const staging = stageNativeUpdate({ squirrelDownloadedUpdate: false }, ready);
+  assert.equal(ready.checks, 1);
+  ready.emit("update-downloaded");
+  await staging;
+  assert.equal(ready.listenerCount("error"), 0, "listeners are removed");
+
+  const already = native();
+  await stageNativeUpdate({ squirrelDownloadedUpdate: true }, already);
+  assert.equal(already.checks, 0);
+
+  const broken = native();
+  const failing = stageNativeUpdate({}, broken);
+  broken.emit("error", new Error("signature mismatch"));
+  await assert.rejects(failing, /signature mismatch/);
+
+  const empty = native();
+  const none = stageNativeUpdate({}, empty);
+  empty.emit("update-not-available");
+  await assert.rejects(none, /no update/);
+
+  const unset = native();
+  unset.checkForUpdates = () => {
+    throw new Error("Update URL is not set");
+  };
+  await assert.rejects(stageNativeUpdate({}, unset), /URL is not set/);
+
+  await assert.rejects(stageNativeUpdate({}, native(), { timeoutMs: 5 }), /too long/);
 });
 test("offline check and failed download retry without losing the known version", async () => {
   const f = fixture();
