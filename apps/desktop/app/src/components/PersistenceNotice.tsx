@@ -26,7 +26,11 @@ export function SaveFailure({ scope, name, failure, offline }: UnsavedScope) {
   }
   return (
     // A blocking failure with a way out: the error card, on a surface (with the overlay shadow) because it floats over the app.
-    <div data-save-failure className="mb-2 rounded-card bg-surface shadow-overlay" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+    <div
+      data-save-failure
+      className="mb-2 rounded-card bg-surface shadow-overlay"
+      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}
+    >
       <InlineError
         variant="card"
         action={

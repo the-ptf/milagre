@@ -129,7 +129,7 @@ export function ContextRing({
               width: CARD_WIDTH,
               left: position.left,
               bottom: position.bottom,
-              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
+              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) backwards",
               transformOrigin: "bottom right",
             }}
           >

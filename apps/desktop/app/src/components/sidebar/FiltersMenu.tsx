@@ -257,7 +257,7 @@ export function FiltersButton({
                 width: MAIN_WIDTH,
                 bottom: position.bottom,
                 left: position.left,
-                animation: "pop-in var(--duration-base) var(--ease-enter) both",
+                animation: "pop-in var(--duration-base) var(--ease-enter) backwards",
                 transformOrigin: "bottom left",
               }}
             >
@@ -280,7 +280,7 @@ export function FiltersButton({
                   width: SUB_WIDTH[sub.which],
                   top: Math.max(8, Math.min(sub.top, window.innerHeight - 8 - subHeight)),
                   left: position.left + MAIN_WIDTH + 6,
-                  animation: "pop-in var(--duration-fast) var(--ease-enter) both",
+                  animation: "pop-in var(--duration-fast) var(--ease-enter) backwards",
                   transformOrigin: "top left",
                 }}
               >

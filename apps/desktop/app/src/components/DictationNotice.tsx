@@ -18,7 +18,7 @@ export function DictationNotice({ error, onOpenSettings }: { error: DictationErr
     <div
       role="alert"
       className="pointer-events-none absolute right-0 bottom-full z-[60] mb-2 flex w-max max-w-[320px] items-center gap-1.5 rounded-control bg-ink px-2 py-1.5 text-12 font-medium text-on-ink shadow-overlay"
-      style={{ animation: "fade-in var(--duration-fast) var(--ease-enter) both" }}
+      style={{ animation: "fade-in var(--duration-fast) var(--ease-enter) backwards" }}
     >
       <Icon icon={ICONS[error.kind]} size={14} className="shrink-0" />
       <span className="min-w-0">{error.message}</span>

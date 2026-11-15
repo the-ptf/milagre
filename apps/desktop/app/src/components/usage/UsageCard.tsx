@@ -174,7 +174,7 @@ export function UsageCard({
         width: USAGE_CARD_WIDTH,
         left: position.left,
         bottom: position.bottom,
-        animation: "pop-in var(--duration-base) var(--ease-enter) both",
+        animation: "pop-in var(--duration-base) var(--ease-enter) backwards",
         transformOrigin: "bottom left",
       }}
     >

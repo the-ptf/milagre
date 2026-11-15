@@ -64,7 +64,7 @@ export function Notice() {
   if (!notice) return null;
   return (
     <div role="status" key={notice.id} className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-6">
-      <div className={TOAST} style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}>
+      <div className={TOAST} style={{ animation: "fade-up var(--duration-base) var(--ease-enter) backwards" }}>
         {notice.text}
       </div>
     </div>

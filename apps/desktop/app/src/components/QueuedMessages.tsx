@@ -27,7 +27,7 @@ export function QueuedMessages({ items, held, running, canSteer = false, onSendN
     <div
       data-queued-messages
       className="mb-2 w-full rounded-card bg-surface px-1.5 py-1.5 text-13 text-ink shadow-overlay"
-      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}
+      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}
     >
       <p className="px-2 pt-0.5 pb-1 text-12 text-ink-3">
         <span className="font-medium text-ink-2">Queued</span> · {queueStatus({ count: items.length, held, running })}

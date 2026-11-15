@@ -94,7 +94,7 @@ function Card({ title, count, aside, children, delay }: { title: string; count?:
     <section
       aria-label={title}
       className="flex min-w-0 flex-col gap-3 rounded-window border border-line bg-inset p-4"
-      style={{ animation: `fade-up var(--duration-slow) var(--ease-enter) ${delay}ms both` }}
+      style={{ animation: `fade-up var(--duration-slow) var(--ease-enter) ${delay}ms backwards` }}
     >
       <header className="flex items-baseline justify-between gap-3">
         <h2 className="text-12 font-semibold text-ink-2">

@@ -817,7 +817,7 @@ export function PromptComposer({
             onMouseLeave={() => setEngaged(false)}
             className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-card bg-surface p-1.5 shadow-raised"
             style={{
-              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
+              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) backwards",
               transformOrigin: "bottom center",
             }}
           >

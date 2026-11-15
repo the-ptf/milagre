@@ -67,7 +67,7 @@ export function TerminalMenu({
       data-terminal-menu
       onKeyDown={moveFocus}
       className="fixed z-[70] rounded-card bg-surface p-1.5 shadow-overlay"
-      style={{ ...position, width: MENU_WIDTH, animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top left" }}
+      style={{ ...position, width: MENU_WIDTH, animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) backwards", transformOrigin: "top left" }}
     >
       <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover-2">
         {rows.map((row) => (
