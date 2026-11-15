@@ -396,7 +396,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
       // The Chat screen's parts (app/chat.tsx and its chat-*.ts[x] siblings in src/) load with the screen's fakes, named from src/.
-      if (file === "app/chat.tsx" && ["chat-header", "chat-transcript-rows", "chat-transcript-data"].includes(relative) && !(id in modules)) {
+      if (file === "app/chat.tsx" && ["chat-header", "chat-transcript-rows", "chat-transcript-data", "chat-follow"].includes(relative) && !(id in modules)) {
         const fromSrc = { ...modules };
         for (const [key, value] of Object.entries(modules))
           if (key.startsWith("../") && !(`./${key.slice(3)}` in fromSrc)) fromSrc[`./${key.slice(3)}`] = value;

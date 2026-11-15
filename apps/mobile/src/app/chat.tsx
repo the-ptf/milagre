@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -197,6 +197,7 @@ import {
 } from "../chat-header";
 import { issueRunDivider, LiveReply, transcriptRows, useLiveSteps } from "../chat-transcript-rows";
 import { useChatPrs, useChatTranscriptData } from "../chat-transcript-data";
+import { nextFollow, useTranscriptFollow } from "../chat-follow";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -405,35 +406,9 @@ function ChatPane({
   const preparedTarget = useRef<{ client: Client; path: string; base: string; issueKey?: string; worktreeId: number; sessionId: number } | null>(null);
   const scroll = useRef<Reanimated.ScrollView>(null);
   const dots = useDotBackground();
-  const following = useRef(true);
-  const scrollingToBottom = useRef(false);
-  const endFrame = useRef<number | undefined>(undefined);
-  const cancelEndFrame = useCallback(() => {
-    if (endFrame.current !== undefined) cancelAnimationFrame(endFrame.current);
-    endFrame.current = undefined;
-  }, []);
-  const scrollToBottom = useCallback(
-    (animated: boolean) => {
-      scrollingToBottom.current = true;
-      if (Platform.OS !== "android") {
-        scroll.current?.scrollToEnd({ animated });
-        return;
-      }
-      // Android runs a view command ahead of the mount it arrives with, so a jump asked for from onContentSizeChange
-      // stops at the end the content had before it grew: at the end already, it doesn't move at all. Timers fire after
-      // that frame's mount, so the jump a frame later reaches the grown end. Bursts of growth share one jump.
-      cancelEndFrame();
-      endFrame.current = requestAnimationFrame(() => {
-        endFrame.current = undefined;
-        scrollingToBottom.current = true;
-        scroll.current?.scrollToEnd({ animated });
-      });
-    },
-    [cancelEndFrame],
-  );
+  const { following, scrollingToBottom, dragging, cancelEndFrame, scrollToBottom, dragHandlers } = useTranscriptFollow(scroll);
   const contentHeight = useRef(0);
   const scrollOffset = useRef(0);
-  const dragging = useRef(false);
   const historyRead = useRef<object | null>(null);
   const pickingNow = useRef(false);
   const historyAnchor = useRef<{ id: number; y: number; offset: number; key: string } | null>(null);
@@ -1997,21 +1972,7 @@ function ChatPane({
                     { paddingTop: topClear, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
                   ]}
                   scrollEventThrottle={32}
-                  onScrollBeginDrag={() => {
-                    dragging.current = true;
-                    scrollingToBottom.current = false;
-                    cancelEndFrame();
-                    following.current = false;
-                  }}
-                  onScrollEndDrag={() => {
-                    dragging.current = false;
-                  }}
-                  onMomentumScrollBegin={() => {
-                    if (!scrollingToBottom.current) dragging.current = true;
-                  }}
-                  onMomentumScrollEnd={() => {
-                    dragging.current = false;
-                  }}
+                  {...dragHandlers}
                   onScroll={({ nativeEvent: e }) => {
                     const previous = scrollOffset.current;
                     scrollOffset.current = e.contentOffset.y;
@@ -2020,17 +1981,20 @@ function ChatPane({
                     const distance = e.contentSize.height + (e.contentInset?.bottom ?? 0) - e.contentOffset.y - e.layoutMeasurement.height;
                     if (!placed && distance <= 1) setPlacedKey(scrollKey);
                     // Native scroll events can arrive before the jump catches up with image layout.
-                    if (scrollingToBottom.current) {
-                      if (distance <= 1) scrollingToBottom.current = false;
-                      return;
-                    }
-                    const rowsLeftTop = scrolledFirstRow.current !== firstRowId;
-                    scrolledFirstRow.current = firstRowId;
-                    if (rowsLeftTop && !dragging.current && following.current && distance > 1) {
-                      scrollToBottom(false);
-                      return;
-                    }
-                    following.current = following.current ? distance < 120 : e.contentOffset.y > previous && distance <= 1;
+                    const step = nextFollow(
+                      {
+                        following: following.current,
+                        scrollingToBottom: scrollingToBottom.current,
+                        dragging: dragging.current,
+                        scrolledFirstRow: scrolledFirstRow.current,
+                      },
+                      { offset: e.contentOffset.y, previous, distance, firstRowId },
+                    );
+                    following.current = step.following;
+                    scrollingToBottom.current = step.scrollingToBottom;
+                    scrolledFirstRow.current = step.scrolledFirstRow;
+                    if (step.toBottom) scrollToBottom(false);
+                    if (step.stop) return;
                     if (placed && e.contentOffset.y < previous && e.contentOffset.y <= 160 && !(historyState.key === scrollKey && historyState.error))
                       void showEarlier();
                   }}
