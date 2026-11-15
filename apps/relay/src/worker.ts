@@ -7,10 +7,8 @@ export interface Env {
 }
 const ID = /^[A-Za-z0-9_-]{22}$/;
 const HOOK_ID = /^[0-9a-f]{64}$/;
-// Internal hops between the Worker and its Durable Objects; never reachable from outside (the Worker routes by path).
 const INTERNAL = "https://relay.internal";
 
-/** The hook's directory entry: the room that owns it, or null. */
 async function lookupRoom(env: Env, hookId: string): Promise<string | null> {
   const owner = await env.HOOKS.get(env.HOOKS.idFromName(hookId)).fetch(`${INTERNAL}/room`);
   const roomId = owner.ok ? await owner.text() : "";
@@ -55,7 +53,6 @@ function refusalAnswer({ code, reason }: Refusal): Response {
   return new Response(null, { status: 409, headers: { [REFUSAL_HEADER]: `${code} ${reason}` } });
 }
 
-/** Accepted and closed at once by the Worker, so no Durable Object holds it. */
 function closedSocket({ code, reason }: Refusal): Response {
   const [client, server] = Object.values(new WebSocketPair());
   if (!client || !server) throw new Error("WebSocketPair did not yield two sockets");
@@ -78,7 +75,7 @@ type Role = "host" | "phone";
  */
 export class Room implements DurableObject {
   private room?: RoomLogic;
-  private roomId = ""; // the id the room in memory checks proofs against
+  private roomId = "";
   private hookRoom?: HookRoom;
   constructor(
     private readonly state: DurableObjectState,
@@ -87,18 +84,13 @@ export class Room implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    // A webhook delivery from the Worker. It must not write the room id: only a Mac's own connection says which room this is.
     if (url.pathname === "/hook") return this.hookDelivery(request);
     const id = url.searchParams.get("id")!;
     const role: Role = url.pathname === "/v1/host" ? "host" : "phone";
-    // A hibernation wake has no request to read the id from, and the room needs it to check a Mac's proof.
     const kv = this.state.storage.kv;
     if (kv.get("id") !== id) kv.put("id", id);
-    // A room woken without its id (storage lost it) would refuse every proof until the next eviction:
-    // rebuild it from the marks, exactly as after an eviction, now that the request says which Mac this is.
     if (this.room && this.roomId !== id) this.room = undefined;
-    const room = this.live(); // before accepting, so a rebuild cannot mistake the new socket for one that lost its state
-    // A phone turned away at the door gets no socket here: the Worker closes its own (see closedSocket).
+    const room = this.live();
     const refusal = role === "phone" ? room.phoneRefusal() : null;
     if (refusal) return refusalAnswer(refusal);
     const [client, server] = Object.values(new WebSocketPair());
@@ -116,7 +108,6 @@ export class Room implements DurableObject {
     else room.phoneMessage(ws, message);
   }
 
-  /** Expired deliveries go; the alarm moves to the next one to expire. */
   async alarm(): Promise<void> {
     const next = this.hooks().expire(Date.now());
     if (next !== null) await this.state.storage.setAlarm(next);
@@ -131,7 +122,7 @@ export class Room implements DurableObject {
     } catch {
       return hookResponse(NOT_FOUND);
     }
-    this.live(); // so a connected Mac gets the delivery now
+    this.live();
     const answer = this.hooks().receive(hookId, delivery);
     if (answer.status === 202 && (await this.state.storage.getAlarm()) === null) {
       const next = this.hooks().expire(Date.now());
@@ -140,12 +131,10 @@ export class Room implements DurableObject {
     return hookResponse(answer);
   }
 
-  /** The room's hooks over its own SQLite tables, the hook directory and its live Mac socket. */
   private hooks(): HookRoom {
     if (this.hookRoom) return this.hookRoom;
     const storage = sqlHookStorage(this.state.storage.sql);
     const directory = {
-      // A 409 is a refusal; anything else that isn't ok means the directory couldn't answer, and throws.
       claim: async (hookId: string, roomId: string, ownerKey?: string) => {
         if (!ID.test(roomId)) return false;
         const response = await this.env.HOOKS.get(this.env.HOOKS.idFromName(hookId)).fetch(`${INTERNAL}/claim`, {
@@ -190,19 +179,12 @@ export class Room implements DurableObject {
     }
   }
 
-  /** A socket can end with an error, a close, or both; the room ignores a socket it already forgot. */
   private closed(ws: WebSocket): void {
     const room = this.live(ws);
     if (this.roleOf(ws) === "host") room.hostClosed(ws);
     else room.phoneClosed(ws);
   }
 
-  /**
-   * The room in memory, rebuilt after an eviction from the sockets the runtime still holds.
-   * `ending` is a socket whose close woke the object: it may no longer be listed, but the room still
-   * has to hear about it (a phone's close becomes a CLOSE frame for the Mac). It goes first, so a
-   * listed socket wins any tie.
-   */
   private live(ending?: WebSocket): RoomLogic {
     if (this.room) return this.room;
     const id = this.state.storage.kv.get<string>("id") ?? "";
@@ -219,7 +201,6 @@ export class Room implements DurableObject {
     return (this.room = room);
   }
 
-  /** The room's mark on a socket, if it agrees with the socket's role tag. */
   private stateOf(ws: WebSocket): unknown {
     const state: unknown = ws.deserializeAttachment();
     const role = state && typeof state === "object" ? (state as { role?: unknown }).role : undefined;
@@ -238,10 +219,6 @@ export class Room implements DurableObject {
   }
 }
 
-/**
- * One hook's directory entry, named by the hook id: which room owns the hook. Rooms claim and release through it; the
- * Worker only reads it. The first claim wins and only the owner releases, so a Mac cannot take another Mac's hook.
- */
 export class HookDirectory implements DurableObject {
   constructor(private readonly state: DurableObjectState) {}
 
