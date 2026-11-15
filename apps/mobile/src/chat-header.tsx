@@ -131,6 +131,7 @@ export function SidebarToolbar({ onOpenNavigation }: { onOpenNavigation: (side: 
   const label = dockable ? (pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation";
   const press = useCallback(() => (dockable ? toggle() : onOpenNavigation("left")), [dockable, toggle, onOpenNavigation]);
   // Stack.Toolbar.Button takes SF Symbols only on iOS; Android needs a React child. The same children keep the toolbar's
+  // options from being published again on every Chat render.
   const items = useMemo(
     () =>
       Platform.OS === "ios" ? (

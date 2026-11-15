@@ -434,6 +434,8 @@ function ChatPane({
         return;
       }
       // Android runs a view command ahead of the mount it arrives with, so a jump asked for from onContentSizeChange
+      // stops at the end the content had before it grew: at the end already, it doesn't move at all. Timers fire after
+      // that frame's mount, so the jump a frame later reaches the grown end. Bursts of growth share one jump.
       cancelEndFrame();
       endFrame.current = requestAnimationFrame(() => {
         endFrame.current = undefined;
@@ -697,7 +699,10 @@ function ChatPane({
     trimHistory(() => following.current && !historyRead.current && !historyAnchor.current);
   }, [messages.length, visible, scrollKey, trimHistory]);
   const groupedMessages = useMemo(() => foldLinkedExchanges(groupQuietRuns(messages)), [messages]);
+  // The transcript renders its last `visible` rows, so new ones at the end push old ones out at the top. The native
   // view then moves the offset to keep what is on screen (maintainVisibleContentPosition) and reports that as a scroll,
+  // with the new rows' height left to the end. When as much leaves as arrives, the content size doesn't change and
+  // onContentSizeChange never jumps to the end (#972). The first row a scroll event last saw tells onScroll so.
   const firstRowId = groupedMessages[Math.max(0, groupedMessages.length - visible)]?.message.id;
   const scrolledFirstRow = useRef(firstRowId);
   async function showEarlier() {
@@ -2050,8 +2055,10 @@ function ChatPane({
                   onEndVisible={onEndVisible}
                   contentInsetAdjustmentBehavior="never"
                   // iOS reads a tap on a React Native button near the top edge (the PR button, the Chat's title) as a tap on
+                  // the status bar too and scrolls this transcript to its first message. Only native header buttons stop it.
                   scrollsToTop={false}
                   // Images above the screen load after the Chat is placed. The native view keeps the first visible message
+                  // where it was in the same frame; a JS jump from onContentSizeChange arrives frames later and flickers.
                   maintainVisibleContentPosition={KEEP_VISIBLE_POSITION}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="interactive"
@@ -2818,6 +2825,7 @@ function ChatPane({
                             )}
                             <PromptField
                               // A draft keeps its native text input when its computer or Project changes, preserving
+                              // keyboard focus and the caret. Saved Chats still get an input of their own.
                               key={params.id ? chatId : "new"}
                               chats={mentionChats}
                               computers={mentionComputers}
