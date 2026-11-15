@@ -11,7 +11,7 @@ const { parseArgs } = require("node:util");
 const { setTimeout: delay } = require("node:timers/promises");
 
 const root = path.resolve(__dirname, "../..");
-const SCENARIOS = new Set(["idle", "stream", "code", "soak"]);
+const SCENARIOS = new Set(["idle", "stream", "code", "tool", "soak"]);
 const round = (value, digits = 1) => Number(value.toFixed(digits));
 const toMb = (bytes) => round(bytes / 1048576);
 
@@ -280,7 +280,7 @@ async function scenario(name, page, work, options, browser) {
     const after = processes(work);
     return { cpuPercent: cpuPercent(before, cpuByKind(after), seconds), rssMb: rssByKind(after), ...(await memory(page, work)) };
   }
-  const kind = name === "code" ? "code" : "mix";
+  const kind = name === "code" ? "code" : name === "tool" ? "tool" : "mix";
   // The probe's requestAnimationFrame loop asks for a frame every vsync itself, which hides what idle frames cost.
   if (!options.noFrames) await page.evaluate(FRAME_PROBE);
   if (name === "soak") {
@@ -329,6 +329,14 @@ async function scenario(name, page, work, options, browser) {
         await done;
         fs.writeFileSync(process.env.PERF_TRACE, JSON.stringify({ traceEvents: events }));
         console.log(`Saved trace ${process.env.PERF_TRACE}`);
+      },
+      (seconds * 1000) / 2,
+    );
+  if (process.env.PERF_SHOT)
+    setTimeout(
+      async () => {
+        const { data } = await page.call("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(`${process.env.PERF_SHOT}-mid.png`, Buffer.from(data, "base64"));
       },
       (seconds * 1000) / 2,
     );

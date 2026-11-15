@@ -5,7 +5,6 @@ import { visibleDesignTextLines } from "./design-render-limits.mjs";
 import { DESIGN_INK } from "./design-paint.mjs";
 
 const MAX_WARNINGS = 20;
-// Only these layers paint a background; an icon's fill is its line colour and text has no backdrop of its own.
 const SHAPE_TYPES = new Set(["frame", "rectangle", "ellipse"]);
 // Below 3:1 text is hard to read at any size; stricter limits are the author's call.
 const MINIMUM_CONTRAST = 3;
@@ -18,7 +17,6 @@ const contains = (outer, inner) =>
   inner.x + inner.width <= outer.x + outer.width + TOLERANCE &&
   inner.y + inner.height <= outer.y + outer.height + TOLERANCE;
 
-/** Depth-first paint order: a parent before its children, siblings in array order, as the renderers draw. */
 function paintOrder(document) {
   const children = new Map();
   for (const node of document.nodes) {
@@ -38,7 +36,6 @@ function paintOrder(document) {
 const luminance = designLuminance;
 const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 
-/** Problems an agent can't see in JSON: text cut off, layers spilling out, unreadable text. Pure; layer ids included. */
 export function designDiagnostics(document) {
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   const bounds = designLayout(document, designTextLayout);
@@ -55,7 +52,6 @@ export function designDiagnostics(document) {
     if (node.type === "text") {
       const border = node.stroke ? (node.strokeWidth ?? 1) : 0;
       const layout = designTextLayout(node, Math.max(1, box.width - 2 * border));
-      // Line boxes may overhang the layer; only glyphs actually cut off count.
       const glyphBottom = layout.height - (layout.lineHeight - (node.fontSize ?? 16)) / 2;
       if (visibleDesignTextLines(node, box, layout).length < layout.lines.length || glyphBottom > box.height - 2 * border + 0.5) {
         const requiredHeight = Math.ceil(layout.height + 2 * border);
@@ -137,7 +133,6 @@ export function designDiagnostics(document) {
         message: `Image "${node.id}" is a remote URL, shown as a placeholder in your preview; the user sees the real image.`,
       });
     if (node.type === "text") {
-      // The topmost visible layer drawn before this text that overlaps it is what the text sits on.
       const index = position.get(node.id);
       let behind = null;
       for (let earlier = index - 1; earlier >= 0 && !behind; earlier--) {
@@ -148,7 +143,6 @@ export function designDiagnostics(document) {
       }
       let backdrop = resolve(document.background ?? "#ffffff");
       if (behind) {
-        // Images and partly covered or translucent shapes have no single backdrop colour; stay quiet.
         backdrop = behind.node.type !== "image" && (behind.node.opacity ?? 1) === 1 && contains(behind.box, box) ? resolve(behind.node.fill) : null;
       }
       const foreground = (node.opacity ?? 1) === 1 ? luminance(resolve(node.fill ?? DESIGN_INK)) : null;
@@ -191,7 +185,6 @@ export function designDiagnostics(document) {
       }
     }
   }
-  // Style drift must not bury clipping or contrast failures in the bounded text response.
   warnings.push(...designKitWarnings(document));
   return { warnings, contrastChecks };
 }

@@ -1,13 +1,9 @@
-// A new Chat's glance (desktop cards under the composer, phone cards above it): the repository's open PRs, plan usage
-// and today's token usage, from reads the app already makes. Pure, so both platforms show the same rows and numbers.
 import type { PullRequest } from "./model.ts";
 import { tokenTotal, type TokenUsageReport } from "./token-usage.ts";
 
-/** Settings › Church: the switch that shows the glance (off by default), with the same words on desktop and phone. */
 export const NEW_CHAT_STATS_LABEL = "New Chat stats";
 export const NEW_CHAT_STATS_HINT = "Open pull requests, plan usage and today's tokens on a new Chat.";
 
-/** At most this many PRs on the card; the rest are left out, not summarised (there is no list to open). */
 export const GLANCE_PR_LIMIT = 4;
 
 export type GlancePrTone = "green" | "orange" | "red" | "purple" | "muted";
@@ -16,7 +12,6 @@ export interface GlancePullRequest {
   number: number;
   title: string;
   url: string;
-  /** "checks passing", "CI running", "changes requested"… */
   status: string;
   tone: GlancePrTone;
   draft: boolean;
@@ -24,7 +19,6 @@ export interface GlancePullRequest {
   age: string;
 }
 
-/** Where an open PR stands, worst first: what someone opening the app would act on. */
 export function pullRequestStatus(pr: PullRequest): { status: string; tone: GlancePrTone } {
   if (pr.isDraft) return { status: "draft", tone: "muted" };
   if (pr.hasConflicts) return { status: "conflicts", tone: "red" };
@@ -36,10 +30,8 @@ export function pullRequestStatus(pr: PullRequest): { status: string; tone: Glan
   return { status: "checks passing", tone: "green" };
 }
 
-/** An open PR as the host's `pull-requests:open` lists it. */
 export type OpenPullRequest = PullRequest & { updatedAt?: string };
 
-/** How long ago, shortest first: "now", "12m", "3h", "2d", "5w". */
 export function shortAge(iso: string | undefined, now: number = Date.now()): string {
   const at = iso ? Date.parse(iso) : Number.NaN;
   if (Number.isNaN(at)) return "";
@@ -52,7 +44,6 @@ export function shortAge(iso: string | undefined, now: number = Date.now()): str
   return days < 14 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }
 
-/** The card's rows: open PRs only, once each, in the order the host listed them (newest first). */
 export function openPullRequestRows(list: OpenPullRequest[] | null | undefined, now: number = Date.now()): GlancePullRequest[] {
   const seen = new Set<string>();
   return (list ?? []).flatMap((pr) => {
@@ -71,15 +62,12 @@ export function todayKey(now: Date = new Date()): string {
 export interface GlanceToday {
   costUsd: number;
   tokens: number;
-  /** Chats and sessions with a request today, in Milagre's Projects, Chats homes and Links. */
   chats: number;
   /** Cost per hour of the day, 0 to 23 (tokens where nothing is priced). */
   hours: number[];
-  /** The hour now, so the bars after it read as still to come. */
   currentHour: number;
 }
 
-/** Today's totals and its hours, from a one-day token usage report (which reads by the hour). */
 export function glanceToday(report: TokenUsageReport | null | undefined, now: Date = new Date()): GlanceToday | null {
   if (!report) return null;
   const priced = report.totals.costUsd > 0;

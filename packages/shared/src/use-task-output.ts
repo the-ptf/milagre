@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BackgroundTaskOutput } from "./model";
 
-/** Read a command's output only while its detail is visible, with at most one request in flight. */
 export function useTaskOutput(read: () => Promise<BackgroundTaskOutput>, active = true, poll = true) {
   const [output, setOutput] = useState<BackgroundTaskOutput | null>(null);
   const [error, setError] = useState("");

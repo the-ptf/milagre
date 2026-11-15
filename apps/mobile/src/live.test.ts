@@ -443,3 +443,51 @@ test("a fetch cut off by the app leaving the foreground shows no error, and a fa
   assert.deepEqual(errors, []);
   stop();
 });
+
+test("detail selection refreshes immediately through the serialized pull and stops on cleanup", async () => {
+  const { timers } = clock();
+  let refresh: () => void = () => {};
+  let unwatch = 0,
+    reads = 0;
+  let release: () => void = () => {};
+  let blocked = true;
+  const stop = syncProject({
+    connect: () => ({ close() {} }),
+    snapshot: async () => {},
+    runs: async () => {
+      reads++;
+      if (blocked)
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+    },
+    watchRuns: (listener) => {
+      refresh = listener;
+      return () => {
+        unwatch++;
+      };
+    },
+    active: () => true,
+    watchActive: () => () => {},
+    pollDelay: () => 1000,
+    onError: (error) => {
+      throw error;
+    },
+    timers,
+  });
+  await settle();
+  refresh();
+  assert.equal(reads, 1, "starts without waiting for a live signal or poll");
+  refresh();
+  refresh();
+  assert.equal(reads, 1, "selection changes cannot overlap a pending request");
+  blocked = false;
+  release();
+  await settle();
+  assert.equal(reads, 2, "one queued read takes the latest selection");
+  stop();
+  refresh();
+  await settle();
+  assert.equal(reads, 2);
+  assert.equal(unwatch, 1);
+});

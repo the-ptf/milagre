@@ -428,6 +428,8 @@ function makeBridge(invoke, listen, send) {
     checkForUpdates: () => invoke("update:check"),
     getReleaseChannel: () => invoke("update:channel"),
     setReleaseChannel: (channel) => invoke("update:set-channel", channel),
+    getAppIcon: () => invoke("app-icon:get"),
+    setAppIcon: (icon) => invoke("app-icon:set", icon),
     installUpdate: () => invoke("update:install"),
     onUpdateState: (callback) => listen("update:state", callback),
     getPhoneStatus: () => invoke("phone:status"),

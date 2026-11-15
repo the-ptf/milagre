@@ -2,14 +2,11 @@ import { contrastRatio, mix, onColor, over, readableOn, withAlpha } from "./colo
 import type { Ansi, Scheme, ThemePalette, ThemeSource } from "./types.ts";
 import type { SyntaxKind } from "../file-syntax.mjs";
 
-/** A tint of `color` on `page`: solid in light (so it stacks predictably), translucent in dark (so it sits on any surface). */
 const tint = (page: string, color: string, scheme: Scheme, light: number, dark: number) =>
   scheme === "dark" ? withAlpha(color, dark) : mix(page, color, light);
 
-/** Contrast the green, orange and red -ink shades reach on the page, cards and their own tints. */
 const STATUS_INK_RATIO = 4.8;
 
-/** Tokens solved from the rest of the palette at the end, so a theme never sets text below 4.5:1. */
 type Solved = "ink4" | "greenInk" | "orangeInk" | "redInk" | "onGreen" | "onOrange" | "onRed";
 
 export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette {
@@ -29,11 +26,8 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     syntax: source.syntax,
     canvas: mix(page, ink, dark ? 0.025 : 0.03),
     inset: mix(page, surface, 0.5),
-    // Translucent ink, so a hover darkens whatever it sits on: page, card or field.
     hover: withAlpha(ink, dark ? 0.05 : 0.06),
     hover2: withAlpha(ink, dark ? 0.09 : 0.1),
-    // A field (an input, the user's bubble) is a step off the page in its tint: lighter than a dark page, darker than
-    // a light one. From the surface in light it landed on the page's own luminance, and a bubble vanished into it.
     field: dark ? toward(0.06) : mix(page, ink, 0.05),
     ink2: mix(ink, page, 0.25),
     ink3: mix(ink, page, 0.56),
@@ -54,19 +48,13 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
   };
   const given = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined));
   const palette = { ...derived, ...given } as Omit<ThemePalette, Solved>;
-  // ink2, ink3 and the status colors carry metadata, descriptions and counts at 10–13px, so as text they need 4.5:1
-  // wherever they sit: the page, cards, fields, the hover-2 highlight (on page or card) and, for a status, its own
-  // tint. A theme's own ink3 stays as ink4, for icons at rest, dots and disabled controls.
   const { page: pg, surface: sf } = palette;
   const behind = (fill: string) => [over(fill, pg), over(fill, sf)];
   const text = [pg, sf, ...behind(palette.field), ...behind(palette.hover2)];
   const onTint = (tint: string) => [pg, sf, ...behind(tint)];
   const worst = (color: string) => Math.min(...text.map((bg) => contrastRatio(color, bg)));
   const ink2 = readableOn(palette.ink2, palette.ink, text);
-  // Where ink2 is itself close to 4.5:1, a readable ink3 would pass it; the levels then share ink2.
   const ink3 = readableOn(palette.ink3, palette.ink, text);
-  // Status inks also letter the 10px A/M/D badges on their own tints, so they clear 4.8:1 there, a margin over 4.5
-  // that survives antialiasing at that size.
   const greenInk = readableOn(palette.green, palette.ink, onTint(palette.greenTint), STATUS_INK_RATIO);
   const orangeInk = readableOn(palette.orange, palette.ink, onTint(palette.orangeTint), STATUS_INK_RATIO);
   const redInk = readableOn(palette.red, palette.ink, onTint(palette.redTint), STATUS_INK_RATIO);
@@ -79,7 +67,6 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     greenInk,
     orangeInk,
     redInk,
-    // Labels on a status fill that carries a count or a word: the fill is the -ink color (bg-red-ink text-on-red).
     onGreen: onColor(greenInk, pg),
     onOrange: onColor(orangeInk, pg),
     onRed: onColor(redInk, pg),

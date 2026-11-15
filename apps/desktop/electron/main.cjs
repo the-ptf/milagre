@@ -220,7 +220,24 @@ async function startDesktop() {
     if (event.senderFrame === event.sender.mainFrame) previews.release(event.sender.id, url);
   });
   protocol.handle("milagre-artifact", (request) => previews.handle(request));
-  const appIconPath = path.join(__dirname, "../app/public/logo-milagre-image.png");
+  const { createAppIconStore, appIconFile, applyAppIcon } = require("./app-icon.cjs");
+  const publicDir = path.join(__dirname, "../app/public");
+  const appIcon = createAppIconStore({ file: path.join(app.getPath("userData"), "app-icon.json") });
+  const showAppIcon = () =>
+    applyAppIcon({
+      icon: appIcon.get(),
+      publicDir,
+      platform: process.platform,
+      createImage: (file) => nativeImage.createFromPath(file),
+      setDockIcon: (image) => background.setDockIcon(/** @type {Electron.NativeImage} */ (image)),
+      windows: () => BrowserWindow.getAllWindows(),
+    });
+  ipcMain.handle("app-icon:get", () => appIcon.get());
+  ipcMain.handle("app-icon:set", (_event, icon) => {
+    const next = appIcon.set(icon);
+    showAppIcon();
+    return next;
+  });
   const { createReleaseChannelStore, prepareUpdater } = require("./release-channel.cjs");
   const { createAppUpdates, createAutoInstall, deferUpdater, stageNativeUpdate, watchAppUpdates } = require("./app-updates.cjs");
   const updateLog = require("./update-log.cjs").createUpdateLog(path.join(app.getPath("userData"), "updates.log"));
@@ -524,10 +541,7 @@ async function startDesktop() {
     else createWindow();
   });
   createWindow();
-  if (process.platform === "darwin" && app.dock) {
-    const appIcon = nativeImage.createFromPath(appIconPath);
-    if (!appIcon.isEmpty()) background.setDockIcon(appIcon);
-  }
+  if (process.platform === "darwin" && app.dock) showAppIcon();
   try {
     runtime = await connectDesktopRuntime({
       ...hostOptions,
@@ -735,7 +749,7 @@ async function startDesktop() {
       minWidth: 980,
       minHeight: 680,
       title: "Milagre",
-      icon: appIconPath,
+      icon: appIconFile(publicDir, appIcon.get()),
       backgroundColor: OPAQUE_BACKGROUND,
       ...chrome.options,
       webPreferences: {

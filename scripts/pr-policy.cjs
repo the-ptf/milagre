@@ -22,7 +22,7 @@ const IMAGE_FOLDERS = [
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
 const SYNC_LABEL = "single-platform";
-// Quoted from AGENTS.md, "Desktop and mobile stay in sync"; pr-policy.test.cjs keeps the two equal.
+// Quoted from AGENTS.md, "Hit every surface"; pr-policy.test.cjs keeps the two equal.
 const SYNC_RULE =
   "Every change on desktop must also be applied on mobile, and every change on mobile must also be applied on desktop, in the same task. Skip syncing only when the user explicitly says to keep the change on one platform or not to sync it.";
 const DESKTOP = "apps/desktop/app/src/";
@@ -54,7 +54,7 @@ function checkImages(changes) {
     ok: false,
     message:
       `This PR commits images outside the asset folders:\n${stray.map((path) => `  - ${path}`).join("\n")}\n` +
-      "Screenshots never go in a PR's own commits (AGENTS.md, Pull request screenshots). Remove them and push them to the orphan " +
+      "Screenshots never go in a PR's own commits (AGENTS.md, Pull requests). Remove them and push them to the orphan " +
       "`screenshots` branch instead (git fetch origin screenshots; add them under <feature>/ in a temporary worktree; commit and push), " +
       "then link each in the PR body as https://raw.githubusercontent.com/the-ptf/milagre-ade/<sha>/<feature>/<name>.png. " +
       `A new app asset belongs in one of: ${IMAGE_FOLDERS.join(", ")}.`,

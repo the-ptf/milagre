@@ -22,6 +22,7 @@ import { useTheme } from "./theme";
 import { useRoutines } from "./use-routines";
 import { SubchatAskCard } from "./subchat-ask-card";
 import { answerArguments, approvalArguments, askLines, inlineQuestion, isRecommended, KIND_TONE, pillSpoken, subchatStates } from "./subchat-view";
+import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 const NO_KEYS: string[] = [];
 
@@ -48,6 +49,11 @@ function useSubchats(panel: SubchatPanelState, messages: readonly ChatMessage[],
   const { routines, enabled } = useRoutines(session.client);
   const now = useDisplayNow(live ? 1000 : 60_000);
   const reports = useMemo(() => latestReports(messages), [messages]);
+  // Rows show each Subchat's latest line, so their runs come in full.
+  useVisibleRunChatKeys(
+    session.client,
+    useMemo(() => [...panel.keys, ...panel.deeper], [panel.keys, panel.deeper]),
+  );
   const sessions = session.snapshot?.project.state.sessions;
   const runs = session.snapshot?.runs.runs;
   const { keys, deeper } = panel;

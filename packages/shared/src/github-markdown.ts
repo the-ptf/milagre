@@ -3,7 +3,6 @@
 
 const ATTACHMENT = /^https:\/\/github\.com\/(?:user-attachments\/assets|[\w.-]+\/[\w.-]+\/assets\/\d+)\/[0-9a-f-]{36}$/;
 
-/** An image GitHub stores for a PR's text; the PR's computer reads it with gh's token (pr:image). */
 export function isGitHubAttachment(url: string): boolean {
   return ATTACHMENT.test(url);
 }

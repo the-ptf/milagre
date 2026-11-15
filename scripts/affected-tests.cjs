@@ -11,7 +11,7 @@ const FULL_SUITE = [
   [/^apps\/mobile\/patches\//, "a dependency patch"],
   [/^\.github\/workflows\/ci\.yml$/, "the CI workflow"],
   [/^\.github\/actions\//, "a CI action"],
-  [/^scripts\/(test|test-runner|affected-tests|electron-warmup)\.cjs$/, "the test runner"],
+  [/^scripts\/(test|test-runner|affected-tests|electron-warmup|html-preview-warmup|failed-test-reporter)\.cjs$/, "the test runner"],
   [/(^|\/)tsconfig[^/]*\.json$/, "a TypeScript config"],
   [/(^|\/)(vite|vitest|postcss|babel|metro)\.config\.[^/]+$/, "a build config"],
   [/^\.(npmrc|nvmrc|node-version)$/, "the Node setup"],

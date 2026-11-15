@@ -104,7 +104,7 @@ npm run daemon -- bridge --data-dir "$MILAGRE_DESKTOP_PROFILE" --connection-file
 
 In another terminal, run `npm run mobile`, choose the simulator with Shift+i, and enter `http://127.0.0.1:8787` plus the token from that connection file. Open the same absolute Project path as desktop. Closing desktop leaves its daemon running; Ctrl+C in the bridge terminal disconnects mobile without stopping the daemon. If the daemon stops or an update restarts it, restart the bridge and pair using a new connection file.
 
-This attaches clients without copying or migrating state. A desktop from before the shared-daemon change still owns an embedded runtime: close that older app cleanly before launching the current build with its existing profile. No command here replaces a running app or steals its locks. See [daemon recovery](local-daemon.md) if ownership fails.
+This attaches clients without copying or migrating state. A desktop from before the shared-daemon change still owns an embedded runtime: close that older app cleanly before launching the current build with its existing profile. No command here replaces a running app or steals its locks. See [daemon recovery](development.md#local-daemon) if ownership fails.
 
 ### Separate daemon and bridge processes
 

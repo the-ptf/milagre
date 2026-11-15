@@ -1,7 +1,5 @@
 import { MAX_ATTACHMENT_BYTES } from "./limits.mjs";
-// A chunk fits the phone's HTTP body and every daemon/relay carrier, including JSON metadata.
 export const ATTACHMENT_CHUNK_CHARS = 512 * 1024;
-// onProgress(sentBytes, totalBytes) follows each acknowledged chunk, so a slow carrier can show how far a file got.
 export async function uploadAttachment(send, request, createId = () => globalThis.crypto.randomUUID(), onProgress) {
   const { base64 } = request;
   const totalBytes = (base64.length / 4) * 3 - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);

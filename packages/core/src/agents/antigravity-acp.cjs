@@ -2,7 +2,7 @@ const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 
-// Antigravity is Google's agent (agy_acp_server) over ACP; see docs/adr/0006-antigravity-over-acp.md.
+// Antigravity is Google's agent (agy_acp_server) over ACP; see docs/providers.md.
 // This is everything AcpSession needs to know about it. Run against agy 1.3.0 on macOS arm64; the other platforms' archives are pinned by hash and layout.
 
 const { AMBIENT_ENV, argsFor, memberNames } = require("./antigravity-install.cjs");

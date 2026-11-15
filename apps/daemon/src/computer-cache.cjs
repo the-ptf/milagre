@@ -25,7 +25,7 @@ const checked = (computerId) => {
  * Each paired computer's last copy (spec "Offline cache"), in `<dir>/<computerId>/cache.sqlite`, keyed as the computer
  * itself names things (no window qualifier): its Project, Link and registry lists (kinds "recent", "links", "registry",
  * key ""), each scope's last whole state ("scope", by scope key: { name, state }), and its last 20 chat windows ("chat",
- * by chat key: { messages, hasMore, total }). node:sqlite, as ADR-0007; one handle per computer, closed by remove/close.
+ * by chat key: { messages, hasMore, total }). node:sqlite, as in docs/chat-storage.md; one handle per computer, closed by remove/close.
  * It is a copy, so it is written write-ahead without waiting for the disk (a crash may lose the last writes, never the
  * file), and a copy the same as the last one written is not written again.
  * @param {{ dir: string; now?: () => number }} options

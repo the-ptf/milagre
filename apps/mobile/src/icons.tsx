@@ -1,5 +1,5 @@
-import { useEffect, useId, useState } from "react";
-import { Animated, Easing, View } from "react-native";
+import { use, useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore, type Context } from "react";
+import { Animated, AppState, Easing, View } from "react-native";
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, G, LinearGradient, Mask, Path, Stop } from "react-native-svg";
 import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO, LINEAR_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native";
@@ -110,24 +110,111 @@ export function ProviderLogo({
 }
 
 /**
+ * One clock for every ring of a kind: a native loop that runs while at least one ring on an active screen is mounted.
+ * The value goes from `from` to `from + 1` each turn (rings read it modulo 1 turn), so stopping and starting again
+ * continues where it was instead of jumping back. Where it is comes from the time it started, so no native read.
+ */
+type RingClock = { value: Animated.Value; period: number; users: number; from: number; startedAt: number; loop?: Animated.CompositeAnimation };
+const ringClocks: { spin?: RingClock; pulse?: RingClock } = {};
+
+// Made on first use: the module also loads where no Animated exists (the provider logos' tests).
+function ringClock(kind: "spin" | "pulse") {
+  return (ringClocks[kind] ??= { value: new Animated.Value(0), period: kind === "spin" ? 1100 : 1600, users: 0, from: 0, startedAt: 0 });
+}
+
+const ringPhase = (clock: RingClock) => (clock.loop ? (clock.from + (Date.now() - clock.startedAt) / clock.period) % 1 : clock.from);
+
+function joinRingClock(clock: RingClock) {
+  clock.users += 1;
+  if (clock.loop) return;
+  clock.startedAt = Date.now();
+  clock.value.setValue(clock.from);
+  clock.loop = Animated.loop(
+    Animated.timing(clock.value, { toValue: clock.from + 1, duration: clock.period, easing: Easing.linear, useNativeDriver: true, isInteraction: false }),
+  );
+  clock.loop.start();
+}
+
+/** Leaves the clock and returns where it stood; the last ring to leave stops it there. */
+function leaveRingClock(clock: RingClock) {
+  const at = ringPhase(clock);
+  clock.users -= 1;
+  if (clock.users <= 0 && clock.loop) {
+    clock.users = 0;
+    clock.loop.stop();
+    clock.loop = undefined;
+    clock.from = at;
+    clock.value.setValue(at);
+  }
+  return at;
+}
+
+type ScreenNavigation = { isFocused(): boolean; addListener(event: "focus" | "blur", listener: () => void): () => void };
+let navigationContext: Context<ScreenNavigation | undefined> | undefined;
+// Required on first use, not imported: this module also loads where no router exists (the provider logos' tests).
+function screenNavigationContext() {
+  return (navigationContext ??= (require("expo-router/react-navigation") as { NavigationContext: Context<ScreenNavigation | undefined> }).NavigationContext);
+}
+const subscribeAppState = (listener: () => void) => {
+  const subscription = AppState.addEventListener("change", listener);
+  return () => subscription.remove();
+};
+const appActive = () => AppState.currentState === "active";
+const NO_SCREEN = () => () => {};
+// The reduced-motion ring's dim step, as desktop's.
+const PULSE_LOW = 0.45;
+
+/**
+ * display-clock's useScreenActive, for a ring that may also draw outside any screen (the side panels and the iPad's
+ * sidebar sit beside the Stack), where useIsFocused throws: there only the app's state counts.
+ */
+function useRingActive() {
+  const navigation = use(screenNavigationContext());
+  const subscribeFocus = useCallback(
+    (listener: () => void) => {
+      if (!navigation) return () => {};
+      const offFocus = navigation.addListener("focus", listener);
+      const offBlur = navigation.addListener("blur", listener);
+      return () => {
+        offFocus();
+        offBlur();
+      };
+    },
+    [navigation],
+  );
+  const focused = useSyncExternalStore(navigation ? subscribeFocus : NO_SCREEN, () => navigation?.isFocused() ?? true);
+  return useSyncExternalStore(subscribeAppState, appActive, appActive) && focused;
+}
+
+/**
  * Desktop's SpinnerRing: a line-colored track with a short ink-3 arc turning once every 1.1s. Under reduced motion it
  * stands still and steps between full and 45% opacity every 0.8s, as desktop's does, so it still reads as loading.
+ * Every ring turns on one shared clock; under another screen (or with the app in the background) a ring leaves it and
+ * stands where it was.
  */
 export function SpinnerRing({ size = 16, stroke = 2, tone = "ink3", color }: { size?: number; stroke?: number; tone?: Tone; color?: string }) {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
-  const [spin] = useState(() => new Animated.Value(0));
+  const active = useRingActive();
+  const kind = reduced ? "pulse" : "spin";
+  // Where this ring stands while it is off the clock, in turns.
+  const [stopped, setStopped] = useState(0);
   useEffect(() => {
-    spin.setValue(0);
-    const loop = Animated.loop(Animated.timing(spin, { toValue: 1, duration: reduced ? 1600 : 1100, easing: Easing.linear, useNativeDriver: true }));
-    loop.start();
-    return () => loop.stop();
-  }, [spin, reduced]);
+    if (!active) return;
+    const clock = ringClock(kind);
+    joinRingClock(clock);
+    return () => setStopped(leaveRingClock(clock));
+  }, [active, kind]);
+  const motion = useMemo(() => {
+    if (!active) return reduced ? { opacity: stopped < 0.5 ? 1 : PULSE_LOW } : { transform: [{ rotate: `${stopped * 360}deg` }] };
+    const value = ringClock(kind).value;
+    return reduced
+      ? { opacity: Animated.modulo(value, 1).interpolate({ inputRange: [0, 0.5, 0.5001, 1], outputRange: [1, 1, PULSE_LOW, PULSE_LOW] }) }
+      : // Past one turn the rotation keeps going (extend), and 360° more looks the same.
+        { transform: [{ rotate: value.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] };
+  }, [active, reduced, kind, stopped]);
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
-  const motion = reduced
-    ? { opacity: spin.interpolate({ inputRange: [0, 0.5, 0.5001, 1], outputRange: [1, 1, 0.45, 0.45] }) }
-    : { transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] };
   return (
     <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[{ width: size, height: size }, motion]}>
       <Svg width={size} height={size}>

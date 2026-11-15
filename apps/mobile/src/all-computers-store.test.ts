@@ -792,3 +792,68 @@ test("a read cut off by the app leaving the foreground does not count toward off
   await settle();
   assert.equal(store.viewOf("https://a")?.state, "online");
 });
+
+test("identical polls keep views, versions and copy identities while lastSuccess advances", async () => {
+  const mac = fakeClient("https://a");
+  const { store, settle, timers, clock } = setup({ "https://a": mac });
+  store.sync([host("https://a")], null);
+  const hide = store.show();
+  await settle();
+  const before = store.views();
+  const version = store.versions();
+  let published = 0;
+  store.subscribe(() => published++);
+  for (let i = 0; i < 2; i++) {
+    clock.now += 4000;
+    timers.at(-1)!.run();
+    await settle();
+  }
+  assert.equal(published, 0);
+  assert.equal(store.views(), before);
+  assert.equal(store.versions(), version);
+  assert.equal(before[0]!.lastSuccess, clock.now, "even a retained view reads the current success time");
+  store.sync([host("https://a")], null);
+  assert.equal(published, 0, "unchanged sync does not notify either");
+  hide();
+});
+
+test("a new copy publishes once across two identical polls; project and reachability changes still publish", async () => {
+  let down = false;
+  const projects = ["/a", "/b"];
+  const mac = fakeClient("https://a", { projects, fail: () => down });
+  const { store, settle, timers } = setup({ "https://a": mac });
+  store.sync([host("https://a")], null);
+  const hide = store.show();
+  await settle();
+  const heldB = store.viewOf("https://a")!.copies.get("/b");
+  const batch = mac.client.chatLists;
+  mac.client.chatLists = async (paths) => {
+    const result = await batch(paths);
+    if (result["/a"] && !("error" in result["/a"])) result["/a"] = { ...result["/a"], project: { ...result["/a"].project, name: "Changed" } };
+    return result;
+  };
+  let published = 0;
+  store.subscribe(() => published++);
+  for (let i = 0; i < 2; i++) {
+    timers.at(-1)!.run();
+    await settle();
+  }
+  assert.equal(published, 1);
+  assert.equal(store.viewOf("https://a")!.copies.get("/b"), heldB);
+  projects.push("/c");
+  await store.refreshAll();
+  assert.ok(published > 1);
+  assert.equal(store.viewOf("https://a")!.projects.length, 3);
+  down = true;
+  await store.refreshAll();
+  const beforeOffline = published;
+  await store.refreshAll();
+  assert.equal(store.viewOf("https://a")!.state, "offline");
+  assert.ok(published > beforeOffline);
+  const beforeOnline = published;
+  down = false;
+  await store.refreshAll();
+  assert.equal(store.viewOf("https://a")!.state, "online");
+  assert.ok(published > beforeOnline);
+  hide();
+});

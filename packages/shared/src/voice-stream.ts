@@ -38,9 +38,8 @@ function transcriptOf(segments: Segment[]): string {
 }
 
 /**
- * How many characters at the front of the transcript can no longer change: the run of segments from the start that are
- * both sealed (a pause or the 30-second boundary closed them) and fully decoded. Anything after that is still being
- * revised by the next inference. It says the text has stopped moving, never that it is the right text.
+ * How many leading characters of the transcript can no longer change: segments from the start that are sealed and fully
+ * decoded.
  */
 function settledLength(segments: Segment[]): number {
   let count = 0;
@@ -51,22 +50,19 @@ function settledLength(segments: Segment[]): number {
   if (!count) return 0;
   const full = transcriptOf(segments);
   let settled = Math.min(transcriptOf(segments.slice(0, count)).length, full.length);
-  // The space that joins the settled words to the revised ones belongs to neither; keep it out of the revised run.
   while (settled < full.length && full[settled] === " ") settled++;
   return settled;
 }
 
 /**
- * Bounded, local dictation with any file/PCM recognizer. One inference runs at a time; incoming audio replaces the
- * next partial snapshot instead of queuing stale snapshots. Pauses seal segments. Stop reuses a result when no new
- * speech arrived, or decodes only the unfinished segment. The draft is committed by the caller only after finish.
+ * Bounded local dictation with any file/PCM recognizer. One inference runs at a time; Stop reuses a result when no new
+ * speech arrived. The caller commits the draft only after finish.
  */
 export function createStreamingDictation({
   transcribe,
   onPartial,
 }: {
   transcribe: (pcm: ArrayBuffer) => Promise<string>;
-  /** The transcript so far, and how many of its leading characters have stopped changing. */
   onPartial: (text: string, settled: number) => void;
 }) {
   const segments: Segment[] = [];
@@ -109,7 +105,7 @@ export function createStreamingDictation({
   return {
     append(pcm: Int16Array) {
       if (stopped || cancelled || failure) return;
-      // The recorder's timer may run a buffer late. Keep the take valid and cap its audio at the recording limit.
+      // The recorder's timer may run a buffer late: cap the take's audio at the recording limit.
       pcm = pcm.subarray(0, Math.max(0, 300 * DICTATION_SAMPLE_RATE - received));
       received += pcm.length;
       for (let offset = 0; offset < pcm.length; offset += FRAME) {
@@ -153,7 +149,6 @@ export function createStreamingDictation({
       current = null;
       segments.length = 0;
     },
-    /** Waits for the current partial inference, without ending capture (also useful for benchmarks). */
     async idle() {
       await running;
     },
@@ -162,7 +157,6 @@ export function createStreamingDictation({
 
 export type StreamingDictation = ReturnType<typeof createStreamingDictation>;
 
-/** Stateful box-filter resampling: hardware rates, channel mixing and partial sample windows survive buffer boundaries. */
 export function createDictationResampler() {
   let sum = 0;
   let weight = 0;

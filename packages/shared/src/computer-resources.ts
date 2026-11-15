@@ -1,11 +1,3 @@
-// A computer's memory and disk as the desktop's Settings › Phone & sharing, a paired desktop's Computer page and the phone's
-// computer page show them. The host measures (core computer-resources.cjs); this turns bytes into the same rows,
-// tooltips and breakdowns everywhere.
-
-/**
- * What a part of Milagre's share is: in memory an agent provider, terminals or the app itself; on disk its worktrees,
- * Chat history, checkpoints, agent accounts and tools, browser data, speech models, designs, caches and the rest.
- */
 export type ResourcePartKind =
   | "claude"
   | "codex"
@@ -75,9 +67,7 @@ export type ResourceGauge = {
   of: string;
   /** Under a tenth free: the row turns orange, and load balancing will skip the computer. */
   low: boolean;
-  /** Milagre's disk share isn't measured yet. */
   measuring: boolean;
-  /** A new measure runs while the last one shows (after a cleanup, or every half hour). */
   refreshing: boolean;
   /** Shares of the total, adding up to 1: Milagre's, everything else in use, and free. */
   shares: { milagre: number; other: number; free: number };
@@ -93,7 +83,6 @@ export type ResourceGauge = {
 
 export const BREAKDOWN_TITLE = "What Milagre uses";
 export const MEASURING_TOOLTIP = "Measuring Milagre's folders";
-/** What a row says when the host's answer can't be read. */
 export const UNREADABLE = "Couldn't read this computer's memory and disk.";
 const LOW_SHARE = 0.1;
 
@@ -106,7 +95,6 @@ function format(bytes: number, unit: number): string {
     index += 1;
   }
   let rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
-  // 999.96 MB rounds to 1000: that is 1 GB.
   if (rounded >= unit && index < units.length - 1) {
     index += 1;
     rounded = Math.round((value / unit) * 10) / 10;
@@ -188,7 +176,7 @@ function gaugeParts(parts: ResourcePart[] | null | undefined, milagreShare: numb
   const sum = known.reduce((total, part) => total + part.bytes, 0);
   if (!sum) return [];
   const sorted = [...known];
-  // oxlint-disable-next-line unicorn/no-array-sort -- sorts a copy; toSorted crashes on the phone (Hermes)
+  // Hermes has no toSorted.
   sorted.sort((a, b) => b.bytes - a.bytes);
   return sorted.map((part) => ({
     kind: part.kind,
@@ -201,10 +189,7 @@ function gaugeParts(parts: ResourcePart[] | null | undefined, milagreShare: numb
 
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
-/**
- * The rows for one answer, or null when the answer isn't one this version can read (a broken or newer host): the row
- * then says it couldn't read, instead of the page failing.
- */
+/** The rows for one answer, or null when it isn't one this version can read. */
 export function resourceGauges(resources: ComputerResources | null | undefined): { memory: ResourceGauge; disk: ResourceGauge | null } | null {
   const memory = resources?.memory;
   if (!memory || !finite(memory.total) || !finite(memory.available) || (memory.milagre !== null && !finite(memory.milagre))) return null;
@@ -248,9 +233,7 @@ export function resourceGauges(resources: ComputerResources | null | undefined):
   };
 }
 
-/** The opacity of a part's slice of the accent colour, largest first, so the slices tell apart on any theme. */
 export const PART_OPACITY = [1, 0.7, 0.5, 0.35, 0.22, 0.14] as const;
 export const partOpacity = (index: number) => PART_OPACITY[Math.min(index, PART_OPACITY.length - 1)];
 
-/** How often an open page reads again: memory moves, and the first disk measure lands within a minute. */
 export const RESOURCES_REFRESH_MS = 15_000;

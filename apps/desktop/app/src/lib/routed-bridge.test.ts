@@ -116,6 +116,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/ProviderUpdateNotice.tsx": ["getProviderUpdates", "updateCli"],
   "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates"],
   "components/UpdateReleaseNotes.tsx": ["getUpdateReleaseNotes"],
+  // The Dock or taskbar icon is this computer's own.
+  "components/settings/AppIconPicker.tsx": ["getAppIcon", "setAppIcon"],
   "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "onCliProgress", "updateCli"],
   // First launch on this Mac, before any Project or computer: its own agents, folders and agent history, and whether it
   // knows a Project (a returning user skips the intro).

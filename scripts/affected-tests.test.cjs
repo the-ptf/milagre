@@ -127,6 +127,8 @@ test("changes the graph cannot follow run the whole suite", () => {
     "scripts/test-runner.cjs",
     "scripts/test.cjs",
     "scripts/affected-tests.cjs",
+    "scripts/failed-test-reporter.cjs",
+    "scripts/html-preview-warmup.cjs",
     "apps/desktop/tsconfig.json",
     "apps/desktop/vite.config.ts",
     "postcss.config.mjs",

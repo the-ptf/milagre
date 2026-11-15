@@ -1,13 +1,7 @@
-// What a subagent is doing, at a glance (the Subagents panel on desktop and phone). A subagent's transcript is its own
-// words (message entries) between tool calls (tool entries): each message starts a step, and the tool calls after it are
-// counted by category, so the panel shows "Now checking the Notion sheet" and "8 images · 2 commands" instead of the log.
-// The host keeps the running totals (`progress`), since a client holds only the tail of a running subagent's transcript.
-
 /** @typedef {import("./model.ts").StepKind} StepKind */
 /** @typedef {"commands" | "images" | "reads" | "searches" | "edits" | "other"} ToolCategory */
 
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|heic|svg|bmp|tiff?)\b/i;
-// Ties go to the calls that change more: edits, then commands.
 const ORDER = ["edits", "commands", "images", "reads", "searches", "other"];
 const LABELS = {
   commands: ["command", "commands"],
@@ -18,7 +12,6 @@ const LABELS = {
   other: ["other tool", "other tools"],
 };
 
-// A transcript entry the provider left without its step kind (one saved before the kind was kept): from its title.
 function kindOfTitle(text) {
   const title = String(text ?? "");
   if (title.startsWith("Ran ")) return "shell";
@@ -28,7 +21,6 @@ function kindOfTitle(text) {
   return "other";
 }
 
-/** The category a tool call counts under; a read of an image file is an image. */
 export function toolCategory(kind, text) {
   const resolved = kind ?? kindOfTitle(text);
   if (resolved === "shell") return "commands";
@@ -48,7 +40,6 @@ export function toolSummary(counts, limit = 3) {
     .join(" · ");
 }
 
-/** The counts per category as a list, for chips: [{ category, count, label }]. */
 export function toolChips(counts) {
   return ORDER.filter((category) => counts?.[category] > 0).map((category) => ({
     category,
@@ -57,7 +48,6 @@ export function toolChips(counts) {
   }));
 }
 
-/** A tool call's title as plain text, for a line that can't draw code: "Read `a.ts`" reads "Read a.ts". */
 export const plainTitle = (text) => String(text ?? "").replace(/`/g, "");
 
 /** The first sentence of what an agent said, without Markdown marks; the whole first line when it has no sentence end. */
@@ -72,17 +62,13 @@ export function firstSentence(text) {
   return (end ? plain.slice(0, end.index + 1) : plain).trim();
 }
 
-// The final answer and the provider's own summary are the outcome, not a step.
 const isOutcome = (entry) => entry.id === "result" || entry.id === "summary";
 // Claude's tool results ride in the transcript as tool entries of their own; they aren't calls.
 const isToolResult = (entry) => entry.id.startsWith("result:");
 
-/** Whether `entry` starts a step: something the agent said. */
 export const isStep = (entry) => entry.kind === "message" && !isOutcome(entry) && Boolean(entry.text?.trim());
-/** Whether `entry` is a tool call that counts. */
 export const isToolCall = (entry) => entry.kind === "tool" && !isToolResult(entry);
 
-/** `progress` with `entry` added: the host calls this once for each new transcript entry. */
 export function addProgress(progress, entry) {
   const current = progress ?? { steps: 0, tools: {} };
   if (isToolCall(entry)) {
@@ -118,7 +104,6 @@ export function lastSaid(steps) {
   return undefined;
 }
 
-/** The subagent's final answer or summary, first sentence; undefined while it has none. */
 export function subagentOutcome(transcript) {
   const entry = (transcript ?? []).findLast((item) => item.kind === "message" && isOutcome(item) && item.text?.trim());
   return entry ? firstSentence(entry.text) : undefined;

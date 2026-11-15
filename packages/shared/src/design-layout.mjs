@@ -5,7 +5,7 @@ import { designCatalogFont, designUsesInter, nearestDesignWeight } from "./desig
 const bounded = (value, minimum = 0) => Math.max(1, minimum, Math.min(16000, value));
 const round = (value) => Math.round(value * 1000) / 1000;
 const segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
-// Printable ASCII needs no grapheme segmentation; preserve full clusters for every other script.
+// Printable ASCII needs no grapheme segmentation; other scripts keep full clusters.
 const graphemes = (text) =>
   /^[ -~]*$/.test(text) ? text.split("") : segmenter ? Array.from(segmenter.segment(text), (item) => item.segment) : Array.from(text);
 
@@ -27,8 +27,8 @@ function catalogTable(entry) {
 }
 
 /**
- * Shared line breaking deliberately has no browser dependency. Inter, the catalog families, Arial, Georgia, Times New Roman and
- * Courier New are measured; other fonts use the closest generic metrics.
+ * Inter, the catalog families, Arial, Georgia, Times New Roman and Courier New are measured; other fonts use the
+ * closest generic metrics.
  */
 export function designTextLayout(node, width = Infinity) {
   const family = (node.fontFamily ?? "Inter").toLowerCase();
@@ -57,7 +57,6 @@ export function designTextLayout(node, width = Infinity) {
   const advances = new Map();
   const advance = (character) => {
     if (advances.has(character)) return advances.get(character);
-    // Non-ASCII Latin and punctuation are measured for Inter and the catalog; every other character falls back to an approximation.
     const point = character.codePointAt(0);
     const measuredExtra = measured.extra && String.fromCodePoint(point) === character ? measured.extra[weight]?.[point] : undefined;
     if (measuredExtra !== undefined) {
@@ -100,7 +99,6 @@ export function designTextLayout(node, width = Infinity) {
   return { lines, width: round(Math.max(0, ...lines.map(measure))), height: round(lines.length * lineHeight), lineHeight };
 }
 
-/** Fixed sizes are backward compatible. Hug measures content; fill shares available space in an auto-layout row/column. */
 export function designLayout(document, textLayout = designTextLayout) {
   const children = new Map();
   for (const node of document.nodes) {
@@ -143,7 +141,6 @@ export function designLayout(document, textLayout = designTextLayout) {
         const axis = horizontal ? "width" : "height";
         const room = horizontal ? contentWidth : contentHeight;
         const fills = sizes.filter((child) => child.node[`${axis}Mode`] === "fill");
-        // Fill inside a hug parent uses the stored fallback, avoiding a circular size dependency.
         if (room !== undefined && node[`${axis}Mode`] !== "hug" && fills.length) {
           const fixed = sizes.filter((child) => child.node[`${axis}Mode`] !== "fill").reduce((sum, child) => sum + child.size[axis], 0);
           let remaining = Math.max(0, room - fixed - Math.max(0, sizes.length - 1) * gap);

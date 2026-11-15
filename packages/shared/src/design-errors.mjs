@@ -1,4 +1,3 @@
-/** Field-level errors shared by semantic checks and Zod validation. */
 export function designError(message, path) {
   return Object.assign(new Error(message), { issues: [{ path, message }] });
 }

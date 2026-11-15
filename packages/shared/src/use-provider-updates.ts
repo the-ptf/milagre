@@ -4,16 +4,14 @@ import type { ProviderUpdate } from "./model";
 export interface ProviderUpdateTransport {
   read: () => Promise<ProviderUpdate[]>;
   install: (update: ProviderUpdate) => Promise<{ ok: boolean; error?: string }>;
-  /** Keeps dismissed releases (`provider:version`) past a reconnect or relaunch. Without it they last until the transport changes. */
+  /** Keeps dismissed releases (`provider:version`) past a reconnect or relaunch. */
   dismissals?: { load: () => Promise<string[]>; add: (key: string) => Promise<void> };
 }
 const keyOf = (update: ProviderUpdate) => `${update.provider}:${update.version}`;
 
-/** One queue per connected computer. A dismissed release stays hidden; a newer one shows again. */
 export function useProviderUpdates(transport: ProviderUpdateTransport | null) {
   const [updates, setUpdates] = useState<ProviderUpdate[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
-  // With saved dismissals, nothing shows until they are read, so a dismissed card never flashes back.
   const [dismissalsRead, setDismissalsRead] = useState(!transport?.dismissals);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -27,7 +25,6 @@ export function useProviderUpdates(transport: ProviderUpdateTransport | null) {
     const request = ++revision.current;
     try {
       const next = await transport.read();
-      // Optional discovery can be unavailable on older transports. Keep that reply out of UI state.
       if (!Array.isArray(next)) return;
       if (generation.current === current && request === revision.current) setUpdates(next);
     } catch {

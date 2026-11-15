@@ -38,7 +38,6 @@ export function canRunNow(routine: Pick<Routine, "trigger" | "target">): boolean
 /** Whether the Routine form can edit the Routine: not a babysit Heartbeat (pull-request trigger), which can still be paused and deleted. */
 export function canEditRoutine(routine: Pick<Routine, "trigger">): boolean;
 
-/** One entry of the Runs list: a Run that did something, or a stretch of Runs that did not. */
 export type RunEntry =
   | { kind: "run"; run: RoutineRun }
   | { kind: "fold"; runs: RoutineRun[]; counts: { quiet: number; skipped: number; missed: number; refused: number }; last: number };
@@ -67,7 +66,6 @@ export function foldText(fold: Pick<RunFold, "counts" | "runs">): string;
 export function foldTimes(fold: Pick<RunFold, "runs">): string;
 /** A day's heading on the computer's calendar: "Today", "Yesterday", "Thu, Oct 16", "Tue, Dec 30, 2025". */
 export function dayLabel(at: number, now: number): string;
-/** One day of the Runs list: its heading, its Runs (newest first), their entries, and whether it is today or yesterday. */
 export type RunDay = { key: string; label: string; at: number; runs: RoutineRun[]; entries: RunEntry[]; recent: boolean };
 /** The Runs (newest first) by the computer's day, newest day first; folds never span midnight. */
 export function runDays(runs: readonly RoutineRun[], now: number): RunDay[];
@@ -76,7 +74,6 @@ export function daySummary(runs: readonly RoutineRun[]): string;
 export type RunFilter = "all" | "acted" | "failed" | "unread";
 /** The Runs a filter keeps; `unread` says whether a Run's Chat has a result nobody opened. */
 export function filterRuns(runs: readonly RoutineRun[], filter: RunFilter, unread: (run: RoutineRun) => boolean): RoutineRun[];
-/** How many Runs each filter keeps. */
 export function runFilterCounts(runs: readonly RoutineRun[], unread: (run: RoutineRun) => boolean): Record<RunFilter, number>;
 /** A duration in its largest units: "38 s", "4 min", "1 h 5 min". */
 export function runDuration(ms: number): string;
@@ -119,7 +116,6 @@ export function hiddenRunChats(
   scopes: ReadonlyArray<{ path: string; state: { sessions: Record<string, AgentSession> } }>,
 ): Array<{ chatKey: string; routineId: string; runId: string; unread: boolean }>;
 
-/** Project states by scope key ("<path>", a Link's or another computer's key), as a desktop window or the phone holds them. */
 export type ScopeStates = Readonly<Record<string, { sessions: Readonly<Record<string, unknown>> }>>;
 /**
  * The Routines with a hidden Run Chat nobody has opened yet, over every computer's Projects (no Links): the Routines button

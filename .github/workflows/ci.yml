@@ -70,6 +70,8 @@ jobs:
             run: npm run typecheck
           - name: Lint
             run: npm run lint
+          - name: Lint suppression reasons
+            run: node scripts/check-suppressions.cjs
           - name: Format check
             run: npm run format:check
           - name: Dead code

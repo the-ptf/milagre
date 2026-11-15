@@ -18,7 +18,6 @@ export function splitRows(hunk: DiffHunk): SplitRow[] {
       flush();
       rows.push({ left: line, right: line });
     } else if (line.kind === "remove") {
-      // A removal after additions starts a new block.
       if (added.length) flush();
       removed.push(line);
     } else added.push(line);
@@ -50,8 +49,6 @@ export function wordChanges(oldText: string, newText: string): { old: Range[]; n
   if (oldText === newText || oldText.length > MAX_WORD_DIFF_CHARS || newText.length > MAX_WORD_DIFF_CHARS) return none;
   const a = tokenize(oldText);
   const b = tokenize(newText);
-  // lcs[i][j] = longest common token run of a[i..] and b[j..].
-  // Empty suffixes have score zero; their terminal row and column stay absent.
   const lcs: number[][] = [];
   let nextRow: number[] = [];
   for (let i = a.length - 1; i >= 0; i--) {

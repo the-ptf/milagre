@@ -13,7 +13,7 @@ const shared = (name: string) => `../../../packages/shared/src/${name}`;
 const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   computers: ["app/(settings)/computers.tsx"],
   routines: ["app/routines.tsx"],
-  appearance: ["app/(settings)/appearance.tsx", "appearance-section.tsx", "custom-theme-section.tsx"],
+  appearance: ["app/(settings)/appearance.tsx", "appearance-section.tsx", "app-icon-section.tsx", "custom-theme-section.tsx"],
   "chat-display": [
     "app/(settings)/chat-display.tsx",
     "chat-display-section.tsx",

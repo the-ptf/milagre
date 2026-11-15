@@ -73,7 +73,6 @@ export function fileLanguage(path) {
   return refractor.registered(language) ? language : undefined;
 }
 
-// Keep large previews responsive on phones; all of their text still renders and remains selectable.
 export const MAX_SYNTAX_CHARACTERS = 40_000;
 export function highlightFile(text, name) {
   const language = fileLanguage(name);

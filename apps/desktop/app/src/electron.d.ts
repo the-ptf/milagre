@@ -144,6 +144,8 @@ export type WorktreeSetupSource = "repo" | "setting" | "none";
 export type WorktreeSetupSettings = { setupCommand: string; source: WorktreeSetupSource; command: string | null; note?: string };
 
 export type ReleaseChannel = "stable" | "beta";
+/** Settings › Appearance › App icon; electron/app-icon.cjs keeps the list. */
+export type AppIcon = "default" | "dawn" | "mono-dark" | "mono-light" | "sunset" | "aurora" | "glass" | "eight-bit";
 export type UpdateState = AppUpdateState;
 
 /** The Phone setting as the host runs it. The link and QR (an SVG) are there only while it is on; both carry the access token. */
@@ -781,6 +783,10 @@ export type MilagreBridge = {
   checkForUpdates: () => Promise<UpdateState>;
   getReleaseChannel: () => Promise<ReleaseChannel>;
   setReleaseChannel: (channel: ReleaseChannel) => Promise<ReleaseChannel>;
+  /** The Dock or taskbar icon this computer shows for Milagre. */
+  getAppIcon: () => Promise<AppIcon>;
+  /** Saves the icon on this computer and shows it at once. */
+  setAppIcon: (icon: AppIcon) => Promise<AppIcon>;
   installUpdate: () => Promise<void>;
   onUpdateState: (callback: (state: UpdateState) => void) => () => void;
   getPhoneStatus: () => Promise<PhoneStatus>;

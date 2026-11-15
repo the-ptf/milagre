@@ -1,6 +1,5 @@
 import type { ChatStep } from "./model.ts";
 
-/** A computer use step: one of Milagre's desktop_* tools (Settings › This Mac › Computer use). */
 export const isDesktopStep = (step: ChatStep) => step.source?.server === "milagre" && !!step.source.name?.startsWith("desktop_");
 
 type DesktopInput = { app?: string; action?: string; text?: string; keys?: string; intent?: string; role?: string; name?: string; window?: string };
@@ -30,7 +29,6 @@ const ACTIONS: Record<string, string> = {
   "scroll-to": "Scrolled to",
 };
 
-/** The step in a few words: the agent's own intent when it gave one, otherwise what the tool did. */
 export function desktopStepLabel(step: ChatStep): string {
   const value = input(step);
   if (value.intent?.trim()) return value.intent.trim();
@@ -59,7 +57,6 @@ export function desktopStepLabel(step: ChatStep): string {
   }
 }
 
-/** The apps the steps used, in the order they were first used. */
 export function desktopStepApps(steps: ChatStep[]): string[] {
   const apps: string[] = [];
   for (const step of steps) {
@@ -69,7 +66,6 @@ export function desktopStepApps(steps: ChatStep[]): string[] {
   return apps;
 }
 
-/** How long the host keeps capturing after the agent's last desktop step (computer-use-screen.cjs IDLE_MS), plus slack. */
 const CAPTURE_TAIL_MS = 25_000;
 
 /**
@@ -84,7 +80,6 @@ export function frameFitsSteps(frameAt: number | undefined, steps: ChatStep[]): 
   return (first === undefined || frameAt >= first - 1000) && (running || !last || frameAt <= last + CAPTURE_TAIL_MS);
 }
 
-/** Whether the agent may still capture for these steps: one is running, or the last ended within the capture tail. */
 export function desktopStepsActive(steps: ChatStep[], now = Date.now()): boolean {
   if (steps.some((step) => step.status === "running")) return true;
   const last = Math.max(0, ...steps.map((step) => step.endedAt ?? 0));

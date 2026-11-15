@@ -1,4 +1,3 @@
-/** One file of an Artifact page, as the page keeps it. */
 export type ArtifactAsset = { name: string; hash: string; size: number; type: string };
 
 export const ASSET_NAME: RegExp;

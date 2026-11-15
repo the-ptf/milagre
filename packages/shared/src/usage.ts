@@ -22,7 +22,6 @@ export function formatPercent(usedPercent: number) {
   return `${Math.round(usedPercent)}%`;
 }
 
-/** The percent to show: what's been used, or what's left of the window. */
 export function shownPercent(usedPercent: number, display: UsageDisplay) {
   return display === "remaining" ? Math.max(0, 100 - usedPercent) : usedPercent;
 }
@@ -44,21 +43,18 @@ export function formatResetsIn(resetsAt: string | null, now: number): string | n
 
 export function formatUpdatedAgo(updatedAt: string, now: number): string {
   const elapsed = now - Date.parse(updatedAt);
-  // NaN and negative (clock skew) both land here.
   if (!(elapsed >= MINUTE)) return "Updated just now";
   if (elapsed < HOUR) return `Updated ${Math.floor(elapsed / MINUTE)}m ago`;
   if (elapsed < DAY) return `Updated ${Math.floor(elapsed / HOUR)}h ago`;
   return `Updated ${Math.floor(elapsed / DAY)}d ago`;
 }
 
-/** Short windows use a countdown; longer windows show the computer viewer's local reset time. */
 export function formatResetsAt(resetsAt: string | null, now: number): string | null {
   if (!resetsAt || !Number.isFinite(Date.parse(resetsAt))) return null;
   if (Date.parse(resetsAt) - now < DAY) return formatResetsIn(resetsAt, now);
   return `Resets ${new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(resetsAt))}`;
 }
 
-/** Use the oldest last-good read so a fresh account never makes another account's stale data look current. */
 export function overviewUpdatedAt(snapshot: UsageSnapshot | null): string | null {
   const times =
     snapshot?.providers
@@ -68,13 +64,8 @@ export function overviewUpdatedAt(snapshot: UsageSnapshot | null): string | null
   return times.length ? new Date(Math.min(...times)).toISOString() : null;
 }
 
-/** What the sidebar shows for plan usage: one footer button that opens every provider's limits, a meter per provider, or nothing. */
 export type UsageInSidebar = "button" | "meters" | "off";
 
-/**
- * The one sidebar usage choice desktop Settings offers. It saves two settings: `usageInSidebar`, and for Meters the
- * appearance's `sidebarUsage` row style (Compact meters puts the provider icons in one line).
- */
 export type SidebarUsagePick = UsageInSidebar | "compact";
 
 export const SIDEBAR_USAGE_PICKS: readonly { id: SidebarUsagePick; label: string; hint: string }[] = [
@@ -88,20 +79,15 @@ export function sidebarUsagePick(usageInSidebar: UsageInSidebar, sidebarUsage: "
   return usageInSidebar === "meters" && sidebarUsage === "compact" ? "compact" : usageInSidebar;
 }
 
-/** What a pick saves; Button and Off leave the meters' row style as it was. */
 export function sidebarUsagePickSettings(pick: SidebarUsagePick): { usageInSidebar: UsageInSidebar; sidebarUsage?: "expanded" | "compact" } {
   if (pick === "compact") return { usageInSidebar: "meters", sidebarUsage: "compact" };
   if (pick === "meters") return { usageInSidebar: "meters", sidebarUsage: "expanded" };
   return { usageInSidebar: pick };
 }
 
-/** The footer button's name, and the title of what it opens, on desktop and phone. */
 export const USAGE_BUTTON_LABEL = "Plan usage";
 
-/**
- * The saved choice; before it existed the sidebar had an on/off `showUsageInSidebar`, whose meters an `on` keeps.
- * Nothing saved is the new default, the button.
- */
+/** Nothing saved means the button. */
 export function parseUsageInSidebar(value: unknown, legacyShow?: unknown): UsageInSidebar {
   if (value === "button" || value === "meters" || value === "off") return value;
   if (legacyShow === true) return "meters";
@@ -109,7 +95,6 @@ export function parseUsageInSidebar(value: unknown, legacyShow?: unknown): Usage
   return "button";
 }
 
-/** The providers the sidebar shows: those with numbers. One in error keeps showing its last-known windows. */
 export function visibleProviders(snapshot: UsageSnapshot) {
   return snapshot.providers.filter((item) => item.status !== "unavailable" && item.windows.length > 0);
 }
@@ -122,15 +107,11 @@ export function usageLabel(usage: ProviderUsage, display: UsageDisplay = "used")
   return `${name} usage${usage.status === "error" ? ", last known" : ""}: ${windows.join(", ")}`;
 }
 
-// The saved numbers only seed an empty snapshot: a fresh read that landed first wins.
 export function seedSnapshot(current: UsageSnapshot | null, cached: UsageSnapshot): UsageSnapshot | null {
   if (current || cached.providers.length === 0) return current;
   return cached;
 }
 
-// A failed refresh keeps the last good windows and their timestamp, so the card
-// stays useful and "Updated Xm ago" stays truthful while showing the error.
-// Windows that have reset since are dropped: their old numbers no longer apply.
 export function mergeSnapshot(previous: UsageSnapshot | null, next: UsageSnapshot, now: number): UsageSnapshot {
   if (previous?.accountKey !== next.accountKey) previous = null;
   return {
@@ -149,14 +130,12 @@ export function mergeSnapshot(previous: UsageSnapshot | null, next: UsageSnapsho
 
 export { formatTokens };
 
-/** All Accounts stay separate, including two providers' connected CLI accounts, both named `default`. */
 export function accountUsageGroups(snapshot: UsageSnapshot | null) {
   return PROVIDERS.map((provider) => ({ provider, accounts: snapshot?.providers.filter((item) => item.provider === provider) ?? [] })).filter(
     (group) => group.accounts.length > 0,
   );
 }
 
-/** How full the agent's context window is: the percent used and the token counts behind it. */
 export function contextSummary({ used, size }: { used: number; size: number }) {
   const ratio = size > 0 ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(ratio * 100);
@@ -168,19 +147,15 @@ export function contextSummary({ used, size }: { used: number; size: number }) {
   };
 }
 
-/** From here the ring turns to the accent colour. */
 export const CONTEXT_WARN_PERCENT = 75;
-/** From here the ring turns red to indicate the window is nearly full. */
 export const CONTEXT_CRITICAL_PERCENT = 90;
 
-/** How the ring is drawn for a percent used: the colour step it has reached. */
 export function contextTone(percent: number): "normal" | "warning" | "critical" {
   if (percent >= CONTEXT_CRITICAL_PERCENT) return "critical";
   if (percent >= CONTEXT_WARN_PERCENT) return "warning";
   return "normal";
 }
 
-/** Explain the warning threshold; the button supplies the action. */
 export function contextHint(percent: number): string | null {
   return percent >= CONTEXT_WARN_PERCENT ? `Context above ${CONTEXT_WARN_PERCENT}% may reduce response quality and slow replies.` : null;
 }

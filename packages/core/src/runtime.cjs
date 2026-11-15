@@ -159,7 +159,10 @@ function createRuntime(options) {
   // The home as the Milagre MCP host and Routines see it: a project-less Chat's own tools and Heartbeats reach it.
   const chatsHomeEntries = async () => ((await chatsHome.exists()) ? [{ path: chatsHome.path, name: projectName(chatsHome.path), kind: "chats" }] : []);
   function track(work, set = active) {
-    const task = Promise.resolve().then(work);
+    return hold(Promise.resolve().then(work), set);
+  }
+  // Agent events fold in the order they arrive, so they start at once; holding them keeps close() waiting for each.
+  function hold(task, set) {
     set.add(task);
     task.then(
       () => set.delete(task),
@@ -275,22 +278,25 @@ function createRuntime(options) {
     validateChat: existingChat("showing a design"),
     readKit: (request) => designKits.read(request),
   });
-  const designPageSharing = require("./design-page-sharing.cjs").createDesignPageSharing({
-    directory: path.join(dataDir, "design-page-shares"),
-    artifacts,
-    validateChat: existingChat("sharing Designs"),
-    chatTitle: async (chatId) => {
-      const session = (await scopeStates.get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
-      return session?.title || session?.generatedTitle || null;
-    },
-    ...options.designSharing,
-  });
-  commands.handle("artifact:page-shares", (_context, request) => designPageSharing.list(request));
-  commands.handle("artifact:sharing-status", (_context, request) => designPageSharing.status(request));
-  commands.handle("artifact:all-page-shares", () => designPageSharing.listAll());
-  commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing.revokeSaved(request));
-  commands.handle("artifact:share-page", (_context, request) => designPageSharing.publish(request));
-  commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing.revoke(request));
+  let pageSharing;
+  // Public-page validation imports the renderer too; create the service on its first request.
+  const designPageSharing = () =>
+    (pageSharing ??= require("./design-page-sharing.cjs").createDesignPageSharing({
+      directory: path.join(dataDir, "design-page-shares"),
+      artifacts,
+      validateChat: existingChat("sharing Designs"),
+      chatTitle: async (chatId) => {
+        const session = (await scopeStates.get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
+        return session?.title || session?.generatedTitle || null;
+      },
+      ...options.designSharing,
+    }));
+  commands.handle("artifact:page-shares", (_context, request) => designPageSharing().list(request));
+  commands.handle("artifact:sharing-status", (_context, request) => designPageSharing().status(request));
+  commands.handle("artifact:all-page-shares", () => designPageSharing().listAll());
+  commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing().revokeSaved(request));
+  commands.handle("artifact:share-page", (_context, request) => designPageSharing().publish(request));
+  commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing().revoke(request));
   // Designs are always on. Older apps and paired computers still read the switch, and saving it changes nothing.
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
@@ -300,7 +306,7 @@ function createRuntime(options) {
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
-  // Comments the user left on Browser panel pages (spec docs/superpowers/specs/2026-10-28-internal-browser-design.md).
+  // Comments the user left on Browser panel pages.
   const { commentAtPoint, createChatPageComments, pageCommentToolDefinitions, pageElement } = require("./chat-page-comments.cjs");
   const pageComments = createChatPageComments({
     directory: path.join(dataDir, "page-comments"),
@@ -429,8 +435,9 @@ function createRuntime(options) {
   // `agents` is created below; ownership roots are read only once the service polls.
   function agentProcesses() {
     const roots = agents.processes();
+    for (const [chatId, root] of roots) root.active = agents.isTurnActive(chatId) || agents.backgroundWork(chatId) > 0;
     for (const [chatId, children] of advisors?.processes() ?? []) {
-      roots.set(chatId, { cwd: children[0].cwd, ...roots.get(chatId), agents: children.map((child) => child.pid) });
+      roots.set(chatId, { cwd: children[0].cwd, ...roots.get(chatId), agents: children.map((child) => child.pid), active: true });
     }
     return roots;
   }
@@ -619,7 +626,7 @@ function createRuntime(options) {
     }
   }
 
-  // Every project's state goes through here: this runtime is its only writer (see ADR-0001 and ADR-0003).
+  // Every project's state goes through here: this runtime is its only writer (see docs/host.md).
   // A Chat nobody touched for a while leaves memory, unless its turn is busy (see ProjectStates and message-store.cjs).
   // MILAGRE_LAZY_MESSAGES=0 keeps every message in memory, as before #321. MILAGRE_LAZY_MESSAGES_IDLE_MS sets how long a
   // Chat stays idle before it leaves (the sweep runs as often, between 250 ms and a minute): for trying it out and checks.
@@ -1458,7 +1465,7 @@ function createRuntime(options) {
         return "";
       }
     },
-    send: (chatId, event) => void chats.receive(chatId, event),
+    send: (chatId, event) => void hold(chats.receive(chatId, event), background),
   });
 
   // The ports each chat's commands listen on, polled while any agent runs or anything it started still does.
@@ -2040,7 +2047,7 @@ function createRuntime(options) {
       accountMutation = pending.catch(() => {});
       return pending;
     });
-  // Settings › MCP (docs/superpowers/specs/2026-10-09-mcp-settings-design.md): each account's servers and their status.
+  // Settings › MCP: each account's servers and their status.
   // The tab checks every account in parallel; saves, switches and sign-ins go through the same module.
   const mcp = createMcp({
     accounts,

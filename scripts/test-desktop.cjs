@@ -850,7 +850,7 @@ async function main() {
         owner.release();
       }
     }
-    // Messages are saved in chats.db (ADR-0007): read the state the way the app does.
+    // Messages are saved in chats.db (docs/chat-storage.md): read the state the way the app does.
     const saved = await require("@milagre/core/project-store").readProjectState(project);
     assert.deepEqual(saved.messages, state.messages, "Launching and quitting must preserve the transcript");
   } finally {

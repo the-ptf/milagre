@@ -1,8 +1,5 @@
-// Fuzzy search over chat message bodies, for ⌘K on desktop and the chat search on mobile. Everything stays in memory:
-// a project's bodies are a few hundred KB, so an inverted index answers each keystroke in about a millisecond.
 const WORD = /[\p{L}\p{N}_]+/gu;
 const indexes = new WeakMap();
-/** Built once per messages array; state updates replace the array, which drops the stale index with it. */
 function indexOf(messages) {
   const cached = indexes.get(messages);
   if (cached) return cached;
@@ -21,11 +18,9 @@ function indexOf(messages) {
   indexes.set(messages, index);
   return index;
 }
-/** Typos allowed for a query word: none for short words, where one edit already matches unrelated words. */
 const typos = (length) => (length >= 8 ? 2 : length >= 4 ? 1 : 0);
 /** Damerau-Levenshtein distance between `a` and the closest prefix of `b`, or Infinity once it exceeds `max`. */
 export function editDistance(a, b, max, prefix = false) {
-  // A prefix longer than `a` plus the allowed edits can't be closer, so only that much of `b` is read.
   if (prefix) b = b.slice(0, a.length + max);
   if (Math.abs(a.length - b.length) > max && !(prefix && b.length > a.length)) return Infinity;
   let before = Array.from({ length: b.length + 1 }, () => 0);
@@ -47,7 +42,6 @@ export function editDistance(a, b, max, prefix = false) {
   const distance = prefix ? Math.min(...previous.slice(a.length - max > 0 ? a.length - max : 0)) : previous[b.length];
   return distance > max ? Infinity : distance;
 }
-/** Each index word that matches `term`, scored: exact 4, prefix 3, inside a word 2, a typo away 1 (less per edit). */
 function wordMatches(index, term) {
   const cached = index.terms.get(term);
   if (cached) return cached;
@@ -67,7 +61,6 @@ function wordMatches(index, term) {
   index.terms.set(term, found);
   return found;
 }
-/** Up to ~`width` characters of `text` around [start, end), on word boundaries, with the match's place in the result. */
 function snippetAround(text, start, end, width = 90) {
   const lead = Math.max(0, Math.min(start, Math.floor((width - (end - start)) / 3)));
   let from = start - lead;
@@ -86,17 +79,13 @@ function snippetAround(text, start, end, width = 90) {
   const after = collapse(text.slice(end, to)).trimEnd() + (to < text.length ? "…" : "");
   return { snippet: before + match + after, highlight: [before.length, before.length + match.length] };
 }
-/**
- * Messages matching every word of `query`, best first. A word matches by prefix, inside a longer word, or within one
- * typo (two for words of 8+ letters); the whole query appearing as typed ranks highest. Ties go to the newest message.
- */
+/** Best first; ties go to the newest message. */
 export function searchMessages(messages, query, limit = 50) {
   const phrase = query.trim().toLowerCase().replace(/\s+/g, " ");
   const terms = [...new Set(phrase.match(WORD) ?? [])];
   if (!terms.length || phrase.length < 2) return [];
   const index = indexOf(messages);
   let scores = null;
-  // The best word per term and message, to place the snippet on the strongest match.
   const firstWord = new Map();
   for (const [position, term] of terms.entries()) {
     const next = new Map();

@@ -2,19 +2,14 @@ import { z } from "zod";
 import { createLibrary, createParser, defineComponent, evaluateElementProps, tagSchemaId } from "@openuidev/lang-core";
 import type { ActionEvent, ElementNode, ParseResult } from "@openuidev/lang-core";
 
-/** The fence info string that marks a block of OpenUI Lang in a reply. */
 export const GENUI_FENCE = "openui";
 
-/** Whether a fence's info string names a generative UI block: its first word is `openui`, in any case. */
 export const isGenuiFence = (info: string | undefined): boolean => (info ?? "").trim().split(/\s+/)[0]?.toLowerCase() === GENUI_FENCE;
 
-/** Caps a block renders under; above any of them the block shows as code. */
 export const genuiLimits = { rows: 200, columns: 12, points: 100, text: 64 * 1024 } as const;
 
-/** The root component the agent assigns to `root`. */
 export const GENUI_ROOT = "Stack";
 
-/** The action type a button posts back to the chat (`@ToAssistant`); every other type is ignored. */
 export const GENUI_ACTION_TYPE = "continue_conversation";
 
 // An `Action([...])` evaluates to a plan of steps; the two object forms are the language's legacy action values.
@@ -30,10 +25,7 @@ tagSchemaId(actionProp, "ActionExpression");
 const cell = z.string().max(2000);
 const label = z.string().max(200);
 
-/**
- * The components an agent can use, in the order the skill lists them. Prop order is positional order in OpenUI Lang:
- * `Table(columns, rows)`. Descriptions are read by the model, so they say what each prop means.
- */
+/** In the order the skill lists them. Prop order is positional order in OpenUI Lang: `Table(columns, rows)`. */
 export const GENUI_COMPONENTS = {
   Stack: {
     description: "Lays out children vertically (default) or in a row. The root of every block.",
@@ -123,7 +115,6 @@ export const GENUI_COMPONENTS = {
 export type GenuiComponentName = keyof typeof GENUI_COMPONENTS;
 export type GenuiProps<K extends GenuiComponentName> = z.infer<(typeof GENUI_COMPONENTS)[K]["props"]>;
 
-/** One `defineComponent` config per component, in contract order, bound to a platform's renderers. */
 export function genuiDefinitions<C>(renderers: Record<GenuiComponentName, C>) {
   return (Object.keys(GENUI_COMPONENTS) as GenuiComponentName[]).map((name) => ({
     name,
@@ -133,7 +124,6 @@ export function genuiDefinitions<C>(renderers: Record<GenuiComponentName, C>) {
   }));
 }
 
-/** Every row gets exactly one string per column: longer rows are cut, shorter ones padded, non-strings printed. */
 export function squareRows(columns: readonly string[], rows: readonly (readonly unknown[])[]): string[][] {
   return rows.map((row) => columns.map((_, index) => (row[index] === undefined || row[index] === null ? "" : String(row[index]))));
 }
@@ -142,7 +132,6 @@ export const CHART_WIDTH = 320;
 export const CHART_HEIGHT = 140;
 export const CHART_PAD = { top: 8, right: 8, bottom: 22, left: 8 } as const;
 
-/** Where each value sits on a CHART_WIDTH by CHART_HEIGHT canvas; a flat series sits on the baseline. */
 export function chartGeometry(values: readonly number[], width = CHART_WIDTH, height = CHART_HEIGHT) {
   const max = Math.max(0, ...values);
   const min = Math.min(0, ...values);
@@ -172,7 +161,6 @@ const parserLibrary = createLibrary({
 });
 const parser = createParser(parserLibrary.toJSONSchema());
 
-/** Parse and validate before either platform mounts anything. The parser alone does not enforce Zod's array caps. */
 export function parseGenui(code: string): ParseResult {
   const empty = (): ParseResult => ({
     root: null,

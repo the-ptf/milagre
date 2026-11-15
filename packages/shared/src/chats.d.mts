@@ -12,9 +12,8 @@ export type ChatMarkKind = "question" | "waiting" | "delegated" | "interrupted" 
 /** The mark's tone as text (status words); idle reads ink3. */
 export function chatMarkTone(mark: ChatMarkKind): "accent" | "orange" | "red" | "ink3";
 /**
- * A Chat mark as both apps draw it. `icon`: bubble (BubbleChatIcon), shield-alert (ShieldAlertIcon), link (Link04Icon),
- * alert (Alert02Icon), spinner (SpinnerRing), ring (the background count ring), dot (8px; idle 6px). `tone`: the
- * glyph's palette key, idle a solid ink4 dot. `label`: tooltip and accessibility words, empty for idle.
+ * A Chat mark as both apps draw it. `tone`: the glyph's palette key. `label`: tooltip and accessibility words, empty
+ * for idle.
  */
 export function chatMarkPresentation(mark: ChatMarkKind): {
   icon: "bubble" | "shield-alert" | "link" | "alert" | "spinner" | "ring" | "dot";
@@ -28,9 +27,9 @@ export function chatTitle(session: AgentSession | LinkChatSession, messages?: re
 /** chatTitle without cutting a first-message title at 60 characters, for a place that truncates it itself. */
 export function fullChatTitle(session: AgentSession | LinkChatSession, messages?: readonly ChatMessage[]): string;
 export function isHandoverChat(session: AgentSession | LinkChatSession | undefined): boolean;
-/** Whether a Routine's Run created the Chat and keeps it out of the lists (`routine.hidden`) unless `waiting` says it waits on someone. */
+/** Whether a Routine's Run created the Chat and hides it from the lists unless `waiting` says it waits on someone. */
 export function isHiddenRunChat(session: AgentSession | LinkChatSession | undefined, waiting?: boolean): boolean;
-/** Whether the chat lists show the Chat: it has a message or a handover; a hidden Run Chat only while `waiting` says it waits on someone. */
+/** Whether the chat lists show the Chat: it has a message or a handover; a hidden Run Chat only while `waiting`. */
 export function isListedChat(session: AgentSession | LinkChatSession | undefined, messageCount: number, waiting?: boolean): boolean;
 
 export function comparePins(a: Pick<AgentSession, "pinned" | "pin_order">, b: Pick<AgentSession, "pinned" | "pin_order">): number;

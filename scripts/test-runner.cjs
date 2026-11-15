@@ -28,6 +28,8 @@ const MANIFEST = {
   "test-chat-scroll-return.cjs": { seconds: 40 },
   "test-chat-scroll-intent.cjs": { seconds: 15 },
   "test-site.cjs": { seconds: 23 },
+  // Its headless Chrome is warmed up first on Linux CI (html-preview-warmup.cjs).
+  "test-html-replies.cjs": { previewsHtml: true },
   "test-task-track.cjs": { seconds: 20 },
   // #526 removed the canvas behind #240; the replacement Subagents check runs on Linux too.
   "test-subagents.cjs": { seconds: 20 },
@@ -280,6 +282,30 @@ function shouldRetry({ platform, ci, attempt }) {
 }
 
 /**
+ * One line per failed test or check, the same in every log, so triage across CI runs is a grep for `FAILED-TEST:`:
+ * `FAILED-TEST: <file> › <test name> :: <reason>`, the test name only for node:test files.
+ */
+function failureLine(file, name, reason) {
+  const flat = (text) =>
+    String(text ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+  return `FAILED-TEST: ${file}${name ? ` › ${flat(name)}` : ""} :: ${flat(reason).slice(0, 300) || "no error message"}`;
+}
+
+/**
+ * What an Electron check printed about its failure: the last line that starts with an error (its catch prints the error
+ * last), not Chromium's own `[pid:...:ERROR:...]` logging. Falls back to the last line printed.
+ */
+function failureReason(output) {
+  const lines = String(output ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.findLast((line) => /^(?:\[?\w*(?:Error|Exception)\b|Timed out)/.test(line)) ?? lines.at(-1) ?? "";
+}
+
+/**
  * Only npm needs cmd.exe on Windows, where it is a .cmd script. Node must not go through it: cmd.exe splits its path at
  * "C:\Program Files" and caps a command line at 8,191 characters, under the length of the unit test file list.
  */
@@ -325,6 +351,8 @@ function testEnv(env) {
 
 module.exports = {
   testEnv,
+  failureLine,
+  failureReason,
   HOST_ENV,
   needsShell,
   shouldRetry,

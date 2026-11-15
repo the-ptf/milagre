@@ -490,6 +490,17 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "snooze-setting" && !(id in modules)) return { useSnoozeMinutes: () => [60, () => {}] };
       // The composer's glass is a native blur behind its children; tests render none.
       if (base === "composer-glass" && !(id in modules)) return { ComposerGlass: () => null };
+      // The runs reply merge is plain logic; which Chats are on screen only narrows the host's runs reads, so UI tests
+      // register nothing.
+      if (base === "runs-reply" && !(id in modules)) return load("runs-reply.ts", modules, "", cache);
+      if (base === "visible-run-chats" && !(id in modules))
+        return {
+          useVisibleRunChat() {},
+          useVisibleRunChatKeys() {},
+          registerVisibleRunChat: () => () => {},
+          visibleRunChats: () => [],
+          watchVisibleRunChats: () => () => {},
+        };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -682,13 +693,20 @@ test("context settings stay safe and unavailable on both clients without a host 
     assert.equal(value.settings.autoCompact, false, "the desktop composer can read defaults without crashing");
     assert.equal(value.ready, false, "unavailable host settings cannot be edited");
 
-    const mobile = hookHost();
-    const phone = load("context-settings.ts", {
-      react: mobile,
+    // The phone shares one read per computer (context-settings.ts); a host that answers nothing leaves it on defaults.
+    const client = { call: async () => response };
+    const phoneStore = load("context-settings.ts", {
+      react: hookHost(),
+      "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+      "expo-router": { useFocusEffect() {} },
       "@milagre/shared/context-settings": shared,
-      "./session": { useSession: () => ({ client: {} }) },
-      "./use-rpc": { useRpc: () => ({ data: response, error: "" }) },
-    }).useContextSettings();
+      "./session": { useSession: () => ({ client }) },
+      "./use-rpc": { rpcDataKey: (data) => JSON.stringify(data) },
+    }).createContextSettingsStore(client);
+    const stop = phoneStore.subscribe(() => {});
+    await phoneStore.refresh();
+    const phone = phoneStore.getSnapshot();
+    stop();
     assert.deepEqual(value.settings, phone.settings);
     assert.equal(value.ready, phone.ready);
     desktop.unmount();
@@ -3494,6 +3512,19 @@ function find(node, predicate) {
     if (found) return found;
   }
 }
+// The routed Chat's native header (ChatStackOptions in app/chat.tsx) as its Stack.Screen publishes it, with the header
+// its slot draws in place of the HeaderSlot the navigator gets.
+function chatScreen(tree) {
+  const node = find(tree, (candidate) => candidate.type?.name === "ChatStackOptions");
+  if (!node) return;
+  const { title, starting, header } = node.props;
+  return { props: { options: { title: starting ? "" : title, headerTitle: () => (starting ? null : header) } } };
+}
+// The title's family menu (FamilyTitleMenu in app/chat.tsx), drawn one level as React would: it reads the runs itself.
+function familyPullDown(title) {
+  const menu = find(title, (node) => node.type?.name === "FamilyTitleMenu");
+  return menu && menu.type(menu.props);
+}
 function findAll(node, predicate, found = []) {
   if (!node || typeof node !== "object") return found;
   if (predicate(node)) found.push(node);
@@ -4124,7 +4155,7 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
       ]),
     );
     // The header's PR chip opens the open one, in the web Project's Worktree.
-    const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    const title = chatScreen(tree).props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
     const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
@@ -4736,9 +4767,10 @@ test("a subchat's row opens it alone, closing any split, and the open subchat's 
 const expand = (node) => {
   for (let drawn = node; ; drawn = drawn.type(drawn.props)) if (!drawn || typeof drawn.type !== "function") return drawn;
 };
-const subchatUi = (file) => {
+const subchatUi = (file, modules = {}) => {
   const react = { ...hookHost(), memo: (fn) => fn };
   return load(file, {
+    ...modules,
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View", useWindowDimensions: () => ({ width: 402, height: 874 }) },
@@ -4769,11 +4801,15 @@ test("the ask pill keeps 'needs you' whole, lets the title truncate, wraps the q
 });
 
 test("the capsule is 32 tall with a 44 target, tints orange when the parent needs you and never truncates 'Needs you'", () => {
-  const { SubchatBookmarkHost } = subchatUi("subchat-bookmark.tsx");
+  // The host reads the parent's turn itself (useRun in session.tsx); a test hands it the Project's runs.
+  let runs;
+  const { SubchatBookmarkHost } = subchatUi("subchat-bookmark.tsx", { "./session": { useRun: (key) => (key ? runs?.[key] : undefined) } });
   const sessions = { 1: { id: 1, title: "Redesign the PR panel" }, 2: { id: 2, title: "Audit", parent: 1 } };
   // The host hands the capsule its Bookmark; the capsule is drawn here, where a screen would draw it.
-  const draw = (runs) =>
-    expand(SubchatBookmarkHost({ sessions, chatKey: "/p#2", runs, top: 60, onBack: (key) => (drawn.backs = [...(drawn.backs ?? []), key]) }));
+  const draw = (next) => {
+    runs = next;
+    return expand(SubchatBookmarkHost({ sessions, chatKey: "/p#2", top: 60, onBack: (key) => (drawn.backs = [...(drawn.backs ?? []), key]) }));
+  };
   const drawn = {};
   const calm = draw(undefined);
   assert.equal(calm.props.style.top, 60);
@@ -4796,7 +4832,7 @@ test("the capsule is 32 tall with a 44 target, tints orange when the parent need
   assert.equal(find(needy, (node) => node.type === "Text" && node.props.children === "Redesign the PR panel").props.numberOfLines, 1, "the title gives way");
   needyButton.props.onPress();
   assert.equal(JSON.stringify(drawn.backs), JSON.stringify(["/p#1"]), "back goes to the direct parent");
-  assert.equal(SubchatBookmarkHost({ sessions, chatKey: "/p#1", runs: undefined, top: 60, onBack() {} }), null, "a top Chat has none");
+  assert.equal(SubchatBookmarkHost({ sessions, chatKey: "/p#1", top: 60, onBack() {} }), null, "a top Chat has none");
 });
 
 test("a suggestion is a card with Send answer, Open Subchat and Dismiss; an outcome collapses it to one line, a dismissal to nothing", async () => {
@@ -5036,7 +5072,7 @@ test("mobile chat titles use summaries before transcripts load and switch to gen
   const host = chatHost();
   host.params.id = "3";
   host.session.snapshot.project.state.sessions[3] = chat;
-  const screen = find(host.render(), (node) => node.type === "Screen");
+  const screen = chatScreen(host.render());
   assert.equal(screen.props.options.title, "Fix the login redirect", "the Chat header uses the summary while the transcript is loading");
 });
 
@@ -6909,7 +6945,7 @@ test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the shee
     find(tree, (node) => node.type === "PullRequestMerge").props.onOpen();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "1", number: "90", chat: key }]));
     // The header chip and PR shortcut open it in the app too, not on GitHub.
-    const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    const title = chatScreen(tree).props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
     find(tree, (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #90").props.onPress();
     assert.equal(globalThis.openedPullRequests.length, 3);
@@ -15408,6 +15444,7 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
       themeSwatch: () => ({}),
     },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
+    "./app-icon-section": { AppIconSection: "AppIconSection" },
     "./theme": {
       useTheme: () => ({
         colors: fakePalette,
@@ -18756,7 +18793,7 @@ test("the phone Chat header keeps its title on one line with an ellipsis, clear 
     chat.params.id = "9";
     chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, title, ...(routine ? { routine } : {}) };
     const tree = chat.render();
-    const screen = find(tree, (node) => node.type === "Screen");
+    const screen = chatScreen(tree);
     const element = screen.props.options.headerTitle();
     // The box reads whether the sidebar is pinned itself, so the Chat doesn't render again as it shows or hides.
     const titleBox = find(element, (node) => typeof node.type === "function" && "actionCount" in node.props);
@@ -21821,8 +21858,8 @@ test("subchat report links open the Chat alone on a wide iPad, closing any split
     assert.equal(host.router.replaced.params.beside, undefined, "no beside param: it opens alone");
     assert.equal(host.beside.length, 0, "nothing opened beside");
     assert.equal(host.beside.closed, 1, "the split ended before the route changed");
-    const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
-    const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
+    const title = chatScreen(host.render()).props.options.headerTitle();
+    const menu = familyPullDown(title);
     menu.props.onSelect("/p#3");
     assert.equal(host.router.replaced.params.id, "3", "the title menu and the report use the same route");
     assert.equal(host.beside.closed, 2);
@@ -21847,8 +21884,8 @@ test("a Subchat's title menu names the family and offers Open beside parent only
       3: { id: 3, title: "Leaf", parent: 2 },
       4: { id: 4, title: "Sibling", parent: 2 },
     };
-    const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
-    const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
+    const title = chatScreen(host.render()).props.options.headerTitle();
+    const menu = familyPullDown(title);
     const items = menu.props.sections.flatMap((section) => section.items);
     assert.equal(
       JSON.stringify(items.filter((item) => item.subtitle === "Top Chat" || item.subtitle === "Parent").map((item) => [item.title, item.subtitle])),

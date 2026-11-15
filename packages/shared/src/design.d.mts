@@ -1,9 +1,6 @@
 import type { z } from "zod";
-/** Lucide icon name to SVG inner markup. */
 export const designIcons: Record<string, string>;
-/** The color text and icons draw in when they name no fill. */
 export const DESIGN_INK: "#202720";
-/** The grey a shape, or an image still to add, paints when it names no fill. */
 export const DESIGN_PLACEHOLDER: "#d8ded8";
 
 /** An editable screen. Nodes are stored flat and ordered back to front within each parent. */
@@ -133,7 +130,6 @@ export interface DesignWarning {
   kind: "clipped-text" | "overflow" | "off-canvas" | "low-contrast" | "remote-image" | "kit-drift" | "kit-exception";
   message: string;
 }
-/** Problems an agent can't see in JSON: cut-off text, layers outside their parent or the screen, unreadable text, remote images. */
 export function designWarnings(document: DesignDocument): DesignWarning[];
 export function designDiagnostics(document: DesignDocument): {
   warnings: DesignWarning[];
@@ -142,23 +138,16 @@ export function designDiagnostics(document: DesignDocument): {
 /** At most 20 warning lines plus "…and N more", or "" when there are none. */
 export function designWarningText(warnings: DesignWarning[]): string;
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
-/** Serialize plain family names as CSS, preserving generic fallback families. */
 export function designFontFamily(value?: string): string;
 /** CSS @font-face rules (data URIs) for the Inter and loaded catalog weights a document's visible text uses, or "". */
 export function designFontFaces(document: DesignDocument): string;
-/** The catalog families a design can name besides Inter, measured and bundled like Inter. */
 export const DESIGN_CATALOG_FAMILIES: string[];
-/** The catalog entry for the first family of a font-family list, if it is in the catalog. */
 export function designCatalogFont(fontFamily?: string): { family: string; weights: number[]; advances: Record<string, number[]> } | undefined;
-/** Loads the catalog families a document names, so designHtml, designSvg and designFontBuffers can embed them. */
 export function loadDesignFonts(document: DesignDocument): Promise<void>;
-/** Whether every catalog family a document names is loaded. */
 export function designFontsLoaded(document: DesignDocument): boolean;
 /** TrueType data (base64) for a rasterizer: every Inter weight plus the loaded catalog faces the document uses. */
 export function designFontBuffers(document: DesignDocument): string[];
-/** The measured Inter weight a requested weight renders with. */
 export function designInterWeight(fontWeight?: number): 400 | 500 | 600 | 700;
-/** Whether Inter is the first family in a font-family list, so the document renders in the embedded Inter. */
 export function designUsesInter(fontFamily?: string): boolean;
 /** What a layer paints when it names no fill: frames and images that have a source stay transparent. */
 export function designDefaultFill(node: Pick<DesignNode, "type" | "src">): string;

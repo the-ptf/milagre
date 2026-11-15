@@ -10,7 +10,7 @@ const { clip } = require("./linked-summary.cjs");
 const { callerMode, raisesMode } = require("./agents/permissions.cjs");
 const { thisComputer } = require("@milagre/shared/host-computer");
 
-// Delegations and Negotiations (ADR-0002). A Delegation is a message from a Chat to another Chat, across a
+// Delegations and Negotiations (docs/links.md). A Delegation is a message from a Chat to another Chat, across a
 // Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
 // back as the Delegation report, which the requesting agent also gets with its next turn (`reportsForTurn`). A Negotiation is a run of Delegations between two Chats: the
 // receiving side answers in its report, which starts the requesting side's next move (another round or
@@ -301,7 +301,7 @@ class Delegations {
 
   /**
    * A Delegation to a Worktree on another paired computer (spec 2026-10-23). That computer's daemon runs the turn in its
-   * own Chat, so it stays the only writer of its Projects (ADR-0003); this Mac keeps the record, and the report comes
+   * own Chat, so it stays the only writer of its Projects (docs/host.md); this Mac keeps the record, and the report comes
    * back through that computer (`remoteFinished`). Nothing queues here: a computer that is away fails the call at once.
    */
   async delegateRemote(fromChat, { computer, worktree, chat, message, negotiation, newWorktree = false }) {

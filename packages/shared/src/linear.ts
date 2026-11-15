@@ -1,5 +1,3 @@
-// Linear connection copy, shared by desktop and phone (see docs/superpowers/specs/2026-10-08-linear-integration-design.md).
-
 export type LinearViewer = { name: string; email: string };
 export type LinearOrganization = { name: string; urlKey: string };
 /** One connected workspace; `id` is its URL key in lower case. `canWrite` is false for a sign-in that can only read issues. */
@@ -35,12 +33,10 @@ export function linearWorkspaces(status: LinearStatus | null | undefined): Linea
   return status.connected ? [{ id: status.organization.urlKey.toLowerCase(), viewer: status.viewer, organization: status.organization }] : [];
 }
 
-/** One workspace's row: its name, and who is signed in to it. */
 export function linearWorkspaceLine(workspace: LinearWorkspace): string {
   return `${workspace.organization.name}, as ${workspace.viewer.name}`;
 }
 
-/** Connecting happens on the Mac only, so a disconnected phone points there. */
 export function linearStatusLine(status: LinearStatus, where: "mac" | "phone"): string {
   const [only, ...more] = linearWorkspaces(status);
   if (only && !more.length) return `Connected as ${only.viewer.name} to ${only.organization.name}`;

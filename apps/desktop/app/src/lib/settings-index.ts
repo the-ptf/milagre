@@ -160,6 +160,12 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description: 'Build a theme from a few colors. It shows up as "Custom" with the Milagre themes.',
     keywords: "colors palette own",
   },
+  {
+    page: "appearance",
+    title: "App icon",
+    description: "Shown in the Dock or taskbar on this computer. Finder and Launchpad keep the Milagre icon.",
+    keywords: "dock taskbar logo dawn black white sunset aurora glass 8-bit pixel",
+  },
   { page: "appearance", title: "Typography", keywords: "font text" },
   {
     page: "appearance",

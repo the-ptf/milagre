@@ -1,4 +1,7 @@
-/** Running titles sweep until the step finishes or waits for approval; reduced motion keeps the static tint (styles.css). */
+/**
+ * A running title's muted tint (styles.css .step-running), and whether its SweepText draws the moving band. The band
+ * shows until the step finishes or waits for approval; reduced motion hides it and keeps the tint.
+ */
 export function useStepTitleSweep(running: boolean) {
-  return { className: running ? "step-running step-sweep" : undefined };
+  return { className: running ? "step-running" : undefined, running };
 }
