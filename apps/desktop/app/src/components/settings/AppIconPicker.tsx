@@ -20,13 +20,16 @@ const APP_ICON_DESCRIPTION = "Shown in the Dock or taskbar on this computer. Fin
 /** Settings › Appearance › App icon: this computer's own, so it reads and saves through window.milagre. */
 export function AppIconPicker() {
   const [current, setCurrent] = useState<AppIcon | null>(null);
+  // Test harnesses and older preloads give a bridge without these calls: the setting hides instead of breaking Settings.
+  const supported = typeof window.milagre?.getAppIcon === "function" && typeof window.milagre.setAppIcon === "function";
   useEffect(() => {
+    if (!supported) return;
     let live = true;
     void window.milagre.getAppIcon().then((icon) => live && setCurrent(icon));
     return () => {
       live = false;
     };
-  }, []);
+  }, [supported]);
   const choose = (icon: AppIcon) => {
     if (icon === current) return;
     const previous = current;
@@ -34,6 +37,7 @@ export function AppIconPicker() {
     window.milagre.setAppIcon(icon).then(setCurrent, () => setCurrent(previous));
   };
   const focus = current ?? "default";
+  if (!supported) return null;
   return (
     <Group title="App icon">
       <div data-settings-row className="grid gap-3 px-4 py-3">
