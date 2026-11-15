@@ -37,6 +37,7 @@ import { pressStyle } from "./primitives/press-style";
 import type { ChatTab } from "./panel-tabs";
 import { useReachableHost } from "./routes-native";
 import type { AgentPort } from "@milagre/shared/model";
+import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
 function useBrowsers(client: Client | null, chatId: string | undefined, visible = true) {
@@ -215,6 +216,8 @@ export function BrowserSheet({
   const [sent, setSent] = useState<SavedPageComment[]>([]);
   // A docked iPad page stays mounted while the agent resolves comments beside it.
   const commentRevision = commentActivity(snapshot, chatId, "page");
+  // Its comment refresh reads the Chat's live steps, so that run comes in full.
+  useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   const loadSent = useCallback(async () => {
     if (!source || !chatId) return;
     try {

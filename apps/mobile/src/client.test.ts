@@ -879,3 +879,22 @@ test("the app asks for snapshots without messages and reads a Chat's as pages", 
   assert.ok(sent[1] !== undefined);
   assert.ok(sent[1].url.endsWith("/chat-messages?projectPath=%2Fp&chatId=7&before=40&turns=5"));
 });
+
+test("runs URLs distinguish legacy, summaries only and sorted deduplicated detail selections", async () => {
+  const urls: URL[] = [];
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async (url) => {
+    urls.push(new URL(String(url)));
+    return answer({ seq: 1, runs: {} });
+  });
+  await client.runs("/p #path");
+  await client.runs("/p #path", []);
+  const chats = [3, 1, 3];
+  await client.runs("/p #path", chats);
+  await client.runs("/p #path", [1, 3]);
+  assert.equal(urls[0]?.searchParams.has("chats"), false);
+  assert.equal(urls[1]?.searchParams.get("chats"), "[]");
+  assert.equal(urls[2]?.searchParams.get("chats"), "[1,3]");
+  assert.equal(urls[2]?.searchParams.get("projectPath"), "/p #path");
+  assert.equal(urls[2]?.href, urls[3]?.href);
+  assert.deepEqual(chats, [3, 1, 3]);
+});

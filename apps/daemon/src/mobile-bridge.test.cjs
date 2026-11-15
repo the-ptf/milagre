@@ -1033,6 +1033,17 @@ test("/runs and the snapshot's runs stay small while a turn streams a lot of too
   );
   assert.ok(steps.filter((step) => step.detail && step.id !== "s5").every((step) => step.detail.length === 4097));
   assert.equal(steps.filter((step) => step.hasDetail).length, 295);
+  const selectedResponse = await request(route + "&chats=" + encodeURIComponent(JSON.stringify([chat, chat])));
+  const selected = (await selectedResponse.json()).result;
+  assert.deepEqual(selected.detailChats, [chat]);
+  assert.deepEqual(selected.runs[key].steps, steps, "selected detail uses the same phone slimming");
+  assert.deepEqual(selected.summaries, {});
+  const summaryResponse = await request(route + "&chats=[]", { headers: { "if-none-match": selectedResponse.headers.get("etag") } });
+  assert.equal(summaryResponse.status, 200, "a selection's ETag cannot hide a different projection");
+  const summary = (await summaryResponse.json()).result;
+  assert.deepEqual(summary.runs, {});
+  assert.ok(summary.summaries[key]);
+  assert.ok(!("text" in summary.summaries[key]) && !("steps" in summary.summaries[key]));
   const snapshot = await (await request("/snapshot?projectPath=" + encodeURIComponent(project))).text();
   assert.ok(snapshot.length < 120_000, `${snapshot.length} bytes`);
   assert.deepEqual(
@@ -2040,4 +2051,48 @@ test("the host's PR poll finding a change tells live phones to read their PR row
   // No GitHub remote here: the first read settles as "no PR", which is still news to a phone showing the row.
   assert.equal((await rpc("worktree:pull-request", [project])).status, 200);
   await until(() => phone.messages.includes("pulls"));
+});
+
+test("phone runs projection partitions detail and summaries without copying another Project", () => {
+  const { projectRunsForPhone, projectRuns } = require("./mobile-bridge.cjs");
+  const run = { ...longTurn(), model: "m", approvals: [{ id: "approval" }], questions: [], answered: {}, startedAt: 123 };
+  const all = { seq: 42, runs: { "/p#1": run, "/p#3": run, "/p#4": run, "/elsewhere#1": run } };
+  const projected = projectRunsForPhone(all, "/p", [3, 1, 3]);
+  assert.deepEqual(projected.detailChats, [1, 3]);
+  assert.deepEqual(Object.keys(projected.runs), ["/p#1", "/p#3"]);
+  assert.deepEqual(projected.runs["/p#1"], runsForPhone({ runs: { k: run } }).runs.k);
+  const { text: _text, steps: _steps, ...summary } = run;
+  assert.deepEqual(projected.summaries, { "/p#4": summary });
+  assert.equal(projected.seq, 42);
+  assert.deepEqual(projectRunsForPhone(all, "/p"), runsForPhone(projectRuns(all, "/p")), "missing selection is exactly legacy");
+  const empty = projectRunsForPhone(all, "/p", []);
+  assert.deepEqual(empty.runs, {});
+  assert.deepEqual(Object.keys(empty.summaries), ["/p#1", "/p#3", "/p#4"]);
+  assert.ok(!("text" in empty.summaries["/p#1"]) && !("steps" in empty.summaries["/p#1"]));
+  assert.equal(all.runs["/p#1"], run);
+});
+
+test("/runs validates Chat selections, keeps legacy responses, and preserves scope authorization", async (t) => {
+  const { project, dataDir, request, rpc, token, bridge } = await fixture(t);
+  await rpc("project:open", [project]);
+  const route = "/runs?projectPath=" + encodeURIComponent(project);
+  const legacy = (await (await request(route)).json()).result;
+  assert.deepEqual(Object.keys(legacy).sort(), ["runs", "seq"]);
+  const read = async (chats) => (await (await request(route + "&chats=" + encodeURIComponent(chats))).json()).result;
+  assert.deepEqual(await read("[]"), { ...legacy, summaries: {}, detailChats: [] });
+  assert.deepEqual((await read("[3,1,3,9007199254740991]")).detailChats, [1, 3, Number.MAX_SAFE_INTEGER]);
+  for (const chats of ["", "[", "null", "{}", "1", '["1"]', "[0]", "[-1]", "[1.5]", "[9007199254740992]", "[true]", "[null]", "[[1]]", "[1e999]"]) {
+    assert.equal((await request(route + "&chats=" + encodeURIComponent(chats))).status, 400, chats);
+  }
+  assert.equal((await request(route + "&chats=[]&chats=[1]")).status, 400);
+  assert.equal((await request("/runs?projectPath=relative&chats=[]")).status, 400);
+  assert.equal((await fetch(bridge.url + route + "&chats=[]")).status, 401);
+  const confined = await startMobileBridge({ dataDir, port: 0, token, allowedRoot: project });
+  t.after(() => confined.close());
+  for (const chats of [undefined, [], [1]]) {
+    const suffix = chats === undefined ? "" : "&chats=" + encodeURIComponent(JSON.stringify(chats));
+    const get = (owner) => fetch(confined.url + "/runs?projectPath=" + encodeURIComponent(owner) + suffix, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal((await get(project)).status, 200);
+    assert.equal((await get(path.join(path.dirname(project), "outside"))).status, 403);
+  }
 });
