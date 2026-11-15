@@ -44,7 +44,7 @@ import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { DotBackground } from "./DotBackground";
 import SidebarNav from "./SidebarNav";
 import { runKeys, scopeChats } from "../lib/sidebar-scopes";
-import { DraftChatComposer } from "./DraftChatComposer";
+import { ChatComposer } from "./ChatComposer";
 import { useComposerPreferences } from "../lib/use-composer-preferences";
 import { effortFor, type ChatMessage, type CoordinatorState, type ImageAttachment, type ModelOption, type ModelProvider } from "../model";
 import { createDraftStore, draftKey } from "../lib/draft-store";
@@ -80,7 +80,7 @@ const CanvasView = lazyView(() => import("./CanvasView").then((module) => module
 const CANVAS_STATES = {};
 
 type Preferences = Pick<
-  ComponentProps<typeof DraftChatComposer>,
+  ComponentProps<typeof ChatComposer>,
   "models" | "selectedModel" | "cliStatus" | "onModelPickerOpen" | "onUpdateCli" | "updatingCli" | "capability"
 > & {
   /** A pick, kept by the open chat (its key), or the default for new chats when none is open. */
@@ -772,7 +772,7 @@ export function LinkWorkspace({
                   )}
                   <div className={`min-h-0 flex-1 flex-col overflow-hidden ${changes.diffOpen ? "hidden" : "flex"}`}>
                     <EditorLinks root={root}>
-                      <DraftChatComposer
+                      <ChatComposer
                         saveNotice={saveNotice}
                         {...composerModels}
                         onModelChange={(model) => preferences.onModelChange(model, chatId)}

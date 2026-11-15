@@ -16,6 +16,8 @@ import { ScrollArea } from "/src/components/primitives/ScrollArea";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore, useDraftText } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 window.milagre = Object.freeze({ listEditors: async () => [] });
 const noop = () => {};
 // About 450px a message at the fixture's width: a paragraph, a list and a code block, like a normal agent reply.
@@ -37,7 +39,8 @@ function Fixture() {
   window.steps = (value) => flushSync(() => setSteps(value));
   const [nested, setNested] = useState(false);
   window.nested = () => flushSync(() => setNested(true));
-  const [draft, setDraft] = useState("");
+  const draft = useDraftText(draftStore);
+  const setDraft = draftStore.setText;
   const model = MODEL_CATALOG[0];
   if (nested) return <MessageScroller className="h-full" navigation="none" onFollowChange={(value) => window.following = value}>
     <div style={{height:2000}}>Earlier messages</div>
@@ -48,7 +51,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer streamingText={streaming} streamingSteps={steps} agentChatId={"/fixture#" + chat.id} scrollKey={chat.id} messages={messagesOf(chat.id, chat.count)}
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={!!streaming} sendBlocked={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={!!streaming} sendBlocked={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}

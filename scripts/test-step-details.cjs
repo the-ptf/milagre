@@ -13,6 +13,8 @@ import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 const output = "$ npm test\\n" + Array.from({ length: 40 }, (_, index) => "ok " + (index + 1) + " - test " + (index + 1)).join("\\n");
 const ran = (id, command, extra) => ({ id, kind: "shell", title: "Ran \\u0060" + command + "\\u0060", status: "done", offset: 0, ...extra });
@@ -44,7 +46,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages} messageScope="/fixture"
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture/worktree" draft="" onDraftChange={noop} onSend={noop} isSending={true} sendBlocked={false}
+      projectPath="/fixture/worktree" store={draftStore} onSend={noop} isSending={true} sendBlocked={false}
       streamingText="" streamingSteps={[ran("live", "npm run build", { status: "running", hasDetail: true })]}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}

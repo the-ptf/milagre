@@ -186,7 +186,7 @@ import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunCha
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { remoteDelegationsFrom } from "./lib/remote-delegation";
 import { RemoteDelegationCard } from "./components/agents/RemoteDelegationCard";
-import { DraftChatComposer } from "./components/DraftChatComposer";
+import { ChatComposer } from "./components/ChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { Onboarding, firstChatStarters } from "./components/Onboarding";
@@ -311,7 +311,7 @@ function App() {
   const [selectedSessionId, setSelectedSessionState] = useState<number | null>(null);
   const selectedSessionRef = useRef<number | null>(null);
   selectedSessionRef.current = selectedSessionId;
-  // The draft lives outside React state: a keystroke re-renders the composer (DraftChatComposer), not the whole app.
+  // The draft lives outside React state: a keystroke re-renders the prompt (DraftPromptComposer), not the whole app.
   // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const draftStore = useMemo(createDraftStore, []);
   const setDraft = draftStore.set;
@@ -4058,7 +4058,7 @@ function App() {
                       files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
                     >
                       {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
-                      <DraftChatComposer
+                      <ChatComposer
                         store={draftStore}
                         stepApproval={stepApproval.value}
                         offScreen={!(view === "chat" || runPaneOpen)}
