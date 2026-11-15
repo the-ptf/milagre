@@ -360,9 +360,6 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           VoiceMicButton: "VoiceMicButton",
           DictationCapsule: "DictationCapsule",
           MIC_SIZE: 32,
-          CAPSULE_WIDTH: 72,
-          MIC_INSET: { right: -5, bottom: 6 },
-          CAPSULE_INSET: { right: -3, bottom: 4 },
         };
       // Icon data and the icon component are drawing; a test reads the icon's name.
       if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
@@ -488,6 +485,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/snooze" && !(id in modules)) return require("@milagre/shared/snooze");
       if (base === "snooze-actions" && !(id in modules)) return require("../apps/mobile/src/snooze-actions.ts");
       if (base === "snooze-setting" && !(id in modules)) return { useSnoozeMinutes: () => [60, () => {}] };
+      // The composer's glass is a native blur behind its children; tests render none.
+      if (base === "composer-glass" && !(id in modules)) return { ComposerGlass: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -3472,10 +3471,16 @@ test("disconnect cancels a connection that is still loading recent Projects", as
   assert.equal(render().client, null);
 });
 
+// A stubbed PromptField (a plain "PromptField" element) still shows the control row it would render under the field,
+// as the real one does with its `renderControls(mic)`; the mic itself is the field's own and is left out.
+const childrenOf = (node) =>
+  [node.props?.children, typeof node.type === "string" && typeof node.props?.renderControls === "function" ? node.props.renderControls(null) : null].flat(
+    Infinity,
+  );
 function find(node, predicate) {
   if (!node || typeof node !== "object") return;
   if (predicate(node)) return node;
-  for (const child of [node.props?.children].flat(Infinity)) {
+  for (const child of childrenOf(node)) {
     const found = find(child, predicate);
     if (found) return found;
   }
@@ -3483,7 +3488,7 @@ function find(node, predicate) {
 function findAll(node, predicate, found = []) {
   if (!node || typeof node !== "object") return found;
   if (predicate(node)) found.push(node);
-  for (const child of [node.props?.children].flat(Infinity)) findAll(child, predicate, found);
+  for (const child of childrenOf(node)) findAll(child, predicate, found);
   return found;
 }
 function chatHost({
@@ -6190,10 +6195,10 @@ test("composer attachment choices stay in a native menu after the header action-
     },
   });
   const { PullDown, sheets } = pullDownHost();
-  const trigger = find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Add photos or files");
+  const trigger = find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Attach photos or files");
   const rendered = PullDown(trigger.props);
   const menu = find(rendered, (node) => node.type === "IOSMenu");
-  assert.ok(menu, "the attachment + must open a menu, not the header action sheet");
+  assert.ok(menu, "the attachment paperclip must open a menu, not the header action sheet");
   assert.equal(
     find(menu.props.label, (node) => node.type === "View"),
     undefined,
@@ -6766,8 +6771,8 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
       return picking.promise;
     },
   });
-  const menu = () => find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Add photos or files");
-  assert.ok(menu(), "attachments must use a pull-down anchored to the +");
+  const menu = () => find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Attach photos or files");
+  assert.ok(menu(), "attachments must use a pull-down anchored to the paperclip");
   menu().props.onSelect("photos");
   assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
   assert.ok(find(screen.render(), (node) => node.props.accessibilityLabel === "Preparing attachment"));
@@ -10446,7 +10451,7 @@ test("the mobile paste action adds a clipboard screenshot to the draft", async (
       return [image];
     },
   });
-  const menu = find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Add photos or files");
+  const menu = find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Attach photos or files");
   assert.ok(menu.props.sections[0].items.some((item) => item.id === "paste"));
   menu.props.onSelect("paste");
   await settle();
@@ -15290,12 +15295,13 @@ const linearIssue = {
   state: { name: "In Progress", type: "started", color: "#f2c94c" },
 };
 
+// No permission chip in the composer: the model sheet's footer holds it, as desktop's picker does.
 test("a new Chat presents setup, prompt and action controls in focus order", () => {
   const screen = chatHost({ linear: { active: true } });
   const order = [];
   find(screen.render(), (node) => {
     const label = node.props?.label ?? node.props?.accessibilityLabel;
-    if (["Choose isolation", "Choose branch", "Start from a Linear issue", "Add photos or files", "Send message"].includes(label)) order.push(label);
+    if (["Choose isolation", "Choose branch", "Start from a Linear issue", "Attach photos or files", "Send message"].includes(label)) order.push(label);
     if (["PromptField", "AgentControls", "PermissionChip"].includes(node.type)) order.push(node.type);
     return false;
   });
@@ -15304,9 +15310,8 @@ test("a new Chat presents setup, prompt and action controls in focus order", () 
     "Choose branch",
     "Start from a Linear issue",
     "PromptField",
-    "Add photos or files",
+    "Attach photos or files",
     "AgentControls",
-    "PermissionChip",
     "Send message",
   ]);
 });
@@ -20476,7 +20481,7 @@ test("mobile Ports obey the external preference and explain a loopback-only serv
 });
 
 test("the mic is a 44 point target and the take's capsule can discard it or stop it", () => {
-  const { VoiceMicButton, DictationCapsule, MIC_SIZE, CAPSULE_WIDTH, CAPSULE_INSET } = load("voice-mic-button.tsx", {
+  const { VoiceMicButton, DictationCapsule, MIC_SIZE } = load("voice-mic-button.tsx", {
     react: { useEffect() {} },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Pressable: "Pressable", View: "View" },
@@ -20522,12 +20527,9 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   // DictationCapsule picks the control for the phase; render the one it picked.
   const render = (element) => element.type(element.props);
   const recording = render(DictationCapsule({ phase: "recording", level: { value: 1 }, download: null, onDiscard: () => discards++, onStop: () => stops++ }));
-  // The field is only 44 tall with one line of text, so the capsule has to fit inside it with room at both edges.
+  // The capsule stands in the mic's place in the 44pt control row beside Send, a little shorter than the row.
   const capsuleHeight = recording.props.style.height;
-  const fieldHeight = 44;
-  const top = fieldHeight - CAPSULE_INSET.bottom - capsuleHeight;
-  assert.ok(top >= 4, `the capsule leaves ${top}px above it inside a one-line field, not overhanging its background`);
-  assert.ok(capsuleHeight + CAPSULE_INSET.bottom <= fieldHeight, "and never reaches past the field's own height");
+  assert.ok(capsuleHeight <= MIC_SIZE - 8, `the capsule (${capsuleHeight}px) sits inside the ${MIC_SIZE}pt row with room at both edges`);
   const buttons = [];
   find(recording, (node) => {
     if (node.props?.accessibilityRole === "button") buttons.push(node);
@@ -20568,7 +20570,6 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
     find(finishing, (node) => node.props?.accessibilityLabel === "Discard dictation"),
     "a take can still be thrown away while it finishes",
   );
-  assert.equal(CAPSULE_WIDTH, 72);
 
   // While the model downloads, the mic keeps its 44 point box: a ring filling around a dropping arrow, which cancels.
   const downloading = render(DictationCapsule({ phase: "downloading", level: { value: 0 }, download: 0.4, onDiscard: () => discards++, onStop() {} }));
@@ -20871,7 +20872,7 @@ test("a take's error is a bubble over the mic, not a line that moves the words",
     return children.some((child) => child?.type === "DictationNotice") && children.some((child) => child?.type === "VoiceMicButton");
   });
   assert.ok(wrapper, "it sits in the mic's wrapper, beside the mic itself");
-  assert.equal(wrapper.props.style.position, "absolute", "which is pinned over the field, not laid out in the column");
+  assert.equal(wrapper.props.style, undefined, "which is laid out in the control row beside Send, not pinned over the field");
   notice.props.onDismiss();
   assert.equal(dismissed, 1);
 
@@ -22570,7 +22571,17 @@ test("phone shared permission picker starts Ask, waits for the host, and reports
     "react-native": { ScrollView: "ScrollView", Text: "Text", View: "View" },
     "expo-router": { router: { back: () => back++ }, useLocalSearchParams: () => ({ chatId }) },
     "@hugeicons/core-free-icons": {},
-    "../agent-controls": { PermissionIcon: "PermissionIcon" },
+    // The Chat's mode as agent-controls' useChatPermissionMode reads it: the run's, else the saved Chat's, else this device's pick.
+    "../agent-controls": {
+      PermissionIcon: "PermissionIcon",
+      useChatPermissionMode: (id) =>
+        require("../apps/mobile/src/turn-options.ts").chatPreferences(
+          composer.preferences[id],
+          composer.defaults,
+          session.snapshot.project.state.sessions[1]?.permissionMode,
+          session.snapshot.runs.runs[id]?.permissionMode,
+        ).permissionMode,
+    },
     "../session": { useComposer: () => composer, useSession: () => session },
     "../ui": { CheckRow: "CheckRow", CircleButton: "CircleButton", Group: "Group", SheetHeader: "SheetHeader", useStyles: () => ({}) },
     "../turn-options": require("../apps/mobile/src/turn-options.ts"),

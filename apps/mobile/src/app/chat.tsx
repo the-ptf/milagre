@@ -8,6 +8,7 @@ import { compactionContext } from "@milagre/shared/compaction";
 import { CleanIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
 import { ComposerTray, OfflineTray } from "../offline-tray";
+import { ComposerGlass } from "../composer-glass";
 import { LINK_CHAT_WORKTREES_TEXT, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -20,7 +21,7 @@ import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavig
 import type { NavigationProp } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Add01Icon,
+  Attachment01Icon,
   ArrowDown01Icon,
   ArrowUp01Icon,
   BubbleChatIcon,
@@ -140,7 +141,7 @@ import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions, answersWithImages } from "../questions";
 import { QueuedMessages } from "../queued-messages";
 import { followUpDelivery } from "@milagre/shared/queued-messages";
-import { AgentControls, PermissionChip } from "../agent-controls";
+import { AgentControls } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
@@ -3044,9 +3045,10 @@ function ChatPane({
                           <OfflineTray target={trayTarget} chip={!startTray} />
                           <View
                             style={{
-                              backgroundColor: colors.surface,
+                              // An open Chat's composer is glass over the transcript, as on desktop; a new Chat's sits solid in its tray.
+                              backgroundColor: startTray ? colors.surface : "transparent",
                               borderWidth: 1,
-                              borderColor: colors.lineStrong,
+                              borderColor: startTray ? colors.lineStrong : colors.line,
                               borderRadius: startTray || offline ? 23 : 24,
                               borderCurve: "continuous",
                               // Not clipped: a dictation message floats over the mic, past the card's top edge.
@@ -3057,6 +3059,7 @@ function ChatPane({
                               boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : "0 4px 20px #0000000f",
                             }}
                           >
+                            {!startTray && <ComposerGlass radius={offline ? 23 : 24} />}
                             {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
                             {ultracodeOn && <UltracodeGlow radius={startTray ? 23 : 24} />}
                             {picking && (
@@ -3201,114 +3204,120 @@ function ChatPane({
                                 // Clearing the composer also clears the limit error that its mentions caused.
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
-                            />
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                              <PullDown
-                                label="Add photos or files"
-                                nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
-                                sections={[
-                                  {
-                                    items: [
-                                      { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
-                                      { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
-                                      { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
-                                      { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
-                                    ],
-                                  },
-                                ]}
-                                onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
-                              >
-                                <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
-                                  <Icon icon={Add01Icon} tone="ink2" size={20} />
+                              // Attach on the left; model, context, mic and Send or Stop on the right, as on desktop. No permission chip:
+                              // the model sheet's footer shows and changes it.
+                              renderControls={(mic) => (
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                                  <PullDown
+                                    label="Attach photos or files"
+                                    // SF Symbols' paperclip draws taller than the mic's glyph at the same size: 16 matches the mic's 20.
+                                    nativeTrigger={{ systemImage: "paperclip", iconSize: 16, disabled: attachmentDisabled }}
+                                    sections={[
+                                      {
+                                        items: [
+                                          { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
+                                          { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
+                                          { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
+                                          { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
+                                        ],
+                                      },
+                                    ]}
+                                    onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
+                                  >
+                                    <View
+                                      style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}
+                                    >
+                                      <Icon icon={Attachment01Icon} tone="ink2" size={18} />
+                                    </View>
+                                  </PullDown>
+                                  <AgentControls
+                                    compact={Boolean(compactButton)}
+                                    model={model}
+                                    effort={preferences.effort}
+                                    fastMode={preferences.fastMode}
+                                    ultracode={preferences.ultracode}
+                                    onToggle={() => {
+                                      router.push({
+                                        pathname: "/model-sheet",
+                                        params: {
+                                          chatId,
+                                          model: model.id,
+                                          provider: actualProvider,
+                                          ...(chat?.provider ? { on: chat.provider } : {}),
+                                          ...(run ? { busy: "1" } : {}),
+                                        },
+                                      });
+                                    }}
+                                  />
+                                  <View style={{ flex: 1 }} />
+                                  {!quietContext && compactionFeedback ? (
+                                    <Text
+                                      accessibilityRole="text"
+                                      accessibilityLiveRegion="polite"
+                                      style={{ fontSize: 12, color: colors.greenInk, paddingHorizontal: 8 }}
+                                    >
+                                      ✓ {compactionFeedback.percent}% · {compactionFeedback.freed} freed
+                                    </Text>
+                                  ) : (
+                                    !quietContext &&
+                                    (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                        {/* The tint is the send button's 34pt height; the buttons keep their 44pt touch targets. */}
+                                        {compactState.warning && (
+                                          <View
+                                            pointerEvents="none"
+                                            style={{
+                                              position: "absolute",
+                                              left: 0,
+                                              right: 0,
+                                              top: "50%",
+                                              height: 34,
+                                              marginTop: -17,
+                                              borderRadius: 999,
+                                              backgroundColor: colors.orangeTint,
+                                            }}
+                                          />
+                                        )}
+                                        {compactButton}
+                                        {contextUsage && contextUsage.size > 0 && params.id && (
+                                          <ContextRing
+                                            {...contextUsage}
+                                            canCompact={supportsCompact}
+                                            threshold={contextSettings.buttonThreshold}
+                                            showSize={showContextSize}
+                                            onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                                          />
+                                        )}
+                                      </View>
+                                    )
+                                  )}
+                                  {mic}
+                                  {run && !offline && !draft.trim() && !quotes.length && !attachments.length && (
+                                    <IconButton
+                                      label="Stop agent"
+                                      icon={StopIcon}
+                                      filled
+                                      size={36}
+                                      disabled={actionBusy}
+                                      onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
+                                    />
+                                  )}
+                                  {(offline || !run || !!draft.trim() || !!quotes.length || !!attachments.length) && (
+                                    <IconButton
+                                      label={
+                                        busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"
+                                      }
+                                      icon={ArrowUp01Icon}
+                                      filled
+                                      size={36}
+                                      loading={busy}
+                                      disabled={sendDisabled}
+                                      onPress={() => void send()}
+                                    />
+                                  )}
                                 </View>
-                              </PullDown>
-                              <AgentControls
-                                compact={Boolean(compactButton)}
-                                model={model}
-                                effort={preferences.effort}
-                                fastMode={preferences.fastMode}
-                                ultracode={preferences.ultracode}
-                                onToggle={() => {
-                                  router.push({
-                                    pathname: "/model-sheet",
-                                    params: {
-                                      chatId,
-                                      model: model.id,
-                                      provider: actualProvider,
-                                      ...(chat?.provider ? { on: chat.provider } : {}),
-                                      ...(run ? { busy: "1" } : {}),
-                                    },
-                                  });
-                                }}
-                              />
-                              <PermissionChip
-                                mode={preferences.permissionMode}
-                                onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
-                              />
-                              <View style={{ flex: 1 }} />
-                              {!quietContext && compactionFeedback ? (
-                                <Text
-                                  accessibilityRole="text"
-                                  accessibilityLiveRegion="polite"
-                                  style={{ fontSize: 12, color: colors.greenInk, paddingHorizontal: 8 }}
-                                >
-                                  ✓ {compactionFeedback.percent}% · {compactionFeedback.freed} freed
-                                </Text>
-                              ) : (
-                                !quietContext &&
-                                (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
-                                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                                    {/* The tint is the send button's 34pt height; the buttons keep their 44pt touch targets. */}
-                                    {compactState.warning && (
-                                      <View
-                                        pointerEvents="none"
-                                        style={{
-                                          position: "absolute",
-                                          left: 0,
-                                          right: 0,
-                                          top: "50%",
-                                          height: 34,
-                                          marginTop: -17,
-                                          borderRadius: 999,
-                                          backgroundColor: colors.orangeTint,
-                                        }}
-                                      />
-                                    )}
-                                    {compactButton}
-                                    {contextUsage && contextUsage.size > 0 && params.id && (
-                                      <ContextRing
-                                        {...contextUsage}
-                                        canCompact={supportsCompact}
-                                        threshold={contextSettings.buttonThreshold}
-                                        showSize={showContextSize}
-                                        onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
-                                      />
-                                    )}
-                                  </View>
-                                )
                               )}
-                              {run && !offline && !draft.trim() && !quotes.length && !attachments.length && (
-                                <IconButton
-                                  label="Stop agent"
-                                  icon={StopIcon}
-                                  filled
-                                  size={36}
-                                  disabled={actionBusy}
-                                  onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
-                                />
-                              )}
-                              {(offline || !run || !!draft.trim() || !!quotes.length || !!attachments.length) && (
-                                <IconButton
-                                  label={busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"}
-                                  icon={ArrowUp01Icon}
-                                  filled
-                                  size={36}
-                                  loading={busy}
-                                  disabled={sendDisabled}
-                                  onPress={() => void send()}
-                                />
-                              )}
-                            </View>
+                            />
                           </View>
                         </ComposerTray>
                       )

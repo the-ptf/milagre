@@ -478,6 +478,11 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
   and with one Chat alone (no Terminal drawer) the transcript runs to the window's bottom edge, under the composer,
   fading out over its last 24px there.
 - With Ultracode on, its border and glow take purple and breathe slowly.
+- The phone and iPad composer is the same glass (a native blur under the surface at 76%, 50% over Android's denser blur;
+  Android below 12 draws the surface at 95% without a blur) and the same rows: the prompt on top, a paperclip bottom left, then model · effort,
+  the context ring, the mic and Send or Stop bottom right. The mic sits beside Send, never inside the field, and the
+  composer has no permission chip: the model sheet's footer shows the mode, Full in orange, as desktop's picker does.
+  A new Chat's composer stays solid inside its tray.
 
 ## Copy
 
