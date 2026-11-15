@@ -6,7 +6,7 @@ import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { applyStatePatch } from "@milagre/shared/state-patch";
 import type { StatePatch } from "@milagre/shared/state-patch";
 import { phoneSnapshot } from "./chat-scope.ts";
-import type { AgentRuns } from "@milagre/shared/agent-runs";
+import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
 import { isLiveSignal, openLive, type Live, type LiveOptions } from "./live.ts";
 import type { RelayTransport } from "./relay-transport.ts";
 import { localEndpoint, relayAddress, validAccess, validRelay, type Access, type RelayLink } from "@milagre/shared/pairing-link";
@@ -23,6 +23,8 @@ export type OpenProject = {
 };
 /** A Project's streaming turns; `seq` numbers the last event they hold. */
 export type Runs = { runs: AgentRuns; seq?: number };
+/** New hosts partition live turns into requested detail and status-only summaries. */
+export type RunsReply = Runs & { summaries?: Record<string, Omit<AgentRun, "text" | "steps">>; detailChats?: number[] };
 /** A page of a Chat's messages, from a host that keeps them by Chat (the snapshot then has none: messagesInChats). */
 export type ChatPage = { messages: ChatMessage[]; hasMore: boolean; total: number };
 export type ChatSearchMatch = { message: { id: number; session_id: number }; score: number; snippet: string; highlight: [number, number]; term: string };
@@ -496,7 +498,12 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         throw (error as { status?: number })?.status === 404 ? Object.assign(error as Error, { code: "unsupported" as const }) : error;
       }),
     /** Just the Project's streaming turns: what a live "runs" signal fetches instead of the whole snapshot. */
-    runs: (projectPath: string) => request<Runs>("/runs?projectPath=" + encodeURIComponent(projectPath)),
+    runs: (projectPath: string, chats?: readonly number[]) =>
+      request<RunsReply>(
+        "/runs?projectPath=" +
+          encodeURIComponent(projectPath) +
+          (chats === undefined ? "" : "&chats=" + encodeURIComponent(JSON.stringify([...new Set(chats)].sort((a, b) => a - b)))),
+      ),
     /** Chat keys, in every Project, whose turn waits on an approval or question. */
     attention: () => request<string[]>("/attention"),
     inbox: () => request<import("@milagre/shared/attention").InboxSnapshot>("/inbox"),

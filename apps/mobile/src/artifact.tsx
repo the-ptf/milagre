@@ -48,6 +48,7 @@ import { PELE_SCRIPT } from "./pele-script";
 import { onShareAvailability } from "./share-availability";
 import { pageWithFiles, usePageFiles } from "./artifact-files";
 import { CommentBox } from "./viewer-chrome";
+import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 let feedbackRequestId = 0;
 
@@ -495,6 +496,8 @@ export function ArtifactSheet({
   const [revision, setRevision] = useState(0);
   // A new artifact or a resolution refreshes the page and its comments while the panel stays open.
   const pageRevision = commentActivity(snapshot, chatId, "artifact");
+  // Its comment refresh reads the Chat's live steps, so that run comes in full.
+  useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   useEffect(() => {
     const watch = AppState.addEventListener("change", (status) => {
       if (status === "active") setRevision((value) => value + 1);
