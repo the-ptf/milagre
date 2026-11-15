@@ -4,6 +4,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const {
   failureLine,
   failureReason,
@@ -93,7 +94,11 @@ async function main() {
   if (selected.unit.length) {
     // A second reporter writes one FAILED-TEST line per failing test to a file the summary reads back.
     const report = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-test-")), "failed.txt");
-    const reporters = ["--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${path.join(__dirname, "failed-test-reporter.cjs")}`];
+    const reporters = [
+      "--test-reporter=spec",
+      "--test-reporter-destination=stdout",
+      `--test-reporter=${pathToFileURL(path.join(__dirname, "failed-test-reporter.cjs")).href}`,
+    ];
     await run(
       `${selected.unit.length} unit test files`,
       process.execPath,
