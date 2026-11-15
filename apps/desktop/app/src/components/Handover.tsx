@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { HandoffContext, ModelOption } from "../model";
 import { ArrowDataTransferHorizontalIcon } from "@hugeicons/core-free-icons";
 import { handoffLabel } from "../lib/handover";
@@ -51,9 +51,24 @@ export function HandoffDivider({ context, models }: { context: HandoffContext; m
 }
 
 /**
- * The brief the new provider was sent, or the linked summary a Link gave a Chat, in a Dialog with a Close bar.
+ * The brief the new provider was sent, the linked summary a Link gave a Chat, or a message another Chat sent, in a Dialog
+ * with a Close bar. `description` goes under the title, `action` before Close, `children` (attachments) after the text.
  */
-export function HandoffBriefDialog({ title, brief, onClose }: { title: string; brief: string; onClose: () => void }) {
+export function HandoffBriefDialog({
+  title,
+  brief,
+  onClose,
+  description,
+  action,
+  children,
+}: {
+  title: string;
+  brief: string;
+  onClose: () => void;
+  description?: ReactNode;
+  action?: ReactNode;
+  children?: ReactNode;
+}) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
@@ -78,19 +93,24 @@ export function HandoffBriefDialog({ title, brief, onClose }: { title: string; b
           {title}
         </span>
       }
+      description={description}
       width={680}
       onClose={onClose}
       footer="bar"
       actions={
-        <Button data-brief-close onClick={onClose}>
-          Close
-        </Button>
+        <>
+          {action}
+          <Button data-brief-close onClick={onClose}>
+            Close
+          </Button>
+        </>
       }
       className="pt-3"
     >
       <div data-brief-preview className="text-13 leading-5">
         <Markdown text={brief} />
       </div>
+      {children}
     </Dialog>
   );
 }

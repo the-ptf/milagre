@@ -860,7 +860,7 @@ export type ChatContext =
 
 /**
  * What a message no person typed is (`ChatMessage.context`): a Delegation from another Chat, a Delegation
- * report coming back, a Negotiation's agreement, or a notice about one. `from` is the other Chat's key.
+ * report coming back, a message another Chat sent, a Negotiation's agreement, or a notice about one. `from` is the other Chat's key.
  */
 export type LinkedContext =
   /** `from` is null for a Delegation another computer sent: its Chat isn't on this one. */
@@ -874,6 +874,8 @@ export type LinkedContext =
       negotiation?: { id: string; round: number };
     }
   | { kind: "negotiation-agreement"; negotiationId: string; with: string; by?: string }
+  /** A message another Chat's agent sent with chat_start (`from` null when an outside MCP client sent it). */
+  | { kind: "chat-message"; from: string | null; fromLabel: string }
   | { kind: "linked-notice"; negotiationId?: string; delegationId?: string; with?: string };
 
 /** A Delegation still queued or running (see delegations.cjs in @milagre/core). */

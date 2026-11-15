@@ -205,7 +205,13 @@ function createLinkedReads(view) {
         .map((step) => `- ${step.title}`)
         .join("\n");
       const from =
-        message.context?.kind === "delegation" ? `Delegation from ${message.context.fromLabel}` : message.role === "assistant" ? "Assistant" : "User";
+        message.context?.kind === "delegation"
+          ? `Delegation from ${message.context.fromLabel}`
+          : message.context?.kind === "chat-message"
+            ? `Message from ${message.context.fromLabel}`
+            : message.role === "assistant"
+              ? "Assistant"
+              : "User";
       parts.push(`## ${start + index} · ${from}`, [steps, message.body].filter(Boolean).join("\n\n"));
     });
     return cap(parts.join("\n\n"));

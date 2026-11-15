@@ -56,6 +56,14 @@ function senderLine(from, client) {
   return `Message sent by ${client || "an outside client"} through Milagre's MCP (not the user):`;
 }
 
+/**
+ * What the Chat shows for a chat_start message: who sent it (`from`, the sending Chat's key, null for an outside client),
+ * so it reads as one line from that Chat rather than as something the user typed.
+ */
+function chatMessageContext(caller, label, client) {
+  return caller ? { kind: "chat-message", from: caller, fromLabel: label } : { kind: "chat-message", from: null, fromLabel: client || "An outside client" };
+}
+
 /** `body` with the attached files listed, as the composer sends it. */
 function attachmentPrompt(body, files) {
   return files.length ? `${body}\n\nAttached files:\n${files.join("\n")}` : body;
@@ -193,14 +201,14 @@ function createLocalMcpHost({
     });
     return true;
   };
-  // "Project / branch / title (ref)": how the receiving agent can tell which Chat sent it, and reach it again.
-  const callerLabel = async (caller) => {
+  // "Project / branch / title": which Chat sent it. The agent is also given its ref, to reach it again.
+  const callerName = async (caller) => {
     try {
       const { state, session } = await chat(projectOfKey(caller), caller);
       const branch = state.worktrees?.[session.worktree_id]?.name ?? "unknown branch";
-      return `${path.basename(projectOfKey(caller))} / ${branch} / ${session.title || session.generatedTitle || "Chat"} (${caller})`;
+      return `${path.basename(projectOfKey(caller))} / ${branch} / ${session.title || session.generatedTitle || "Chat"}`;
     } catch {
-      return caller;
+      return null;
     }
   };
   const runOf = (chatId) => chats.runs[chatId];
@@ -425,13 +433,15 @@ function createLocalMcpHost({
       );
       assertActive();
       const waits = Boolean(chats.runs?.[chatId]) && !providerCapabilities(session.provider ?? chosenProvider).steer;
+      const senderName = caller ? await callerName(caller) : null;
       const result = await chats.send({
         ...latest,
         projectPath,
         sessionId: session.id,
         // The Chat shows `body` as the user's message; the agent is told who really sent it.
         body: prompt,
-        prompt: `${senderLine(caller && (await callerLabel(caller)), client)}\n\n${attachmentPrompt(prompt, attached)}`,
+        prompt: `${senderLine(caller && (senderName ? `${senderName} (${caller})` : caller), client)}\n\n${attachmentPrompt(prompt, attached)}`,
+        context: chatMessageContext(caller, senderName ?? caller, client),
         images: pictures,
         files: attached,
         provider: chosenProvider,
