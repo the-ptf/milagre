@@ -32,34 +32,29 @@ import { useArchiveActivity } from "./archive-progress";
 import { AttentionDot } from "./attention";
 import { projectOfKey } from "@milagre/shared/agent-runs";
 import { useTheme } from "./theme";
-import { useChatRowShow } from "./chat-row-store";
+import { useActivityClock, useChatRowShow } from "./chat-row-store";
 import { useChatList } from "./chat-display-setting";
 import { allComputers } from "./all-computers";
 import type { ProjectCopy } from "./all-computers-store";
 import { type Row } from "./navigation-build";
 import { useS } from "./navigation-styles";
-import { useActivityClock } from "./chat-row-store";
 import { OfflineLine, ComputerTag } from "./navigation-chrome";
 import { NavigationProjectRow } from "./navigation-project-row";
 import { NavigationChatRow } from "./navigation-chat-row";
 
-/** The Chats group header's menu, on a long press and on its ⋯. */
 const CHATS_GROUP_MENU = [{ items: [{ id: "new", title: "New Chat", systemImage: "square.and.pencil" }] }];
-/** A Done row's menu: it only leaves Done. */
 const DONE_MENU = [
   {
     items: [{ id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }],
   },
 ];
 
-/** A snoozed row's menu: Wake, or Mark Done on a computer that keeps Done. */
 const snoozedMenu = (doneable: boolean) => [
   {
     items: [{ id: WAKE, title: "Wake", systemImage: "alarm" }, ...(doneable ? [{ id: "done", title: "Mark Done", systemImage: "checkmark.circle" }] : [])],
   },
 ];
 
-/** A Project header the sidebar can measure while it is on screen. */
 export type ProjectHeaderEntry = { hostId: string; path: string; measure: () => Promise<{ top: number; bottom: number }> };
 export type RowActions = {
   enter: (hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) => Promise<void>;
@@ -67,25 +62,19 @@ export type RowActions = {
   projectAction: (hostId: string, projectPath: string, name: string, action: string) => Promise<void>;
   startNewChat: (prefill?: string) => void;
   startWithoutProject: () => Promise<void>;
-  /** Opens a Settings page, scrolled to the row titled `find` and lit up when given. */
   openSetting: (page: SettingsRoute, find?: string) => void;
   foldChats: () => void;
   foldDone: () => void;
   foldSnoozed: () => void;
-  /** Folds or unfolds the subchats under the parent row `key`. */
   foldSubchats: (key: string) => void;
   load: (hostId: string, projectPath: string) => Promise<unknown>;
-  /** A Project header on screen, or null once it leaves: a drag measures them to find its drop. */
   registerHeader: (key: string, entry: ProjectHeaderEntry | null) => void;
-  /** A Project header dragged and released with the finger at window-Y `y`: its computer's Projects take the new order. */
   reorderProjects: (hostId: string, path: string, y: number) => void;
 };
-/** What every row reads besides its own item; a change re-renders the rows on screen. */
 export type RowView = {
   currentHostId?: string;
   currentPath?: string;
   activeChatId?: number;
-  /** The open Chat's family root (`<project>#<chat>`), when it is a subchat: a folded family's row stands in for it. */
   openRoot?: string;
   busy: boolean;
   wide: boolean;
@@ -99,20 +88,13 @@ export type RowView = {
   archiveRequests: Set<string>;
   clientOf: (hostId: string) => Client | null;
   worktreeForLinks: (projectPath: string, worktreePath?: string) => { project_id: string; worktree_path: string } | undefined;
-  /** Each computer's Done retention in hours (done-retention.ts); a computer missing from it can't keep Done. */
   doneHours: Record<string, number>;
-  /** This phone's default snooze in minutes (snooze-setting.ts), for the row menus' Snooze for. */
   snoozeMinutes: number;
-  /** The list's own color, under every row. */
   background: string;
   actions: RowActions;
 };
-/** A row's props: its item, what every row reads, and its Project's copy. */
 export type RowProps<Kind extends Row["kind"]> = { item: Extract<Row, { kind: Kind }>; view: RowView; copy: ProjectCopy | undefined };
-/**
- * Each list cell. A Project header's cell sits above the Chat rows from the start, so a header dragged over them stays
- * on top; the stacking never changes during a drag, which would re-order native views and cancel the touch.
- */
+// A Project header's cell stays above the Chat rows for good: changing the stacking during a drag re-orders native views and cancels the touch.
 export function HeaderOverCell({ item, style, children, ...rest }: { item: Row; style?: StyleProp<ViewStyle>; children?: ReactNode }) {
   return (
     <View {...rest} style={[style, item.kind === "project" ? { zIndex: 1 } : null]}>
@@ -121,7 +103,6 @@ export function HeaderOverCell({ item, style, children, ...rest }: { item: Row; 
   );
 }
 
-/** Keep each cell's item and copy independent of other computers' publishes. */
 export function createNavigationRowCache<Item extends { key: string }, View, Copy>() {
   const rows = new Map<string, { encoded: string; props: { item: Item; view: View; copy: Copy | undefined } }>();
   return {
@@ -140,7 +121,6 @@ export function createNavigationRowCache<Item extends { key: string }, View, Cop
   };
 }
 
-/** One row of the list; memoized, so only a row whose item or view changed renders again. */
 export const NavigationRow = memo(function NavigationRow({ item, view, copy }: { item: Row; view: RowView; copy: ProjectCopy | undefined }) {
   const s = useS();
   const { colors } = useTheme();
@@ -192,8 +172,6 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
       </Pressable>
     );
   }
-  // A Done or snoozed Chat: its title with the time left beside it (to its archive, or to when it wakes), and its computer
-  // under it when several are listed.
   if (item.kind === "done" || item.kind === "snoozed") return <NavigationDoneRow item={item} view={view} copy={copy} />;
   if (item.kind === "start")
     return (
@@ -307,7 +285,6 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
   return <NavigationChatRow item={item} view={view} copy={copy} />;
 });
 
-/** The Chats group's header, styled like a Project group. */
 function NavigationChatsGroupRow({ item, view }: RowProps<"chatsGroup">) {
   const s = useS();
   const { colors } = useTheme();
@@ -317,8 +294,6 @@ function NavigationChatsGroupRow({ item, view }: RowProps<"chatsGroup">) {
     attention,
     actions: { startWithoutProject, foldChats },
   } = view;
-  // Styled like a Project group: a tap folds it, a long press or ⋯ opens its menu, + starts a Chat without a Project.
-  // Its ⋯ keeps the chevron and attention dot in the same column as every Project header's.
   return (
     <View style={[s.project, { opacity: item.offline ? DISABLED_OPACITY.row : 1 }]}>
       <PullDown
@@ -354,7 +329,6 @@ function NavigationChatsGroupRow({ item, view }: RowProps<"chatsGroup">) {
   );
 }
 
-/** A Done or snoozed Chat. */
 function NavigationDoneRow({ item, view, copy }: RowProps<"done" | "snoozed">) {
   const s = useS();
   const { colors } = useTheme();
@@ -381,7 +355,6 @@ function NavigationDoneRow({ item, view, copy }: RowProps<"done" | "snoozed">) {
           opacity: offline ? DISABLED_OPACITY.row : 1,
         }}
       >
-        {/* A long press or the ⋯ button offers Reopen or Wake, so leaving the section needn't be found by swiping. */}
         <PullDown
           label={`${item.title}, ${done ? "Done" : "Snoozed"}${item.many ? `, on ${item.hostName}` : ""}${countdown ? `, ${done ? "archived" : "wakes"} in ${countdown}` : ""}`}
           title={item.title}

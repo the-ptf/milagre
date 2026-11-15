@@ -16,9 +16,7 @@ import { chatActivity } from "@milagre/shared/chat-activity";
 import type { HostView, ProjectCopy, Reach } from "./all-computers-store";
 import { type SubchatMarks } from "./subchat-rows";
 
-/** Secondary screens push over the current one; a sheet also leaves the sidebar open under it, as confirmations do. */
 export type Destination = (href: Href, secondary?: boolean | "sheet") => void;
-/** The computer a row belongs to: every row and every action carries it, since two computers can share a path and a Chat id. */
 type HostTag = { hostId: string; hostName: string; reach: Reach };
 export type Row = { key: string; path: string } & (
   | ({
@@ -29,28 +27,22 @@ export type Row = { key: string; path: string } & (
       link: boolean;
       chip: boolean;
       count: number;
-      /** In the Tree layout, a Named Link's member Project, drawn under the Link. */
       member?: boolean;
     } & HostTag)
-  /** In the Tree layout, the heading of a Worktree several Chats share: they follow it. */
   | ({
       kind: "worktree";
       name: string;
       running: boolean;
     } & HostTag)
-  /** A Project whose name matches the search: a tap starts a new Chat in it. */
   | ({
       kind: "projectHit";
       name: string;
       members?: RegisteredProject[];
       many: boolean;
     } & HostTag)
-  /** Nothing matched the search: start a new Chat with it. */
   | { kind: "start"; query: string }
-  /** A Settings page or a row on one whose words match the search: a tap opens it, the row lit up. */
   | { kind: "settingHit"; title: string; trail: string; page: SettingsRoute; find?: string }
   | { kind: "section"; name: string }
-  /** The Chats group's header: every computer's Chats without a Project, above the Projects. */
   | {
       kind: "chatsGroup";
       expanded: boolean;
@@ -62,27 +54,20 @@ export type Row = { key: string; path: string } & (
       kind: "chat";
       chat: AgentSession;
       title: string;
-      /** The Project's name, on the list's first line. */
       project: string;
       members?: RegisteredProject[];
       worktree: string;
       mark: ChatMark;
-      /** With a background mark: how many background agents still work. */
       background?: number;
       pending?: MobilePendingChat;
       prPath?: string;
       prRefs?: string[];
       pullRequests?: PullRequest[];
       linearIssue?: LinearIssue;
-      /** How the list names each other end of the Links that reach the Chat's Worktree. */
       linked?: string[];
-      /** Whether more than one computer is listed, so the row names its own. */
       many: boolean;
-      /** A Chat without a Project: its row names its computer and age, never a branch. */
       home?: boolean;
-      /** Grouped under a Project that several computers share: the row names its computer on its second line. */
       shared?: boolean;
-      /** In the Tree layout: drawn further in, under a Link's member Project or a Worktree heading. */
       indent?: number;
     } & SubchatMarks &
       HostTag)
@@ -101,11 +86,8 @@ export type Row = { key: string; path: string } & (
       failed?: boolean;
       retry?: "project";
     } & HostTag)
-  /** The one quiet line for every computer that isn't answering; Retry reads those computers again. */
   | { kind: "offline"; hostIds: string[] }
-  /** The Snoozed section's header, above Done: a tap folds it. */
   | { kind: "snoozedHeader"; count: number; expanded: boolean }
-  /** A snoozed Chat: a tap opens it, a swipe right wakes it, and it counts down to when its computer wakes it. */
   | ({
       kind: "snoozed";
       chat: AgentSession;
@@ -113,9 +95,7 @@ export type Row = { key: string; path: string } & (
       many: boolean;
       home?: boolean;
     } & HostTag)
-  /** The Done section's header at the bottom of the list: a tap folds it. */
   | { kind: "doneHeader"; count: number; expanded: boolean }
-  /** A Done Chat: a tap opens it, a swipe right reopens it, and it counts down to its Mac's archive. `many`: name its computer. */
   | ({
       kind: "done";
       chat: AgentSession;
@@ -125,7 +105,6 @@ export type Row = { key: string; path: string } & (
     } & HostTag)
 );
 export type ChatRow = Extract<Row, { kind: "chat" }>;
-/** One Project's Chats as the search reads them: its messages, or null when its computer searches them. */
 export type SearchScope = HostTag & {
   path: string;
   project: string;
@@ -140,7 +119,6 @@ export type ChatEntry = {
   background: number;
   pending?: MobilePendingChat;
   worktree: string;
-  /** The Worktree's folder, which groups a Project's Chats in the Tree layout (worktreeGroups). */
   worktreePath?: string;
   prPath?: string;
   prRefs: string[];
@@ -148,21 +126,16 @@ export type ChatEntry = {
 export type ProjectBuild = {
   path: string;
   name: string;
-  /** The Git remote ("host/owner/repo") that puts this Project's copies on several computers under one row. */
   origin?: string;
   link: boolean;
   members?: RegisteredProject[];
   copy?: ProjectCopy;
-  /** The Project's Chats before the search filter, newest first. */
   all: ChatEntry[];
   chats: ChatEntry[];
-  /** Its Done Chats, for the Done section at the bottom of the list. */
   done: ChatEntry[];
-  /** Its snoozed Chats, for the Snoozed section above Done. */
   snoozed: ChatEntry[];
   failure?: string;
 };
-/** `home`: the computer's Chats without a Project, once its Chats home exists. */
 export type HostBuild = HostTag & {
   projects: ProjectBuild[];
   home?: ProjectBuild;
@@ -174,38 +147,29 @@ export type BuildContext = {
   snapshot: Snapshot | null;
   pendingChats: Record<string, MobilePendingChat>;
   archiving: (projectPath: string, chatId: number) => boolean;
-  /** Deleted from the phone and not back (an Undo or a failure brings it back): out of the list. */
   hidden: (projectPath: string, chatId: number) => boolean;
-  /** Marked Done (a time) or reopened (null) from here, before its computer has answered: the row moves at once. */
   doneMark: (projectPath: string, chatId: number) => DoneMark | undefined;
-  /** Snoozed (a wake time) or woken (null) from here, before its computer has answered. */
   snoozeMark: (projectPath: string, chatId: number) => SnoozeMark | undefined;
   fallback: (path: string) => ProjectCopy | undefined;
   show: Show;
-  /** This phone's pins on the computer: the Mac's own never show here (chat-pins-store.ts). */
   pins: DevicePins;
 };
 
-/** A Done or Reopen asked from this list, shown until its computer answers (`doneAt` null: reopened). */
 export type DoneMark = { doneAt: number | null };
 
-/** A Chat as a pending Done or Reopen shows it. */
 function withDoneMark(chat: AgentSession, mark: DoneMark | undefined): AgentSession {
   if (!mark || Boolean(mark.doneAt) === Boolean(chat.done_at)) return chat;
   return mark.doneAt ? { ...chat, done_at: mark.doneAt, unread: false } : { ...chat, done_at: undefined };
 }
 
-/** The Filters menu's Show choices: which Chats the list keeps. */
 export type Show = "all" | "needs" | "running" | "archived";
 const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
 
 export const sameDeps = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((value, index) => value === b[index]);
 
-/** One computer's Projects with their Chats under the search: the part of the list that only changes with that computer. */
 export function buildHost(view: HostView, ctx: BuildContext): HostBuild {
   const projects: ProjectBuild[] = [];
   for (const project of view.projects) if (!project.hidden && project.path !== view.home?.path) projects.push(buildProject(view, project, ctx));
-  // The Chats home is listed in the drawer's Chats group only, never as a Project; it has no branch or PR to read.
   const home = view.home?.exists ? buildProject(view, { path: view.home.path, name: NO_PROJECT_LABEL }, ctx, true) : undefined;
   return {
     hostId: view.hostId,
@@ -217,7 +181,6 @@ export function buildHost(view: HostView, ctx: BuildContext): HostBuild {
   };
 }
 
-/** One Project's Chats, newest first, with what the search and the Show filter keep of them. */
 function buildProject(view: HostView, project: RecentProject, ctx: BuildContext, home = false): ProjectBuild {
   const current = view.hostId === ctx.currentHostId;
   const saved =
@@ -231,7 +194,6 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     previews.map((item) => [saved ? (pendingChatSessionId(saved.project.state, item.preview) ?? item.preview.session.id) : item.preview.session.id, item]),
   );
   const name = project.name || project.path.split("/").at(-1) || "Project";
-  // Keep message lookup linear even in large Projects.
   const byChat = new Map<number, NonNullable<typeof copy>["project"]["state"]["messages"]>();
   for (const message of copy?.project.state.messages || []) {
     const list = byChat.get(message.session_id) || [];
@@ -250,7 +212,6 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
       sortId: chatSummary(chat, messages).firstId ?? chat.id,
       pending,
       mark: pending && !pending.accepted ? ("running" as const) : chatMark(chat, run, messages || []),
-      // How many background agents still work, for a background mark (chat-activity.mjs).
       background: chatActivity(chat, run).background,
       count: chatSummary(chat, messages).count,
     };
@@ -267,7 +228,6 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     prPath: !pending && !copy?.project.link && !home ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
     prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
   });
-  // Done Chats leave the list for the Done section at its bottom (only the Archived filter lists them, once archived).
   const done =
     ctx.show === "all"
       ? entries
@@ -275,7 +235,6 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
           .filter(({ chat }) => !ctx.hidden(copy?.project.path ?? project.path, chat.id))
           .map(toEntry)
       : [];
-  // Snoozed Chats leave it too, for the Snoozed section above Done, until they wake.
   const now = Date.now();
   const snoozed =
     ctx.show === "all"
@@ -285,8 +244,6 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
           .map(toEntry)
       : [];
   const all: ChatEntry[] = entries
-    // Like desktop's sidebar, a worktree's empty starter Chat stays out until it has a message or a turn is starting.
-    // A Chat stays in its place while its archive runs, under the progress, until the archive ends.
     .filter(({ chat, run, count, mark }) => {
       if (ctx.hidden(copy?.project.path ?? project.path, chat.id)) return false;
       if (ctx.show === "archived") return !!chat.archived && shownChat(chat, run, count, { archived: true });
@@ -298,7 +255,6 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
       if (ctx.show === "running") return mark === "running" || mark === "background";
       return true;
     })
-    // Pinned Chats first in their order, then the newest Chat first, by when it was created, so rows don't jump around as agents reply.
     .sort((a, b) => comparePins(a.chat, b.chat) || b.sortId - a.sortId)
     .map(toEntry);
   const chats = ctx.needle

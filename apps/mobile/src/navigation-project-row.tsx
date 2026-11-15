@@ -16,11 +16,7 @@ import { TREE_INDENT } from "./navigation-rows";
 import { useS } from "./navigation-styles";
 import { type RowActions, type RowProps } from "./navigation-row";
 
-/**
- * The long-press-then-drag gesture for a Project header, built outside render (like sliderGesture and resizeGesture) so
- * the React-compiler rules that ban capitalized calls and ref reads in a component body don't fire. A short press that
- * doesn't move still folds the group; a long press lifts it, the pan moves it, the release reports where it landed.
- */
+// Built outside render: the React Compiler lint rules ban capitalized calls and ref reads in a component body.
 function headerDragGesture({
   lifted,
   offset,
@@ -44,7 +40,6 @@ function headerDragGesture({
     })
     .onEnd((event) => {
       "worklet";
-      // Where the finger let go, in window coordinates: the drop lands on the header under it.
       scheduleOnRN(drop, event.absoluteY);
     })
     .onFinalize(() => {
@@ -59,11 +54,6 @@ function headerDragGesture({
   return Gesture.Exclusive(pan, tapFold);
 }
 
-/**
- * A Project header that folds on a tap and, on a long press, lifts to be dragged up or down to reorder its group, the
- * way Mail reorders mailboxes. The band it reports as it lays out lets the drop find which Project the finger is over;
- * the release saves its computer's new order. A short press that doesn't move still folds the group.
- */
 function ProjectHeaderDrag({
   hostId,
   path,
@@ -80,7 +70,6 @@ function ProjectHeaderDrag({
   rowKey: string;
   label: string;
   onFold: () => void;
-  /** The list's color: a lifted header is drawn on it, so the rows it passes over don't show through. */
   background: string;
   registerHeader: RowActions["registerHeader"];
   reorderProjects: RowActions["reorderProjects"];
@@ -90,7 +79,6 @@ function ProjectHeaderDrag({
   const ref = useRef<ViewInstance>(null);
   const lifted = useSharedValue(0);
   const offset = useSharedValue(0);
-  // On screen, the header can be measured for a drop; once it leaves the list (scrolled away, folded out) it can't.
   useEffect(() => {
     const measure = () =>
       new Promise<{ top: number; bottom: number }>((resolve) => {
@@ -123,7 +111,6 @@ function ProjectHeaderDrag({
   );
 }
 
-/** A Project's header: a tap folds its group, a long press drags it, ⋯ opens its menu, + starts a Chat. */
 export function NavigationProjectRow({ item, view, copy }: RowProps<"project">) {
   const offline = item.reach === "offline";
   const s = useS();
@@ -155,7 +142,6 @@ export function NavigationProjectRow({ item, view, copy }: RowProps<"project">) 
     ...(!linked ? [{ items: [{ id: "remove", title: "Remove Project", systemImage: "minus.circle", destructive: true }] }] : []),
   ];
   const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
-  // A Link, another computer's copy under a shared head, or an offline computer's row can't be reordered.
   const canReorder = !linked && item.hostId === currentHostId && !offline;
   const header = (
     <View style={s.projectTitle}>
@@ -180,7 +166,6 @@ export function NavigationProjectRow({ item, view, copy }: RowProps<"project">) 
       <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
     </View>
   );
-  // A tap folds the group. A long press lifts it to drag, like Mail's edit-mode reorder; the menu moves to the ⋯ button.
   return (
     <View style={[s.project, item.member ? { marginTop: 4, paddingLeft: 8 + TREE_INDENT } : null, { opacity: offline ? DISABLED_OPACITY.row : 1 }]}>
       {canReorder ? (

@@ -11,7 +11,6 @@ import { allComputers } from "./all-computers";
 import { isDesktopComputer } from "./computer-actions";
 import { useS } from "./navigation-styles";
 
-/** A button in the list's header capsule; the capsule draws the glass behind them all. */
 export function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
   const s = useS();
   const { colors } = useTheme();
@@ -37,12 +36,10 @@ export function HeaderButton({ label, icon, onPress }: { label: string; icon: Ic
   );
 }
 
-/** The Liquid Glass behind the header capsule, as the list's floating controls have. */
 export function HeaderGlass() {
   return <GlassSurface radius={radius.sheet} />;
 }
 
-/** "2 computers offline" in ink3 at the end of the list, with Retry reading just those computers again. */
 export function OfflineLine({ hostIds }: { hostIds: string[] }) {
   const s = useS();
   const { colors } = useTheme();
@@ -81,7 +78,6 @@ export function OfflineLine({ hostIds }: { hostIds: string[] }) {
   );
 }
 
-/** A Chat's computer: its icon and name, with an offline mark when it isn't answering. */
 export function ComputerTag({ name, offline, chip = false, large = false }: { name: string; offline: boolean; chip?: boolean; large?: boolean }) {
   const s = useS();
   const { colors } = useTheme();

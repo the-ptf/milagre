@@ -29,7 +29,6 @@ import { useActivityClock } from "./chat-row-store";
 import { ComputerTag } from "./navigation-chrome";
 import type { RowActions, RowProps, RowView } from "./navigation-row";
 
-/** How far each level of a subchat family indents its row. */
 const SUBCHAT_INDENT = 16;
 const labels: Record<ChatMark, string> = {
   idle: "",
@@ -45,7 +44,6 @@ const labels: Record<ChatMark, string> = {
 type ChatRowContext = RowProps<"chat"> & { s: ReturnType<typeof useS>; colors: Palette; now: number };
 type ChatRowBase = ChatRowContext & RowView & RowActions;
 
-/** Whether the row is the open Chat, its menu, and whether it is archiving. */
 function chatRowSelection(ctx: ChatRowBase) {
   const {
     item,
@@ -82,13 +80,10 @@ function chatRowSelection(ctx: ChatRowBase) {
     },
     beside,
   );
-  // The Chat open beside the open one is selected too.
   const isBeside = wide && activeChatId !== undefined && beside?.hostId === item.hostId && beside.projectPath === item.path && beside.chatId === item.chat.id;
-  // A family folded by hand while one of its subchats is open: its parent's row draws as the open one, as on desktop.
   const standIn = !!item.family?.folded && currentHostId === item.hostId && openRoot === `${item.path}#${item.chat.id}`;
   const selected = (currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id) || isBeside || standIn;
   const linked = item.linked ?? [];
-  // A Mac that keeps Done answers its retention (done-retention.ts); an older one ignores Done, so its rows archive instead.
   const doneable = doneHours[item.hostId] !== undefined;
   const menu = chatMenu(
     item.chat,
@@ -105,7 +100,6 @@ function chatRowSelection(ctx: ChatRowBase) {
     doneable,
     snoozeMinutes,
   );
-  // While it archives, the row stays put under the progress and takes no taps.
   const archiving =
     archivingChats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&
     (item.hostId === currentHostId || archiveRequests.has(`${item.hostId}|${item.path}#${item.chat.id}`));
@@ -124,7 +118,6 @@ function chatRowSelection(ctx: ChatRowBase) {
   };
 }
 
-/** What the row says: its chips, diff, time, branch, mark, family and label. */
 function chatRowLook(ctx: ChatRowBase & ReturnType<typeof chatRowSelection>) {
   const { item, copy, colors, rowShow, chatList, offline, title, linked } = ctx;
   const tone = chatMarkTone(item.mark);
@@ -136,15 +129,12 @@ function chatRowLook(ctx: ChatRowBase & ReturnType<typeof chatRowSelection>) {
   const lastAt = rowShow.lastActivity ? item.chat.summary?.lastAt : undefined;
   const branchLine = copy?.project.link ? `Shared Chat · ${copy.project.link.projects.length} Projects` : rowShow.branch ? item.worktree : "";
   const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
-  // A working Chat says so with its spinner alone, as on desktop; its words stay for VoiceOver.
   const markWord = item.mark === "running" || item.mark === "background" ? "" : markLabel;
   const markColor = inkFor(colors, tone);
   const family = item.family;
   const familyLabel = family
     ? `${family.folded ? "Show" : "Hide"} ${family.count} subchat${family.count === 1 ? "" : "s"}${family.asking ? ", one needs you" : ""}`
     : "";
-  // A subchat sits indented under its parent, with a line down to it.
-  // One indent deeper per level, two at most (subchat-rows.ts).
   const depth = item.depth ?? 1;
   const subchatIndent = item.subchat || item.indent ? { paddingLeft: (item.subchat ? SUBCHAT_INDENT * depth : 0) + (item.indent ?? 0) } : null;
   const grouped = chatList !== "list";
@@ -170,7 +160,6 @@ function chatRowLook(ctx: ChatRowBase & ReturnType<typeof chatRowSelection>) {
   };
 }
 
-/** The parts every layout draws: facts, the Link glyph, the family badge and the Project icon, with their taps. */
 function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & ReturnType<typeof chatRowLook>) {
   const {
     item,
@@ -197,7 +186,6 @@ function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & 
     depth,
     grouped,
   } = ctx;
-  // The diff and the last activity sit after the branch, or after the chips.
   const facts = (
     <>
       {diff && (
@@ -208,13 +196,11 @@ function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & 
       {lastAt !== undefined && chatList !== "list" && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}
     </>
   );
-  // A linked Chat shows the Link glyph beside its pin, as desktop's sidebar does.
   const linkedIcon = linked.length ? (
     <View accessible accessibilityLabel={linkedAccessibilityLabel(linked)}>
       <Icon icon={Link04Icon} tone="ink3" size={12} />
     </View>
   ) : null;
-  // A PR link opens the Chat and then its PR there, for a Chat of this computer with a Worktree of its own.
   const openPullRequest =
     item.hostId === currentHostId && !copy?.project.link && !item.pending
       ? (pr: PullRequest) => {
@@ -222,7 +208,6 @@ function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & 
           void enter(item.hostId, item.path, item.chat.id);
         }
       : undefined;
-  // A subchat is a Chat like any other: it opens alone, with its family unfolded around it.
   const openRow = () => {
     if (archiving) return;
     void enter(item.hostId, item.path, item.chat.id, item.pending);
@@ -231,7 +216,6 @@ function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & 
     tap();
     foldSubchats(item.key);
   };
-  // Every layout uses the same count on the Project icon to fold its family.
   const familyBadge = family ? (
     <Pressable
       accessibilityRole="button"
@@ -280,7 +264,6 @@ function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & 
       {!archiving && familyBadge}
     </View>
   );
-  // Under a Project several computers share, each row names its own computer first.
   const computerTag = grouped && item.shared ? <ComputerTag name={item.hostName} offline={offline} /> : null;
   const secondLine = !!computerTag || !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markWord;
   return {
@@ -297,7 +280,6 @@ function chatRowPieces(ctx: ChatRowBase & ReturnType<typeof chatRowSelection> & 
   };
 }
 
-/** What every layout of a Chat row reads and draws, from its item, the list's view and its Project's copy. */
 function chatRowParts(ctx: ChatRowContext) {
   const base: ChatRowBase = { ...ctx, ...ctx.view, ...ctx.view.actions };
   const selection = { ...base, ...chatRowSelection(base) };
@@ -306,7 +288,6 @@ function chatRowParts(ctx: ChatRowContext) {
 }
 type ChatRowParts = ReturnType<typeof chatRowParts>;
 
-/** A Chat's row: in the Chats group, as an inbox row in the One list, or grouped under its Project. */
 export function NavigationChatRow(props: RowProps<"chat">) {
   const s = useS();
   const { colors } = useTheme();
@@ -317,8 +298,6 @@ export function NavigationChatRow(props: RowProps<"chat">) {
   return groupedChatRow(parts);
 }
 
-// A Chat without a Project, in the Chats group or a grouped list's search: its title, then its computer and age, never a
-// branch or PR. The One list draws it as an inbox row like the others, with the Chats bubble for its icon.
 function homeChatRow(p: ChatRowParts) {
   const {
     item,
@@ -456,16 +435,11 @@ function inboxChatRow(p: ChatRowParts) {
     archiving,
     rowProjectIcon,
   } = p;
-  // One list: inbox rows. The Project's icon, then the title with its time (a spinner while it runs, a dot when unread),
-  // then one line naming the Project, its pull requests and Linear issue, what the Chat waits on, the diff, and the
-  // computer when it isn't the open one. A tap opens the Chat and a long press opens its menu: the menu covers the row,
-  // under the pull request links, which keep their own taps.
   const running = item.mark === "running" || item.mark === "background";
   const word = item.mark === "unread" ? "" : markLabel;
   const unreadColor = colors[chatMarkTone("unread")];
   const otherComputer = item.many;
   const separator = <Text style={s.inboxSeparator}>·</Text>;
-  // What VoiceOver reads for the row: what it shows, without the branch.
   const inboxLabel = [
     title,
     item.chat.pinned ? "pinned" : "",
@@ -477,7 +451,6 @@ function inboxChatRow(p: ChatRowParts) {
   ]
     .filter(Boolean)
     .join(", ");
-  // The second line's parts, " · " between them; the pull request links keep their own taps.
   const parts: { key: string; node: ReactNode; links?: boolean }[] = [
     {
       key: "project",
@@ -605,7 +578,6 @@ function inboxChatRow(p: ChatRowParts) {
                       <Text
                         style={[
                           s.inboxTime,
-                          // Unread: the time brighter, not coloured; the dot after it is the one accent mark.
                           item.chat.unread && {
                             color: colors.ink,
                             fontWeight: "500",
@@ -675,7 +647,6 @@ function groupedChatRow(p: ChatRowParts) {
     computerTag,
     secondLine,
   } = p;
-  // A tap opens the Chat and a long press opens its ⋯ menu, as on desktop's sidebar.
   return (
     <ChatSwipeRow
       unread={!!item.chat.unread}

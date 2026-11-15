@@ -96,7 +96,6 @@ const makeS = (colors: Palette) =>
       alignItems: "center",
       justifyContent: "center",
     },
-    // A Chat row's ⋯: 44 wide like a header's + (both end 8 pt in), so the two right-hand columns line up.
     rowMore: {
       width: 44,
       height: 44,
@@ -134,8 +133,6 @@ const makeS = (colors: Palette) =>
       borderRadius: radius.control,
       borderCurve: "continuous",
     },
-    // The mark's 20 pt column sits under a header's Project icon (both centred 30 pt in), and the gap puts the title
-    // under the header's name: 8 + 12 + 20 + 12 = 52, as 8 + 8 + 28 + 8 in projectTitle.
     chatBody: {
       flexDirection: "row",
       alignItems: "center",
@@ -172,8 +169,6 @@ const makeS = (colors: Palette) =>
     inboxSeparator: { color: colors.ink3, fontSize: type.subheadline },
     inboxPart: { flexDirection: "row", alignItems: "center", gap: 6 },
     chatTitle: { color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
-    // Under the Project's name, where its Chats' titles start.
-    // A shared Worktree's heading in the Tree layout: its dot under the Project icon's column, its Chats after it.
     worktree: {
       minHeight: 32,
       flexDirection: "row",

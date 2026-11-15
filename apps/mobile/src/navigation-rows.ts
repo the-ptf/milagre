@@ -12,12 +12,9 @@ import { mergeChatLists } from "./chat-list-order.ts";
 import { nestChatRows } from "./subchat-rows.ts";
 import type { ChatEntry, ChatRow, HostBuild, ProjectBuild, Row, SearchScope, Show } from "./navigation-build.ts";
 
-/** In the Tree layout, a Link's member Project and a shared Worktree's Chats sit this far in. */
 export const TREE_INDENT = 16;
-/** How many Settings matches the Chats search lists under its results. */
 const SETTINGS_SHOWN = 6;
 
-/** What the rows are built from: each computer's build and how the list is set, searched, filtered and folded. */
 export type RowsInput = {
   builds: HostBuild[];
   chatList: ChatList;
@@ -31,7 +28,6 @@ export type RowsInput = {
   subchatFolds: { has: (key: string) => boolean };
 };
 
-/** A Chat's row under its computer and Project. */
 function chatRowFor(manyHosts: boolean) {
   return (build: HostBuild, project: ProjectBuild, entry: ChatEntry): ChatRow => ({
     key: `${build.hostId}|${project.path}#${entry.chat.id}`,
@@ -47,7 +43,6 @@ function chatRowFor(manyHosts: boolean) {
   });
 }
 
-// An offline computer has no row of its own: its Chats stay listed dimmed, and `offlineLine` counts it.
 function hostNotice(build: HostBuild): Row | null {
   const noData = !build.projects.some((project) => project.copy);
   if (build.reach !== "offline" && noData && (!build.loaded || build.projects.length))
@@ -63,8 +58,6 @@ function hostNotice(build: HostBuild): Row | null {
   return null;
 }
 
-// A Project several computers share: one row, on the first computer that answers (its + and menu go there), then
-// every copy's Chats in one list, then each copy's own notice.
 function sharedProject(ctx: RowsInput, copies: { build: HostBuild; project: ProjectBuild }[]): Row[] {
   const { show, folds, manyHosts } = ctx;
   const chatRow = chatRowFor(manyHosts);
@@ -141,13 +134,10 @@ function sharedProject(ctx: RowsInput, copies: { build: HostBuild; project: Proj
   return listed;
 }
 
-/** A search, or the One list: matching Chats in one list by the same order, then each computer's notice. */
 function flatRows(ctx: RowsInput, result: Row[], found: SearchScope[], offlineLine: Row[]) {
   const { builds, needle, manyHosts } = ctx;
   const chatRow = chatRowFor(manyHosts);
   let rank = 0;
-  // The One list has no groups, so no Chats group either: Chats without a Project merge in by the same order as every
-  // other row, as a search finds them too.
   const lists = builds.flatMap((build) =>
     build.projects.concat(build.home ? [build.home] : []).map((project) => {
       const mine = rank++;
@@ -185,13 +175,10 @@ function flatRows(ctx: RowsInput, result: Row[], found: SearchScope[], offlineLi
   if (!needle) result.push(...offlineLine);
 }
 
-/** The grouped and Tree layouts: the Chats group, then each Project's group with its Chats, then the offline line. */
 function groupedRows(ctx: RowsInput, result: Row[], chatsGroup: Row[], offlineLine: Row[]) {
   const { builds, chatList, show, manyHosts, folds } = ctx;
   const chatRow = chatRowFor(manyHosts);
   result.push(...chatsGroup);
-  // One repository on several computers (one Git origin) is one Project, in its first copy's place; its Chats merge
-  // by time, each naming its computer.
   const shared = new Map<ProjectBuild, { build: HostBuild; project: ProjectBuild }[]>();
   for (const group of groupByOrigin(
     builds.flatMap((build) =>
@@ -205,11 +192,8 @@ function groupedRows(ctx: RowsInput, result: Row[], chatsGroup: Row[], offlineLi
   ))
     if (group.copies.length > 1) for (const copy of group.copies) shared.set(copy.project, group.copies);
   for (const build of builds) {
-    // A computer that hasn't answered with its Projects has no group to carry its state.
     const notice = build.projects.length ? null : hostNotice(build);
     if (notice) result.push(notice);
-    // A Project's group: its header, then (unfolded) its Chats and their notice. In the Tree layout a Project's Chats go
-    // by Worktree (a shared Worktree's under its heading), and a Named Link's member Projects follow the Link, further in.
     const host = { hostId: build.hostId, hostName: build.hostName, reach: build.reach };
     const projectGroup = (project: ProjectBuild, member = false, hasMembers = false): Row[] => {
       const open = !folds.get(build.hostId)?.has(project.path);
@@ -253,7 +237,6 @@ function groupedRows(ctx: RowsInput, result: Row[], chatsGroup: Row[], offlineLi
         }
       } else for (const entry of project.chats) rows.push(indent ? { ...chatRow(build, project, entry), indent } : chatRow(build, project, entry));
       const base = { ...host, path: project.path, kind: "notice" as const, retry: "project" as const };
-      // An offline computer's failed and unread Projects are the offline line's business, not a notice each.
       if (build.reach === "offline" && (project.failure || !project.copy)) return rows;
       if (project.failure)
         rows.push({
@@ -262,7 +245,6 @@ function groupedRows(ctx: RowsInput, result: Row[], chatsGroup: Row[], offlineLi
           message: project.copy ? "Could not refresh Chats. Tap to retry." : "Could not load Chats. Tap to retry.",
           failed: true,
         });
-      // A Link whose member Projects follow it, and a member under its Link, need no "No Chats" notice.
       else if (!project.copy || (!project.chats.length && !hasMembers && !member))
         rows.push({
           ...base,
@@ -277,7 +259,6 @@ function groupedRows(ctx: RowsInput, result: Row[], chatsGroup: Row[], offlineLi
         });
       return rows;
     };
-    // A Show filter leaves out the Projects with nothing to show.
     const empty = (project: ProjectBuild) => show !== "all" && project.copy && !project.chats.length && !project.failure;
     const owners =
       chatList === "tree"
@@ -304,16 +285,13 @@ function groupedRows(ctx: RowsInput, result: Row[], chatsGroup: Row[], offlineLi
   result.push(...offlineLine);
 }
 
-/** The list's rows before search hits: the Chats, the Snoozed and Done sections, and each Project a search matches. */
 export function computeRows(ctx: RowsInput): { rows: Row[]; searchable: SearchScope[]; projectHits: Row[] } {
   const { builds, needle, show, manyHosts, chatsFolded, doneOpen, snoozedOpen, subchatFolds } = ctx;
   const chatRow = chatRowFor(manyHosts);
   const result: Row[] = [];
-  // Each Project's Chats under the search, for the Messages section: every computer's, like desktop's ⌘K.
   const found: SearchScope[] = [];
   const offlineIds = builds.filter((build) => build.reach === "offline").map((build) => build.hostId);
   const offlineLine: Row[] = offlineIds.length ? [{ key: "offline", path: "", kind: "offline", hostIds: offlineIds }] : [];
-  // Every computer's Chats without a Project in one list, newest first, above the Projects. With none, no group.
   const homeRows = chatsGroupChats(
     builds.flatMap((build) => {
       const home = build.home;
@@ -331,13 +309,11 @@ export function computeRows(ctx: RowsInput): { rows: Row[]; searchable: SearchSc
     computers: builds.length,
     rows: homeRows,
     folded: chatsFolded,
-    // Each computer's home, so a Chat waiting in a folded group still marks it.
     homes: builds.flatMap((build) => (build.home ? [{ hostId: build.hostId, path: build.home.path }] : [])),
   });
   const chatsGroup: Row[] = chatsList ? [{ key: "chats-group", path: "", ...chatsList.header }, ...chatsList.rows] : [];
   if (needle || ctx.chatList === "list") flatRows(ctx, result, found, offlineLine);
   else groupedRows(ctx, result, chatsGroup, offlineLine);
-  // Projects whose name matches the search, opened as a new Chat in that Project.
   const hits: Row[] = needle
     ? builds.flatMap((build) =>
         build.projects
@@ -355,7 +331,6 @@ export function computeRows(ctx: RowsInput): { rows: Row[]; searchable: SearchSc
           })),
       )
     : [];
-  // Every computer's snoozed Chats in one section above Done, the one waking soonest first.
   if (!needle && show === "all") {
     const snoozed = builds
       .flatMap((build) =>
@@ -386,7 +361,6 @@ export function computeRows(ctx: RowsInput): { rows: Row[]; searchable: SearchSc
       if (snoozedOpen) result.push(...snoozed);
     }
   }
-  // Every computer's Done Chats in one section under the list, most recently marked first.
   if (!needle && show === "all") {
     const done = builds
       .flatMap((build) =>
@@ -417,7 +391,6 @@ export function computeRows(ctx: RowsInput): { rows: Row[]; searchable: SearchSc
       if (doneOpen) result.push(...done);
     }
   }
-  // A Show filter that leaves nothing says so, above the offline line.
   if (!needle && show !== "all" && !result.some((row) => row.kind === "chat"))
     result.unshift({
       key: "filter-empty",
@@ -432,7 +405,6 @@ export function computeRows(ctx: RowsInput): { rows: Row[]; searchable: SearchSc
   };
 }
 
-/** What a search lists under the rows: matched messages, matching Projects and Settings, or the row that starts a Chat. */
 export type SearchInput = {
   rows: Row[];
   needle: string;
@@ -445,8 +417,6 @@ export type SearchInput = {
   ipad: boolean;
 };
 
-// What was said in the Chats, at most three hits per Chat, then the matching Projects; with nothing at all, the row
-// that starts a new Chat with the search.
 export function searchRows({ rows, needle, query, searchable, hostMatches, projectHits, manyHosts, connected, ipad }: SearchInput): Row[] {
   if (!needle) return rows;
   const found: Row[] = [];
@@ -496,7 +466,6 @@ export function searchRows({ rows, needle, query, searchable, hostMatches, proje
       },
       ...projectHits,
     );
-  // Settings found by the same words, as ⌘K on desktop lists them: last, under everything said in the Chats.
   const settings: Row[] = searchPhoneSettings(query, { connected, ipad })
     .slice(0, SETTINGS_SHOWN)
     .map(({ entry }) => ({

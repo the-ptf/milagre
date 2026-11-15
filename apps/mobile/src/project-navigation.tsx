@@ -1,5 +1,4 @@
-import { lineHeight } from "./design-tokens";
-import { type } from "./design-tokens";
+import { lineHeight, type } from "./design-tokens";
 import { hideRevealed } from "./chat-swipe-row";
 import { useDoneRetention } from "./done-retention";
 import { type SnoozeMark } from "./snooze-actions";
@@ -49,7 +48,6 @@ import { useS } from "./navigation-styles";
 import { HeaderButton, HeaderGlass } from "./navigation-chrome";
 import { NavigationRow, HeaderOverCell, createNavigationRowCache, type RowView } from "./navigation-row";
 
-/** The Filters menu's Show choices: which Chats the list keeps. */
 const SHOW: [Show, string, string][] = [
   ["all", "All Chats", "bubble.left.and.bubble.right"],
   ["needs", "Needs me", "exclamationmark.bubble"],
@@ -64,25 +62,19 @@ const FIELD_SYMBOLS: Record<string, string> = {
   lastActivity: "clock",
 };
 
-/** The same project tree is the first-run destination and the drawer over a Chat: every computer's Chats, their ⋯ actions and search. */
 type NavigationProps = {
   onNavigate: Destination;
   onClose?: () => void;
   activeChatId?: number;
-  /** False while the sidebar is mounted but off screen: nothing is read from the computers then. */
   visible?: boolean;
-  /** Pinned beside the Chat on a wide iPad: it never closes, and its `onNavigate` skips the Chat already open. */
   docked?: boolean;
-  /** Drawn on a card's surface color (the pinned sidebar and the one sliding over) instead of the page's. */
   surface?: boolean;
 };
-/** What the list reads from the session, held as it was while the list is off screen. */
 type Watched = {
   session: Session;
   snapshot: Snapshot | null;
   pendingChats: Record<string, MobilePendingChat>;
 };
-/** The last value it was given while `live`: a sidebar off screen keeps what it showed, so nothing under it re-renders. */
 class Held<T> {
   private value: { current: T } | null = null;
   pick(live: boolean, value: T): T {
@@ -90,18 +82,11 @@ class Held<T> {
     return this.value.current;
   }
 }
-/**
- * The sidebar stays mounted under the Chat once it has opened. Off screen (`visible` false) it renders what it last
- * showed: the session's changes (a Project read, a turn's runs, a keystroke in the composer) reach it once it shows again,
- * which is when it wakes after sliding in (side-panels.tsx), so no render lands on the slide's frames.
- */
 
 export function ProjectNavigation(props: NavigationProps) {
   const session = useSession();
-  // Only what the rows show of the turns: a streaming turn doesn't re-render the list, its start, question or end does.
   const snapshot = useListSnapshot();
   const { pendingChats } = usePendingChats();
-  // The composer changes on every keystroke; the list reads it only when "Link and ask" sends.
   const composer = useComposer();
   const latestComposer = useRef(composer);
   useLayoutEffect(() => {
@@ -134,43 +119,33 @@ const NavigationBody = memo(function NavigationBody({
   const { colors } = useTheme();
   const styles = useStyles();
   const links = useLinks(session.client);
-  // An older Mac or a confined phone has no Routines to show, so the dock leaves the button out.
   const routinesAvailable = useRoutinesAvailable(session.client);
   const insets = useSafeAreaInsets();
   const attention = useAttention();
   const { reloadProjects, cachedProject } = session;
   const currentPath = snapshot?.project.path;
   const currentHostId = session.client?.url;
-  // A wide iPad can open another Chat, of any Project on any computer that answers, beside the open one.
   const wide = useSplitLayout().widthClass === "wide";
   const beside = useBesideChat();
   const [savedChatList] = useChatList();
-  // The chooser must list Projects and Links even when they have no Chats yet.
   const chatList = currentPath ? savedChatList : "grouped";
   const [query, setQuery] = useState("");
   const searchQuery = useDeferredValue(query);
   const needle = searchQuery.trim().toLowerCase();
   const searching = !!needle;
   const [show, setShow] = useState<Show>("all");
-  // Searching or a Show filter reads every Project, folded or not.
   const views = useAllComputers({
     visible,
     expandAll: chatList === "list" || searching || show !== "all",
   });
   const folds = useFoldedProjects(views.map((view) => view.hostId));
   const rowShow = useChatRowShow();
-  // The Done section starts folded and stays as the user left it while the app runs.
   const [doneOpen, setDoneOpen] = useState(false);
-  // The Snoozed section starts folded too.
   const [snoozedOpen, setSnoozedOpen] = useState(false);
   const [snoozeMinutes] = useSnoozeMinutes();
-  // The Chats group folds for as long as the app runs; it isn't one computer's, so the per-computer folds don't hold it.
   const [chatsFolded, setChatsFolded] = useState(false);
-  // Opened subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts): a family starts
-  // folded, its parent alone, until its count is tapped.
   const [subchatOpen, setSubchatOpen] = useState<ReadonlySet<string>>(() => new Set());
   const subchatFolds = useMemo(() => ({ has: (key: string) => !subchatOpen.has(key) }), [subchatOpen]);
-  // The open Chat's family unfolds around it, so its row is on screen and selected (the user can still fold it again).
   const openRoot =
     currentHostId && currentPath && activeChatId !== undefined
       ? chatFamily(snapshot?.project.state.sessions, `${currentPath}#${activeChatId}`)?.root
@@ -180,16 +155,13 @@ const NavigationBody = memo(function NavigationBody({
     const key = `${currentHostId}|${openRoot}`;
     setSubchatOpen((open) => (open.has(key) ? open : new Set(open).add(key)));
   }, [openRoot, currentHostId, activeChatId]);
-  // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
   const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
-  // Snooze and Wake asked from this list, by the same key: the row moves before its computer answers.
   const [snoozeMarks, setSnoozeMarks] = useState<ReadonlyMap<string, SnoozeMark>>(() => new Map());
   const [page, setPage] = useState<"add" | null>(null);
   const [addHostId, setAddHostId] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const archives = useArchiveActivity();
   const historyToast = useHistoryToast("list");
-  // The Chats this sidebar is archiving, by computer: another computer's Chat with the same path and id is not archiving.
   const [archiveRequests] = useState(() => new Set<string>());
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -197,7 +169,6 @@ const NavigationBody = memo(function NavigationBody({
   const bottomInset = useControlsBottomInset();
   const searchInput = useRef<TextInputInstance>(null);
   const background = surface ? colors.surface : colors.page;
-  // On a card the open Chat's row takes the stronger tint, so a row under the pointer still reads apart from it.
   const selectedFill = surface ? colors.hover2 : colors.hover;
   const alive = useRef(true);
   useEffect(() => {
@@ -215,8 +186,6 @@ const NavigationBody = memo(function NavigationBody({
     (hostId: string): Client | null => (hostId === currentClient?.url ? currentClient : allComputers.clientFor(hostId)),
     [currentClient],
   );
-  // The copy of a Project this list reads: the open one's snapshot (its runs as the rows read them: whether each Chat
-  // runs, asks or waits), otherwise the last answer of its computer.
   const copyOf = useCallback(
     (hostId: string, projectPath: string): ProjectCopy | undefined =>
       hostId === currentHostId && projectPath === currentPath && snapshot
@@ -228,7 +197,6 @@ const NavigationBody = memo(function NavigationBody({
   const load = (hostId: string, projectPath: string): Promise<unknown> =>
     hostId === currentHostId && projectPath === currentPath ? session.refresh() : allComputers.refreshProject(hostId, projectPath).catch(() => {});
 
-  // Each computer's rows are rebuilt only when that computer's data, the search or what it overlays changes.
   const [cache] = useState(() => new Map<string, { deps: unknown[]; build: HostBuild }>());
   const pinsVersion = useSyncExternalStore(savedChatPins.subscribe, savedChatPins.version);
   useEffect(() => {
@@ -273,7 +241,6 @@ const NavigationBody = memo(function NavigationBody({
     });
     for (const id of cache.keys()) if (!views.some((view) => view.hostId === id)) cache.delete(id);
     return next;
-    // pinsVersion: a pin changes savedChatPins.pins, which the deps above read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     views,
@@ -297,8 +264,6 @@ const NavigationBody = memo(function NavigationBody({
     () => computeRows({ builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds }),
     [builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds],
   );
-  // Projects held without their messages (a preview, or a host that keeps them by Chat) are searched on their own
-  // computer's host.
   const [hostMatches, setHostMatches] = useState<{
     query: string;
     matches: Record<string, ChatSearchMatch[]>;
@@ -348,7 +313,6 @@ const NavigationBody = memo(function NavigationBody({
     [rows, needle, searchQuery, session.client, searchable, hostMatches, projectHits, manyHosts],
   );
 
-  // A hidden Run Chat nobody opened lights the dock's Routines button, read from the open computer's Projects.
   const unreadRuns = useMemo(() => {
     const states: Record<string, { sessions: Record<string, AgentSession> }> = {};
     for (const project of builds.find((build) => build.hostId === currentHostId)?.projects ?? [])
@@ -356,7 +320,6 @@ const NavigationBody = memo(function NavigationBody({
     return unreadRunRoutines(states).size > 0;
   }, [builds, currentHostId]);
 
-  // Every computer keeps its PR chips when the open Chat moves to another one.
   const prTargets = useMemo(() => {
     const byHost = new Map<string, Map<string, Set<string>>>();
     for (const row of listRows) {
@@ -374,14 +337,12 @@ const NavigationBody = memo(function NavigationBody({
     }));
   }, [listRows, currentHostId, session.client, visible]);
   const prStatus = useComputerChatPullRequests(prTargets);
-  // A Worktree's Linear issue shows its chip on the Chat row, with or without pull requests, while Linear is on.
   const { active: linearActive } = useLinear(session.client);
   const linearPaths = useMemo(
     () => [...new Set(listRows.flatMap((row) => (row.kind === "chat" && row.hostId === currentHostId && row.prPath ? [row.path] : [])))],
     [listRows, currentHostId],
   );
   const linearIssues = useWorktreeLinearIssues(session.client, linearActive ? linearPaths : []);
-  // A Link's other end is named by its Project and, when this phone holds that Project, the Worktree's branch.
   const endNames = useMemo(
     () =>
       endNamer(
@@ -391,7 +352,6 @@ const NavigationBody = memo(function NavigationBody({
       ),
     [links.projects, copyOf, currentHostId],
   );
-  // Only a local Project's Chat with its own Worktree joins Links; a shared Link Chat (prPath unset) never does.
   const worktreeForLinks = useCallback(
     (projectPath: string, worktreePath?: string) => {
       const projectId = links.available && worktreePath ? links.projectIdOf(projectPath) : undefined;
@@ -453,7 +413,6 @@ const NavigationBody = memo(function NavigationBody({
     rowShow,
     setShow,
   });
-  // Filters: which Projects, which Chats, and what each row shows, as desktop's Filters menu.
   const filterSections = [
     {
       items: [
@@ -545,7 +504,6 @@ const NavigationBody = memo(function NavigationBody({
     [rowCache, rowView, copyOf],
   );
 
-  // ⌘N, ⌘K and ⌘1 to ⌘9 act on the list on screen; one that opens for a shortcut picks it up as it shows.
   const runCommand = useRef<(command: NavigationCommand) => void>(() => {});
   useEffect(() => {
     runCommand.current = (command) => {
@@ -631,7 +589,6 @@ const NavigationBody = memo(function NavigationBody({
           >
             {ALL_CHATS_LABEL}
           </Text>
-          {/* One glass capsule holds all three, as iOS groups toolbar buttons. Settings opens over the sidebar, which stays where it was under it. Routines is a page, so the sidebar closes first. */}
           <View style={s.headerGroup}>
             <HeaderGlass />
             <View>
@@ -723,7 +680,6 @@ const NavigationBody = memo(function NavigationBody({
         onNewChat={() => startNewChat()}
         visible={visible}
       />
-      {/* The undo history's toast for this list (Done, Reopen, pins, a deletion), floating over it without moving it. */}
       {historyToast ? (
         <View
           pointerEvents="box-none"

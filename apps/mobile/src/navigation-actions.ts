@@ -31,17 +31,14 @@ import { lastUserModel } from "@milagre/shared/agent-runs";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { saveChatRowShow, useChatRowShow } from "./chat-row-store";
 import { allComputers, chatsHomePath } from "./all-computers";
-import type { ProjectCopy } from "./all-computers-store";
+import type { HostView, ProjectCopy } from "./all-computers-store";
 import { SENT_FROM } from "./sent-from";
 import { type Destination, type HostBuild, type DoneMark, type Show } from "./navigation-build";
 import { type RowActions, type RowView } from "./navigation-row";
 
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import type { HostView } from "./all-computers-store";
 
-// What a Chat row can show under its title (the Filters menu's "On Chats"); the computer is a desktop choice.
 export const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
-/** What the sidebar's actions read and set: its state, the session and how it routes. */
 export type NavigationActionsContext = {
   busy: boolean;
   setBusy: (busy: boolean) => void;
@@ -80,12 +77,9 @@ export type NavigationActionsContext = {
   setShow: (show: Show) => void;
 };
 
-/** Opening a Chat or a new Chat, on its own computer. */
 function openActions(ctx: NavigationActionsContext) {
   const { busy, setBusy, setError, session, currentHostId, currentPath, activeChatId, onNavigate, onClose, alive } = ctx;
-  /** Where a Chat or a new Chat goes on the computer `hostId`, which is the connected one by now. */
   function navigateTo(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
-    // Every route opens its Chat alone: the beside Chat's state outlives the route, so a split ends here, not by itself.
     closeBeside();
     const params = { projectPath, hostId };
     if (chatId === undefined)
@@ -121,8 +115,6 @@ function openActions(ctx: NavigationActionsContext) {
         },
       });
   }
-  // Revisited Chats adopt their full cached Project before routing, including on another computer. Only a cold
-  // destination needs to wait for its computer; messages start reading during the route handoff.
   async function enter(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
     if (busy) return;
     const host = hostId === currentHostId ? undefined : allComputers.hostFor(hostId);
@@ -157,11 +149,9 @@ function openActions(ctx: NavigationActionsContext) {
   return { navigateTo, enter };
 }
 
-/** Linking a Chat's Worktree with another Chat's, and asking it from the link. */
 function linkActions(ctx: NavigationActionsContext, open: ReturnType<typeof openActions>) {
   const { setError, session, currentHostId, currentPath, copyOf, links, worktreeForLinks, endNames, builds, readComposer, load } = ctx;
   const { navigateTo } = open;
-  /** A Chat as the Link picker names it, or undefined when it can't join a Link (no Worktree, not a local Project). */
   function linkChatOf(projectPath: string, chat: AgentSession, messages?: Parameters<typeof chatTitle>[1]): LinkChat | undefined {
     const copy = copyOf(currentHostId ?? "", projectPath);
     const worktree = copy && !copy.project.link ? copy.project.state.worktrees[chat.worktree_id] : undefined;
@@ -177,7 +167,6 @@ function linkActions(ctx: NavigationActionsContext, open: ReturnType<typeof open
       worktreePath: worktree.path,
     };
   }
-  // The Chats "Link with…" offers: those listed in every local Project of the open computer, newest first.
   function linkChats() {
     const build = builds.find((item) => item.hostId === currentHostId);
     const paths = [
@@ -198,7 +187,6 @@ function linkActions(ctx: NavigationActionsContext, open: ReturnType<typeof open
         .flatMap((chat) => linkChatOf(projectPath, chat, byChat.get(chat.id) ?? []) ?? []);
     });
   }
-  // "Link and ask" sends to the source Chat as its composer would: its own provider and model, its permission mode.
   async function askChat(projectPath: string, chat: AgentSession, message: { body: string; prompt: string }) {
     const copy = copyOf(currentHostId ?? "", projectPath);
     const client = session.client;
@@ -251,7 +239,6 @@ function linkActions(ctx: NavigationActionsContext, open: ReturnType<typeof open
   return { linkChatOf, linkChats, askChat, linkAction };
 }
 
-/** A Chat row's ⋯ choices, with their steps in the undo history. */
 function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof linkActions>) {
   const {
     setError,
@@ -270,7 +257,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     alive,
   } = ctx;
   const { linkAction } = link;
-  /** Done, Reopen, Pin and Unpin as steps in the undo history; undefined for the actions it doesn't take back. */
   function undoStep(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string): UndoAction | undefined {
     const run = (next: string) => () => void act(row, next, false);
     if (action === "done")
@@ -279,7 +265,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         kind: "done",
         undoneText: "Back in Chats",
         place: "list",
-        // Done also marked it read; Undo puts back the unread it had.
         undo: () => void act(row, "reopen", false).then(() => (row.chat.unread ? act(row, "unread", false) : undefined)),
         redo: run("done"),
       };
@@ -293,7 +278,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         undo: run("done"),
         redo: run("reopen"),
       };
-    // A snooze arrives here settled ("snooze-at:<ms>"), so Redo snoozes to the same time.
     const snooze = snoozeMarkFor(action);
     if (snooze?.until)
       return {
@@ -303,7 +287,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         undo: run(WAKE),
         redo: run(action),
       };
-    // Undoing a Wake snoozes it again until the time it had, while that is still ahead.
     const wakeAt = row.chat.snoozed_until;
     if (action === WAKE && wakeAt && wakeAt > Date.now())
       return {
@@ -326,12 +309,8 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     }
     return undefined;
   }
-  // A Chat's ⋯ choice runs against its own computer's client and its own Project's copy, which is reread afterwards.
-  // Archive stays in this sidebar, including when its Chat is open behind it, so the row's progress and the list's
-  // scroll position stay in place.
   async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, choice: string, record = true) {
     const { hostId, path: projectPath, chat } = row;
-    // A Snooze choice takes its wake time now, when it is picked.
     const action = settleSnooze(choice, snoozeMinutes);
     if (action === "open-beside") {
       openBeside({ hostId, projectPath, chatId: chat.id });
@@ -347,7 +326,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
     }
     const archiveKey = `${hostId}|${projectPath}#${chat.id}`;
     if (archiveRequests.has(archiveKey)) return;
-    // Done and Reopen move the row now; the computer saves it meanwhile, and its copy takes over once read again.
     const doneMark: DoneMark | undefined = action === "done" ? { doneAt: Date.now() } : action === "reopen" ? { doneAt: null } : undefined;
     const settleDone = () =>
       doneMark &&
@@ -359,7 +337,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         return next;
       });
     if (doneMark) setDoneMarks((marks) => new Map(marks).set(archiveKey, doneMark));
-    // Snooze and Wake move the row now too.
     const snoozeMark = snoozeMarkFor(action);
     const settleSnoozeMark = () =>
       snoozeMark &&
@@ -371,8 +348,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         return next;
       });
     if (snoozeMark) setSnoozeMarks((marks) => new Map(marks).set(archiveKey, snoozeMark));
-    // Done, Reopen and pins join the undo history: the toast's Undo and Redo (and an iPad's ⌘Z / ⇧⌘Z) run their opposite
-    // through here again, unrecorded.
     const step = record ? undoStep(row, action) : undefined;
     if (step) undoHistory.record(step);
     if (action === "archive") archiveRequests.add(archiveKey);
@@ -397,7 +372,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         onConfirm: () => {
           confirmed = true;
         },
-        // The phone may show another Project by the time the archive ends, so the list's copy is read again too.
         refresh: () =>
           !isCurrent || projectPath !== currentPath
             ? allComputers.refreshProject(hostId, projectPath)
@@ -405,8 +379,6 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
         expectActivity: session.expectActivity,
         notify: showArchiveNotice,
       });
-      // Done on the open Chat leaves it for a new Chat in its Project beside the pinned sidebar, as on the desktop.
-      // A phone stays on the sidebar.
       if (action === "done" && docked && isCurrent && projectPath === currentPath && chat.id === activeChatId && alive.current)
         onNavigate({ pathname: "/chat", params: { projectPath, hostId } });
     } catch (e) {
@@ -422,11 +394,9 @@ function chatActions(ctx: NavigationActionsContext, link: ReturnType<typeof link
   return { undoStep, act };
 }
 
-/** A Project header's ⋯ choices, a Link's deletion and adding a Project. */
 function projectActions(ctx: NavigationActionsContext, open: ReturnType<typeof openActions>) {
   const { busy, setBusy, setError, session, currentHostId, currentPath, onNavigate, clientOf, alive, builds, addHostId, setPage, setAddHostId } = ctx;
   const { enter } = open;
-  // Removing a Project takes it off the recent list, as desktop does; its folder and Chats stay on the Mac.
   async function projectAction(hostId: string, projectPath: string, name: string, action: string) {
     if (action === "new") {
       void enter(hostId, projectPath);
@@ -464,7 +434,6 @@ function projectActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
       if (alive.current) setError(/not available from mobile/i.test(message) ? "Update Milagre on your computer to remove Projects from your phone." : message);
     }
   }
-  // Deleting a Link asks first, as desktop does; the open one leaves for this list, and Worktrees it kept are named.
   async function deleteLink(linkId: string, projectPath: string, name: string) {
     const client = session.client;
     if (!client) return;
@@ -480,14 +449,12 @@ function projectActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
       if (alive.current) setError(linkDeleteError(e));
     }
   }
-  // A typed path opens like any Project: the Chat loads it behind the splash mark and shows a wrong path with Retry.
   function addProject(projectPath: string) {
     const hostId = addHostId ?? session.client?.url;
     if (busy || !hostId) return;
     setPage(null);
     onNavigate({ pathname: "/chat", params: { projectPath, hostId } });
   }
-  /** Which computer a Project or New Chat goes to when several are listed; null when the pick was dismissed. */
   function chooseComputer(title: string): Promise<string | null> {
     const reachable = builds.filter((build) => build.reach !== "offline");
     if (reachable.length <= 1) return Promise.resolve(reachable[0]?.hostId ?? currentHostId ?? null);
@@ -535,13 +502,10 @@ function projectActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
   return { projectAction, deleteLink, addProject, chooseComputer, startAddProject };
 }
 
-/** New Chat, a Chat without a Project, triage, and the header's and Filters menus. */
 function newChatActions(ctx: NavigationActionsContext, open: ReturnType<typeof openActions>, project: ReturnType<typeof projectActions>) {
   const { busy, setError, currentHostId, currentPath, onNavigate, clientOf, alive, views, rowShow, setShow } = ctx;
   const { enter } = open;
   const { startAddProject } = project;
-  // New Chat opens in the Project the last new Chat started in (else the open one); the Chat screen switches Projects.
-  // A search that found nothing comes along as the new Chat's draft.
   function startNewChat(prefill?: string) {
     const target = pickNewChatProject(
       newChatProjects(views),
@@ -549,14 +513,12 @@ function newChatActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
       currentPath ? { hostId: currentHostId ?? "", projectPath: currentPath } : null,
     );
     if (!target) {
-      // With no Project anywhere, a Chat without one is still there to start.
       if (noProjectChoice(views, null, currentHostId)) void startWithoutProject();
       else setError("Add a project from your computer to start a Chat.");
       return;
     }
     void enter(target.hostId, target.path, undefined, undefined, prefill);
   }
-  // The Chats group's +: a Chat without a Project, on the computer the last new Chat started on (else the open one).
   async function startWithoutProject() {
     const choice = noProjectChoice(views, savedChatDefaults.readLastComputer(), currentHostId);
     const copy = choice?.copies.find((item) => item.hostId === choice.computerId);
@@ -574,8 +536,6 @@ function newChatActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
       if (alive.current) setError((e as Error).message);
     }
   }
-  // As desktop's palette row: a new Chat whose draft points its agent at a triage playbook, on the computer New Chat would
-  // pick. The user writes what went wrong after it.
   async function startTriage() {
     const target = pickNewChatProject(
       newChatProjects(views),
@@ -611,15 +571,12 @@ function newChatActions(ctx: NavigationActionsContext, open: ReturnType<typeof o
   return { startNewChat, startWithoutProject, startTriage, menuChoice, filterChoice };
 }
 
-/** Every action of the sidebar for this render, and the row actions that always run the latest of them. */
 export function useNavigationActions(ctx: NavigationActionsContext) {
-  const open = openActions(ctx);
-  const project = projectActions(ctx, open);
-  const current = { ...open, ...chatActions(ctx, linkActions(ctx, open)), ...project, ...newChatActions(ctx, open, project) };
+  const opening = openActions(ctx);
+  const project = projectActions(ctx, opening);
+  const current = { ...opening, ...chatActions(ctx, linkActions(ctx, opening)), ...project, ...newChatActions(ctx, opening, project) };
   const { onNavigate, setChatsFolded, setDoneOpen, setSnoozedOpen, setSubchatOpen, load, registerHeader, reorderProjects } = ctx;
   const { enter, act, projectAction, startNewChat, startWithoutProject } = current;
-  // The rows render apart (NavigationRow), from what they show and actions that always run the latest closures: a render of
-  // the list that changes nothing a row shows (a search keystroke elsewhere, a poll that found nothing new) skips them.
   const latestActions = useRef<RowActions | null>(null);
   useLayoutEffect(() => {
     latestActions.current = {
@@ -628,7 +585,6 @@ export function useNavigationActions(ctx: NavigationActionsContext) {
       projectAction,
       startNewChat,
       startWithoutProject,
-      // Routines is a page of the app; the rest open in the Settings sheet, with Settings under them to go back to.
       openSetting: (page, find) =>
         onNavigate(find ? { pathname: `/${page}`, params: { find, findAt: String(Date.now()) } } : (`/${page}` as Href), page === "routines" ? true : "sheet"),
       foldChats: () => setChatsFolded((folded) => !folded),
