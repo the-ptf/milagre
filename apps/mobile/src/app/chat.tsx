@@ -3210,7 +3210,8 @@ function ChatPane({
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                                   <PullDown
                                     label="Attach photos or files"
-                                    nativeTrigger={{ systemImage: "paperclip", disabled: attachmentDisabled }}
+                                    // SF Symbols' paperclip draws taller than the mic's glyph at the same size: 16 matches the mic's 20.
+                                    nativeTrigger={{ systemImage: "paperclip", iconSize: 16, disabled: attachmentDisabled }}
                                     sections={[
                                       {
                                         items: [
@@ -3226,7 +3227,7 @@ function ChatPane({
                                     <View
                                       style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}
                                     >
-                                      <Icon icon={Attachment01Icon} tone="ink2" size={20} />
+                                      <Icon icon={Attachment01Icon} tone="ink2" size={18} />
                                     </View>
                                   </PullDown>
                                   <AgentControls

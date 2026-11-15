@@ -46,6 +46,8 @@ import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
+/** Without a control row the field still shows its mic under the text. */
+const micAlone = (mic: ReactNode) => mic;
 const NO_COMPUTERS: readonly MentionComputer[] = [];
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 // Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
@@ -107,7 +109,7 @@ export function PromptField({
   provider,
   focusRequest = 0,
   onTouchStart,
-  renderControls,
+  renderControls = micAlone,
 }: {
   chats?: readonly MentionChat[];
   /** The computers an `@` can name; offered only with more than this one. */
@@ -144,7 +146,7 @@ export function PromptField({
    * The composer's control row under the field, as on desktop: it gets the mic (null while dictation is unavailable) to
    * place beside Send, so the typed text runs the field's whole width.
    */
-  renderControls: (mic: ReactNode) => ReactNode;
+  renderControls?: (mic: ReactNode) => ReactNode;
   /** Each new value takes the keyboard with the caret at the end of the draft (Ask from a message selection). */
   focusRequest?: number;
   /** A finger came down on the field, before it focuses and the keyboard starts to open. */

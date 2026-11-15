@@ -7,7 +7,7 @@ import { useTheme } from "./theme";
  * Android draws a real blur from 12 (API 31, RenderEffect) up. Older devices re-render the content behind the view on
  * the CPU every frame, which janks the transcript's scroll, so they get the near-opaque surface instead.
  */
-export const COMPOSER_BLURS = Platform.OS === "ios" || (Platform.OS === "android" && Number(Platform.Version) >= 31);
+const COMPOSER_BLURS = Platform.OS === "ios" || (Platform.OS === "android" && Number(Platform.Version) >= 31);
 
 /**
  * The composer's glass, as on desktop (DESIGN.md › Composer): the surface at 76% over the chip blur, so the transcript
