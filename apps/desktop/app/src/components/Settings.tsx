@@ -29,7 +29,7 @@ import {
 import { DOT_COLOR, computerTone, useComputers } from "../lib/computers";
 import type { UpdateState } from "../electron";
 import type { ModelOption } from "../model";
-import { GlideGroup } from "./SidebarNav";
+import { GlideGroup } from "./sidebar/GlideGroup";
 import { WorktreeCleanup } from "./settings/WorktreeCleanup";
 import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 import { lazyView } from "../lib/lazy-view";
