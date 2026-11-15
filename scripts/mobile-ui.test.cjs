@@ -501,6 +501,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
     TextDecoder,
     // React Native provides it globally; downloads cancel through it.
     AbortController,
+    // React Native provides these globally; the side panels pre-mount the navigation when idle, which tests never are.
+    requestIdleCallback: () => 0,
+    cancelIdleCallback: () => {},
     fetch: () => {
       throw new Error("Unexpected network request in mobile UI test");
     },

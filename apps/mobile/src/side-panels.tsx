@@ -132,6 +132,15 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const [pick, setPick] = useState<string | null>(null);
   const [covered, setCovered] = useState<object | null>(null);
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
+  // The navigation's first mount is its heaviest render (about 1.3 s on an Android emulator, release build), and the
+  // slide waited for it, so the first open after launch lagged. On a phone it mounts once the app is idle after the first
+  // screen opts in: hidden and asleep (`visible` false), so it reads nothing until it opens, and the first open slides at once.
+  const premount = !!screen && !mounted.left && widthClass(width) === "compact";
+  useEffect(() => {
+    if (!premount) return;
+    const idle = requestIdleCallback(() => setMounted((previous) => (previous.left ? previous : { ...previous, left: true })), { timeout: 5000 });
+    return () => cancelIdleCallback(idle);
+  }, [premount]);
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
   // While a Chat picked in the open navigation replaces the screen under it: the timer that slides the navigation away
