@@ -66,7 +66,7 @@ function designKitToolDefinitions(chatId, kits) {
     {
       name: "design_kit_read",
       description:
-        "Read this Project's shared visual kit (default id project), latest or a pinned version. Read before designing or taking over another model. Returns colors, text styles, spacing, radii, component templates and references. null means no kit has been established. Pass the returned snapshot as document.kit; existing screens keep their pinned version.",
+        "Read this Project's shared visual kit (default id project), latest or a pinned version. Read before designing or taking over another model, after the Project's DESIGN.md if it has one. Returns colors, text styles, spacing, radii, component templates and references. null means no kit has been established. Pass the returned snapshot as document.kit; existing screens keep their pinned version.",
       input: { id: z.string().regex(ID).optional(), version: z.number().int().positive().optional() },
       readOnly: true,
       run: async (args) => JSON.stringify(await kits.read({ chatId, ...args })),
@@ -74,7 +74,7 @@ function designKitToolDefinitions(chatId, kits) {
     {
       name: "design_kit_save",
       description:
-        "Create or revise this Project's shared visual kit. Use the app's existing identity and confirmed decisions. expectedVersion is 0 for a new kit, otherwise read the latest first. Saves an immutable version without changing existing designs. To adopt it on a screen, explicitly apply a document patch with the returned kit snapshot and inspect the result. Components are ordinary layer arrays, each with one main frame whose id matches its map key.",
+        "Create or revise this Project's shared visual kit. Use the app's existing identity (its DESIGN.md first, when it has one) and confirmed decisions. expectedVersion is 0 for a new kit, otherwise read the latest first. Saves an immutable version without changing existing designs. To adopt it on a screen, explicitly apply a document patch with the returned kit snapshot and inspect the result. Components are ordinary layer arrays, each with one main frame whose id matches its map key.",
       input: { id: z.string().regex(ID).optional(), expectedVersion: z.number().int().nonnegative(), kit: designKitDataSchema },
       readOnly: false,
       run: async (args) => JSON.stringify(await kits.save({ chatId, ...args })),
