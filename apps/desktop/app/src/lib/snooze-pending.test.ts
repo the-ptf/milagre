@@ -61,3 +61,40 @@ test("a failed Snooze puts the row back", async () => {
   await assert.rejects(snoozeChat("/p", 3, 9_000), /offline/);
   assert.equal(pendingSnoozeMarks().has("/p#3"), false);
 });
+
+// From the Snooze statechart (#1039): the host saved the Snooze, then a question woke the Chat before this sidebar drew
+// it snoozed. Its rows never agreed with the mark, so the row sat in Snoozed for a minute while the Chat asked.
+test("once its host has answered, a mark its rows never agree with goes within seconds, not a minute", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  (globalThis as { window?: unknown }).window = { milagre: { patchChat: () => Promise.resolve() } };
+  const { inSnoozed, pendingSnoozeMarks, settleSnoozePending, snoozeChat, withSnoozePending } = await import("./snooze-pending.ts");
+  await snoozeChat("/p", 7, 9_000);
+  const woken = [{ id: "7", label: "Seven" }];
+  settleSnoozePending("/p", woken);
+  assert.ok(inSnoozed(withSnoozePending("/p", woken, pendingSnoozeMarks())[0]!), "the host's rows may still be on their way");
+  t.mock.timers.tick(5_000);
+  assert.equal(pendingSnoozeMarks().has("/p#7"), false);
+  assert.equal(inSnoozed(withSnoozePending("/p", woken, pendingSnoozeMarks())[0]!), false, "the woken Chat is back in the list");
+});
+
+test("an older patch's answer leaves the mark of a later one with the same value", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const answers: ((value?: unknown) => void)[] = [];
+  (globalThis as { window?: unknown }).window = {
+    milagre: { patchChat: () => new Promise((resolve) => answers.push(resolve)) },
+  };
+  const { inSnoozed, pendingSnoozeMarks, settleSnoozePending, snoozeChat, withSnoozePending } = await import("./snooze-pending.ts");
+  // Snooze until Tomorrow, Wake, then Snooze until Tomorrow again: the third is still on its way.
+  const first = snoozeChat("/p", 8, 9_000_000);
+  const second = snoozeChat("/p", 8, null);
+  void snoozeChat("/p", 8, 9_000_000);
+  answers[0]!();
+  answers[1]!();
+  await Promise.all([first, second]);
+  const awake = [{ id: "8", label: "Eight" }];
+  settleSnoozePending("/p", awake);
+  t.mock.timers.tick(5_000);
+  assert.equal(pendingSnoozeMarks().get("/p#8"), 9_000_000);
+  assert.ok(inSnoozed(withSnoozePending("/p", awake, pendingSnoozeMarks())[0]!), "the row keeps the latest choice until it is answered");
+  answers[2]!();
+});
