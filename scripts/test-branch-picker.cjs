@@ -11,7 +11,7 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '/src/styles.css';
-import { NewChatHeader } from '/src/components/ChatComposer';
+import { NewChatHeader } from '/src/components/NewChatHeader';
 const branches = ['main', 'milagre/resolve-pr-246-conflicts-and-mj8k', '${long}-one', '${long}-two'];
 const worktrees = [{ id: 1, name: 'main', path: '/fixture' }, { id: 2, name: branches[2], path: '/worktrees/ending-one' }];
 function Fixture() {
@@ -106,9 +106,6 @@ async function main() {
       {
         name: "branch-picker-fixture",
         enforce: "pre",
-        transform(source, id) {
-          if (id.endsWith("/components/ChatComposer.tsx")) return source + "\nexport { NewChatHeader };\n";
-        },
         resolveId(id) {
           if (id === "/__branch_picker_fixture.tsx") return id;
         },

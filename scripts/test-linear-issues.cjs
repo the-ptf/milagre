@@ -11,7 +11,7 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '/src/styles.css';
-import { NewChatHeader } from '/src/components/ChatComposer';
+import { NewChatHeader } from '/src/components/NewChatHeader';
 import { ChatRow } from '/src/components/sidebar/ChatRow';
 import { issueFirstMessage } from '@milagre/shared/linear';
 const issues = [
@@ -221,9 +221,6 @@ async function main() {
       {
         name: "linear-issues-fixture",
         enforce: "pre",
-        transform(source, id) {
-          if (id.endsWith("/components/ChatComposer.tsx")) return source + "\nexport { NewChatHeader };\n";
-        },
         resolveId(id) {
           if (id === "/__linear_issues_fixture.tsx") return id;
         },

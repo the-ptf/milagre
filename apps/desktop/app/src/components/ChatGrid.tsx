@@ -15,7 +15,7 @@ import { ChatMarkDot } from "./sidebar/ChatRow";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { ChatTranscript } from "./ChatComposer";
+import { ChatTranscript } from "./transcript/ChatTranscript";
 import { MessageSelection } from "./MessageSelection";
 import { sendQuote } from "../lib/quote-inbox";
 import { RoutineChip } from "./routines/RoutineChip";

@@ -604,13 +604,14 @@ async function main() {
             assert.ok(code.includes("const scale = highlighted"));
             return code.replace("const scale = highlighted", "window.railItemsRendered++; const scale = highlighted");
           }
-          if (id.split("?")[0].endsWith("/components/ChatComposer.tsx")) {
-            // Count real saved-card renders without changing production components or timing assertions.
+          // Count real saved-card renders without changing production components or timing assertions.
+          if (id.split("?")[0].endsWith("/transcript/MessageSection.tsx")) {
             assert.ok(code.includes("const linked = linkedContext(message);"));
+            return code.replace("const linked = linkedContext(message);", "window.renderedMessageIds.push(message.id); const linked = linkedContext(message);");
+          }
+          if (id.split("?")[0].endsWith("/transcript/MessageTranscript.tsx")) {
             assert.ok(code.includes("const transcript = grouped.slice(start).filter((entry) => !entry.hidden);"));
-            return code
-              .replace("const linked = linkedContext(message);", "window.renderedMessageIds.push(message.id); const linked = linkedContext(message);")
-              .replace("const transcript = grouped.slice(start)", "window.transcriptRenders++; const transcript = grouped.slice(start)");
+            return code.replace("const transcript = grouped.slice(start)", "window.transcriptRenders++; const transcript = grouped.slice(start)");
           }
         },
         resolveId(id) {

@@ -15,7 +15,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { NewChatHeading } from "/src/components/NewChatHeading";
-import { NewChatHeader } from "/src/components/ChatComposer";
+import { NewChatHeader } from "/src/components/NewChatHeader";
 import { useProjectGroups } from "/src/lib/project-copies";
 import { updateSettings } from "/src/lib/settings";
 import "/src/styles.css";
@@ -200,9 +200,6 @@ async function main() {
         },
         load(id) {
           if (id === "/__new-chat-computers.tsx") return fixture;
-        },
-        transform(source, id) {
-          if (id.endsWith("/components/ChatComposer.tsx")) return source + "\nexport { NewChatHeader };\n";
         },
         configureServer(server) {
           useAsyncMiddleware(server.middlewares, async (request, response, next) => {
