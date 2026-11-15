@@ -14,7 +14,7 @@ export const PLATFORM_NAMES: Record<DesignPlatform, string> = { ios: "iOS", andr
 export type DesignSectionId = "colors" | "type" | "spacing" | "surfaces" | "buttons" | "rows" | "chips" | "menus" | "composer" | "platforms";
 
 /** How the index row previews its page: a value, five colour dots, or a tiny filled Send pill. */
-export type DesignSectionPreview = { kind: "value"; value: string } | { kind: "dots" } | { kind: "send" } | { kind: "count" };
+type DesignSectionPreview = { kind: "value"; value: string } | { kind: "dots" } | { kind: "send" } | { kind: "count" };
 
 export type DesignSection = {
   id: DesignSectionId;
@@ -121,7 +121,7 @@ export const COLOR_PREVIEW = ["ink", "accent", "green", "orange", "red"] as cons
 type ColorKey = { [K in keyof Palette]: Palette[K] extends string ? K : never }[keyof Palette];
 type ShadowKey = "shadowCard" | "shadowRaised" | "shadowOverlay";
 
-export type ColorRole = { key: Exclude<ColorKey, ShadowKey>; use: string };
+type ColorRole = { key: Exclude<ColorKey, ShadowKey>; use: string };
 export type ColorGroup = { title: string; colors: ColorRole[] };
 
 /** Every colour key of `Palette` (theme.ts), grouped by role. The shadows are on the Surfaces page. */
