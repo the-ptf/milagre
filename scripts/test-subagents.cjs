@@ -19,6 +19,8 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { DotBackground } from "/src/components/DotBackground";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore, useDraftText } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 window.advisorActions = [];
 function Fixture() {
@@ -38,7 +40,8 @@ function Fixture() {
   const [fixtureChat, setFixtureChat] = useState(false);
   window.setBackgroundTasks = (tasks) => { setFixtureChat(true); setBackgroundTasks(tasks); };
   window.finishChildren = () => {setChildren(items=>items.map(item=>({...item,status:"completed",endedAt:Date.now()})));setSending(false);};
-  const [draft, setDraft] = useState("");
+  const draft = useDraftText(draftStore);
+  const setDraft = draftStore.setText;
   const [model, setModel] = useState(MODEL_CATALOG[0]);
   const [fastMode, setFastMode] = useState(false);
   window.setModel = (id) => setModel(MODEL_CATALOG.find((item) => item.id === id));
@@ -58,7 +61,7 @@ function Fixture() {
     <div data-chat-pane className="min-h-0 flex-1 overflow-hidden">
     <ChatComposer messages={messages} chatId={fixtureChat ? 1 : undefined}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} onStopAdvisor={id=>controlAdvisor("stop",id)} onRetryAdvisor={id=>controlAdvisor("retry",id)} waitingForSubagents={true}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={sending} sendBlocked={false} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} onStopAdvisor={id=>controlAdvisor("stop",id)} onRetryAdvisor={id=>controlAdvisor("retry",id)} waitingForSubagents={true}
       backgroundTasks={backgroundTasks} sessionProvider={backgroundTasks.length ? "claude" : undefined} activity={chatActivity({provider:"claude",subagents:children,backgroundTasks},sending ? {} : undefined)} agentChatId={fixtureChat ? "/fixture#1" : undefined}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}

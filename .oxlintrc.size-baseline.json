@@ -163,7 +163,7 @@
         "max-lines": [
           "error",
           {
-            "max": 4009,
+            "max": 3783,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -171,7 +171,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 3716,
+            "max": 3493,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -326,7 +326,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2198,
+            "max": 2188,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -334,12 +334,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 748,
+            "max": 741,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 178]
+        "complexity": ["error", 177]
       }
     },
     {
@@ -548,20 +548,6 @@
           }
         ],
         "complexity": ["error", 44]
-      }
-    },
-    {
-      "files": ["apps/desktop/app/src/components/Settings.tsx"],
-      "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 2871,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
-        "complexity": ["error", 47]
       }
     },
     {

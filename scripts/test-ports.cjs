@@ -15,6 +15,8 @@ import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { associatedPullRequest } from "@milagre/shared/chats";
 import { updateSettings } from "/src/lib/settings";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 window.stopped = [];
 window.prLinks = [];
@@ -55,7 +57,7 @@ function Fixture() {
           return !!pr;
         }}
         imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-        projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false} plan={plan} ports={ports} onStopPort={stopPort} subagents={[]}
+        projectPath="/fixture" store={draftStore} onSend={noop} isSending={false} sendBlocked={false} plan={plan} ports={ports} onStopPort={stopPort} subagents={[]}
         models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
         capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
         fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}

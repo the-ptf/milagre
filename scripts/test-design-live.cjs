@@ -87,6 +87,8 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { designHtml, applyDesignOperations } from "@milagre/shared/design";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 const v1 = ${JSON.stringify(login)};
 const v2 = applyDesignOperations(v1, ${JSON.stringify(applyInput.operations)});
@@ -193,7 +195,7 @@ function Fixture() {
   return <div style={{ display: "flex", height: "100%" }}><main data-workspace-main style={{ display: "flex", flex: 1, minWidth: 0, height: "100%" }}><div data-chat-pane style={{ flex: 1, minWidth: 0, height: "100%", padding: 12 }}>
     <ChatComposer messages={messages} onSendDesignMessage={async () => true} sessionProvider={provider} subagents={crew} streamingSteps={streaming}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      scopeKind="link" projectPath="/fixture" messageScope="milagre-link:fixture" agentChatId={chatId} draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
+      scopeKind="link" projectPath="/fixture" messageScope="milagre-link:fixture" agentChatId={chatId} store={draftStore} onSend={noop} isSending={false} sendBlocked={false}
       streamingText="" asking={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}

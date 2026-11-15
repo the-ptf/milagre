@@ -10,11 +10,13 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { UpdateShell, useAppUpdates, UpdateSettingsBadge } from "/src/components/UpdateNotice";
-import { AboutSettings } from "/src/components/Settings";
+import { AboutSettings } from "/src/components/settings/AboutSettings";
 import { ChatComposer } from "/src/components/ChatComposer";
 import SidebarNav from "/src/components/SidebarNav";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 let listener;
 window.__installs = 0;
 window.__checks = 0;
@@ -49,7 +51,7 @@ const subagents = [{ id: "review", title: "Review authentication", status: "runn
 function Chat() {
   return <div className="flex h-full flex-col text-ink"><ChatComposer messages={messages}
     imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-    projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={true} sendBlocked={false} subagents={subagents}
+    projectPath="/fixture" store={draftStore} onSend={noop} isSending={true} sendBlocked={false} subagents={subagents}
     models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
     capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
     fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}

@@ -133,8 +133,6 @@ import { keepsOnPin, sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
 import { clearNoticeOnNavigate, showNotice } from "./lib/notice";
-import { RELOAD_HINT } from "@milagre/shared/chat-reload";
-import { UI_COPY } from "@milagre/shared/model-copy";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import { Notice as NoticeCard } from "./components/Notice";
 import { Button } from "./components/primitives/Button";
@@ -152,9 +150,8 @@ import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, useHiddenComputers } from "./lib/computers";
 import { OfflineEmpty } from "./components/OfflineEmpty";
-import { settingsCommands, settingsPageCommands } from "./lib/settings-commands";
+import { buildCommands } from "./lib/app-commands";
 import { findSetting } from "./lib/settings-find";
-import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { noteScopeOpening, prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
 import { beginChatSwitch, markChatSwitch } from "./lib/chat-switch-timing";
@@ -186,7 +183,7 @@ import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunCha
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { remoteDelegationsFrom } from "./lib/remote-delegation";
 import { RemoteDelegationCard } from "./components/agents/RemoteDelegationCard";
-import { DraftChatComposer } from "./components/DraftChatComposer";
+import { ChatComposer } from "./components/ChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { Onboarding, firstChatStarters } from "./components/Onboarding";
@@ -311,7 +308,7 @@ function App() {
   const [selectedSessionId, setSelectedSessionState] = useState<number | null>(null);
   const selectedSessionRef = useRef<number | null>(null);
   selectedSessionRef.current = selectedSessionId;
-  // The draft lives outside React state: a keystroke re-renders the composer (DraftChatComposer), not the whole app.
+  // The draft lives outside React state: a keystroke re-renders the prompt (DraftPromptComposer), not the whole app.
   // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const draftStore = useMemo(createDraftStore, []);
   const setDraft = draftStore.set;
@@ -3524,283 +3521,57 @@ function App() {
   }
 
   // Only the open palette reads the list, so it is built then and not on every render.
-  function buildCommands(current: OpenProject): Command[] {
-    const commands: Command[] = [
-      {
-        id: "new-chat",
-        label: UI_COPY.newChat,
-        group: "Actions",
-        icon: "add",
-        keybinding: "chat.new" as const,
-        keywords: "create agent session",
-        run: () => startNewChatOnThisMac(),
-      },
-      ...(terminalChatId
-        ? [
-            {
-              id: "new-terminal",
-              label: "New Terminal",
-              group: "Actions",
-              icon: "terminal" as const,
-              keybinding: "terminal.new" as const,
-              keywords: "shell console command line",
-              run: () => newTerminal(terminalChatId, undefined, setNotice),
-            },
-          ]
-        : []),
-      {
-        id: "open-project",
-        label: UI_COPY.addProject,
-        group: "Actions",
-        icon: "folderAdd",
-        keybinding: "project.add" as const,
-        keywords: "add repository workspace folder",
-        run: () => openProject(),
-      },
-      {
-        id: "canvas",
-        label: "Projects and Links",
-        group: "Actions",
-        icon: "canvas",
-        keybinding: "canvas.open" as const,
-        keywords: "canvas linked worktrees",
-        run: openCanvas,
-      },
-      {
-        id: "routines",
-        label: "Routines",
-        group: "Actions",
-        icon: "routines",
-        keywords: "heartbeats triggers schedule linear webhook automations",
-        run: openRoutines,
-      },
-      {
-        id: "usage",
-        label: "Token usage",
-        group: "Actions",
-        icon: "usage",
-        keybinding: "usage.open" as const,
-        keywords: "tokens cost spend analytics dollars models claude codex",
-        run: openUsage,
-      },
-      {
-        id: "storage",
-        label: "Clean up worktrees",
-        group: "Actions",
-        icon: "storage",
-        keywords: "disk space worktrees clean up free what milagre uses",
-        run: () => openStorage(null),
-      },
-      {
-        id: "triage",
-        label: "Triage an issue",
-        group: "Actions",
-        icon: "triage",
-        keywords: "bug report problem diagnose help support broken",
-        run: startTriage,
-      },
-      {
-        id: "settings",
-        label: "Settings",
-        group: "Actions",
-        icon: "settings",
-        keybinding: "settings.open" as const,
-        keywords: "preferences model permissions",
-        run: () => {
-          setSettingsSection("general");
+  const paletteCommands = (current: OpenProject) =>
+    buildCommands({
+      current,
+      terminalChatId,
+      projectSettings: surfaces.settings,
+      view,
+      settingsOpen,
+      layout,
+      selectedSession,
+      selectedWorktreePath: selectedWorktree?.path,
+      showGit,
+      remoteProject: isRemoteKey(project?.path),
+      chatCount,
+      chats,
+      recentProjects,
+      actions: {
+        newChat: () => startNewChatOnThisMac(),
+        newTerminal: (chatId) => newTerminal(chatId, undefined, setNotice),
+        openProject: () => openProject(),
+        openCanvas,
+        openRoutines,
+        openUsage,
+        openStorage: () => openStorage(null),
+        startTriage,
+        openSettingsAt: (section, row) => {
+          setSettingsSection(section);
           setSettingsOpen(true);
+          if (row) findSetting(section, row);
         },
-      },
-      {
-        id: "appearance",
-        label: "Appearance settings",
-        group: "Actions",
-        icon: "settings",
-        keywords: "theme preferences",
-        run: () => {
-          setSettingsSection("appearance");
-          setSettingsOpen(true);
-        },
-      },
-      {
-        id: "toggle-theme",
-        label: "Toggle theme",
-        group: "Actions",
-        icon: "settings",
-        keybinding: "theme.toggle" as const,
-        keywords: "appearance switch color mode",
-        run: toggleTheme,
-      },
-      ...(surfaces.settings
-        ? [
-            {
-              id: "project-settings",
-              label: "Project settings",
-              group: "Actions",
-              icon: "settings" as const,
-              detail: current.name,
-              keywords: "worktree setup files",
-              run: openProjectSettings,
-            },
-          ]
-        : []),
-    ];
-    if (view === "routines" || settingsOpen)
-      commands.push({
-        id: "back-to-chat",
-        label: UI_COPY.backToChat,
-        group: "Actions",
-        icon: "chat",
-        run: () => {
+        toggleTheme,
+        openProjectSettings,
+        backToChat: () => {
           setSettingsOpen(false);
           setView("chat");
         },
-      });
-    // A grid comes from dragging a Chat onto the open one; the palette only leaves it.
-    if (layout === "grid")
-      commands.push({
-        id: "chat-layout",
-        label: "Show one Chat",
-        group: "Actions",
-        icon: "chat",
-        keywords: "grid layout split multiple chats tiles",
-        run: () => {
+        showOneChat: () => {
           setView("chat");
           toggleLayout();
         },
-      });
-    commands.push(...settingsCommands(getSettings(), updateSettings));
-    if (selectedSession && view === "chat" && !settingsOpen) {
-      const sessionId = selectedSession.id;
-      commands.unshift(
-        ...(showGit
-          ? [
-              {
-                id: "git",
-                label: "Commit and open PR…",
-                group: UI_COPY.currentChat,
-                icon: "pullRequest" as const,
-                keywords: "git changes pull request push",
-                run: () => openGitDialog(sessionId),
-              },
-            ]
-          : []),
-        // A Chat without a Project has no folder to the user (as in its row's menu).
-        ...(isRemoteKey(project?.path) || !showGit
-          ? []
-          : [
-              {
-                id: "editor",
-                label: "Open in editor",
-                group: UI_COPY.currentChat,
-                icon: "editor" as const,
-                keywords: "code vscode cursor",
-                run: () => openChatInEditor(sessionId),
-              },
-              {
-                id: "reveal",
-                label: "Reveal folder",
-                group: UI_COPY.currentChat,
-                icon: "folder" as const,
-                keywords: "finder explorer worktree",
-                run: () => revealChat(sessionId),
-              },
-            ]),
-        ...(chatCount
-          ? [
-              {
-                id: "find",
-                label: UI_COPY.findInChat,
-                group: UI_COPY.currentChat,
-                icon: "search" as const,
-                keybinding: "chat.find" as const,
-                keywords: "search text messages",
-                run: openFind,
-              },
-            ]
-          : []),
-        {
-          id: "unread",
-          label: selectedSession.unread ? "Mark as read" : "Mark as unread",
-          group: UI_COPY.currentChat,
-          icon: "unread",
-          run: () => patchChat(sessionId, { unread: !selectedSession.unread }),
-        },
-        {
-          id: "reload",
-          label: UI_COPY.reloadChat,
-          group: UI_COPY.currentChat,
-          icon: "reload",
-          hint: RELOAD_HINT,
-          keywords: "restart agent mcp skills login refresh",
-          run: () => void reloadChat(sessionId),
-        },
-        {
-          id: "report-bug",
-          label: UI_COPY.reportMilagreBug,
-          group: UI_COPY.currentChat,
-          icon: "triage",
-          keywords: "bug report issue github problem broken feedback",
-          run: () => reportMilagreBug(sessionId),
-        },
-      );
-      if (selectedWorktree && showGit)
-        commands.splice(3, 0, {
-          id: "copy-path",
-          label: UI_COPY.copyWorktreePath,
-          group: UI_COPY.currentChat,
-          icon: "copy",
-          run: () => navigator.clipboard.writeText(selectedWorktree.path),
-        });
-    }
-    commands.push(
-      ...chats.map((chat): Command => ({
-        id: `chat:${chat.id}`,
-        label: chat.label,
-        group: "Chats",
-        icon: "chat",
-        detail: [
-          chat.mark === "waiting" || chat.mark === "question"
-            ? "Needs you"
-            : chat.mark === "running"
-              ? "Working"
-              : chat.mark === "background"
-                ? "In the background"
-                : chat.unread
-                  ? "Unread"
-                  : "",
-          chat.details?.branch,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        keywords: [chat.details?.path, ...(chat.details?.pullRequests ?? []).flatMap((pr) => [pr.title, `#${pr.number}`])].filter(Boolean).join(" "),
-        run: () => openChat(Number(chat.id)),
-      })),
-    );
-    commands.push(
-      ...recentProjects
-        .filter((recent) => recent.path !== current.path)
-        .map((recent): Command => ({
-          id: `project:${recent.path}`,
-          label: recent.name,
-          group: "Projects",
-          icon: "folder",
-          detail: recent.path,
-          run: () => {
-            void switchProject(recent.path);
-          },
-        })),
-    );
-    // Every Settings page and row, once something is typed: last, so a Chat or an action with the same words comes first.
-    commands.push(
-      ...settingsPageCommands((section, row) => {
-        setSettingsSection(section);
-        setSettingsOpen(true);
-        if (row) findSetting(section, row);
-      }),
-    );
-    return commands;
-  }
+        openGitDialog: (sessionId) => openGitDialog(sessionId),
+        openChatInEditor: (sessionId) => openChatInEditor(sessionId),
+        revealChat: (sessionId) => revealChat(sessionId),
+        openFind,
+        setUnread: (sessionId, unread) => patchChat(sessionId, { unread }),
+        reloadChat: (sessionId) => reloadChat(sessionId),
+        reportMilagreBug,
+        copyPath: (path) => navigator.clipboard.writeText(path),
+        openChat,
+        switchProject: (path) => void switchProject(path),
+      },
+    });
 
   // The Link on screen and the Project behind it (or the other way round) both stay mounted: the hidden one keeps
   // its DOM and state out of the document, with its effects and listeners off, so switching between them is one
@@ -4058,7 +3829,7 @@ function App() {
                       files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
                     >
                       {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
-                      <DraftChatComposer
+                      <ChatComposer
                         store={draftStore}
                         stepApproval={stepApproval.value}
                         offScreen={!(view === "chat" || runPaneOpen)}
@@ -4372,7 +4143,7 @@ function App() {
           {addProjectDialog}
           {commandPaletteOpen && (
             <CommandPalette
-              commands={buildCommands(project)}
+              commands={paletteCommands(project)}
               searchMessages={
                 lean
                   ? undefined

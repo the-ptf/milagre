@@ -22,6 +22,8 @@ import { PanelToggles } from "/src/components/agents/PanelToggles";
 import { useTerminalSync } from "/src/lib/terminal-actions";
 import "/src/styles.css";
 import { Terminal } from "@xterm/xterm";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 window.notices = [];
 // The shown Terminal draws on a WebGL canvas, so its text is read from xterm's buffer, not the DOM.
 const opened = [];
@@ -53,7 +55,7 @@ function Fixture() {
   return <div data-chat-pane style={{ display: "flex", flexDirection: "column", height: "100vh", padding: 12, paddingTop: 48, boxSizing: "border-box", overflow: "hidden" }}>
     <ChatComposer messages={messages}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false} subagents={[]}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={false} sendBlocked={false} subagents={[]}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}
