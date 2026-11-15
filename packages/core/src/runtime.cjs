@@ -66,10 +66,11 @@ const { readDiffStat } = require("./diffstat.cjs");
 const { registerCheckpoints } = require("./checkpoint-runtime.cjs");
 const { createSentFromNotes } = require("./sent-from.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
-const { createPullRequestReader, listOpenPullRequests, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
+const { readPullRequestState } = require("./pull-request.cjs");
+const { registerPullRequests } = require("./runtime/pull-requests.cjs");
+const { registerSettingsCommands } = require("./runtime/settings-commands.cjs");
 const { retireRunWorktree } = require("./routines/run-worktree.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
-const { createPullRequestWatch } = require("./pull-request-watch.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents, withWorktreeBases } = require("./project-state.cjs");
 const { migrateWorktreeChats } = require("./worktree-chats.cjs");
 const { createLinear } = require("./linear/index.cjs");
@@ -98,12 +99,7 @@ const { createTokenUsageScan } = require("./token-usage-scan.cjs");
 const { createTokenPricing } = require("./token-usage-pricing.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
-const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
-const { createComputerResources } = require("./computer-resources.cjs");
 const { idleWorktrees, assertIdleWorktree } = require("./storage-worktrees.cjs");
-const { createKeybindings } = require("./keybindings.cjs");
-const { createBabysitSettings } = require("./babysit-settings.cjs");
-const { createDoneSettings } = require("./done-settings.cjs");
 const { createDoneSweep } = require("./done-sweep.cjs");
 const { createSnoozeSweep } = require("./snooze-sweep.cjs");
 const { wakesSnoozed } = require("@milagre/shared/snooze");
@@ -1296,75 +1292,7 @@ function createRuntime(options) {
     );
   });
   const readPullRequestStateOf = options.readPullRequestState ?? readPullRequestState;
-  // Branch and Chat PRs are polled here for every client (pull-request-watch.cjs, spec 2026-10-30-daemon-pr-polling):
-  // a read answers from the last poll, and `pull-requests:changed` tells clients when a Project's PRs changed. A
-  // harness that injects its own readers gets them called directly instead.
-  const injectedPullRequests = Boolean(options.readPullRequest || options.readPullRequests);
-  const readPullRequest = options.readPullRequest ?? createPullRequestReader();
-  const pullRequestWatch = injectedPullRequests
-    ? null
-    : createPullRequestWatch({
-        exec: options.pullRequestExec,
-        onChange: (folders) => {
-          for (const projectPath of new Set(folders.map((folder) => states.worktreeProject(folder)).filter(Boolean)))
-            emit("pull-requests:changed", { projectPath });
-        },
-      });
-  commands.handle("worktree:pull-request", async (_event, worktreePath) => {
-    await environmentReady;
-    return pullRequestWatch ? pullRequestWatch.branch(worktreePath) : readPullRequest(worktreePath);
-  });
-  commands.handle("worktree:pull-requests", async (_event, worktreePath, refs) => {
-    await environmentReady;
-    return pullRequestWatch ? pullRequestWatch.refs(worktreePath, refs) : (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
-  });
-  // A Project's Worktrees with Chats, and the PRs those Chats named, as the sidebar and the phone's list show them.
-  async function pullRequestTargets(projectPath) {
-    const state = await states.get(projectPath);
-    const byPath = new Map();
-    for (const session of Object.values(state.sessions ?? {})) {
-      const worktree = !session.archived ? state.worktrees?.[session.worktree_id] : undefined;
-      if (!worktree) continue;
-      const refs = byPath.get(worktree.path) ?? new Set();
-      for (const ref of session.summary?.pullRequests ?? []) if (typeof ref === "string") refs.add(ref);
-      if (!session.summary || session.summary.count > 0 || refs.size) byPath.set(worktree.path, refs);
-    }
-    return [...byPath].map(([folder, refs]) => ({ path: folder, refs: [...refs] }));
-  }
-  /** Every PR the Project's Worktrees and Chats have, from the last poll: it never waits on GitHub. */
-  commands.handle("pull-requests:snapshot", async (_event, projectPath) => {
-    if (typeof projectPath !== "string" || !states.has(projectPath)) return { worktrees: {}, chats: {}, pending: false };
-    await environmentReady;
-    const targets = await pullRequestTargets(projectPath);
-    if (pullRequestWatch) return pullRequestWatch.snapshot(targets);
-    const worktrees = {};
-    const chats = {};
-    await Promise.all(
-      targets.map(async ({ path: folder, refs }) => {
-        worktrees[folder] = await readPullRequest(folder).catch(() => null);
-        if (refs.length) {
-          const found = await (options.readPullRequests ?? readPullRequests)(folder, refs).catch(() => []);
-          chats[folder] = Object.fromEntries(refs.map((ref, index) => [ref, found[index] ?? null]));
-        }
-      }),
-    );
-    return { worktrees, chats, pending: false };
-  });
-  // The repository's open PRs for a new Chat's card, read once a minute at most per Project; a failed read answers [].
-  const openPullRequests = new Map();
-  const OPEN_PULL_REQUESTS_MS = 60_000;
-  commands.handle("pull-requests:open", async (_event, projectPath) => {
-    if (typeof projectPath !== "string" || !states.has(projectPath)) return [];
-    await environmentReady;
-    const hit = openPullRequests.get(projectPath);
-    if (hit && Date.now() - hit.at < OPEN_PULL_REQUESTS_MS) return hit.read;
-    const read = (options.listOpenPullRequests ?? listOpenPullRequests)(projectPath).catch(() => {
-      if (openPullRequests.get(projectPath)?.read === read) openPullRequests.delete(projectPath);
-      return [];
-    });
-    openPullRequests.set(projectPath, { at: Date.now(), read });
-    return read;
-  });
+  const pullRequests = registerPullRequests({ commands, options, states, emit, environmentReady });
   // The Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
   // On until the renderer pushes the saved setting.
   const keepAwake = options.keepAwake ?? new KeepAwake({ powerSaveBlocker: { start: () => 0, isStarted: () => true, stop() {} }, enabled: false });
@@ -1423,9 +1351,9 @@ function createRuntime(options) {
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
     // A turn may have opened, pushed to or merged a PR: its Worktree's PRs are read again now, not on the next tick.
-    if (pullRequestWatch && isTurnEnd(event) && !isLinkScopeKey(projectOfKey(chatId))) {
+    if (pullRequests.watching && isTurnEnd(event) && !isLinkScopeKey(projectOfKey(chatId))) {
       const folder = states.chatWorktreePath(projectOfKey(chatId), sessionIdFromKey(chatId));
-      if (folder) pullRequestWatch.poke(folder);
+      if (folder) pullRequests.poke(folder);
     }
     if (!isLinkScopeKey(projectOfKey(chatId)))
       void track(() => linked.observe(chatId, event), background).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
@@ -1840,18 +1768,18 @@ function createRuntime(options) {
   // computer's switch and may save it (with the AI sharing consent version they had), which changes nothing.
   commands.handle("routines:enabled:read", () => ({ enabled: true }));
   commands.handle("routines:enabled:save", () => ({ enabled: true }));
-  // Auto update: the switch, and what a restart to install an update would stop (desktop app-updates.cjs).
-  const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
-  commands.handle("app-update:auto:read", () => autoUpdate.read());
-  commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
-  const computerResources = createComputerResources({
+  const { keybindings, computerResources, contextSettings, babysitSettings, doneSettings } = registerSettingsCommands({
+    commands,
     dataDir,
-    worktreeRoot: worktreeRoot(),
-    chatsHome: chatsHome.path,
-    chatFolders: async () => (await projectRegistry().list()).map((project) => path.join(project.path, ".milagre")),
+    emit,
+    worktreeRoot,
+    chatsHome,
+    projectRegistry: () => projectRegistry(),
+    chats,
+    scopeStates,
+    heldState,
+    routines: () => routines,
   });
-  // `{ fresh: true }` measures the folders again now (after a cleanup) instead of waiting out the half hour.
-  commands.handle("computer:resources:read", (_event, options) => computerResources.read(options));
   // Clean up worktrees (Settings › Phone & sharing on desktop, a computer's What Milagre uses on the phone): the worktrees Milagre
   // made that no Chat has used for 30 days or more, with what removing each loses.
   commands.handle("storage:worktrees", async () => {
@@ -1940,32 +1868,7 @@ function createRuntime(options) {
     }
     return result;
   });
-  // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
-  const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
-  commands.handle("keybindings:read", () => keybindings.read());
-  commands.handle("keybindings:set-command", (_event, command, rules) => keybindings.setCommand(command, rules));
-  commands.handle("keybindings:reset-command", (_event, command) => keybindings.resetCommand(command));
-  commands.handle("keybindings:reset", () => keybindings.resetAll());
-  // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
-  const contextSettings = require("./context-settings.cjs").createContextSettings({ file: path.join(dataDir, "context-settings.json"), emit });
-  commands.handle("context:settings:read", () => contextSettings.read());
-  commands.handle("context:settings:save", (_event, patch) => contextSettings.save(patch));
-
-  const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
-  commands.handle("babysit:settings:read", () => babysitSettings.read());
-  commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
   babysitWatch = createBabysitWatch({ settings: babysitSettings, routines });
-  // Done: how long a Chat stays in the Done list before the sweep below archives it.
-  const doneSettings = createDoneSettings({ file: path.join(dataDir, "done.json"), emit });
-  commands.handle("done:settings:read", () => doneSettings.read());
-  commands.handle("done:settings:save", (_event, patch) => doneSettings.save(patch));
-  commands.handle("app-update:activity", () =>
-    hostActivity({
-      busy: chats.busyChats(),
-      scopes: scopeStates.projects().map((key) => ({ key, state: heldState(key) })),
-      routines: routines.runningCount(),
-    }),
-  );
   commands.handle("routines:list", () => routines.list());
   // Create and change check a Routine's target the same way (routineTargets): a listed Project, a Chat that is there.
   commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
@@ -2231,7 +2134,7 @@ function createRuntime(options) {
     clientVersion: version,
     knownFolders: () => scopeStates.worktreePaths(),
     // A PR write (merge, ready, a review, a new PR) shows on the next read, not the next tick.
-    pullRequestChanged: (folder) => pullRequestWatch?.poke(folder),
+    pullRequestChanged: (folder) => pullRequests.poke(folder),
   });
 
   const checkpoints = registerCheckpoints(commands, {
@@ -3826,7 +3729,7 @@ function createRuntime(options) {
     closing = true;
     // Optional PR metadata must not hold accepted commands open until gh's network timeout. Desktop and phone
     // share this poller; end its reads before draining commands, while still saving accepted Chat mutations below.
-    pullRequestWatch?.close();
+    pullRequests.close();
     for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");
     subchatEscalation.close();
     // A comment already on its way goes back to its queue before the rest closes.
