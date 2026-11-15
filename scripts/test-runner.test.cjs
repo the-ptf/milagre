@@ -72,8 +72,10 @@ test("unknown flags are rejected", () => {
   assert.throws(() => parseArgs(["--watchh"]), /Unknown option --watchh/);
 });
 
-test("--changed is rejected until it is implemented", () => {
-  assert.throws(() => parseArgs(["--changed"]), /--changed is not implemented yet; use --only or --workspace/);
+test("--changed takes the ref to compare with", () => {
+  assert.equal(parseArgs(["--changed", "HEAD^1"]).changed, "HEAD^1");
+  assert.equal(parseArgs([]).changed, null);
+  assert.throws(() => parseArgs(["--changed"]), /--changed needs a value/);
 });
 
 test("a platform skip prints the manifest reason when it has one", (t) => {

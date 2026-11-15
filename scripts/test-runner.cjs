@@ -102,12 +102,11 @@ const WORKSPACES = {
 };
 
 function parseArgs(argv) {
-  const filters = { unit: false, electron: false, workspace: null, only: null, list: false, shard: null };
+  const filters = { unit: false, electron: false, workspace: null, only: null, list: false, shard: null, changed: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--changed") throw new Error("--changed is not implemented yet; use --only or --workspace");
     if (arg === "--unit" || arg === "--electron" || arg === "--list") filters[arg.slice(2)] = true;
-    else if (arg === "--workspace" || arg === "--only") {
+    else if (arg === "--workspace" || arg === "--only" || arg === "--changed") {
       filters[arg.slice(2)] = argv[++i];
       if (!filters[arg.slice(2)]) throw new Error(`${arg} needs a value`);
     } else if (arg === "--shard") {
@@ -139,6 +138,11 @@ function selectTests({ unit, electron, filters }) {
     pickedElectron = pickedElectron.filter((file) => file.includes(filters.only));
     if (pickedUnit.length + pickedElectron.length === 0) throw new Error(`no test matched "${filters.only}"`);
   }
+  // --changed: only the tests the change reaches (affected-tests.cjs); null means the whole suite.
+  if (filters.affected) {
+    pickedUnit = pickedUnit.filter((file) => filters.affected.has(file));
+    pickedElectron = pickedElectron.filter((file) => filters.affected.has(file));
+  }
   const skipped = [];
   pickedElectron = pickedElectron.filter((file) => {
     const rule = MANIFEST[path.basename(file)];
@@ -165,6 +169,21 @@ function selectTests({ unit, electron, filters }) {
     });
   }
   return { unit: pickedUnit, electron: pickedElectron, skipped };
+}
+
+/**
+ * The tests a change reaches, for --changed: `{ full: reason }` when it touches something the dependency graph cannot
+ * follow, else `{ full: null, tests }`. A check that loads the built renderer depends on all of the desktop app.
+ */
+function affectedSelection({ root, changed, files, unit, electron }) {
+  const extraDependencies = Object.fromEntries(electron.filter((file) => MANIFEST[path.basename(file)]?.needsBuild).map((file) => [file, ["apps/desktop/"]]));
+  return require("./affected-tests.cjs").selectAffected({
+    changed,
+    files,
+    tests: [...unit, ...electron],
+    read: (file) => fs.readFileSync(path.join(root, file), "utf8"),
+    extraDependencies,
+  });
 }
 
 const electronSeconds = (file) => MANIFEST[path.basename(file)]?.seconds ?? TYPICAL_CHECK_SECONDS;
@@ -340,6 +359,8 @@ module.exports = {
   discoverUnitTests,
   discoverElectronChecks,
   selectTests,
+  affectedSelection,
+  electronSeconds,
   parseArgs,
   MANIFEST,
   UNIT_SECONDS,

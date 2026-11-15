@@ -14,6 +14,7 @@ const {
   discoverUnitTests,
   discoverElectronChecks,
   selectTests,
+  affectedSelection,
   parseArgs,
   MANIFEST,
 } = require("./test-runner.cjs");
@@ -25,17 +26,28 @@ try {
   filters = parseArgs(process.argv.slice(2));
 } catch (error) {
   console.error(error.message);
-  console.error("Usage: npm test [-- --unit | --electron] [--workspace <name>] [--only <substring>] [--shard <index>/<count>] [--list]");
+  console.error("Usage: npm test [-- --unit | --electron] [--workspace <name>] [--only <substring>] [--shard <index>/<count>] [--changed <ref>] [--list]");
   process.exit(2);
 }
 
 let selected;
 try {
-  selected = selectTests({
-    unit: discoverUnitTests(root),
-    electron: discoverElectronChecks(root),
-    filters: { ...filters, platform: process.platform, commandExists },
-  });
+  const unit = discoverUnitTests(root);
+  const electron = discoverElectronChecks(root);
+  let affected = null;
+  if (filters.changed) {
+    let result;
+    try {
+      const { changed, files } = require("./affected-tests.cjs").gitState(root, filters.changed);
+      result = affectedSelection({ root, changed, files, unit, electron });
+    } catch (error) {
+      result = { full: `git could not compare with ${filters.changed}: ${error.message.split("\n")[0]}` };
+    }
+    if (result.full) console.log(`--changed ${filters.changed}: running every selected test, since ${result.full}.`);
+    else affected = result.tests;
+  }
+  selected = selectTests({ unit, electron, filters: { ...filters, affected, platform: process.platform, commandExists } });
+  if (affected && !filters.list) console.log(`--changed ${filters.changed}: ${selected.unit.length + selected.electron.length} tests reach the change.`);
 } catch (error) {
   console.error(error.message);
   process.exit(2);
