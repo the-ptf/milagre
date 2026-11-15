@@ -950,18 +950,10 @@
     {
       "files": ["apps/mobile/src/project-navigation.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 1200,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 1080,
+            "max": 605,
             "skipBlankLines": true,
             "skipComments": true
           }
