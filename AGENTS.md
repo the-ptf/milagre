@@ -6,6 +6,10 @@ Run `npm run typecheck`, `npm run lint` and `npm test -- --unit` before opening 
 
 Every desktop copy an agent or check starts on a Mac someone is using runs with `MILAGRE_BACKGROUND=1` (macOS only; other platforms ignore it): no window, Dock icon, focus change, notification or dialog, while CDP (`Runtime.evaluate`, `Page.captureScreenshot`) still sees the real UI. `test-desktop` and `test-project-links` set it; `MILAGRE_BACKGROUND=0` shows the app.
 
+### File size ratchet
+
+`.oxlintrc.json` caps every source file at 800 code lines, every function at 250 and complexity at 40 (tests are exempt). Files that were already bigger have their own cap at their current size in `.oxlintrc.size-baseline.json`, so they can shrink but never grow. After splitting one, run `npm run lint:baseline` and commit the lower caps; CI fails while a cap sits above a file's size. Don't raise a cap to land a feature: move the new code into its own module. `npm run code-health` ranks files by size, churn and fix commits.
+
 ### Landing page Lighthouse budget
 
 Lighthouse scores for `apps/site` never go down. The floors live in `apps/site/lighthouse-budget.json`: 100 for Accessibility, Best Practices and SEO, plus a Performance floor per form factor (mobile 97, desktop 99, median of three runs).
