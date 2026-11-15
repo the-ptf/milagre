@@ -140,7 +140,9 @@ async function main() {
   // Extra Chats streaming in the background: the Chats list while other Chats work. Each runs for --seconds.
   const worktreeId = first.worktree_id ?? first.worktreeId;
   const send = (body, sessionId) =>
-    client.call("chat:send", [{ projectPath: project, worktreeId, ...(sessionId ? { sessionId } : {}), body, provider: "codex", model: "demo", permissionMode: "ask" }]);
+    client.call("chat:send", [
+      { projectPath: project, worktreeId, ...(sessionId ? { sessionId } : {}), body, provider: "codex", model: "demo", permissionMode: "ask" },
+    ]);
   const extra = [];
   for (let n = 1; n <= Number(values.chats); n++) extra.push(await send("perf-stream").catch((error) => console.warn(`Extra Chat ${n}: ${error.message}`)));
   const tokenFile = path.join(root, "token");
