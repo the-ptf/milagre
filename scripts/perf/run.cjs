@@ -169,12 +169,55 @@ async function memory(page, work) {
   const counters = await page.call("Memory.getDOMCounters");
   const renderers = processes(work).filter((row) => row.kind === "renderer");
   const largest = renderers.reduce((best, row) => (row.rss > (best?.rss ?? 0) ? row : best), null);
+  const footprints = {};
+  for (const row of processes(work)) if (row.kind !== "stub") footprints[row.kind] = round((footprints[row.kind] ?? 0) + footprintMb(row));
   return {
     jsHeapMb: toMb(heap.usedSize),
     domNodes: counters.nodes,
     listeners: counters.jsEventListeners,
     rendererFootprintMb: largest ? footprintMb(largest) : null,
+    footprintMb: footprints,
+    ...(await layers(page)),
   };
+}
+
+/** Composited layers in the window and the pixels they cover: each one is a GPU texture. */
+async function layers(page) {
+  let tree = null;
+  page.onEvent("LayerTree.layerTreeDidChange", (params) => {
+    if (params.layers) tree = params.layers;
+  });
+  await page.call("LayerTree.enable");
+  // The tree arrives with the next committed frame; nudge one in case nothing is animating.
+  await page.evaluate(
+    `(() => { const probe = document.createElement("div"); document.body.append(probe); requestAnimationFrame(() => requestAnimationFrame(() => probe.remove())); })()`,
+  );
+  await until(async () => tree, "the layer tree", 5000).catch(() => null);
+  if (!tree) return {};
+  const drawn = tree.filter((layer) => layer.drawsContent);
+  if (process.env.PERF_LAYERS) {
+    console.log(
+      await page.evaluate(
+        `JSON.stringify([...document.querySelectorAll("*")].filter((el) => { const s = getComputedStyle(el); return s.backdropFilter !== "none" && s.display !== "none" && s.visibility !== "hidden"; }).map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.width) + "x" + Math.round(r.height), getComputedStyle(el).backdropFilter, String(el.className).slice(0, 70)]; }))`,
+      ),
+    );
+    console.log(
+      await page.evaluate(
+        `JSON.stringify(document.getAnimations().map((a) => [a.animationName ?? a.transitionProperty, a.playState, a.effect?.getComputedTiming().fill, String(a.effect?.target?.className).slice(0, 50)]))`,
+      ),
+    );
+    for (const layer of drawn) {
+      let name = "";
+      if (layer.backendNodeId) {
+        const { node } = await page.call("DOM.describeNode", { backendNodeId: layer.backendNodeId }).catch(() => ({}));
+        if (node) name = `${node.localName}${node.attributes ? "." + (node.attributes[node.attributes.indexOf("class") + 1] ?? "") : ""}`;
+      }
+      const reasons = await page.call("LayerTree.compositingReasons", { layerId: layer.layerId }).catch(() => ({}));
+      console.log(`${layer.width}x${layer.height} paints=${layer.paintCount} ${name.slice(0, 90)} [${(reasons.compositingReasonIds ?? []).join(",")}]`);
+    }
+  }
+  await page.call("LayerTree.disable");
+  return { layers: drawn.length, layerMegapixels: round(drawn.reduce((sum, layer) => sum + layer.width * layer.height, 0) / 1e6) };
 }
 
 const FRAME_PROBE = `(() => {
@@ -185,7 +228,15 @@ const FRAME_PROBE = `(() => {
   requestAnimationFrame(tick);
 })()`;
 
-async function frames(page) {
+/** Main-thread work so far: style recalcs and layouts (about one per frame the page draws) and task time in ms. */
+async function mainThreadMetrics(page) {
+  const { metrics } = await page.call("Performance.getMetrics");
+  const value = (name) => metrics.find((metric) => metric.name === name)?.value ?? 0;
+  return { styleRecalcs: value("RecalcStyleCount"), layouts: value("LayoutCount"), taskMs: value("TaskDuration") * 1000 };
+}
+
+async function frames(page, options) {
+  if (options.noFrames) return {};
   const { long, gaps } = await page.evaluate(`(() => { const s = window.__perf; s.run = false; return { long: s.long, gaps: s.frames }; })()`);
   const sorted = gaps.filter((gap) => gap > 0).sort((a, b) => a - b);
   const at = (share) => round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))] ?? 0);
@@ -221,7 +272,7 @@ async function turn(page, work, kind, number, seconds) {
   return firstTextMs;
 }
 
-async function scenario(name, page, work, options) {
+async function scenario(name, page, work, options, browser) {
   const seconds = options.seconds;
   if (name === "idle") {
     const before = cpuByKind(processes(work));
@@ -230,7 +281,8 @@ async function scenario(name, page, work, options) {
     return { cpuPercent: cpuPercent(before, cpuByKind(after), seconds), rssMb: rssByKind(after), ...(await memory(page, work)) };
   }
   const kind = name === "code" ? "code" : "mix";
-  await page.evaluate(FRAME_PROBE);
+  // The probe's requestAnimationFrame loop asks for a frame every vsync itself, which hides what idle frames cost.
+  if (!options.noFrames) await page.evaluate(FRAME_PROBE);
   if (name === "soak") {
     if (options.heap) await heapSnapshot(page, `${options.heap}-before.heapsnapshot`);
     const samples = [await memory(page, work)];
@@ -247,18 +299,71 @@ async function scenario(name, page, work, options) {
       footprintMbPerTurn: first.rendererFootprintMb === null ? null : round((last.rendererFootprintMb - first.rendererFootprintMb) / options.turns, 2),
       domNodesPerTurn: Math.round((last.domNodes - first.domNodes) / options.turns),
       samples,
-      ...(await frames(page)),
+      ...(await frames(page, options)),
     };
   }
   const before = await memory(page, work);
   const cpuBefore = cpuByKind(processes(work));
+  if (options.profile) {
+    await page.call("Profiler.enable");
+    await page.call("Profiler.setSamplingInterval", { interval: 500 });
+    await page.call("Profiler.start");
+  }
+  await page.call("Performance.enable");
+  const metricsBefore = await mainThreadMetrics(page);
   const started = Date.now();
+  if (process.env.PERF_TRACE)
+    setTimeout(
+      async () => {
+        const events = [];
+        browser.onEvent("Tracing.dataCollected", ({ value }) => events.push(...value));
+        const done = new Promise((resolve) => browser.onEvent("Tracing.tracingComplete", resolve));
+        await browser.call("Tracing.start", {
+          traceConfig: {
+            includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "viz", "cc", "blink", "gpu", "v8.execute", "toplevel"],
+          },
+          transferMode: "ReportEvents",
+        });
+        await delay(4000);
+        await browser.call("Tracing.end");
+        await done;
+        fs.writeFileSync(process.env.PERF_TRACE, JSON.stringify({ traceEvents: events }));
+        console.log(`Saved trace ${process.env.PERF_TRACE}`);
+      },
+      (seconds * 1000) / 2,
+    );
+  if (process.env.PERF_LAYERS)
+    setTimeout(
+      async () => {
+        console.log(
+          await page.evaluate(
+            `JSON.stringify(document.getAnimations().map((a) => [a.animationName ?? a.transitionProperty, a.playState, a.effect?.getTiming().duration, a.effect?.getComputedTiming().easing ?? a.effect?.getTiming().easing, String(a.effect?.target?.className).slice(0, 60)]))`,
+          ),
+        );
+      },
+      (seconds * 1000) / 2,
+    );
   const firstTextMs = await turn(page, work, kind, 1, seconds);
   const elapsed = (Date.now() - started) / 1000;
   const cpu = cpuPercent(cpuBefore, cpuByKind(processes(work)), elapsed);
-  const measured = await frames(page);
+  if (process.env.PERF_SHOT) {
+    // The window at the end of the reply, then scrolled up a little, for a visual check of a change.
+    const shot = async (file) => fs.writeFileSync(file, Buffer.from((await page.call("Page.captureScreenshot", { format: "png" })).data, "base64"));
+    await shot(`${process.env.PERF_SHOT}-end.png`);
+    await page.evaluate(`document.querySelector(".message-scroller-viewport").scrollBy(0, -240)`);
+    await delay(500);
+    await shot(`${process.env.PERF_SHOT}-up.png`);
+  }
+  const metricsAfter = await mainThreadMetrics(page);
+  const mainThread = Object.fromEntries(Object.entries(metricsAfter).map(([name, value]) => [name, round((value - metricsBefore[name]) / elapsed)]));
+  if (options.profile) {
+    const { profile } = await page.call("Profiler.stop");
+    fs.writeFileSync(options.profile, JSON.stringify(profile));
+    console.log(`Saved ${options.profile} (open it in Chrome DevTools' Performance panel)`);
+  }
+  const measured = await frames(page, options);
   const after = await memory(page, work);
-  return { cpuPercent: cpu, firstTextMs, ...measured, ...after, jsHeapGrowthMb: round(after.jsHeapMb - before.jsHeapMb) };
+  return { cpuPercent: cpu, mainThreadPerSecond: mainThread, firstTextMs, ...measured, ...after, jsHeapGrowthMb: round(after.jsHeapMb - before.jsHeapMb) };
 }
 
 async function stop(browser, app, work) {
@@ -278,7 +383,7 @@ async function stop(browser, app, work) {
 }
 
 async function run(name, options) {
-  const dist = path.join(root, "apps/desktop/dist/index.html");
+  const dist = path.join(options.dist ? path.resolve(options.dist) : path.join(root, "apps/desktop/dist"), "index.html");
   if (!fs.existsSync(dist)) throw new Error("No built renderer: run `npm run build:renderer --workspace milagre` first.");
   // macOS resolves the temporary directory through /private; Git and the host report that real path.
   const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-perf-")));
@@ -297,6 +402,8 @@ async function run(name, options) {
       MILAGRE_DEV_SERVER_URL: `file://${dist}`,
       PERF_MARK_DIR: path.join(work, "marks"),
       PERF_SECONDS: String(options.seconds),
+      // `PERF_INTERVAL_MS=2000 npm run perf -- stream`: a turn that runs with little streaming, like an agent at work.
+      ...(process.env.PERF_INTERVAL_MS ? { PERF_INTERVAL_MS: process.env.PERF_INTERVAL_MS } : {}),
     };
     const flags = [
       `--user-data-dir=${path.join(work, "profile")}`,
@@ -306,6 +413,7 @@ async function run(name, options) {
       "--disable-renderer-backgrounding",
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
+      ...(options.flag ?? []),
     ];
     app = spawn(electronPath(), [path.join(root, "apps/desktop"), ...flags], { cwd: repo, env, stdio: ["ignore", "ignore", "pipe"] });
     let port;
@@ -338,7 +446,7 @@ async function run(name, options) {
       await until(() => page.evaluate(`!!document.querySelector('.welcome-sky') || !document.querySelector('[data-message-id]')`), "a new Chat");
     }
     await delay(options.settle * 1000);
-    const measured = await scenario(name, page, work, options);
+    const measured = await scenario(name, page, work, options, browser);
     page.close();
     return {
       scenario: name,
@@ -398,6 +506,10 @@ async function main() {
       state: { type: "string" },
       out: { type: "string" },
       heap: { type: "string" },
+      dist: { type: "string" },
+      flag: { type: "string", multiple: true },
+      profile: { type: "string" },
+      "no-frames": { type: "boolean", default: false },
       visible: { type: "boolean", default: false },
       "new-chat": { type: "boolean", default: false },
     },
@@ -412,6 +524,10 @@ async function main() {
     settle: Number(values.settle),
     state: values.state,
     heap: values.heap,
+    dist: values.dist,
+    flag: values.flag,
+    profile: values.profile,
+    noFrames: values["no-frames"],
     visible: values.visible,
     newChat: values["new-chat"],
   });
