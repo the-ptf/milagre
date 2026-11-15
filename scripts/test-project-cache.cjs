@@ -227,8 +227,11 @@ async function browserChecks() {
     assert.equal(await evaluate("window.requests[0].path"), "/alpha", "cached chats show before refresh resolves");
     await screenshot("desktop-cached-refresh");
     await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('alpha Chat')).click()`);
-    await waitFor(`!!document.querySelector('[data-linked-from="/alpha#2"]')`);
-    await evaluate(`document.querySelector('[data-linked-from="/alpha#2"]').click()`);
+    // The Delegation is one line; its dialog's Open Chat opens the sending Chat.
+    await waitFor(`!!document.querySelector('[data-linked-message-line] button')`);
+    await evaluate(`document.querySelector('[data-linked-message-line] button').click()`);
+    await waitFor(`!!document.querySelector('[data-linked-open-chat="/alpha#2"]')`);
+    await evaluate(`document.querySelector('[data-linked-open-chat="/alpha#2"]').click()`);
 
     await click("New chat");
     await evaluate(

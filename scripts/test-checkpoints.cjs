@@ -236,8 +236,11 @@ async function browserChecks() {
       ])})`,
     );
     const button = (id, label = "Copy message") => `document.querySelector('#message-${id} [aria-label="${label}"]')`;
-    await wait(`${button(21)} && ${button(22)} && ${button(23)} && ${button(24)}`);
-    for (const id of [25, 26, 27, 28, 29, 30, 31, 33]) assert.equal(await evaluate(`${button(id)} === null`), true, `no Copy on special/empty message ${id}`);
+    await wait(`${button(21)} && ${button(22)} && ${button(23)}`);
+    // A Delegation is one line now; its text opens in a dialog instead of sitting in the transcript with a Copy button.
+    assert.equal(await evaluate(`!!document.querySelector('#message-24 [data-linked-message-line]')`), true, "a Delegation is one line");
+    for (const id of [24, 25, 26, 27, 28, 29, 30, 31, 33])
+      assert.equal(await evaluate(`${button(id)} === null`), true, `no Copy on special/empty message ${id}`);
     assert.equal(
       await evaluate(`document.querySelectorAll('#message-32 [aria-label="Copy message"]').length`),
       1,
@@ -286,7 +289,6 @@ async function browserChecks() {
       [21, raw],
       [22, answer],
       [23, recommendation],
-      [24, "Linked raw text"],
     ]) {
       await pointerClick(button(id));
       await wait(`${button(id, "Copied")} !== null`);
@@ -453,7 +455,7 @@ async function browserChecks() {
     assert.equal(await evaluate('!!document.querySelector("[data-checkpoint-restore]")'), false, "read-only preview has no restore action");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: raw user/reply/recommendation/linked Copy, success/failure/retry, keyboard visibility, stable hover geometry, code Copy, streaming exclusion; undo button and Esc Esc hint, Esc Esc list, keyboard choice, preview in the composer, conflict choice, stale refusal, restore line Redo, /undo, blocked while running",
+      "PASS: raw user/reply/recommendation Copy, Delegation line, success/failure/retry, keyboard visibility, stable hover geometry, code Copy, streaming exclusion; undo button and Esc Esc hint, Esc Esc list, keyboard choice, preview in the composer, conflict choice, stale refusal, restore line Redo, /undo, blocked while running",
     );
   } catch (error) {
     console.error(error);
