@@ -16,6 +16,7 @@ import { useFindInChat } from "./app/useFindInChat";
 import { useChatLayout } from "./app/useChatLayout";
 import { useModelSelection } from "./app/useModelSelection";
 import { usePrPanel } from "./app/usePrPanel";
+import { useChatRowActions } from "./app/useChatRowActions";
 import { ChatApproval, PermissionCard, approvalShown, type ChatApprovalProps } from "./app/ChatApproval";
 import { ChooseProjectScreen, HostNotices, QuitErrorDialog, StartupErrorScreen } from "./app/StartupScreens";
 import { WorkspaceSlots } from "./app/WorkspaceSlots";
@@ -83,10 +84,7 @@ import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPromp
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { providerForId, resolveModel } from "./lib/models";
 import { chatMark, chatTitle, fullChatTitle, isChatListed, orderChats } from "./lib/chat-list";
-import type { SessionPatch } from "@milagre/shared/project-edits";
-import { patchChatShowingDone } from "./lib/done-pending.ts";
-import { snoozeChat } from "./lib/snooze-pending.ts";
-import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from "./lib/archive";
+import { deleteUndoWindow, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { firstSection } from "./components/changes/ChangesPanel";
@@ -102,7 +100,7 @@ import { gitChatContext } from "./lib/git-dialog";
 import { useWorktreePullRequests } from "./components/useWorktreePullRequests";
 import { useLinear } from "./components/useLinear";
 import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
-import { issueFirstMessage, LINK_PR_HINT, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
+import { issueFirstMessage, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests";
 import { associatedPullRequest } from "@milagre/shared/chats";
@@ -114,18 +112,16 @@ import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
 import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
-import { chatRevealPath } from "./lib/reveal";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { getSettings, toggleTheme, useApplyTheme, useSettings } from "./lib/settings";
-import { pinChat, useChatPins } from "./lib/chat-pins";
-import { keepsOnPin, sessionsWithPins } from "@milagre/shared/chat-pins";
+import { useChatPins } from "./lib/chat-pins";
+import { sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
-import { clearNoticeOnNavigate, showNotice } from "./lib/notice";
+import { clearNoticeOnNavigate } from "./lib/notice";
 import { withReportPrompt } from "@milagre/shared/bug-report";
-import { openInEditor } from "./lib/editors";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
 import { SidebarUsage } from "./components/usage/SidebarUsage";
 import { UsageButton } from "./components/usage/UsageButton";
@@ -166,10 +162,10 @@ import { ChatComposer } from "./components/ChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { Onboarding, firstChatStarters } from "./components/Onboarding";
-import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-actions";
+import { newTerminal, useTerminalSync } from "./lib/terminal-actions";
 import { playNotificationChime } from "./lib/notification-chime";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
+import type { SidebarRecent } from "./components/sidebar/ChatRow";
 import { openStorage } from "./lib/storage-open";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
@@ -1043,62 +1039,23 @@ function App() {
     showGit,
     archivingChats,
   ]);
-  const latest = useRef({
-    patchChat,
-    pinChatHere,
-    markChatDone,
-    snoozeChatHere,
-    revealChat,
-    openChatInEditor,
-    openGitDialog,
-    checkArchive,
-    archiveChat,
-    linkChatIssue,
-    unlinkChatIssue,
-    detachChat,
-    reloadChat,
-    reportMilagreBug,
+  const openProjectPath = () => projectRef.current?.path;
+  const { archiveState, patchChat, checkArchive, revealChat, openChatInEditor, reloadChat, chatActions, scopeChatActions } = useChatRowActions({
+    projectRef,
+    project,
+    state,
+    statesRef,
+    showGit,
+    setNotice,
+    receiveState,
+    refreshLinearIssues,
+    handlers: { openGitDialog, archiveChat, markChatDone, reportMilagreBug },
   });
-  latest.current = {
-    patchChat,
-    pinChatHere,
-    markChatDone,
-    snoozeChatHere,
-    revealChat,
-    openChatInEditor,
-    openGitDialog,
-    checkArchive,
-    archiveChat,
-    linkChatIssue,
-    unlinkChatIssue,
-    detachChat,
-    reloadChat,
-    reportMilagreBug,
-  };
-  // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
-  function patchChat(sessionId: number, patch: SessionPatch, path = projectRef.current?.path) {
-    if (path) void reportChatAction(patchChatShowingDone(path, sessionId, patch), "Could not update Chat", setNotice);
-  }
-  // Snooze (until a time) or Wake (null): the row moves to or from the Snoozed section at once (snooze-pending.ts). The
-  // open Chat stays open: it keeps working, just out of the way.
-  function snoozeChatHere(sessionId: number, until: number | null, path = projectRef.current?.path) {
-    if (path) void reportChatAction(snoozeChat(path, sessionId, until), until ? "Could not snooze Chat" : "Could not wake Chat", setNotice);
-  }
-  // Pins stay on this Mac (chat-pins.ts); pinning a hidden Run Chat still tells its host the user took it over.
-  function pinChatHere(sessionId: number, order: number | null) {
-    const path = projectRef.current?.path;
-    if (!path) return;
-    pinChat(path, Object.values(state?.sessions ?? {}), sessionId, order);
-    if (order !== null && keepsOnPin(state?.sessions[sessionId]))
-      void bridgeForKey(path)
-        .patchChat(path, sessionId, { kept: true })
-        .catch(() => {});
-  }
   // Done on the open Chat leaves it for a new Chat in the same Project, as archiving it does: the work there is
   // finished, and the next thing starts fresh. The row keeps moving to the Done section meanwhile.
-  function markChatDone(sessionId: number) {
+  function markChatDone(sessionId: number, path: string | undefined) {
     if (!selectedLinkRef.current && selectedSessionRef.current === sessionId) startNewChat();
-    patchChat(sessionId, { done: true, unread: false });
+    patchChat(sessionId, { done: true, unread: false }, path);
   }
 
   function controlAdvisor(action: "stop" | "retry", id: string) {
@@ -1170,7 +1127,7 @@ function App() {
         unread: Boolean(openState()?.sessions[sessionId]?.unread),
       })
     )
-      patchChat(sessionId, { unread: false });
+      patchChat(sessionId, { unread: false }, openProjectPath());
     setSelectedSessionId(sessionId);
     setSelectedWorktreeId(openState()?.sessions[sessionId]?.worktree_id ?? null);
     if (!keepsRoutinesView(holdRoutinesView.current, projectRef.current?.path, sessionId)) setView("chat");
@@ -1206,7 +1163,7 @@ function App() {
   // As on the phone, the row goes and the window leaves the chat at once; the host's work goes on behind, and a chat
   // whose archive fails (or whose worktree stays) comes back with a notice.
   // The permanent steps wait out the sidebar toast's Undo (deleteUndoWindow); an Undo brings the Chat back as a kept one does.
-  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path) {
+  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath: string | undefined) {
     if (!projectPath) return Promise.resolve();
     const open = projectPath === project?.path;
     const key = chatKey(projectPath, sessionId);
@@ -1279,38 +1236,12 @@ function App() {
       );
   });
 
-  // What the archive menu offers depends on the chat's worktree: whether Milagre made it, whether another chat
-  // uses it, and what it would lose.
-  // The menu's Archive waits on this, so its reads go out together: one after another, each waiting its turn on a busy
-  // host, they kept Archive disabled for seconds.
-  async function checkArchive(sessionId: number, projectPath = project?.path): Promise<ArchivePlan> {
-    if (!projectPath) return { milagreOwned: false, shared: false, status: null };
-    const bridge = bridgeForKey(projectPath);
-    const latest = archiveState(projectPath);
-    const worktree = latest ? latest.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1] : undefined;
-    const shared = latest ? worktreeShared(latest, sessionId) : false;
-    // Only a worktree Milagre made needs its status, and only then does a failed read count.
-    const status = worktree?.base && !shared ? bridge.getWorktreeStatus(worktree.path, worktree.base) : Promise.resolve(null);
-    status.catch(() => {});
-    const [terminals, roots] = await Promise.all([busyTerminals(chatKey(projectPath, sessionId)), bridge.getWorktreeRoots()]);
-    if (!latest || !isMilagreWorktree(worktree, roots)) return { milagreOwned: false, shared: false, status: null, terminals };
-    if (shared) return { milagreOwned: true, shared: true, status: null, terminals };
-    return { milagreOwned: true, shared: false, status: await status, terminals };
-  }
-
-  // The state the archive steps read: the open Project's, or the copy another Project's sidebar group shows.
-  function archiveState(projectPath: string) {
-    // A Project's key (not a `milagre-link:` one) holds a Project's state.
-    const scoped = isLinkScopeKey(projectPath) ? undefined : (cachedScopeState(projectPath) as CoordinatorState | undefined);
-    return statesRef.current[projectPath] ?? scoped ?? cachedProjectCopy(projectPath)?.state;
-  }
-
   // "Commit and open PR…" opens the chat, with the dialog over it.
-  async function openGitDialog(sessionId: number, path = projectRef.current?.path): Promise<void> {
+  async function openGitDialog(sessionId: number, path: string | undefined): Promise<void> {
     if (path && (path !== projectRef.current?.path || selectedLinkRef.current)) {
       await openCanvasChat(path, sessionId);
       if (projectRef.current?.path !== path) return;
-      return latest.current.openGitDialog(sessionId);
+      return openGitDialog(sessionId, openProjectPath());
     }
     const currentState = openState();
     const session = currentState?.sessions[sessionId];
@@ -1344,17 +1275,6 @@ function App() {
       void bridgeForKey(current.path)
         .addGitNote(chatKey(current.path, sessionId), body)
         .catch(() => {});
-  }
-
-  function revealChat(sessionId: number, path = projectRef.current?.path) {
-    if (!path || isRemoteKey(path)) return;
-    void window.milagre.revealInFolder(chatRevealPath(archiveState(path) ?? null, sessionId, path)).catch(() => {});
-  }
-
-  function openChatInEditor(sessionId: number, path = projectRef.current?.path) {
-    const latest = path ? archiveState(path) : undefined;
-    const worktree = latest?.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1];
-    if (worktree) void openInEditor(worktree.path);
   }
 
   // The daemon keeps the Mac awake while Milagre runs, if the setting says so.
@@ -2118,55 +2038,12 @@ function App() {
     void executeSend(issueFirstMessage(issue, draftStore.get()), permissionMode, imageDraft.images, imageDraft.files, false, undefined, issue);
   }
 
-  // The chat's Worktree gets the issue (its branch is renamed when the branch is still a milagre/ one with no open PR).
-  async function linkChatIssue(sessionId: number, key: string, workspace?: string, path = projectRef.current?.path) {
-    const worktreeId = path ? archiveState(path)?.sessions[sessionId]?.worktree_id : undefined;
-    if (!path || worktreeId === undefined) return;
-    const linked = async () => {
-      const result = await bridgeForKey(path).linkWorktreeIssue({ projectPath: path, worktreeId, key, ...(workspace ? { workspace } : {}) });
-      receiveState(path, result.project.state);
-      refreshLinearIssues();
-      // A toast, as on the phone: the result needs no answer.
-      showNotice(result.mode === "renamed" ? `Branch renamed to ${result.branch}.` : `Issue linked. ${LINK_PR_HINT(key)}`);
-    };
-    await reportChatAction(linked(), "Could not link issue", setNotice);
-  }
-
-  // Reload chat: a running turn stops and the agent's process ends; the next message resumes the session in a new
-  // one, which reads MCP servers, skills and the sign-in again.
-  async function reloadChat(sessionId: number, path = projectRef.current?.path) {
-    if (!path) return;
-    const reloaded = async () => {
-      await bridgeForKey(path).reloadChat(chatKey(path, sessionId));
-      showNotice("Chat reloaded. Your next message starts a fresh agent.");
-    };
-    await reportChatAction(reloaded(), "Could not reload chat", setNotice);
-  }
-
   // "Report a Milagre bug": the Chat's composer asks its agent, which writes it up with milagre report_milagre_bug; Milagre
   // redacts it and shows the user the exact text before anything is posted (issue #938).
   function reportMilagreBug(sessionId: number) {
     if (selectedSessionRef.current !== sessionId) openChat(sessionId);
     setDraft(withReportPrompt(draftStore.get()));
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
-  }
-
-  // "Detach from parent": the subchat lists on its own, and its open Delegations stop reporting back.
-  async function detachChat(sessionId: number, path = projectRef.current?.path) {
-    if (!path) return;
-    const detached = async () => showNotice(await bridgeForKey(path).detachChat(path, sessionId));
-    await reportChatAction(detached(), "Could not detach chat", setNotice);
-  }
-
-  async function unlinkChatIssue(sessionId: number, path = projectRef.current?.path) {
-    const worktreeId = path ? archiveState(path)?.sessions[sessionId]?.worktree_id : undefined;
-    if (!path || worktreeId === undefined) return;
-    const unlinked = async () => {
-      const result = await bridgeForKey(path).unlinkWorktreeIssue({ projectPath: path, worktreeId });
-      receiveState(path, result.project.state);
-      refreshLinearIssues();
-    };
-    await reportChatAction(unlinked(), "Could not unlink issue", setNotice);
   }
 
   // Compact now on the context card: Claude's /compact as a divider in the chat, with no handoff and no draft touched.
@@ -2270,55 +2147,6 @@ function App() {
   // The sidebar is memo()'d: these keep one identity across renders (each runs the latest closure) so a streamed
   // batch or another pane's state change doesn't re-render it.
   const pickChat = useEvent((id: string) => openChat(Number(id)));
-  const remoteProject = isRemoteKey(project?.path);
-  const scopeChatActions = useEvent((path: string, gitless: boolean): ChatRowActions => ({
-    onRename: (id, title) => latest.current.patchChat(Number(id), { title }, path),
-    onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }, path),
-    onReload: (id) => void latest.current.reloadChat(Number(id), path),
-    onSnooze: (id, until) => latest.current.snoozeChatHere(Number(id), until, path),
-    onWake: (id) => latest.current.snoozeChatHere(Number(id), null, path),
-    onArchiveCheck: (id) => latest.current.checkArchive(Number(id), path),
-    onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, path),
-    onUndoArchive: (id) => undoDelete(chatKey(path, Number(id))),
-    ...(isRemoteKey(path)
-      ? { remote: true }
-      : {
-          onReveal: (id) => latest.current.revealChat(Number(id), path),
-          onOpenInEditor: (id) => latest.current.openChatInEditor(Number(id), path),
-        }),
-    ...(gitless ? { gitless: true } : { onCommit: (id) => void latest.current.openGitDialog(Number(id), path) }),
-    onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace, path),
-    onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id), path),
-    onDetach: (id) => void latest.current.detachChat(Number(id), path),
-  }));
-  const chatActions = useMemo<ChatRowActions>(
-    () => ({
-      onRename: (id, title) => latest.current.patchChat(Number(id), { title }),
-      onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }),
-      onReload: (id) => void latest.current.reloadChat(Number(id)),
-      onReportBug: (id) => latest.current.reportMilagreBug(Number(id)),
-      onPin: (id, order) => latest.current.pinChatHere(Number(id), order ?? null),
-      onDone: (id) => latest.current.markChatDone(Number(id)),
-      onReopen: (id) => latest.current.patchChat(Number(id), { done: false }),
-      onSnooze: (id, until) => latest.current.snoozeChatHere(Number(id), until),
-      onWake: (id) => latest.current.snoozeChatHere(Number(id), null),
-      ...(remoteProject
-        ? { remote: true }
-        : {
-            onReveal: (id: string) => latest.current.revealChat(Number(id)),
-            onOpenInEditor: (id: string) => latest.current.openChatInEditor(Number(id)),
-          }),
-      ...(showGit ? { onCommit: (id: string) => latest.current.openGitDialog(Number(id)) } : { gitless: true }),
-      onArchiveCheck: (id) => latest.current.checkArchive(Number(id)),
-      // The row shows the progress until this settles.
-      onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan),
-      onUndoArchive: (id) => !!projectRef.current && undoDelete(chatKey(projectRef.current.path, Number(id))),
-      onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace),
-      onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id)),
-      onDetach: (id) => void latest.current.detachChat(Number(id)),
-    }),
-    [remoteProject, showGit],
-  );
   // Another Project's rows in the all-Projects sidebar archive through the same steps, against that Project.
   const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
   const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => archiveChat(Number(id), mode, plan, scopeKey));
@@ -2907,12 +2735,12 @@ function App() {
           setView("chat");
           toggleLayout();
         },
-        openGitDialog: (sessionId) => openGitDialog(sessionId),
-        openChatInEditor: (sessionId) => openChatInEditor(sessionId),
-        revealChat: (sessionId) => revealChat(sessionId),
+        openGitDialog: (sessionId) => openGitDialog(sessionId, openProjectPath()),
+        openChatInEditor: (sessionId) => openChatInEditor(sessionId, openProjectPath()),
+        revealChat: (sessionId) => revealChat(sessionId, openProjectPath()),
         openFind,
-        setUnread: (sessionId, unread) => patchChat(sessionId, { unread }),
-        reloadChat: (sessionId) => reloadChat(sessionId),
+        setUnread: (sessionId, unread) => patchChat(sessionId, { unread }, openProjectPath()),
+        reloadChat: (sessionId) => reloadChat(sessionId, openProjectPath()),
         reportMilagreBug,
         copyPath: (path) => navigator.clipboard.writeText(path),
         openChat,
@@ -3385,7 +3213,7 @@ function App() {
                   : undefined
               }
               onOpenChat={openAlone}
-              onReveal={() => selectedSession && revealChat(selectedSession.id)}
+              onReveal={() => selectedSession && revealChat(selectedSession.id, openProjectPath())}
               chats={chats}
               chatActions={chatActions}
             />

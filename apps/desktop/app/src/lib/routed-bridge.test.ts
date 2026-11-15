@@ -27,7 +27,6 @@ const ALLOWED: Record<string, string[]> = {
     "onRuntimeSnapshot",
     "onComputerEvent",
     "onWorktreeRenamed",
-    "revealInFolder",
     "setKeepAwake",
     "syncNotifications",
     "setNotifyWhenWaiting",
@@ -46,6 +45,7 @@ const ALLOWED: Record<string, string[]> = {
   "app/useAppShortcuts.ts": ["onAppShortcut"],
   "app/StartupScreens.tsx": ["restartHost", "retryQuit"],
   "app/useModelSelection.ts": ["onAccountsChanged", "updateCli"],
+  "app/useChatRowActions.ts": ["revealInFolder"],
   "components/AddProjectDialog.tsx": ["openProject", "chooseFolder"],
   "components/FloatingInbox.tsx": [
     "getFloatingInboxOpen",
