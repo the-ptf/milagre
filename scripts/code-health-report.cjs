@@ -21,7 +21,7 @@
 //   node scripts/code-health-report.cjs                  # markdown table, top 40
 //   node scripts/code-health-report.cjs --top 100 --min-lines 800
 //   node scripts/code-health-report.cjs --json > report.json
-//   node scripts/code-health-report.cjs --write-baseline [--allow-raise]
+//   node scripts/code-health-report.cjs --write-baseline [--allow-raise]   # never adds or raises a cap without --allow-raise
 //   node scripts/code-health-report.cjs --check          # CI: fails when the baseline is stale
 "use strict";
 
@@ -147,6 +147,10 @@ function buildBaseline(metrics, allowRaise) {
       const before = previous.get(file)?.[rule];
       const beforeMax = before ? (typeof before[1] === "number" ? before[1] : before[1].max) : undefined;
       let cap = value;
+      if (beforeMax === undefined && !allowRaise) {
+        raised.push(`${file} ${rule}: new file over the limit (${value} > ${lim[rule].max})`);
+        continue;
+      }
       if (beforeMax !== undefined && value > beforeMax && !allowRaise) {
         cap = beforeMax;
         raised.push(`${file} ${rule}: ${value} > cap ${beforeMax}`);
@@ -183,7 +187,7 @@ function writeBaseline(metrics) {
   execFileSync(fmt.cmd, [...fmt.pre, BASELINE], { cwd: root, stdio: "ignore" });
   process.stdout.write(`Wrote ${path.relative(root, BASELINE)}: ${overrides.length} files over the global limits.\n`);
   if (raised.length > 0) {
-    process.stdout.write(`Kept old caps (file grew; shrink it or rerun with --allow-raise):\n  ${raised.join("\n  ")}\n`);
+    process.stdout.write(`Not raised (a file grew or a new file is over the limits; split it, or rerun with --allow-raise):\n  ${raised.join("\n  ")}\n`);
     process.exitCode = 1;
   }
 }
