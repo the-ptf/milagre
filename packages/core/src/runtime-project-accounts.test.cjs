@@ -133,6 +133,8 @@ async function fixture(t) {
       chatsHome: path.join(dir, "chats"),
       ...extra,
       dataDir,
+      // Inside a Milagre Chat the shell's CLAUDE_CONFIG_DIR is the Chat's account, not the default one these tests expect.
+      accountsEnv: Object.fromEntries(Object.entries(process.env).filter(([name]) => !["CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_HOME"].includes(name))),
       cwd: projects[0],
       registryRoots: [],
       worktreeRoot: path.join(dir, "worktrees"),

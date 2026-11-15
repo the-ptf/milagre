@@ -2,7 +2,7 @@
 // `npm test`: every node:test file in one process, then each Electron check serially (each owns a Vite port and an Electron profile).
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
-const { needsShell, shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST } = require("./test-runner.cjs");
+const { testEnv, needsShell, shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST } = require("./test-runner.cjs");
 
 const root = path.resolve(__dirname, "..");
 const commandExists = (name) => spawnSync(process.platform === "win32" ? "where" : "which", [name], { stdio: "ignore" }).status === 0;
@@ -36,7 +36,8 @@ const failures = [];
 const flaky = [];
 function run(label, command, args, options = {}, { retryable = false } = {}) {
   const started = Date.now();
-  const attempt = () => spawnSync(command, args, { cwd: root, stdio: "inherit", shell: needsShell(command, process.platform), ...options });
+  const attempt = () =>
+    spawnSync(command, args, { cwd: root, stdio: "inherit", shell: needsShell(command, process.platform), env: testEnv(process.env), ...options });
   let result = attempt();
   let retried = false;
   if (result.status !== 0 && retryable && shouldRetry({ platform: process.platform, ci: process.env.CI, attempt: 1 })) {
@@ -60,7 +61,13 @@ if (selected.electron.length) {
   // The first Electron launch on a fresh Linux runner is unreliable (see electron-warmup.cjs); spend it on a throwaway window.
   // A failed warm-up is not a failed check.
   if (process.platform === "linux" && process.env.CI)
-    spawnSync(process.execPath, [path.join(__dirname, "electron-warmup.cjs")], { cwd: root, stdio: "inherit", timeout: 60_000, killSignal: "SIGKILL" });
+    spawnSync(process.execPath, [path.join(__dirname, "electron-warmup.cjs")], {
+      cwd: root,
+      stdio: "inherit",
+      env: testEnv(process.env),
+      timeout: 60_000,
+      killSignal: "SIGKILL",
+    });
   for (const file of selected.electron) run(file, process.execPath, [file], {}, { retryable: true });
 }
 

@@ -2006,6 +2006,8 @@ function createRuntime(options) {
   const baseCli = options.agentCli ?? createCliCache({ ready: () => environmentReady, refresh: () => refreshInstallPath(), antigravity });
   const accounts = createAccounts({
     dataDir,
+    // The "connected CLI account" inherits this environment; tests pass one without an agent shell's CLAUDE_CONFIG_DIR.
+    env: options.accountsEnv,
     cli: baseCli,
     ready: () => environmentReady,
     changed(provider) {
