@@ -43,10 +43,11 @@ const ALLOWED: Record<string, string[]> = {
     "onOpenPhoneSettings",
     "openProject",
     "openCanvasProject",
-    "onAppShortcut",
     "restartHost",
     "retryQuit",
   ],
+  "app/useAppDialogs.ts": ["listRecentProjects"],
+  "app/useAppShortcuts.ts": ["onAppShortcut"],
   "components/AddProjectDialog.tsx": ["openProject", "chooseFolder"],
   "components/FloatingInbox.tsx": [
     "getFloatingInboxOpen",

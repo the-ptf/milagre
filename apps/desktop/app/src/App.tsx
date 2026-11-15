@@ -10,8 +10,11 @@ import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
-import { AddComputerDialog } from "./components/AddComputerDialog";
-import { AddProjectDialog } from "./components/AddProjectDialog";
+import { AppDialogs, AppSettingsModal, SettingsNav } from "./app/AppDialogs";
+import { useAppDialogs } from "./app/useAppDialogs";
+import { useAppShortcuts, useJumpToChat } from "./app/useAppShortcuts";
+import { useFindInChat } from "./app/useFindInChat";
+import { useChatLayout } from "./app/useChatLayout";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
@@ -87,7 +90,7 @@ import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from 
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
-import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
+import { setKeyContext } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
 import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
@@ -104,7 +107,7 @@ import { PullRequestOpenContext } from "./components/sidebar/ChatRow";
 import { prRange, threadFixMessage } from "./lib/pull-request-view";
 import type { DiffSelection } from "./lib/diff-comments";
 import { openThreads, type PullRequestThread, type ReviewEvent } from "@milagre/shared/pull-request-review";
-import { gitChatContext, type GitChatContext } from "./lib/git-dialog";
+import { gitChatContext } from "./lib/git-dialog";
 import { useWorktreePullRequests } from "./components/useWorktreePullRequests";
 import { useLinear } from "./components/useLinear";
 import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
@@ -118,12 +121,9 @@ import { AppSplash } from "./components/StartupSplash";
 import { settleSplash, useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
-import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
 import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
-import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "./lib/grid-drop";
 import { chatRevealPath } from "./lib/reveal";
-import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
@@ -158,15 +158,11 @@ import { beginChatSwitch, markChatSwitch } from "./lib/chat-switch-timing";
 import { newChatProject, PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
-import { appShortcutsBlocked, isModalOpen } from "./lib/modal";
-import { SettingsModal } from "./components/settings/SettingsModal";
 import { createDraftStore, draftKey } from "./lib/draft-store";
 import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { CommandPalette, DiffView, GitActionsDialog, QuestionCard } from "./components/lazy-views";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
-import { chatFamily } from "./lib/subchat-rows";
-import { besideParent, familySplit, swapTile } from "./lib/subchat-split";
 import { chatBookmark } from "@milagre/shared/subchats";
 import { ChatIdentity } from "./components/agents/ChatIdentity";
 import { SubchatBookmark } from "./components/agents/SubchatBookmark";
@@ -175,7 +171,6 @@ import { useChatTerminals } from "./lib/terminal-store";
 import { provideSubchatActions, SubchatWaitingNote, type SubchatActions } from "./components/agents/SubchatMessages";
 import { useStepApprovalScope } from "./components/agents/step-approval";
 import { pendingWaitingNote } from "./lib/subchat-transcript";
-import type { TileMenuControls } from "./components/agents/TileFamilyMenu";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
@@ -191,12 +186,9 @@ import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-acti
 import { playNotificationChime } from "./lib/notification-chime";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
-import { OPEN_STORAGE, openStorage } from "./lib/storage-open";
-import { WorktreeCleanup } from "./components/settings/WorktreeCleanup";
+import { openStorage } from "./lib/storage-open";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
-const SettingsNav = lazyView(() => import("./components/Settings").then((module) => module.SettingsNav));
-const SettingsPanel = lazyView(() => import("./components/Settings").then((module) => module.SettingsPanel));
 const PermissionCard = lazyView(() => import("./components/agents/PermissionCard").then((module) => module.PermissionCard));
 const CanvasView = lazyView(() => import("./components/CanvasView").then((module) => module.CanvasView));
 const RoutinesPage = lazyView(() => import("./components/routines/RoutinesPage").then((module) => module.RoutinesPage));
@@ -242,7 +234,6 @@ function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorSt
   if (!state || isLean(state)) prefetchChatMessages(scope, sessionId);
 }
 const NO_REFS: string[] = [];
-const NO_KEYS: string[] = [];
 const NO_ROUTINES = new Set<string>();
 // `sent`: the main process saved the message; the preview stays until the saved message reaches the window's state.
 // `creatingWorktree`: the send waits for its new Worktree; `provider`: the one the picker sent it to.
@@ -461,43 +452,6 @@ function App() {
   const runPaneReturn = useRef<RunPaneReturn | null>(null);
   const runPaneRef = useRef<string | null>(null);
   runPaneRef.current = runPane;
-  const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
-  const layoutRef = useRef(layout);
-  layoutRef.current = layout;
-  useEffect(() => saveChatLayout(localStorage, layout), [layout]);
-  const toggleLayout = () => setLayout((current) => (current === "grid" ? "single" : "grid"));
-  // Chats kept in the grid while idle: dropped there from the sidebar, or pinned from a tile's header.
-  const [gridPins, setGridPins] = useState<readonly string[]>(() => readGridPins(localStorage));
-  const changeGridPins = (change: (pins: readonly string[]) => readonly string[]) =>
-    setGridPins((current) => {
-      const next = change(current);
-      saveGridPins(localStorage, next);
-      return next;
-    });
-  // The split view's Chats, in order: the open one and the ones dragged beside it from the sidebar.
-  const [splitKeys, setSplitKeys] = useState<readonly string[]>(() => readSplitChats(localStorage));
-  useEffect(() => saveSplitChats(localStorage, splitKeys), [splitKeys]);
-  // The split tile being closed while focus moves to its neighbour: it leaves the split once focus has left it.
-  const [closingTile, setClosingTile] = useState<string | null>(null);
-  // A Chat a split tile's menu swapped in (swapSplitTile): the split waits for it to take focus instead of ending while it loads.
-  const [splitTarget, setSplitTarget] = useState<string | null>(null);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
-  useEffect(() => {
-    if (!commandPaletteOpen) return;
-    let cancelled = false;
-    window.milagre
-      .listRecentProjects()
-      .then((projects) => {
-        if (!cancelled) setRecentProjects(projects);
-      })
-      .catch(() => {
-        if (!cancelled) setRecentProjects([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [commandPaletteOpen]);
   const [pickedIsolation, setIsolation] = useState<Isolation>(() => loadChatPreferences(localStorage, "").isolation);
   // A Project outside Git has one Worktree, the folder itself: its Chats always work there. A Chat without a Project
   // always gets its own Worktree of the Chats home, a new empty folder.
@@ -557,28 +511,28 @@ function App() {
     const timer = window.setTimeout(() => setNotice(null), 12_000);
     return () => window.clearTimeout(timer);
   }, [notice]);
-  // Settings is a modal over whatever view is on screen; closing it goes back to that view as it was.
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsOpenRef = useRef(settingsOpen);
-  settingsOpenRef.current = settingsOpen;
-  // Opening another Chat, Project or Link (from the palette, a notification or a shortcut) leaves Settings. The first
-  // Project or Link to load at startup is no move: Settings opened while the window loads stays open.
-  const settingsPlace = `${selectedLink?.link.id ?? ""}|${project?.path ?? ""}|${selectedSessionId ?? ""}`;
-  const shownPlace = useRef(settingsPlace);
-  useEffect(() => {
-    const before = shownPlace.current;
-    shownPlace.current = settingsPlace;
-    if (before !== settingsPlace && !before.startsWith("||")) setSettingsOpen(false);
-  }, [settingsPlace]);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
-  // Which Project the Settings page shows; any recent Project can be picked there, the open one by default.
-  const [settingsProject, setSettingsProject] = useState<{ path: string; name: string } | null>(null);
-  // The Chats home is no Project to the user: it is never the Settings Project, and a leftover Project section falls back.
-  const shownSettingsProject = settingsProject ?? (surfaces.settings ? (project ?? undefined) : undefined);
-  const shownSettingsSection = settingsSection === "project" && !shownSettingsProject ? "general" : settingsSection;
-  const [settingsComputer, setSettingsComputer] = useState<string | null>(null);
-  const [addComputerOpen, setAddComputerOpen] = useState(false);
-  const [addProjectOpen, setAddProjectOpen] = useState(false);
+  const dialogs = useAppDialogs(`${selectedLink?.link.id ?? ""}|${project?.path ?? ""}|${selectedSessionId ?? ""}`);
+  const {
+    commandPaletteOpen,
+    setCommandPaletteOpen,
+    openCommandPalette,
+    recentProjects,
+    settingsOpen,
+    setSettingsOpen,
+    settingsOpenRef,
+    settingsSection,
+    setSettingsSection,
+    openSettingsAt,
+    openSettings,
+    openAccounts,
+    setSettingsProject,
+    openComputerSettings,
+    openAddComputer,
+    setAddProjectOpen,
+    gitDialog,
+    setGitDialog,
+    settingsProject,
+  } = dialogs;
   // A send may finish after the user opens another Chat. Its feedback and completion belong to the view that sent it.
   const chatView = useRef(0);
   const nextChatView = useRef(0);
@@ -607,14 +561,6 @@ function App() {
   const [firstChat, setFirstChat] = useState<string | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const update = useAppUpdates();
-  const [gitDialog, setGitDialog] = useState<{
-    sessionId: number;
-    worktreeId: number;
-    cwd: string;
-    base?: string;
-    provider?: ModelProvider;
-    chat: GitChatContext;
-  } | null>(null);
   useApplyTheme();
   useApplyOtherComputers();
   useEffect(() => startOfflineCache(), []);
@@ -1073,9 +1019,6 @@ function App() {
   const delegated = useStableSet(useMemo(() => delegatedChats(linkedWork, project?.path ?? ""), [linkedWork, project?.path]));
   // Every Project's state the window holds: the sidebar's reads of the ones not open, kept live, then this window's own on top.
   // The grid tiles its active Chats from them, and the Routines dot reads hidden Run Chats from them.
-  const gridOn = layout === "grid" && view === "chat";
-  // What a keybinding's `when` can ask about the window.
-  setKeyContext({ chatView: view === "chat", linkOpen: Boolean(selectedLink), gridShown: gridOn });
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
   // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
   // Settings › Routines can turn these nudges off on this Mac: no dots, so no Mark as read either.
@@ -1095,75 +1038,38 @@ function App() {
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   // A Run's Chat beside its Routine's page: the window's Chat pane, moved next to the Runs, once that Chat is the open one.
   const runPaneOpen = view === "routines" && routineId !== null && runPane !== null && runPane === focusedChatKey;
-  // A pin whose Chat was archived or left with its Worktree drops out; one in a Project not read yet stays.
-  const livePins = useMemo(
-    () =>
-      gridPins.filter((key) => {
-        const state = gridStates[projectOfKey(key)];
-        const session = state?.sessions?.[sessionIdFromKey(key)];
-        return !state || Boolean(session && !session.archived);
-      }),
-    [gridPins, gridStates],
-  );
-  const activeKeys = useMemo(
-    () => (gridOn ? [...activeChatKeys(agentRuns.runs, linkedWork, gridStates), ...livePins] : NO_KEYS),
-    [gridOn, agentRuns.runs, linkedWork, gridStates, livePins],
-  );
-  const pinnedTiles = useMemo(() => new Set(livePins), [livePins]);
-  const toggleGridPin = useEvent((key: string) => changeGridPins((pins) => (pins.includes(key) ? pins.filter((item) => item !== key) : [...pins, key])));
-  // A new Chat not saved yet keeps the grid as a draft tile, whose slot the Chat takes once it is saved.
-  const gridFocusKey = focusedChatKey ?? (project && !selectedLink ? draftTileKey(project.path) : null);
-  const [gridTiles, setGridTiles] = useState<readonly string[]>(NO_KEYS);
-  const nextGridTiles = gridChats(gridTiles, activeKeys, gridOn ? gridFocusKey : null);
-  if (nextGridTiles !== gridTiles) setGridTiles(nextGridTiles);
-  // One split rule: a Chat on screen is focused; any other Chat ends the split and opens alone (below). Nothing takes a
-  // neighbour's tile. Only focus moves in the Chat view count: a Run Chat opened beside its Routine's page never joins the split.
-  const [splitFocus, setSplitFocus] = useState(gridFocusKey);
-  let split = splitKeys;
-  // A new Chat's draft takes the view from a Chat that was open: that ends the split too, the draft never joins it.
-  const leftForDraft =
-    view === "chat" &&
-    splitFocus !== gridFocusKey &&
-    splitFocus !== null &&
-    !isDraftTileKey(splitFocus) &&
-    gridFocusKey !== null &&
-    isDraftTileKey(gridFocusKey);
-  if (view === "chat" && splitFocus !== gridFocusKey) {
-    setSplitFocus(gridFocusKey);
-    if (closingTile !== null) setClosingTile(null);
-    if (layout === "split" && closingTile === splitFocus) split = splitKeys.filter((key) => key !== closingTile);
-  }
-  // A split Chat archived or gone with its Worktree drops out, as a pin does; the focused draft tile stays.
-  const liveSplit = useMemo(
-    () =>
-      split.filter((key) => {
-        if (key === gridFocusKey) return true;
-        const state = gridStates[projectOfKey(key)];
-        const session = state?.sessions?.[sessionIdFromKey(key)];
-        return !isDraftTileKey(key) && (!state || Boolean(session && !session.archived));
-      }),
-    [split, gridStates, gridFocusKey],
-  );
-  const splitShown = layout === "split" && gridFocusKey !== null && liveSplit.length > 1 && liveSplit.includes(gridFocusKey);
-  if (splitTarget !== null && gridFocusKey === splitTarget) setSplitTarget(null);
-  // A split down to one Chat, or one the open Chat isn't in (a Chat opened from outside it, or after a reload), ends: the
-  // view shows that Chat alone. A draft focus doesn't end it by itself, since the window shows one while it restores the
-  // open Chat; only leaving a Chat for a new one does (leftForDraft).
-  if (
-    layout === "split" &&
-    view === "chat" &&
-    !splitShown &&
-    closingTile === null &&
-    splitTarget === null &&
-    gridFocusKey !== null &&
-    (!isDraftTileKey(gridFocusKey) || leftForDraft)
-  ) {
-    split = NO_KEYS;
-    setLayout("single");
-  }
-  if (split !== splitKeys) setSplitKeys(split);
-  const splitOn = splitShown && view === "chat";
-  const shownTiles = splitOn ? liveSplit : gridOn && gridFocusKey ? gridTiles : NO_KEYS;
+  const {
+    layout,
+    toggleLayout,
+    gridOn,
+    gridFocusKey,
+    gridFocusKeyRef,
+    focusedChatKeyRef,
+    shownTiles,
+    shownTilesRef,
+    splitOn,
+    pinnedTiles,
+    toggleGridPin,
+    closeSplitTile,
+    openBeside,
+    showFamily,
+    tileMenu,
+  } = useChatLayout({
+    view,
+    viewRef,
+    projectPath: project?.path,
+    projectRef,
+    linkOpenRef: selectedLinkRef,
+    linkOpen: Boolean(selectedLink),
+    focusedChatKey,
+    gridStates,
+    runs: agentRuns.runs,
+    linkedWork,
+    openLinkedChat: (key) => openLinkedChat(key),
+    openAlone: (key) => openAlone(key),
+  });
+  // What a keybinding's `when` can ask about the window.
+  setKeyContext({ chatView: view === "chat", linkOpen: Boolean(selectedLink), gridShown: gridOn });
   // The Subchat bookmark (SubchatBookmark) shows over the one Chat on screen when it has a listed ancestor: not in a split or
   // grid, under the diff, in a Link or away from the Chat view.
   const familySessionsRef = useRef<typeof familySessions>(undefined);
@@ -1173,86 +1079,11 @@ function App() {
   // One open Chat alone, no Terminal drawer under it: its transcript runs to the window's bottom edge.
   const chatToEdge = bookmarkShown && Boolean(selectedSession && selectedSession.id > 0) && !terminalOpen;
   const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
-  const shownTilesRef = useRef(shownTiles);
-  shownTilesRef.current = shownTiles;
-  const focusedChatKeyRef = useRef(focusedChatKey);
-  focusedChatKeyRef.current = focusedChatKey;
-  const gridFocusKeyRef = useRef(gridFocusKey);
-  gridFocusKeyRef.current = gridFocusKey;
-  // A Chat dropped on the grid is kept there where it was dropped. Dropped beside the one Chat on screen, or on a split's
-  // tile, it joins a split view of only those Chats: the other active Chats stay out of it.
-  const dropOnGrid = useEvent((key: string, target: GridDropTarget) => {
-    const focused = focusedChatKeyRef.current;
-    if (layoutRef.current === "grid") {
-      changeGridPins((pins) => [...pins.filter((item) => item !== key), key]);
-      setGridTiles((tiles) => placeDropped(tiles, key, target, focused));
-      return;
-    }
-    setSplitKeys(placeDropped(shownTilesRef.current, key, target, focused));
-    setLayout("split");
-  });
-  // Closing a split tile leaves the others; the last one left shows alone. Closing the focused tile focuses its neighbour
-  // first and leaves the split once that Chat is open, so the split never drops to one Chat while it loads.
-  const closeSplitTile = useEvent((key: string) => {
-    const tiles = shownTilesRef.current;
-    const next = tiles.filter((item) => item !== key);
-    const at = tiles.indexOf(key);
-    const neighbour = [...next.slice(at), ...next.slice(0, at).toReversed()].find((item) => !isDraftTileKey(item));
-    if (key !== gridFocusKeyRef.current || !neighbour) {
-      setSplitKeys(next);
-      return;
-    }
-    setClosingTile(key);
-    openLinkedChat(neighbour);
-  });
-  // Subchats (subchats.ts): the focused Chat's family, and the three ways into a split of it. A subchat is a normal Chat:
-  // every route opens it alone (openAlone), and the split is only ever a choice made here, in a tile's menu or by a drag.
-  const focusedFamily = useMemo(
-    () => (focusedChatKey ? chatFamily(gridStates[projectOfKey(focusedChatKey)]?.sessions, focusedChatKey) : null),
-    [gridStates, focusedChatKey],
-  );
   // The canvas button at the far right, in the Chat view and on the canvas itself.
   const canvasButtonShown = view === "chat" || view === "canvas";
   const trailingCorner = canvasButtonShown ? 1 : 0;
   // The buttons in the window's top right corner a bar along <main>'s top keeps clear of (CORNER_PITCH each).
   const cornerButtons = sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" || view === "canvas" ? 1 : 0);
-  const endSplit = useEvent(() => {
-    setSplitKeys(NO_KEYS);
-    setLayout("single");
-  });
-  // The family menu's "Open beside parent": the parent and the open Chat, the open one staying focused.
-  const openBeside = useEvent((parent: string) => {
-    const open = gridFocusKeyRef.current;
-    if (!open || selectedLinkRef.current) return;
-    setSplitKeys(besideParent(parent, open));
-    setLayout("split");
-  });
-  // "Show all N side by side": the whole family, the focused Chat always among it.
-  const showFamily = useEvent(() => {
-    if (!focusedFamily) return;
-    setSplitKeys(familySplit(focusedFamily, gridFocusKeyRef.current));
-    setLayout("split");
-  });
-  useEffect(
-    () =>
-      gridDrop.register({
-        hit: (x, y, key) => {
-          if (viewRef.current !== "chat" || selectedLinkRef.current || !projectRef.current) return null;
-          const under = document.elementFromPoint(x, y);
-          const tile = under?.closest<HTMLElement>("[data-chat-tile]");
-          if (tile) {
-            const tileKey = tile.dataset.chatTile ?? "";
-            return tileKey === key ? null : { tile: tileKey, ...dropSide(tile.getBoundingClientRect(), x, 12) };
-          }
-          const focused = focusedChatKeyRef.current;
-          if (shownTilesRef.current.length || !focused || focused === key) return null;
-          const pane = under?.closest<HTMLElement>("[data-chat-pane]");
-          return pane ? { tile: null, ...dropSide(pane.getBoundingClientRect(), x, 0) } : null;
-        },
-        drop: dropOnGrid,
-      }),
-    [],
-  );
   const dismissTile = useEvent(
     (key: string) =>
       void reportChatAction(
@@ -2606,200 +2437,62 @@ function App() {
   };
   const sendRecommendation = useCallback((option: string) => recommendationRef.current(option), []);
 
-  // The find bar belongs to one open chat; ⌘F again while it is open refocuses and selects its text.
-  const [findOpen, setFindOpen] = useState(false);
-  const [findSignal, setFindSignal] = useState(0);
-  // Text the find bar starts with, from a ⌘K message result; ⌘F clears it.
-  const [findSeed, setFindSeed] = useState<string | undefined>();
-  const findRef = useRef({ open: false, canOpen: false });
-  findRef.current = { open: findOpen, canOpen: view === "chat" && chatCount > 0 };
-  function openFind(seed?: string) {
-    if (!findRef.current.canOpen) return;
-    setFindSeed(seed);
-    setFindOpen(true);
-    setFindSignal((current) => current + 1);
-  }
-  useEffect(() => setFindOpen(false), [selectedSession?.id, view]);
-  // A ⌘K message result opens its chat first; the find bar opens once that chat's messages are on screen.
-  const pendingFind = useRef<{ sessionId: number; term: string } | null>(null);
-  useEffect(() => {
-    const pending = pendingFind.current;
-    if (!pending || view !== "chat" || selectedSession?.id !== pending.sessionId || !messages.length) return;
-    pendingFind.current = null;
-    openFind(pending.term);
-  }, [selectedSession?.id, view, messages.length]);
-  function openMessage(sessionId: number, term: string) {
-    if (view === "chat" && selectedSession?.id === sessionId) {
-      openFind(term);
-      return;
-    }
-    pendingFind.current = { sessionId, term };
-    openChat(sessionId);
-  }
-
-  // The main process sends on the app's frame-wide keys (Settings, the theme, the canvas, the grid, the side panels) pressed
-  // in any frame, including an embedded one (a design, an HTML reply, the simulator) the window's listeners never see;
-  // replayed here, every handler takes them as if pressed in the window.
-  useEffect(
-    () =>
-      window.milagre.onAppShortcut?.(({ key, code, meta, control, alt, shift }) =>
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key,
-            code: code ?? "",
-            metaKey: meta,
-            ctrlKey: control,
-            altKey: alt,
-            shiftKey: shift,
-            bubbles: true,
-            cancelable: true,
-          }),
-        ),
-      ),
-    [],
-  );
-  useEffect(() => {
-    function handleShortcut(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.isComposing || appShortcutsBlocked()) return;
-      const command = shortcutCommand(event);
-      if (!command) return;
-      // A Link's workspace takes its own Chat shortcuts (Changes, New Chat, search, New Terminal, Find) and has its own
-      // canvas and grid; the window-wide ones, Settings and the theme, still work over it.
-      const inLink = Boolean(selectedLinkRef.current);
-      if (command === "settings.open") {
-        event.preventDefault();
-        setSettingsOpen(true);
-        return;
-      }
-      if (command === "theme.toggle") {
-        event.preventDefault();
-        toggleTheme();
-        return;
-      }
-      // Over Settings, ⌘K opens the palette on top of it; any other app shortcut closes Settings and runs in the Chat.
-      if (settingsOpenRef.current && command !== "commandPalette.toggle") setSettingsOpen(false);
-      if (inLink) return;
-      if (command === "grid.focusPrevious" || command === "grid.focusNext") {
-        const tiles = shownTilesRef.current;
-        if (tiles.length < 2) return;
-        event.preventDefault();
-        const step = command === "grid.focusPrevious" ? -1 : 1;
-        const at = tiles.indexOf(gridFocusKeyRef.current ?? "");
-        // A new Chat's draft tile is left, never landed on: it has no Chat to open.
-        const others = tiles.filter((key, index) => index === at || !isDraftTileKey(key));
-        const from = others.indexOf(gridFocusKeyRef.current ?? "");
-        const next = others[(from + step + others.length) % others.length];
-        if (next && next !== gridFocusKeyRef.current) openLinkedChat(next);
-        return;
-      }
-      if (command === "changes.toggle") {
-        if (!changesAvailableRef.current) return;
-        event.preventDefault();
-        // Shows or hides the panel on the view it was left on (Changes or the PR), never switching it.
-        changes.toggle();
-      } else if (command === "canvas.open") {
-        event.preventDefault();
-        changes.closeDiff();
-        setView("canvas");
-      } else if (command === "usage.open") {
-        event.preventDefault();
-        changes.closeDiff();
-        setSettingsSection("usage");
-        setSettingsOpen(true);
-      } else if (command === "chat.parent") {
-        // The bookmark's way up: the open Chat's nearest listed ancestor, alone. Nothing on a Chat that has none.
-        const open = gridFocusKeyRef.current;
-        const parent = open && !isDraftTileKey(open) ? chatBookmark(familySessionsRef.current, open)?.parent : undefined;
-        if (!parent) return;
-        event.preventDefault();
-        openAlone(parent);
-      } else if (command === "chat.find") {
-        if (!findRef.current.canOpen) return;
-        event.preventDefault();
-        openFind();
-      } else if (command === "commandPalette.toggle") {
-        event.preventDefault();
-        setCommandPaletteOpen(true);
-      } else if (command === "chat.new") {
-        event.preventDefault();
-        startNewChatOnThisMac();
-      } else if (command === "project.add") {
-        event.preventDefault();
-        void openProject();
-      } else if (command === "terminal.new" && terminalChatRef.current) {
-        event.preventDefault();
-        newTerminal(terminalChatRef.current, undefined, setNotice);
-      }
-    }
-
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
-  }, []);
-
-  useEffect(() => {
-    function handleEscape(event: KeyboardEvent) {
-      // A menu, picker or search that Escape closed has already consumed it.
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
-      // The Settings modal closes on its own Escape (the dialog's cancel); nothing behind it, a running turn least of all, takes it.
-      if (settingsOpenRef.current) return;
-      // The Link's workspace takes every Escape over a Link.
-      if (selectedLinkRef.current) return;
-      if (findRef.current.open) {
-        event.preventDefault();
-        setFindOpen(false);
-        return;
-      }
-      // A Run Chat beside its Routine's page closes first, then the page goes back to the Routines page.
-      if (runPaneOpen) {
-        event.preventDefault();
-        closeRunPane();
-        return;
-      }
-      if (view === "routines" && routineId) {
-        event.preventDefault();
-        setRoutineId(null);
-        return;
-      }
-      if (view === "canvas" || view === "routines") {
-        event.preventDefault();
-        setView("chat");
-        return;
-      }
-      if (run && project && selectedSession) {
-        event.preventDefault();
-        // Escape denies the open approval or dismisses the open question; once that's sent, Escape stops the turn.
-        const approval = run.approvals[0];
-        const question = approval ? undefined : run.questions[0];
-        if (approval && !run.answered[approval.requestId]) answerApproval("deny");
-        else if (question && !run.answered[question.requestId]) answerQuestion(null);
-        else void agentRuns.interrupt(chatKey(project.path, selectedSession.id));
-      }
-    }
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [run, project?.path, selectedSession?.id, view, routineId, runPaneOpen]);
-
-  // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
-  const jumpChats = useRef<string[]>([]);
-  const setJumpChats = useEvent((ids: string[]) => {
-    jumpChats.current = ids;
-  });
-  const jumpToChat = useEvent((event: KeyboardEvent) => {
-    if (selectedLinkRef.current) return;
-    if (view !== "chat" || event.defaultPrevented || event.isComposing) return;
-    const index = chatJumpIndex(shortcutCommand(event));
-    if (index === null) return;
-    if (isModalOpen() || document.querySelector('[role="menu"], [aria-label="Chat name"]')) return;
-    const chat = jumpChats.current[index];
-    if (!chat) return;
+  function escapeOpenChat(event: KeyboardEvent) {
+    if (!run || !project || !selectedSession) return;
     event.preventDefault();
-    openChat(Number(chat));
+    // Escape denies the open approval or dismisses the open question; once that's sent, Escape stops the turn.
+    const approval = run.approvals[0];
+    const question = approval ? undefined : run.questions[0];
+    if (approval && !run.answered[approval.requestId]) answerApproval("deny");
+    else if (question && !run.answered[question.requestId]) answerQuestion(null);
+    else void agentRuns.interrupt(chatKey(project.path, selectedSession.id));
+  }
+  const { findOpen, setFindOpen, findSignal, findSeed, findRef, openFind, openMessage } = useFindInChat({
+    canOpen: view === "chat" && chatCount > 0,
+    shownSessionId: view === "chat" ? selectedSession?.id : undefined,
+    messageCount: messages.length,
+    openChat: (sessionId) => openChat(sessionId),
   });
-  useEffect(() => {
-    window.addEventListener("keydown", jumpToChat);
-    return () => window.removeEventListener("keydown", jumpToChat);
-  }, [jumpToChat]);
+  useAppShortcuts(
+    {
+      setSettingsOpen,
+      settingsOpenRef,
+      openSettingsAt,
+      linkOpenRef: selectedLinkRef,
+      shownTilesRef,
+      gridFocusKeyRef,
+      familySessionsRef,
+      changesAvailableRef,
+      terminalChatRef,
+      findRef,
+      changes,
+      setView,
+      openLinkedChat: (key) => openLinkedChat(key),
+      openAlone: (key) => openAlone(key),
+      openFind,
+      setFindOpen,
+      openCommandPalette,
+      startNewChat: () => startNewChatOnThisMac(),
+      openProject,
+      setNotice,
+    },
+    {
+      settingsOpenRef,
+      linkOpenRef: selectedLinkRef,
+      findRef,
+      setFindOpen,
+      runPaneOpen,
+      closeRunPane: () => closeRunPane(),
+      view,
+      routineId,
+      setRoutineId,
+      setView,
+      escapeOpenChat,
+      deps: [run, project?.path, selectedSession?.id, view, routineId, runPaneOpen],
+    },
+  );
+  // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
+  const setJumpChats = useJumpToChat({ enabled: () => !selectedLinkRef.current && view === "chat", openChat });
 
   // The sidebar is memo()'d: these keep one identity across renders (each runs the latest closure) so a streamed
   // batch or another pane's state change doesn't re-render it.
@@ -2977,7 +2670,6 @@ function App() {
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   // One identity each, so memo(SidebarNav) skips the renders a streaming reply or a run change makes here.
   const switchLinkFromSidebar = useEvent((id: string) => void selectLink(id));
-  const addComputerFromSidebar = useEvent(() => setAddComputerOpen(true));
   const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
   const deleteLinkFromSidebar = useEvent((id: string) => void deleteLink(id));
   // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
@@ -3016,31 +2708,6 @@ function App() {
     });
     void openCanvasChat(scopeKey, sessionId);
   });
-  const openSettings = useEvent(() => setSettingsOpen(true));
-  const openAccounts = useEvent(() => {
-    setSettingsSection("accounts");
-    setSettingsOpen(true);
-  });
-  // The computers popover's gears: a computer's own section, or This Mac's.
-  const openComputerSettings = useEvent((id: string | null) => {
-    if (id === null) setSettingsSection("this-mac");
-    else {
-      setSettingsComputer(id);
-      setSettingsSection("computer");
-    }
-    setSettingsOpen(true);
-  });
-  // /storage in a Chat: Clean up worktrees for its computer, opened right over the Chat. undefined while closed.
-  const [storageComputer, setStorageComputer] = useState<string | null | undefined>(undefined);
-  const onOpenStorage = useEvent((event: Event) => setStorageComputer((event as CustomEvent<string | null>).detail ?? null));
-  useEffect(() => {
-    window.addEventListener(OPEN_STORAGE, onOpenStorage);
-    return () => window.removeEventListener(OPEN_STORAGE, onOpenStorage);
-  }, [onOpenStorage]);
-  const selectSettingsComputer = (id: string) => {
-    setSettingsComputer(id);
-    setSettingsSection("computer");
-  };
   const openCanvas = useEvent(() => {
     changes.closeDiff();
     setView("canvas");
@@ -3072,31 +2739,12 @@ function App() {
     setSettingsSection("project");
     setSettingsOpen(true);
   });
-  const openCommandPalette = useEvent(() => setCommandPaletteOpen(true));
   // Saved message cards also receive this callback: keep their memoization during sends and streamed updates.
   const openLinkedChat = useEvent((key: string) => void openCanvasChat(projectOfKey(key), sessionIdFromKey(key)));
   // The one way a route opens a Chat that belongs to a family (the Subchats pill, a transcript's line, the bookmark, a tile's
   // menu): alone, full width. The sidebar unfolds its family and selects its row once it is open (useUnfoldActiveFamily).
   // A Chat on screen in a split is only focused; any other ends the split (the split rule above).
   const openAlone = useEvent((key: string) => openLinkedChat(key));
-  // A split tile's menu: "Open alone" ends the split on that Chat; a family row takes the tile's place, the one explicit swap.
-  const swapSplitTile = useEvent((tile: string, next: string) => {
-    const swapped = swapTile(shownTilesRef.current, tile, next);
-    if (swapped === shownTilesRef.current) return;
-    setSplitKeys(swapped);
-    // The focused tile swapped out: the split waits for its replacement to take focus.
-    if (tile === gridFocusKeyRef.current) {
-      setSplitTarget(next);
-      openLinkedChat(next);
-    }
-  });
-  // What a tile's menu reads when it opens: its Chat's Project, the live runs and the open Delegations as of now.
-  const familyReadsRef = useRef<TileMenuControls["reads"]>(() => ({ sessions: undefined, runs: {}, work: { delegations: [] } }));
-  familyReadsRef.current = (key) => ({
-    sessions: isLinkScopeKey(projectOfKey(key)) ? undefined : (gridStates[projectOfKey(key)] as CoordinatorState | undefined)?.sessions,
-    runs: agentRuns.runs,
-    work: linkedWork,
-  });
   // The suggestion card's Send answer and Dismiss, for the transcripts on screen (SubchatMessages).
   const { answerQuestion: answerSubchatQuestion, dismissSuggestion } = agentRuns;
   const subchatActions = useMemo<SubchatActions>(
@@ -3107,17 +2755,6 @@ function App() {
     [answerSubchatQuestion, dismissSuggestion],
   );
   useEffect(() => provideSubchatActions(subchatActions), [subchatActions]);
-  const tileMenu = useMemo<TileMenuControls>(
-    () => ({
-      reads: (key) => familyReadsRef.current(key),
-      onOpenAlone: (key) => {
-        endSplit();
-        openAlone(key);
-      },
-      onReplace: swapSplitTile,
-    }),
-    [endSplit, openAlone, swapSplitTile],
-  );
   // A Run's row on its Routine's page opens the Run's Chat beside the Runs, in the window's own Chat pane.
   // It remembers the Chat the window had, which closing the pane brings back (a Run Chat in another Project switches the
   // window's Project, and the Routines view stays).
@@ -3336,69 +2973,28 @@ function App() {
       {deletingLink ? <DeleteLinkDialog link={deletingLink} onClose={() => setDeletingLink(null)} onDeleted={linkDeleted} /> : null}
     </>
   );
-  const storageDialog =
-    storageComputer === undefined ? null : (
-      <WorktreeCleanup
-        bridge={bridgeFor(storageComputer)}
-        computerName={storageComputer ? (pairedComputers.find((computer) => computer.id === storageComputer)?.name ?? null) : null}
-        onClose={() => setStorageComputer(undefined)}
-      />
-    );
-  const addComputerDialog = addComputerOpen ? <AddComputerDialog onClose={() => setAddComputerOpen(false)} onAdded={() => setAddComputerOpen(false)} /> : null;
-  const addProjectDialog = addProjectOpen ? (
-    <AddProjectDialog
-      onClose={() => setAddProjectOpen(false)}
-      onLinkProjects={() => {
-        setAddProjectOpen(false);
-        setLinkDialogOpen(true);
-      }}
-      onOpened={(opened) => {
-        setAddProjectOpen(false);
-        void replaceProject(async () => opened);
-      }}
+  const appDialogs = (
+    <AppDialogs
+      dialogs={dialogs}
+      computerName={(id) => pairedComputers.find((computer) => computer.id === id)?.name ?? null}
+      onLinkProjects={() => setLinkDialogOpen(true)}
+      onOpened={(opened) => void replaceProject(async () => opened)}
     />
-  ) : null;
-  // Settings beside a Project shows that Project's sections; over a Link or the Chats home, only a Project picked in it.
-  const settingsInProject = Boolean(project) && !selectedLink;
-  const settingsModal = settingsOpen ? (
-    <SettingsModal
-      onClose={() => setSettingsOpen(false)}
-      nav={
-        <SettingsNav
-          showProjectSettings={settingsInProject || !!settingsProject}
-          section={settingsInProject ? shownSettingsSection : settingsSection}
-          project={(settingsInProject ? shownSettingsProject : settingsProject) ?? undefined}
-          current={settingsInProject && surfaces.settings ? (project ?? undefined) : undefined}
-          onSelect={setSettingsSection}
-          computerId={settingsComputer ?? undefined}
-          onSelectComputer={selectSettingsComputer}
-          onSelectProject={(picked) => {
-            setSettingsProject(picked);
-            setSettingsSection("project");
-          }}
-        />
-      }
-    >
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        {notice && settingsInProject && (
-          <NoticeCard className="mx-auto mt-2 mb-1 max-w-2xl" onDismiss={() => setNotice(null)}>
-            {notice}
-          </NoticeCard>
-        )}
-        <SettingsPanel
-          section={settingsInProject ? shownSettingsSection : settingsSection}
-          project={(settingsInProject ? shownSettingsProject : settingsProject) ?? undefined}
-          computerId={settingsComputer ?? undefined}
-          accountScope={accountScope}
-          models={models}
-          update={update}
-          onSectionChange={setSettingsSection}
-          onAddComputer={() => setAddComputerOpen(true)}
-          onOpenUsageChat={openUsageChat}
-        />
-      </div>
-    </SettingsModal>
-  ) : null;
+  );
+  const settingsModal = (
+    <AppSettingsModal
+      dialogs={dialogs}
+      project={project}
+      inProject={Boolean(project) && !selectedLink}
+      projectSettings={surfaces.settings}
+      notice={notice}
+      onDismissNotice={() => setNotice(null)}
+      accountScope={accountScope}
+      models={models}
+      update={update}
+      onOpenUsageChat={openUsageChat}
+    />
+  );
   const shownLink = selectedLink ?? lastLink;
   const linkWorkspace = shownLink && (
     <LinkWorkspace
@@ -3430,15 +3026,12 @@ function App() {
       onSwitchProject={(path) => void switchProject(path)}
       onSwitchLink={(id) => void selectLink(id)}
       onLinkProject={() => setLinkDialogOpen(true)}
-      onAddComputer={() => setAddComputerOpen(true)}
+      onAddComputer={openAddComputer}
       onOpenComputerSettings={openComputerSettings}
       onEditLink={(id) => void editLink(id)}
       onDeleteLink={deleteLinkFromSidebar}
       onOpenProject={() => void openProject()}
-      onSettings={() => {
-        setSettingsSection("accounts");
-        setSettingsOpen(true);
-      }}
+      onSettings={() => openSettingsAt("accounts")}
       onOpenAccounts={openAccounts}
       linkedWork={linkedWork}
       onCanvasChat={(path, id) => void openCanvasChat(path, id)}
@@ -3455,9 +3048,7 @@ function App() {
   const linkDialogs = (
     <>
       {linkDialog}
-      {addComputerDialog}
-      {storageDialog}
-      {addProjectDialog}
+      {appDialogs}
     </>
   );
   // A Link with no Project to stand behind it (none open yet) is the whole window.
@@ -3488,7 +3079,7 @@ function App() {
               onSwitchLink={(id) => void selectLink(id)}
               onEditLink={(id) => void editLink(id)}
               onDeleteLink={deleteLinkFromSidebar}
-              onAddComputer={() => setAddComputerOpen(true)}
+              onAddComputer={openAddComputer}
               onOpenComputerSettings={openComputerSettings}
               onOpenProjectSettings={openProjectSettings}
               onNewChatInScope={newChatInScope}
@@ -3662,7 +3253,7 @@ function App() {
                   workspaceName={surfaces.name}
                   workspaceImage={projectImage(project.path)}
                   onSwitchLink={switchLinkFromSidebar}
-                  onAddComputer={addComputerFromSidebar}
+                  onAddComputer={openAddComputer}
                   onOpenComputerSettings={openComputerSettings}
                   onEditLink={editLinkFromSidebar}
                   onDeleteLink={deleteLinkFromSidebar}
@@ -4138,9 +3729,7 @@ function App() {
             />
           </div>
           {linkDialog}
-          {addComputerDialog}
-          {storageDialog}
-          {addProjectDialog}
+          {appDialogs}
           {commandPaletteOpen && (
             <CommandPalette
               commands={paletteCommands(project)}

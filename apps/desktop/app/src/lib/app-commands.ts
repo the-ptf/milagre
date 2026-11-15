@@ -188,7 +188,6 @@ function currentChatCommands(ctx: AppCommandContext, session: AgentSession): Com
           },
         ]
       : []),
-    // A Chat without a Project has no folder to the user (as in its row's menu).
     ...(ctx.remoteProject || !showGit
       ? []
       : [
@@ -301,7 +300,6 @@ export function buildCommands(ctx: AppCommandContext): Command[] {
       icon: "chat",
       run: actions.backToChat,
     });
-  // A grid comes from dragging a Chat onto the open one; the palette only leaves it.
   if (ctx.layout === "grid")
     commands.push({
       id: "chat-layout",
@@ -326,7 +324,6 @@ export function buildCommands(ctx: AppCommandContext): Command[] {
   }
   commands.push(...chatCommands(ctx.chats, actions.openChat));
   commands.push(...projectCommands(ctx));
-  // Every Settings page and row, once something is typed: last, so a Chat or an action with the same words comes first.
   commands.push(...settingsPageCommands((section, row) => actions.openSettingsAt(section, row)));
   return commands;
 }
