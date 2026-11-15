@@ -107,7 +107,7 @@ export default function ChooseProjects() {
         ? "Loading Projects…"
         : grouped
           ? "No Projects on this computer yet."
-          : "Open a Project on your Mac to list it here.";
+          : "Open a Project on your computer to list it here.";
   const list = (projects: Computer) => (
     <View key={projects.hostId} style={[styles.card, { padding: 4, gap: 0 }]}>
       {projects.projects.map((project) => row(projects.hostId, project))}

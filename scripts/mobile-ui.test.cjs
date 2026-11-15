@@ -3049,7 +3049,7 @@ test("pairing through the relay builds the client from the pairing and saves the
   assert.equal(created[0][3], relayRuntime);
   assert.deepEqual(JSON.parse(JSON.stringify(saved)), [
     {
-      name: "Mac",
+      name: "Computer",
       address: `relay://${relay.hostId}`,
       token: "a".repeat(64),
       relay,
@@ -3060,7 +3060,7 @@ test("pairing through the relay builds the client from the pairing and saves the
     [[`relay://${relay.hostId}`, { token: "a".repeat(64), relay }]],
     "asks the Mac for its LAN route after connecting",
   );
-  assert.equal(render().hostName, "Mac");
+  assert.equal(render().hostName, "Computer");
 });
 
 test("reloading Projects keeps their order when opening a Chat moves its Project to the top of the host's list", async () => {

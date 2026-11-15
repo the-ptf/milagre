@@ -48,7 +48,7 @@ export default function LinkProjects() {
   const failure =
     error ||
     (linkId && !editing ? "This Link no longer exists." : "") ||
-    (/not available from mobile/i.test(loadError) ? "Update Milagre on your Mac to link Projects from your phone." : loadError);
+    (/not available from mobile/i.test(loadError) ? "Update Milagre on your computer to link Projects from your phone." : loadError);
   async function create() {
     const client = session.client;
     if (!client || !ready) return;

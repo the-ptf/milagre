@@ -394,7 +394,9 @@ export const PLATFORM_RULES: readonly PlatformRule[] = [
     id: "copy",
     title: "Words",
     sections: ["rows"],
+    // oxlint-disable-next-line milagre-design/copy-computer -- the Words rule quotes the phrase it bans
     ios: '"This iPhone" or "This iPad", "On this iPhone" in Settings, "simulator". The other machine is "your computer", never "your Mac".',
+    // oxlint-disable-next-line milagre-design/copy-computer -- the Words rule quotes the phrase it bans
     android: '"This phone", "On this device" in Settings, "emulator". The other machine is "your computer", never "your Mac".',
   },
 ];

@@ -40,7 +40,7 @@ export function usePageFiles(source: Caller | null, chatId: string | undefined, 
         let received = 0;
         for (const asset of [...list].sort((a, b) => a.size - b.size)) {
           if (!cached(asset)) {
-            if (!source || !chatId) throw new Error("Reconnect to this Mac to load the page's files.");
+            if (!source || !chatId) throw new Error("Reconnect to this computer to load the page's files.");
             // A download of its own: another view of the page may be fetching the same file.
             const part = new File(directory, `${asset.hash}.${Date.now().toString(36)}.part`);
             part.create();

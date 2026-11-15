@@ -50,7 +50,7 @@ function useSimulators(client: Client | null, chatId?: string) {
         const started = revision.current;
         try {
           const value = await client.call<SimulatorList>("simulator:list", [{ chatId }]);
-          if (value.chatId !== chatId) throw new Error("Update Milagre on this Mac to attach simulators to Chats.");
+          if (value.chatId !== chatId) throw new Error("Update Milagre on this computer to attach simulators to Chats.");
           if (!disposed && started === revision.current) setList(value);
         } catch (error) {
           if (!disposed && started === revision.current)

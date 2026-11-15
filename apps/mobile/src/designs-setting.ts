@@ -5,7 +5,7 @@ export const DESIGNS_DISCONNECTED: DesignsState = { enabled: null, stale: true, 
 
 const confirmed = (value: unknown): boolean => {
   if (!value || typeof value !== "object" || typeof (value as { enabled?: unknown }).enabled !== "boolean")
-    throw new Error("Update Milagre on your Mac to use Designs.");
+    throw new Error("Update Milagre on your computer to use Designs.");
   return (value as { enabled: boolean }).enabled;
 };
 

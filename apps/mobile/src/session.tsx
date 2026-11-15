@@ -28,7 +28,7 @@ import { pullRequestsChanged } from "./pr-status";
 const hostOf = (url: string) =>
   // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- url comes from a pairing payload that is not validated here (see the String(url || '') fallback), so it may be empty or missing
   /^relay:/.test(url)
-    ? "Mac"
+    ? "Computer"
     : String(url || "")
         .replace(/^https?:\/\//, "")
         .replace(/[:/].*$/, "") || "Computer";

@@ -284,42 +284,30 @@ const accessibilityRole = rule(
 );
 
 // 10. Words: the other machine is "your computer", never "your Mac" (the desktop runs on macOS, Windows and Linux).
+// Every string the phone can show is a literal somewhere: JSX text, props, errors thrown to a notice, hints built in a
+// hook. So every string and template literal is read, except module paths and object keys, which no one sees.
 const MAC = /\bMac\b/;
-const COPY_PROPS = new Set([
-  "title",
-  "label",
-  "message",
-  "placeholder",
-  "accessibilityLabel",
-  "accessibilityHint",
-  "subtitle",
-  "description",
-  "hint",
-  "footnote",
-]);
-const COPY_CALLS = new Set(["announce", "showToast", "toast", "alert", "prompt"]);
 const copyComputer = rule(
   'Copy says "your computer", never "Mac"',
   '"{{text}}" says Mac. Say "your computer" or "computer": the desktop runs on macOS, Windows and Linux (DESIGN.md, Words).',
   (context) => {
-    const check = (node) => {
-      for (const leaf of leaves(node, true)) {
-        const parts = leaf.type === "TemplateLiteral" ? leaf.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw) : [stringOf(leaf)];
-        const text = parts.find((part) => part !== undefined && MAC.test(part));
-        if (text !== undefined) context.report({ node: leaf, messageId: "default", data: { text: text.trim().slice(0, 60) } });
-      }
-    };
+    const report = (node, text) => context.report({ node, messageId: "default", data: { text: text.trim().slice(0, 60) } });
+    const unseen = (node) =>
+      ((node.parent?.type === "ImportDeclaration" || node.parent?.type === "ExportNamedDeclaration" || node.parent?.type === "ExportAllDeclaration") &&
+        node.parent.source === node) ||
+      (node.parent?.type === "ImportExpression" && node.parent.source === node) ||
+      (node.parent?.type === "Property" && node.parent.key === node && !node.parent.computed) ||
+      node.parent?.type === "TSLiteralType";
     return {
       JSXText(node) {
-        if (MAC.test(node.value)) context.report({ node, messageId: "default", data: { text: node.value.trim().slice(0, 60) } });
+        if (MAC.test(node.value)) report(node, node.value);
       },
-      JSXExpressionContainer(node) {
-        if (node.parent?.type === "JSXElement" || node.parent?.type === "JSXFragment") check(node.expression);
+      Literal(node) {
+        if (typeof node.value === "string" && MAC.test(node.value) && !unseen(node)) report(node, node.value);
       },
-      ...styleValues((name) => COPY_PROPS.has(name), { jsx: true })((_name, value) => check(value)),
-      CallExpression(node) {
-        const callee = node.callee.type === "MemberExpression" && !node.callee.computed ? node.callee.property : node.callee;
-        if (callee.type === "Identifier" && COPY_CALLS.has(callee.name)) for (const argument of node.arguments) check(argument);
+      TemplateLiteral(node) {
+        const text = node.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw).find((part) => MAC.test(part));
+        if (text !== undefined) report(node, text);
       },
     };
   },

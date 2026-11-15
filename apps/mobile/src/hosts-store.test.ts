@@ -136,7 +136,7 @@ test("a relay pairing link round trips into a saved computer", async () => {
   assert.deepEqual(saved, { id: `relay://${hostId}`, name: "Studio", address: `relay://${hostId}`, token, relay, lastUsed: 7 });
   assert.deepEqual(await store.list(), [saved]);
   assert.equal(parsePairing(relayLink({ name: "" })).name, "Mac");
-  assert.equal((await createHostsStore(storage()).save({ ...pairing, name: "" })).name, "Mac");
+  assert.equal((await createHostsStore(storage()).save({ ...pairing, name: "" })).name, "Computer");
 });
 
 test("a relay link with a damaged key, host or relay address asks for a new scan", () => {

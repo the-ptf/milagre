@@ -746,7 +746,7 @@ function BrowserWebView({
       if (ready.current) return;
       // A direct address to the Mac's network that doesn't answer goes through the Mac on its own.
       if (route.via === "direct" && privatePage(url)) setForceProxy(true);
-      else setError(route.via === "mac" ? "The page didn't load through the Mac. Check that its server is running, then retry." : "The page didn't load.");
+      else setError(route.via === "mac" ? "The page didn't load through the computer. Check that its server is running, then retry." : "The page didn't load.");
     }, 20_000);
     return () => clearTimeout(timer);
   }, [route, url]);

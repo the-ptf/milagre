@@ -65,11 +65,11 @@ export class RelayTransportError extends Error {
   }
 }
 const COPY: Record<RelayErrorCode, string> = {
-  "host-offline": "Your Mac isn't reachable. Open Milagre on it and check Settings → Devices.",
+  "host-offline": "Your computer isn't reachable. Open Milagre on it and check Settings → Devices.",
   "bad-token": "This phone was paired with an older code. Scan the new one in Settings → Devices.",
-  "host-reset": "This Mac was reset. Scan its new pairing code in Settings → Devices.",
-  "unknown-phone": "Pairing is closed on your Mac. Open Settings → Devices on it and scan the code again.",
-  "bad-host": "This isn't the Mac this phone was paired with. Scan the code again in Settings → Devices.",
+  "host-reset": "This computer was reset. Scan its new pairing code in Settings → Devices.",
+  "unknown-phone": "Pairing is closed on your computer. Open Settings → Devices on it and scan the code again.",
+  "bad-host": "This isn't the computer this phone was paired with. Scan the code again in Settings → Devices.",
   lost: "Connection lost. Reconnect to your computer. Check the Chat before sending again.",
 };
 const fail = (code: RelayErrorCode) => new RelayTransportError(code, COPY[code]);

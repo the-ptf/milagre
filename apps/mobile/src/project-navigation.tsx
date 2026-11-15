@@ -1606,7 +1606,7 @@ const NavigationBody = memo(function NavigationBody({
     if (action !== "remove" || !client) return;
     const confirmed = await confirm(
       `Remove ${name}?`,
-      "It leaves this list on your phone and your Mac. Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back. Running Chats keep running.",
+      "It leaves this list on your phone and your computer. Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back. Running Chats keep running.",
       "Remove",
     );
     if (!confirmed) return;
@@ -1619,7 +1619,7 @@ const NavigationBody = memo(function NavigationBody({
       await allComputers.refreshAll();
     } catch (e) {
       const message = (e as Error).message;
-      if (alive.current) setError(/not available from mobile/i.test(message) ? "Update Milagre on your Mac to remove Projects from your phone." : message);
+      if (alive.current) setError(/not available from mobile/i.test(message) ? "Update Milagre on your computer to remove Projects from your phone." : message);
     }
   }
   // Deleting a Link asks first, as desktop does; the open one leaves for this list, and Worktrees it kept are named.
@@ -1955,7 +1955,7 @@ const NavigationBody = memo(function NavigationBody({
       ? "Add a project from your computer to start a Chat."
       : session.hosts.length
         ? "Every computer is hidden. Show one in Settings."
-        : "Pair your computer. Open Settings → Devices in Milagre on your Mac, then scan its pairing code.";
+        : "Pair your computer. Open Settings → Devices in Milagre on your computer, then scan its pairing code.";
   return (
     <View style={[styles.screen, { backgroundColor: background }]}>
       <View

@@ -27,7 +27,7 @@ export function useDesigns(client: Client | null, projectPath?: string, availabl
         if (connected === open) return;
         connected = open;
         if (open) void setting.refresh();
-        else setting.unavailable("Reconnect to your Mac to check whether Designs is on.");
+        else setting.unavailable("Reconnect to your computer to check whether Designs is on.");
       },
     };
   }, [setting]);

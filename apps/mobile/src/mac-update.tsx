@@ -16,7 +16,7 @@ const refused = (failure: unknown) => {
   const status = (failure as { status?: number })?.status;
   return typeof status === "number" && status >= 400 && status < 500 && status !== 429;
 };
-const message = (failure: unknown) => (failure instanceof Error ? failure.message : "Could not reach your Mac.");
+const message = (failure: unknown) => (failure instanceof Error ? failure.message : "Could not reach your computer.");
 
 /**
  * The connected Mac's Milagre desktop app update (Settings › General › Updates), read through its host

@@ -105,6 +105,13 @@ const CASES = [
     `<Text>Connect to a Mac first.</Text>;\n<Row title="This Mac" />;\nannounce(\`Opened on \${name}'s Mac\`);\n<Text>{ok ? "Done" : "Update Milagre on your Mac."}</Text>;\nconst rows = [{ subtitle: "The Mac's default model" }];\nAlert.alert("Mac offline");`,
     ["copy-computer@1", "copy-computer@2", "copy-computer@3", "copy-computer@4", "copy-computer@5", "copy-computer@6"],
   ],
+  // Strings built outside JSX reach the screen too: thrown errors, error tables, template messages.
+  ["copy-anywhere-ok.ts", `import x from "./mac-update";\nconst names = { Mac: 1 };\ntype Kind = "Mac";\nconst os = "macOS";`, []],
+  [
+    "copy-anywhere-bad.ts",
+    `throw new Error("Your Mac refused this phone.");\nconst errors = { offline: "Your Mac isn't reachable." };\nconst hint = \`Open it on your Mac, \${name}\`;`,
+    ["copy-computer@1", "copy-computer@2", "copy-computer@3"],
+  ],
   // toolbar-icon
   [
     "toolbar-ok.tsx",

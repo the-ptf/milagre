@@ -185,7 +185,7 @@ export default function AddComputer() {
                   title: "Enter address and token",
                   onPress: () => {
                     if (privateOnly) {
-                      setError("For private pairing, scan or paste the Mac's LAN or Tailscale pairing link.");
+                      setError("For private pairing, scan or paste the computer's LAN or Tailscale pairing link.");
                       return;
                     }
                     setManual(true);

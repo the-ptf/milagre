@@ -351,12 +351,14 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   {
     page: "computer-use",
     title: "Accessibility",
+    // oxlint-disable-next-line milagre-design/copy-computer -- Computer use is macOS-only: these are the Mac's own permissions
     group: "Permissions on the Mac",
     keywords: "grant permission system settings",
   },
   {
     page: "computer-use",
     title: "Screen Recording",
+    // oxlint-disable-next-line milagre-design/copy-computer -- Computer use is macOS-only: these are the Mac's own permissions
     group: "Permissions on the Mac",
     keywords: "grant permission system settings",
   },
