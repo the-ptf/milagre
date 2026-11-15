@@ -1,44 +1,52 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Cancel01Icon, LeftToRightBlockQuoteIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, MessageSquareQuoteIcon } from "@hugeicons/core-free-icons";
 import type { ComposerQuote } from "@milagre/shared/prompt-parts";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { IconButton } from "./primitives/icon-button";
+import { PageScroll } from "./primitives/page-scroll";
 import { useTheme } from "./theme";
 
-/** The passages quoted into the next message, one row each in the order they were added, over the prompt (as desktop). */
+/**
+ * The passages quoted into the next message, in the order they were added, over the prompt: a pill each like an
+ * attachment's tile, reading “the passage's start… on one line (as desktop). A row of them scrolls sideways.
+ */
 export function QuoteChips({ quotes, onRemove, disabled = false }: { quotes: readonly ComposerQuote[]; onRemove: (id: string) => void; disabled?: boolean }) {
   const { colors } = useTheme();
   if (!quotes.length) return null;
   return (
-    <View accessibilityLabel="Quotes" style={{ gap: space.xs, padding: space.xs }}>
+    <PageScroll horizontal accessibilityLabel="Quotes" contentContainerStyle={{ padding: 4, gap: 8 }}>
       {quotes.map((quote) => (
         <View
           key={quote.id}
-          accessible
-          accessibilityLabel={`Quote${quote.source ? ` from ${quote.source}` : ""}: ${quote.text}`}
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: space.md,
-            paddingLeft: space.lg,
+            maxWidth: 220,
+            paddingLeft: space.md,
             borderRadius: radius.card,
             borderCurve: "continuous",
             backgroundColor: colors.field,
           }}
         >
-          <Icon icon={LeftToRightBlockQuoteIcon} tone="ink3" size={16} />
-          <View style={{ flex: 1, paddingVertical: space.md }}>
-            <Text numberOfLines={2} style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-              {quote.text.replace(/\s+/g, " ")}
+          <View
+            accessible
+            accessibilityLabel={`Quote${quote.source ? ` from ${quote.source}` : ""}: ${quote.text}`}
+            style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
+          >
+            <Icon icon={MessageSquareQuoteIcon} tone="ink2" size={18} />
+            <Text
+              numberOfLines={1}
+              style={{ flexShrink: 1, paddingLeft: 6, color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}
+            >
+              {`“${quote.text.replace(/\s+/g, " ").trim()}`}
             </Text>
-            {!!quote.source && <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>{quote.source}</Text>}
           </View>
           <IconButton label="Remove quote" icon={Cancel01Icon} size={32} tone="ink3" disabled={disabled} onPress={() => onRemove(quote.id)} />
         </View>
       ))}
-    </View>
+    </PageScroll>
   );
 }
 

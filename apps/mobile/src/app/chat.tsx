@@ -3147,6 +3147,14 @@ function ChatPane({
                                 Preparing attachment...
                               </Text>
                             )}
+                            {/* Quotes lead, as on desktop, then the attachments. */}
+                            <QuoteChips
+                              quotes={quotes}
+                              disabled={busy}
+                              onRemove={(id) =>
+                                composer.setQuotes((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((quote) => quote.id !== id) }))
+                              }
+                            />
                             {!!attachments.length && (
                               <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
                                 {attachments.map((item) => {
@@ -3217,13 +3225,6 @@ function ChatPane({
                                 })}
                               </PageScroll>
                             )}
-                            <QuoteChips
-                              quotes={quotes}
-                              disabled={busy}
-                              onRemove={(id) =>
-                                composer.setQuotes((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((quote) => quote.id !== id) }))
-                              }
-                            />
                             <PromptField
                               // A draft keeps its native text input when its computer or Project changes, preserving
                               // keyboard focus and the caret. Saved Chats still get an input of their own.

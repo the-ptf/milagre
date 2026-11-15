@@ -1767,6 +1767,9 @@ export function ChatComposer({
             />
           </div>
         )}
+        {/* One per composer, outside the transcript slots: a parked slot stays mounted, and a copy in each would quote
+        the same selection once per slot. */}
+        {!isNewChat && <MessageSelection container={root} provider={sessionProvider ?? selectedModel.provider} onQuote={(quote) => addQuotes([quote])} />}
         <TranscriptSlots
           activeKey={transcriptKey}
           view={scrollKey}
@@ -1795,7 +1798,6 @@ export function ChatComposer({
               </div>
             ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
-                <MessageSelection container={root} provider={sessionProvider ?? selectedModel.provider} onQuote={(quote) => addQuotes([quote])} />
                 <MessageScroller
                   navigation="rail"
                   followOutput
