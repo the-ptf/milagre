@@ -97,7 +97,6 @@ summary:focus-visible {
   }
 }
 
-/* Read by screen readers, not shown. */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -107,7 +106,6 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
-/* Sections below the hero skip style and layout until they near the screen, so the first paint only lays out the hero. */
 .below-fold {
   content-visibility: auto;
   contain-intrinsic-size: auto 900px;

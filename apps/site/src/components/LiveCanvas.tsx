@@ -1,7 +1,3 @@
-// The canvas section: a copy of the app's canvas (apps/desktop/app/src/components/CanvasView.tsx) on a fixed demo state.
-// Projects are tinted sections with a card per Chat, Links run between cards, and the bar keeps the app's filters and
-// zoom. While it's in view, one agent negotiates a change with the other across the Link; the first touch stops that,
-// and the visitor can drag, pan, zoom, draw a Link between two cards or click one to remove it.
 import {
   addEdge,
   Background,
@@ -26,18 +22,14 @@ import flowCss from "@xyflow/react/dist/style.css?url";
 import canvasCss from "./live-canvas.css?url";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
-// The app's marks and the status line each one gives a card (packages/shared/src/canvas.ts canvasStatus).
 type Mark = "waiting" | "running" | "delegated" | "unread" | "idle";
 type Provider = "claude" | "codex";
 type CardData = { title: string; mark: Mark; ago?: string; branch: string; provider: Provider; diff?: [number, number]; note?: { from: string; text: string } };
 type SectionData = { name: string; icon: string; tone: string; chats: number };
 type CanvasNode = Node<CardData, "card"> | Node<SectionData, "section">;
-/** pulse sends a message dot along the Link (forward: source to target); agreed shows the negotiation's end. */
 type LinkData = { activity?: string; pulse?: { way: "forward" | "back"; at: number }; agreed?: boolean };
-/** Stops what travels along a Link, as its Stop button does in the app. */
 const StopActivity = createContext<(id: string) => void>(() => {});
 
-// CanvasView.tsx's geometry: 276px cards in two columns, 16px padding, a 52px header, 12px between cards.
 const CARD = { width: 276, height: 62, gap: 12 };
 const PAD = 16;
 const HEADER = 52;
@@ -99,7 +91,6 @@ function initialNodes(): CanvasNode[] {
   });
 }
 
-// The phone pairing Chat and the relay's rate limit agree on the pairing API, as linked agents do.
 const ASKER = "milagre:pairing";
 const ANSWERER = "relay:rate";
 const LINK_ID = `link:${ASKER}:${ANSWERER}`;
@@ -119,7 +110,6 @@ function link(connection: Pick<Connection, "source" | "target">, data: LinkData 
   };
 }
 
-/** One dot per side; either end of a new Link can start at either dot. */
 function LinkHandles() {
   return (
     <>
@@ -203,10 +193,8 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   );
 }
 
-/** A message on its way along a Link: a dot that runs the path once. */
 function Pulse({ path, back }: { path: string; back: boolean }) {
   const motion = useRef<SVGAnimateMotionElement>(null);
-  // Added after the page's animation clock started, so it starts itself.
   useEffect(() => motion.current?.beginElement(), []);
   return (
     <circle r="5" className="canvas-pulse">
@@ -215,7 +203,6 @@ function Pulse({ path, back }: { path: string; back: boolean }) {
   );
 }
 
-/** The app's zoom bar: out, the level, in, fit. */
 function ZoomBar() {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const { zoom } = useViewport();
@@ -235,8 +222,6 @@ function ZoomBar() {
   );
 }
 
-// The tour: milagre's pairing Chat asks relay's for a change across the Link, relay's makes it and answers, and the
-// two agree. It plays while the canvas is in view and stops for good at the visitor's first touch.
 type Step = { wait: number; link?: LinkData; cards?: Record<string, Partial<CardData>> };
 const TOUR: Step[] = [
   {
@@ -277,7 +262,6 @@ export default function LiveCanvas() {
     { all: 0, needs: 0, running: 0 },
   );
 
-  // Back to the demo's own data, keeping wherever the visitor dragged things.
   const restore = useCallback(() => {
     const original = new Map(initialNodes().map((node) => [node.id, node.data]));
     setNodes((current) => current.map((node) => ({ ...node, data: original.get(node.id) ?? node.data }) as CanvasNode));
@@ -407,7 +391,6 @@ export default function LiveCanvas() {
             nodesConnectable
             edgesReconnectable={false}
             deleteKeyCode={null}
-            // The page keeps its scroll: zoom with the buttons, a pinch, or ⌘/Ctrl and the wheel.
             zoomOnScroll={false}
             proOptions={{ hideAttribution: true }}
             preventScrolling={false}

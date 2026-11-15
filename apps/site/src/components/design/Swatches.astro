@@ -1,6 +1,4 @@
 ---
-// One colour table from DESIGN.md as swatches: each token's light and dark value, shown over its own page colour so a
-// translucent token (hover, a dark tint) looks the way it does in the app. Values come from the theme builder.
 import { over } from "@milagre/shared/themes";
 import { palette, paletteKey, SCHEMES, type Table } from "../../design-system";
 
@@ -10,7 +8,6 @@ interface Props {
 const { table } = Astro.props;
 const use = table.header.indexOf("Use");
 
-// Tokens meant to be read as text get an "Aa" sample; an on- label sits on its own fill.
 const TEXT = /^(ink|ink-2|ink-3|[a-z]+-ink)$/;
 const sample = (token: string, scheme: (typeof SCHEMES)[number]) => {
   const colors = palette[scheme];

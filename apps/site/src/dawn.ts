@@ -1,7 +1,3 @@
-// The landing hero's scene, "Dawn": the desktop app's first-launch intro (OnboardingIntro) drawn once at build time.
-// A seeded generator keeps the stars and clouds in the same places on every build.
-
-/** The logo's three shapes, as the app's StartupSplash draws them (viewBox -4 -4 154 154). */
 export const MARK_LEFT =
   "M49.6983 66.5562L21.6836 116.174C19.802 119.507 22.2098 123.632 26.0372 123.632H39.9727L54.9727 100.132L66.9727 119.632L51.9727 144.132H26.0372C6.24066 144.132 -6.29344 122.89 3.27837 105.561L30.9405 55.4819L49.6983 66.5562Z";
 export const MARK_RIGHT =
@@ -17,7 +13,6 @@ function seeded(seed: number) {
 }
 const round = (value: number) => Math.round(value * 10) / 10;
 
-/** The night's stars, as percentages of the sky over the top 70% of the hero. */
 export const STARS = (() => {
   const random = seeded(11);
   return Array.from({ length: 90 }, () => ({
@@ -35,14 +30,11 @@ interface Ellipse {
   ry: number;
 }
 export interface CloudBank {
-  /** The shaded underside, then the lit face on top of it. */
   shade: Ellipse[];
   face: Ellipse[];
-  /** Where the solid floor starts, below the bank. */
   floor: number;
 }
 
-/** A bank of clouds across a band `width` wide: overlapping ellipses the noise filters in Clouds.astro roughen. */
 function bank(width: number, { seed, count, top, bottom, scale }: { seed: number; count: number; top: number; bottom: number; scale: number }): CloudBank {
   const random = seeded(seed);
   const shade: Ellipse[] = [];
@@ -59,7 +51,6 @@ function bank(width: number, { seed, count, top, bottom, scale }: { seed: number
   return { shade, face, floor: bottom };
 }
 
-/** The cloud band under the apps and the download button, for wide windows and for phones. */
 export const CLOUDS = {
   wide: {
     width: 1280,

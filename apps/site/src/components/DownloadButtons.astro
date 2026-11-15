@@ -1,15 +1,11 @@
 ---
 import { DOWNLOAD_ANDROID, DOWNLOAD_ARM64, DOWNLOAD_LINUX_APPIMAGE, DOWNLOAD_LINUX_DEB, DOWNLOAD_LINUX_RPM, DOWNLOAD_WINDOWS, DOWNLOAD_X64, IPHONE_BETA_URL } from "../links";
-// The main Linux button is the .deb or .rpm when the browser names a Debian- or Red Hat-family distribution
-// (Base.astro sets data-linux from the user agent; Firefox on Ubuntu, Debian, Mint and Fedora does), and the AppImage,
-// which runs anywhere, otherwise.
 const LINUX: { id: string; href: string; others: [string, string][] }[] = [
   { id: "appimage", href: DOWNLOAD_LINUX_APPIMAGE, others: [[".deb", DOWNLOAD_LINUX_DEB], [".rpm", DOWNLOAD_LINUX_RPM]] },
   { id: "deb", href: DOWNLOAD_LINUX_DEB, others: [["AppImage", DOWNLOAD_LINUX_APPIMAGE], [".rpm", DOWNLOAD_LINUX_RPM]] },
   { id: "rpm", href: DOWNLOAD_LINUX_RPM, others: [["AppImage", DOWNLOAD_LINUX_APPIMAGE], [".deb", DOWNLOAD_LINUX_DEB]] },
 ];
 ---
-<!-- Every set ships; Base.astro marks iPhones, iPads, Android, Windows and Linux before first paint, so each device sees its own. -->
 <div class="downloads mac-only">
   <a class="button button-primary" href={DOWNLOAD_ARM64}>
     <svg aria-hidden="true" width="16" height="16"><use href="/icons.svg#apple" /></svg>
@@ -60,11 +56,8 @@ const LINUX: { id: string; href: string; others: [string, string][] }[] = [
 
 <style>
   .downloads { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-  /* Dawn's Begin button: a dark pill in warm light. */
   .button-primary { height: 46px; padding: 0 24px; border-radius: 999px; box-shadow: 0 10px 34px rgb(196 146 52 / 0.38), inset 0 1px 0 rgb(255 255 255 / 0.12); }
-  /* Centred on the text's cap height rather than its line box, which sits a pixel low. */
   .button svg { flex: none; transform: translateY(-1px); }
-  /* Quiet links under the main button for every other desktop build; phones get only their own beta. */
   .notes { display: flex; gap: 8px; margin: 0; color: var(--ink-3); font-size: 13px; }
   .notes a { color: var(--ink-2); text-decoration: none; }
   .notes a:hover { color: var(--ink); text-decoration: underline; }

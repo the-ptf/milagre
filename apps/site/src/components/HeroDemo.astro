@@ -1,7 +1,4 @@
 ---
-// Real recordings of the desktop app and the phone app on one scripted run (scripts/site-demo/record.cjs):
-// the agent stops for an approval, it is approved on the phone, and the Mac finishes. Android visitors see the
-// Android app; everyone else the iPhone app.
 ---
 <p class="demo-description">
   Video: Milagre on a Mac and a phone showing the same Chat. The agent asks to run the mobile checks, the request is approved on the phone, and the agent finishes on the Mac.
@@ -16,8 +13,6 @@
   </div>
 </div>
 <script is:inline>
-  // Set while the page parses, so each device downloads only its own take: the Android or iPhone recording, and the Mac
-  // window's poster and video only where the Mac window shows.
   (() => {
     const demo = document.currentScript.previousElementSibling;
     const take = document.documentElement.dataset.platform === "android" ? "android" : "phone";
@@ -41,11 +36,7 @@
   if (demo && stage && desktop && phone) {
     if (document.documentElement.dataset.platform === "android") demo.classList.add("android");
     const narrow = matchMedia("(max-width: 700px)");
-    // The demo is a fixed-size canvas, scaled so its top part, down to both approval cards (y 565 of the canvas), ends
-    // just above the download button at the bottom of the page; the rest runs under the button and the blurred fade.
     const cta = document.querySelector<HTMLElement>("[data-cta]");
-    // When the width caps the size (tall windows), the leftover height is split above the title and below the button,
-    // so the title, the devices and the button stay together in the middle and the devices still meet the button.
     const page = stage.closest<HTMLElement>(".page");
     let spare = 0;
     const fit = () => {
@@ -67,7 +58,6 @@
     fit();
 
     const still = matchMedia("(prefers-reduced-motion: reduce)");
-    // The desktop video is the clock; on a phone-sized screen only the phone plays.
     const clock = () => (narrow.matches ? phone : desktop);
     const follower = () => (narrow.matches ? null : phone);
 
@@ -86,7 +76,6 @@
         if (other && Math.abs(other.currentTime - video.currentTime) > 0.12) other.currentTime = video.currentTime;
       });
       video.addEventListener("ended", () => {
-        // Straight back to the start, with no fade or pause.
         if (video === clock()) restart();
       });
     }
@@ -96,7 +85,6 @@
     });
     visible.observe(demo);
     narrow.addEventListener("change", () => {
-      // A phone-sized window widened: the Mac window shows now, so its poster loads.
       if (!narrow.matches && !desktop.poster) desktop.poster = "/demo/desktop.webp";
       desktop.pause();
       restart();
@@ -106,23 +94,18 @@
 
 <style>
   .demo-description { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  /* Design size: a 1000×625 Mac window with the iPhone overlapping its lower right corner. */
   .demo { position: absolute; top: 0; left: 50%; width: 1220px; height: 700px; transform: translateX(-50%) scale(var(--scale, 1)); transform-origin: top center; }
   .mac { position: absolute; top: 0; left: 0; width: 1000px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 14px; background: oklch(0.2 0.03 258); box-shadow: var(--shadow-window); }
   .mac-video, .phone-video { display: block; width: 100%; height: 100%; object-fit: cover; }
-  /* macOS draws the app's traffic lights, so the frame adds them where Milagre puts them: 12px buttons from x 24 of the
-     1280px window, centred on the bar's icons at y 22. --k scales app pixels to this 1000px window. */
   .lights { --k: calc(1000 / 1280); position: absolute; top: calc((22 - 6) * var(--k) * 1px); left: calc(24 * var(--k) * 1px); display: flex; gap: calc(8 * var(--k) * 1px); }
   .lights i { width: calc(12 * var(--k) * 1px); height: calc(12 * var(--k) * 1px); border-radius: 50%; background: #ff5f57; }
   .lights i:nth-child(2) { background: #febc2e; }
   .lights i:nth-child(3) { background: #28c840; }
   .phone { position: absolute; right: 0; bottom: 0; width: 290px; aspect-ratio: 1206 / 2622; box-sizing: content-box; padding: 11px; border-radius: 52px; background: #0b0b0c; box-shadow: inset 0 0 0 1.5px oklch(1 0 0 / 0.16), 0 0 0 1px oklch(0 0 0 / 0.5), 0 30px 70px rgb(40 30 70 / 0.35); }
   .phone-video { border-radius: 41px; }
-  /* Android draws its status bar close to the corners, so the screen is less rounded than the iPhone's. */
   .demo.android .phone { aspect-ratio: 1080 / 2424; border-radius: 28px; }
   .demo.android .phone-video { border-radius: 17px; }
 
-  /* On a phone-sized screen, the phone alone. */
   @media (max-width: 700px) {
     .demo { width: 312px; height: 678px; }
     .mac { display: none; }

@@ -4,13 +4,10 @@ import geistLatin from "@fontsource-variable/geist/files/geist-latin-wght-normal
 interface Props {
   title: string;
   description: string;
-  /** The link preview's headline and text, when they should read differently from the search result's. */
   socialTitle?: string;
   socialDescription?: string;
-  /** JSON-LD objects for this page. */
   schema?: object[];
   noindex?: boolean;
-  /** The browser bar's colour: the page's own unless the top of the page is something else (the landing's sky). */
   themeColor?: string;
 }
 const { title, description, socialTitle = title, socialDescription = description, schema = [], noindex = false, themeColor = "#fffaf0" } = Astro.props;
@@ -64,7 +61,6 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
         if (/Ubuntu|Debian|Mint|Pop!_OS|elementary|Zorin|Kali|Raspbian/i.test(ua)) document.documentElement.dataset.linux = "deb";
         else if (/Fedora|Red Hat|CentOS|Rocky|AlmaLinux|openSUSE|SUSE|Mageia/i.test(ua)) document.documentElement.dataset.linux = "rpm";
       }
-      // The hero's poster is the largest paint: the Android or iPhone take on phone-sized screens, the Mac window elsewhere.
       if (location.pathname === "/") {
         const poster = document.createElement("link");
         poster.rel = "preload";
@@ -72,8 +68,6 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
         poster.fetchPriority = "high";
         poster.href = matchMedia("(max-width: 700px)").matches ? (document.documentElement.dataset.platform === "android" ? "/demo/android.webp" : "/demo/phone.webp") : "/demo/desktop.webp";
         document.head.append(poster);
-        // Dawn, the app's first-launch intro, plays in the hero on every load; anyone who asks for less motion opens on its
-        // last frame (the page's own styles).
         if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.dataset.dawn = "";
       }
     </script>

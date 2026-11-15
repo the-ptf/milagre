@@ -1,5 +1,3 @@
-// The coding agents' logos as static SVG files, from the same shapes the app draws (packages/shared/src/provider-logos).
-// Files rather than inline markup: the landing page's HTML stays small enough to arrive in one round trip.
 import type { APIRoute, GetStaticPaths } from "astro";
 import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, KIRO_LOGO } from "../../../../../packages/shared/src/provider-logos";
 

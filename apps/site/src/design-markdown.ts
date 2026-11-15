@@ -1,5 +1,3 @@
-// DESIGN.md's prose as HTML for /design: headings get stable ids for the table of contents, and links to repository
-// files point at GitHub, since the page lives on milagre.cloud.
 import MarkdownIt from "markdown-it";
 import { REPO_URL } from "./links";
 
@@ -16,7 +14,6 @@ const slug = (text: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-|-$/g, "");
 
-/** A renderer for one page: ids stay unique across every chunk it renders, and `headings` lists them in order. */
 export function createRenderer() {
   const headings: Heading[] = [];
   const used = new Map<string, number>();

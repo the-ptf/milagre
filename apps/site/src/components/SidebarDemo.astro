@@ -1,7 +1,4 @@
 ---
-// The Milagre sidebar, rebuilt from the app's own row markup (apps/desktop/app/src/components/sidebar/ChatRow.tsx and
-// SidebarNav.tsx): same sizes, tokens and Hugeicons, with the same hover, select, ⋮ menu, rename, read state, archive,
-// folding and New chat. Pull request numbers open the Milagre repository.
 import {
   Add01Icon,
   Archive02Icon,
@@ -22,7 +19,6 @@ import {
 import { icon } from "../hugeicon";
 import { REPO_URL } from "../links";
 
-// Each branch is named after a Milagre contributor, so "Copy branch name" credits one of them.
 type Pr = { number: number; kind: "open" | "checking" | "ready" | "merged" };
 type Chat = { title: string; branch: string; mark: "waiting" | "running" | "unread" | "idle"; pr?: Pr; active?: boolean };
 const PR = {
@@ -140,7 +136,6 @@ const markHtml = (mark: Chat["mark"]) =>
     const select = (row: HTMLElement) => {
       root.querySelectorAll("[data-row][aria-current]").forEach((other) => other.removeAttribute("aria-current"));
       row.setAttribute("aria-current", "page");
-      // Opening a Chat reads it, as in the app.
       if (row.dataset.mark === "unread") setMark(row, "idle");
     };
     const setMark = (row: HTMLElement, mark: "unread" | "idle") => {
@@ -215,7 +210,6 @@ const markHtml = (mark: Chat["mark"]) =>
       setTimeout(() => {
         chat.style.height = `${chat.offsetHeight}px`;
         requestAnimationFrame(() => chat.classList.add("gone"));
-        // After the collapse; a timer, since reduced motion has no transition to end.
         setTimeout(() => chat.remove(), 260);
       }, 900);
     };
@@ -246,7 +240,6 @@ const markHtml = (mark: Chat["mark"]) =>
       }
       const add = target.closest<HTMLElement>("[data-new-chat]");
       if (add) {
-        // Three new Chats is plenty for a web page; the fourth asks why.
         if (root.querySelectorAll("[data-new]").length >= 3) return tooMany.showModal();
         const scope = add.closest<HTMLElement>("[data-scope]")!;
         scope.dataset.open = "true";
@@ -263,7 +256,6 @@ const markHtml = (mark: Chat["mark"]) =>
     const tooMany = root.querySelector<HTMLDialogElement>("[data-too-many]")!;
     tooMany.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
-      // A press on the backdrop lands on the dialog itself.
       if (target === tooMany || target.closest("[data-too-many-close]")) tooMany.close();
       else if (target.closest("[data-too-many-download]")) {
         tooMany.close();
@@ -289,7 +281,6 @@ const markHtml = (mark: Chat["mark"]) =>
       }
     });
 
-    // Tooltips under the control after a short rest, like the app's.
     let tipTimer = 0;
     root.addEventListener("pointerover", (event) => {
       const host = (event.target as HTMLElement).closest<HTMLElement>("[data-tip]");
@@ -368,13 +359,11 @@ const markHtml = (mark: Chat["mark"]) =>
   :global([data-sidebar-demo] .rename) { min-width: 0; flex: 1; padding: 0; border: 0; outline: none; background: transparent; color: var(--ink); font: 500 14px/20px var(--font-sans); }
 
   .facts { position: absolute; bottom: 4px; left: 36px; z-index: 2; display: flex; max-width: calc(100% - 72px); }
-  /* ink-2, not the app's ink-3: on the selected row's fill ink-3 misses 4.5:1. 24px tall, a comfortable tap. */
   .pr { display: inline-flex; min-width: 0; align-items: center; gap: 4px; margin-block: -4px; padding-block: 4px; border-radius: 2px; color: var(--ink-2); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; text-decoration: none; }
   .pr:hover, .pr:focus-visible { color: var(--ink); }
   .pr-icon, .pr-open { display: inline-flex; }
   .pr-open, .pr:hover .pr-icon, .pr:focus-visible .pr-icon { display: none; }
   .pr:hover .pr-open, .pr:focus-visible .pr-open { display: inline-flex; }
-  /* Global: the marks are drawn from strings, outside the scoped template. */
   :global([data-sidebar-demo] .tone-green) { color: var(--green); }
   :global([data-sidebar-demo] .tone-orange) { color: var(--orange); }
   :global([data-sidebar-demo] .tone-purple) { color: oklch(0.627 0.265 303.9); }
@@ -407,13 +396,11 @@ const markHtml = (mark: Chat["mark"]) =>
   .too-many h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; text-wrap: balance; }
   .too-many p { margin-top: 12px; color: var(--ink-2); font-size: 15px; line-height: 1.6; }
   .too-many-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 24px; }
-  /* The scoped button reset above outranks the global .button, so the dialog's buttons restate it. */
   .too-many .button { padding: 0 16px; background: var(--hover); box-shadow: var(--shadow-btn); font: 600 14px var(--font-sans); }
   .too-many .button:hover { background: var(--hover-2); }
   .too-many .button-primary { background: var(--ink); color: var(--page); }
   .too-many .button-primary:hover { background: var(--ink-2); }
 
-  /* Touch screens have no hover to reveal the row actions. */
   @media (hover: none) {
     .more { opacity: 0.7; }
     .title { padding-right: 24px; }
