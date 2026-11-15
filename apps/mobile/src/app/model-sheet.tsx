@@ -10,6 +10,7 @@ import { usePreventRemove } from "expo-router/react-navigation";
 import { Cancel01Icon, FlashIcon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import type { ModelProvider } from "@milagre/shared/model";
 import { useComposer, useSession } from "../session";
+import { PermissionChip, useChatPermissionMode } from "../agent-controls";
 import { modelsFor, selectedModel, afterSheet, type TurnPreferences } from "../turn-options";
 import { Icon, ProviderLogo } from "../icons";
 import { EffortSlider } from "../effort-slider";
@@ -58,6 +59,8 @@ export default function ModelSheet() {
   // sheet), so the list pads its end by the panel's height and every model can scroll above it.
   const [panelHeight, setPanelHeight] = useState(0);
   const hasSettings = model.efforts.length > 0 || model.fastMode || model.ultracode;
+  // The composer has no permission chip: as on desktop, the mode sits in this sheet's footer (Full in orange).
+  const permissionMode = useChatPermissionMode(params.chatId);
   const [fatalityOn] = useUltracodeFatality();
   usePreventRemove(dirty && !closing, ({ repeat }) =>
     Alert.alert("Discard changes?", "Your model and effort picks will not be applied.", [
@@ -95,8 +98,8 @@ export default function ModelSheet() {
       <ScrollView
         style={{ flex: 1 }}
         stickyHeaderIndices={[0]}
-        contentContainerStyle={{ paddingBottom: 16 + (hasSettings ? panelHeight : 0) }}
-        scrollIndicatorInsets={{ bottom: hasSettings ? panelHeight : 0 }}
+        contentContainerStyle={{ paddingBottom: 16 + panelHeight }}
+        scrollIndicatorInsets={{ bottom: panelHeight }}
       >
         <View style={{ backgroundColor: colors.page }}>
           <SheetHeader
@@ -172,84 +175,88 @@ export default function ModelSheet() {
           ))}
         </View>
       </ScrollView>
-      {hasSettings && (
-        <View
-          onLayout={(event) => setPanelHeight(event.nativeEvent.layout.height)}
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: colors.canvas,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: colors.line,
-            paddingHorizontal: 16,
-            paddingTop: 16,
-            paddingBottom: bottomInset,
-            gap: 16,
-          }}
-        >
-          {levels.length > 0 && effort && (
-            <View style={{ gap: 8 }}>
-              <SectionLabel flush>Thinking effort</SectionLabel>
-              {levels.length > 1 && (
-                <>
-                  <EffortSlider
-                    index={level}
-                    count={levels.length}
-                    label="Thinking effort"
-                    valueText={effortCopy(effort).name}
-                    onChange={(next) => {
-                      const nextEffort = levels[next];
-                      if (!nextEffort) return;
-                      if (nextEffort === "ultra") ultraRumble();
-                      setDraft((current) => ({ ...current, effort: nextEffort }));
-                    }}
-                  />
-                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={styles.caption}>{effortCopy(levels[0] ?? effort).name}</Text>
-                    <Text style={styles.caption}>{effortCopy(levels[levels.length - 1] ?? effort).name}</Text>
-                  </View>
-                </>
-              )}
-              <Text style={styles.caption}>
-                <Text style={{ color: effort === "ultra" ? colors.purpleInk : colors.ink, fontWeight: "600" }}>{effortCopy(effort).name}</Text>
-                {effortCopy(effort).description ? ` · ${effortCopy(effort).description}` : ""}
-              </Text>
-            </View>
-          )}
-          {(model.fastMode || model.ultracode) && (
-            <View style={{ gap: 8 }}>
-              {model.fastMode && (
-                <SettingTile
-                  icon={FlashIcon}
-                  label="Fast mode"
-                  title="Fast"
-                  detail="Quicker replies, higher usage"
-                  value={draft.fastMode}
-                  onChange={(value) => setDraft((current) => ({ ...current, fastMode: value }))}
-                />
-              )}
-              {model.ultracode && (
-                <SettingTile
-                  icon={UserMultipleIcon}
-                  label="Ultracode"
-                  title="Ultracode"
-                  tone="purple"
-                  detail="Parallel agents for big work"
-                  value={!!draft.ultracode}
-                  onChange={(value) => {
-                    setDraft((current) => ({ ...current, ultracode: value }));
-                    if (!value) return;
-                    ultraRumble();
-                    if (fatalityOn) setFatality((count) => count + 1);
+      <View
+        onLayout={(event) => setPanelHeight(event.nativeEvent.layout.height)}
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: colors.canvas,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.line,
+          paddingHorizontal: 16,
+          paddingTop: hasSettings ? 16 : 4,
+          paddingBottom: bottomInset,
+          gap: hasSettings ? 16 : 0,
+        }}
+      >
+        {levels.length > 0 && effort && (
+          <View style={{ gap: 8 }}>
+            <SectionLabel flush>Thinking effort</SectionLabel>
+            {levels.length > 1 && (
+              <>
+                <EffortSlider
+                  index={level}
+                  count={levels.length}
+                  label="Thinking effort"
+                  valueText={effortCopy(effort).name}
+                  onChange={(next) => {
+                    const nextEffort = levels[next];
+                    if (!nextEffort) return;
+                    if (nextEffort === "ultra") ultraRumble();
+                    setDraft((current) => ({ ...current, effort: nextEffort }));
                   }}
                 />
-              )}
-            </View>
-          )}
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text style={styles.caption}>{effortCopy(levels[0] ?? effort).name}</Text>
+                  <Text style={styles.caption}>{effortCopy(levels[levels.length - 1] ?? effort).name}</Text>
+                </View>
+              </>
+            )}
+            <Text style={styles.caption}>
+              <Text style={{ color: effort === "ultra" ? colors.purpleInk : colors.ink, fontWeight: "600" }}>{effortCopy(effort).name}</Text>
+              {effortCopy(effort).description ? ` · ${effortCopy(effort).description}` : ""}
+            </Text>
+          </View>
+        )}
+        {(model.fastMode || model.ultracode) && (
+          <View style={{ gap: 8 }}>
+            {model.fastMode && (
+              <SettingTile
+                icon={FlashIcon}
+                label="Fast mode"
+                title="Fast"
+                detail="Quicker replies, higher usage"
+                value={draft.fastMode}
+                onChange={(value) => setDraft((current) => ({ ...current, fastMode: value }))}
+              />
+            )}
+            {model.ultracode && (
+              <SettingTile
+                icon={UserMultipleIcon}
+                label="Ultracode"
+                title="Ultracode"
+                tone="purple"
+                detail="Parallel agents for big work"
+                value={!!draft.ultracode}
+                onChange={(value) => {
+                  setDraft((current) => ({ ...current, ultracode: value }));
+                  if (!value) return;
+                  ultraRumble();
+                  if (fatalityOn) setFatality((count) => count + 1);
+                }}
+              />
+            )}
+          </View>
+        )}
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: hasSettings ? -8 : 0, marginRight: -8 }}>
+          <PermissionChip
+            mode={permissionMode}
+            onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId: params.chatId, ...(busy ? { busy: "1" } : {}) } })}
+          />
         </View>
-      )}
+      </View>
       {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
     </View>
   );

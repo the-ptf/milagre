@@ -8,6 +8,9 @@ import { Icon, ProviderLogo } from "./icons";
 import { hitSlopFor, lineHeight, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { pressStyle } from "./ui";
+import { useComposer, useSession } from "./session";
+import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { chatPreferences } from "./turn-options";
 
 /** The composer's model chip: provider logo, model name, the effort ("· Medium", or Ultra while Ultracode is on) and a bolt while fast
  * mode is on. All of them change in the model sheet. */
@@ -78,7 +81,18 @@ export function AgentControls({
   );
 }
 
-/** The composer's permission chip; it opens the permission sheet. A plain button, so nothing React sits in a native menu. */
+/** A Chat's permission mode as its agent runs it: the running turn's, else the saved Chat's, else this device's pick. */
+export function useChatPermissionMode(chatId: string): PermissionMode {
+  const composer = useComposer();
+  const session = useSession();
+  const project = session.snapshot?.project;
+  const chatMode =
+    !/#new:/.test(chatId) && project?.path === projectOfKey(chatId) ? project.state.sessions[sessionIdFromKey(chatId)]?.permissionMode : undefined;
+  return chatPreferences(composer.preferences[chatId], composer.defaults, chatMode, session.snapshot?.runs.runs[chatId]?.permissionMode).permissionMode;
+}
+
+/** The model sheet's permission chip, in its footer as on desktop (Full in orange); it opens the permission sheet. A plain
+ * button, so nothing React sits in a native menu. */
 export function PermissionChip({ mode, disabled, onPress }: { mode: PermissionMode; disabled?: boolean; onPress: () => void }) {
   const { colors } = useTheme();
   const { ink } = permissionPresentation(mode);

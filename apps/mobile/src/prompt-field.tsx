@@ -1,5 +1,5 @@
 import { useDictationShortcut } from "./dictation-shortcut";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFocusEffect } from "expo-router";
 import * as Font from "expo-font";
 import { Linking, Pressable, Text, View } from "react-native";
@@ -42,7 +42,7 @@ import {
 } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { useDictationAction } from "./chat-display-setting";
-import { CAPSULE_INSET, CAPSULE_WIDTH, DictationCapsule, MIC_INSET, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
@@ -53,9 +53,6 @@ const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 // so it ships over the air.
 const GLYPHS = "MilagreChipGlyphs";
 const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
-// The mic sits over the field's trailing edge; the text stops short of it, 8pt before the mic and 6pt before the capsule.
-const MIC_ROOM = MIC_INSET.right + MIC_SIZE + 8;
-const CAPSULE_ROOM = CAPSULE_INSET.right + CAPSULE_WIDTH + 6;
 
 function useChipGlyphs() {
   const [ready, setReady] = useState(() => Font.isLoaded(GLYPHS));
@@ -110,6 +107,7 @@ export function PromptField({
   provider,
   focusRequest = 0,
   onTouchStart,
+  renderControls,
 }: {
   chats?: readonly MentionChat[];
   /** The computers an `@` can name; offered only with more than this one. */
@@ -142,6 +140,11 @@ export function PromptField({
   /** The Chat's title and agent: dictation's fix-up asks that agent, with the title as context. */
   chatTitle?: string;
   provider?: string;
+  /**
+   * The composer's control row under the field, as on desktop: it gets the mic (null while dictation is unavailable) to
+   * place beside Send, so the typed text runs the field's whole width.
+   */
+  renderControls: (mic: ReactNode) => ReactNode;
   /** Each new value takes the keyboard with the caret at the end of the draft (Ask from a message selection). */
   focusRequest?: number;
   /** A finger came down on the field, before it focuses and the keyboard starts to open. */
@@ -345,8 +348,6 @@ export function PromptField({
     },
   });
 
-  // While the model downloads the mic keeps its own size and place: the capsule only grows once the take records.
-  const capsule = dictating && dictation.phase !== "downloading";
   useEffect(() => {
     writeLatest.current = write;
     discardLatest.current = discardDictation;
@@ -416,6 +417,34 @@ export function PromptField({
   // Read once as the download starts and as a skill is picked, on both platforms (a live region speaks only on Android).
   useAnnounce(dictation.download !== null ? "Downloading the speech model" : null);
   useAnnounce(skill && !query ? `/${skill.name}. ${skill.description}` : null);
+
+  // The mic box anchors the dictation notice, which floats up from its right edge over the field.
+  const mic = dictation.available ? (
+    <View>
+      {dictationError ? (
+        <DictationNotice
+          error={dictationError}
+          micSize={MIC_SIZE}
+          onDismiss={dismissDictationError}
+          onOpenSettings={() => {
+            dismissDictationError();
+            void Linking.openSettings();
+          }}
+        />
+      ) : null}
+      {dictating ? (
+        <DictationCapsule
+          phase={dictation.phase}
+          level={dictation.level}
+          download={dictation.download}
+          onDiscard={discardDictation}
+          onStop={() => void dictation.stop()}
+        />
+      ) : (
+        <VoiceMicButton onPress={startDictation} processing={fixing} />
+      )}
+    </View>
+  ) : null;
 
   return (
     <View onTouchStart={onTouchStart}>
@@ -582,7 +611,6 @@ export function PromptField({
             maxHeight: 140,
             paddingHorizontal: 12,
             paddingVertical: 6,
-            ...(dictation.available ? { paddingRight: capsule ? CAPSULE_ROOM : MIC_ROOM } : null),
           }}
         >
           <Text style={{ fontSize: inputSize, color: colors.ink }}>
@@ -633,34 +661,6 @@ export function PromptField({
             )}
           </Text>
         </Field>
-        {dictation.available ? (
-          <View
-            style={{ position: "absolute", right: capsule ? CAPSULE_INSET.right : MIC_INSET.right, bottom: capsule ? CAPSULE_INSET.bottom : MIC_INSET.bottom }}
-          >
-            {dictationError ? (
-              <DictationNotice
-                error={dictationError}
-                micSize={MIC_SIZE}
-                onDismiss={dismissDictationError}
-                onOpenSettings={() => {
-                  dismissDictationError();
-                  void Linking.openSettings();
-                }}
-              />
-            ) : null}
-            {dictating ? (
-              <DictationCapsule
-                phase={dictation.phase}
-                level={dictation.level}
-                download={dictation.download}
-                onDiscard={discardDictation}
-                onStop={() => void dictation.stop()}
-              />
-            ) : (
-              <VoiceMicButton onPress={startDictation} processing={fixing} />
-            )}
-          </View>
-        ) : null}
       </View>
       {skill && !query ? (
         <View
@@ -678,6 +678,7 @@ export function PromptField({
           <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{skill.description}</Text>
         </View>
       ) : null}
+      {renderControls(mic)}
     </View>
   );
 }

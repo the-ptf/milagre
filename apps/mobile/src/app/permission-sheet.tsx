@@ -4,11 +4,10 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import type { PermissionMode } from "@milagre/shared/model";
-import { PermissionIcon } from "../agent-controls";
+import { PermissionIcon, useChatPermissionMode } from "../agent-controls";
 import { useComposer, useSession } from "../session";
 import { CheckRow, CircleButton, Group, SheetHeader, useStyles } from "../ui";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { chatPreferences } from "../turn-options";
 
 /** Desktop's permission picker as a sheet: Ask for approval, Auto mode, Full permissions, names only. A tap applies it and closes. */
 export default function PermissionSheet() {
@@ -21,12 +20,7 @@ export default function PermissionSheet() {
   const draft = /#new:/.test(chatId);
   const project = session.snapshot?.project;
   const chatMode = !draft && project?.path === projectOfKey(chatId) ? project.state.sessions[sessionIdFromKey(chatId)]?.permissionMode : undefined;
-  const current = chatPreferences(
-    composer.preferences[chatId],
-    composer.defaults,
-    chatMode,
-    session.snapshot?.runs.runs[chatId]?.permissionMode,
-  ).permissionMode;
+  const current = useChatPermissionMode(chatId);
   // Like desktop: the pick becomes the default for new Chats and applies to this Chat's agent right away, including a
   // turn that is running (its next tool request uses the new mode). A Chat not yet sent has no agent to tell.
   const pick = async (mode: PermissionMode) => {
