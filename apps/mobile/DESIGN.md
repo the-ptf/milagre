@@ -10,8 +10,20 @@ phone UI.
 - Settings › Design system shows this file live: each section's specimens drawn by the real primitives in the current
   theme, plus the platform notes. Its sections, colour roles and platform rules are data in
   `src/design-system-catalogue.ts`; `design-system-catalogue.test.ts` checks every rule below is named here.
-- `design-tokens.test.ts` counts off-scale font sizes, radii, icon sizes, durations, uppercase, tracking and 700 weights
-  per file against `design-tokens.baseline.json`; a file's count only goes down.
+- The `milagre-design` Oxlint plugin (`lint/design-system.mjs`) fails `npm run lint` and the pre-commit hook on any
+  drift, with no baseline: a literal font size or line height (`type`, `lineHeight`), radius (`radius`), spacing off
+  the 4 pt grid (2 and 6 allowed), a raw colour (`useTheme().colors`; `transparent` is fine), a hand-made shadow
+  (`shadowCard`/`shadowRaised`/`shadowOverlay`), an opacity other than 0 or 1 (`pressStyle`), a weight other than 400,
+  500 and 600 (700 with `largeTitle`), the blur library outside GlassSurface and EdgeFade, an `accessibilityRole`
+  Android doesn't know, "Mac" in copy, and a `Stack.Toolbar.Button` SF Symbol outside an iOS branch. An exception is
+  one line, `// oxlint-disable-next-line milagre-design/<rule> -- <why>` (a disable without a reason fails too);
+  tokens, theme and press-style files are exempt. Exceptions are for what the tokens can't say: artwork (the
+  onboarding scene, the pairing sky, the Ultracode glow and fatality keep their own colours, sizes and glows), mask and
+  hit-test fills (a MaskedView's opaque black, SwiftUI's near-clear tap fill), an animated shadow (the Chats list's drag
+  lift fades `shadowRadius` with its spring and takes `colors.media` as its colour), the composer's tunable tinted blur
+  (`composer-glass.tsx`), and copy that is only true of macOS.
+- `design-tokens.test.ts` counts off-scale icon sizes, durations, computed and SwiftUI fonts, uppercase and tracking per
+  file against `design-tokens.baseline.json`; a file's count only goes down.
 
 ## Principles
 
@@ -142,7 +154,7 @@ no border. Grouped cards are flat: the surface with a hairline (`useStyles().car
 
 | Token           | Light                  | Dark                   | Use                                                                               |
 | --------------- | ---------------------- | ---------------------- | --------------------------------------------------------------------------------- |
-| `shadowCard`    | `0 1px 3px #0000000f`  | `0 1px 3px #00000040`  | An inline card; no screen draws it today                                          |
+| `shadowCard`    | `0 1px 3px #0000000f`  | `0 1px 3px #00000040`  | An inline card; Android's raised segment                                          |
 | `shadowRaised`  | `0 4px 20px #0000000f` | `0 4px 20px #00000059` | Floating controls: the inbox button, the undo panel, viewer chrome; Android glass |
 | `shadowOverlay` | `0 8px 28px #00000017` | `0 8px 28px #00000080` | The iPad Settings card, the question card over the composer                       |
 
@@ -190,8 +202,8 @@ Every primitive is exported from `src/ui.tsx` unless a path is given. Buttons, r
   footnote under it; `role="radiogroup"` for CheckRow radios.
 - `CheckRow`: a choice row with ListRow's metrics; `kind` radio (an 18 pt ink tick when checked) or checkbox (a leading
   `CheckboxBox`).
-- `ChoiceRow` (`primitives/choice-row.tsx`): a single-choice row, 48 high, its tick in `accentInk`. Selection is ink
-  (root DESIGN.md, States), so a new list uses CheckRow.
+- `ChoiceRow` (`primitives/choice-row.tsx`): a single-choice row, 48 high, its tick in ink like every selection (root
+  DESIGN.md, States). A new list uses CheckRow.
 - `Toggle`: an independent on/off as a labelled checkbox. `RowCheckbox`: the checkbox alone, for a row that draws its own
   label. `CheckboxBox`: the 20 pt box CheckRow leads with. There are no switches.
 - `SectionLabel`: a group's heading, 13 medium `ink3`, 16 in (`flush` for 0), `trailing` a count or a button.

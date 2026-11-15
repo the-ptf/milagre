@@ -645,9 +645,14 @@ over a view.
 - `apps/site/src/design-system.test.ts`: every token table in this file matches the code (the theme builder,
   `styles.css`, `Icon.tsx` and the phone's `design-tokens.ts`), and `styles.css`'s fallback colours match the default
   theme.
-- `design-tokens.test.ts` on desktop and phone: counts off-scale font sizes and radii per file against
-  `design-tokens.baseline.json`. A file's count may only go down; after moving a file onto the scale, lower it with
+- `design-tokens.test.ts` on desktop and phone: counts off-scale literals per file against
+  `design-tokens.baseline.json` (desktop: font sizes and radii; phone: icon sizes, durations, computed and SwiftUI
+  fonts, tracking). A file's count may only go down; after moving a file onto the scale, lower it with
   `UPDATE_DESIGN_TOKENS=1` (the command is in each test's header).
+- The phone's `milagre-design` Oxlint plugin (`apps/mobile/lint/design-system.mjs`), in `npm run lint` and the
+  pre-commit hook: no type, radius, spacing, colour, shadow, opacity or weight literals off the system, no blur outside
+  its primitives, no unknown accessibilityRole, no "Mac" in copy, no SF Symbol toolbar button outside an iOS branch.
+  Zero violations, no baseline; an exception is one `oxlint-disable-next-line milagre-design/<rule> -- <why>`.
 - `packages/shared/src/themes/index.test.ts`: the contrast floors, every theme, both schemes.
 - `scripts/no-switch-controls.test.cjs`: no switch controls or roles.
 - `scroll-area-only.test.ts`, `no-native-select.test.ts` and `backdrop-blur.test.ts`: the scroll, select and blur rules

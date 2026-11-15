@@ -113,6 +113,48 @@
         "eslint/no-unused-expressions": "warn",
         "eslint/unicode-bom": "warn"
       }
+    },
+    {
+      "files": ["apps/mobile/src/**"],
+      "jsPlugins": ["./apps/mobile/lint/design-system.mjs"],
+      "rules": {
+        "milagre-design/font-size-token": "error",
+        "milagre-design/radius-token": "error",
+        "milagre-design/spacing-grid": "error",
+        "milagre-design/no-raw-color": "error",
+        "milagre-design/shadow-token": "error",
+        "milagre-design/opacity-token": "error",
+        "milagre-design/font-weight": "error",
+        "milagre-design/glass-primitive": "error",
+        "milagre-design/accessibility-role": "error",
+        "milagre-design/copy-computer": "error",
+        "milagre-design/toolbar-icon": "error",
+        "milagre-design/disable-reason": "error"
+      }
+    },
+    {
+      "files": [
+        "apps/mobile/src/**/*.test.*",
+        "apps/mobile/src/**/*.gen.ts",
+        "apps/mobile/src/design-tokens.ts",
+        "apps/mobile/src/theme.ts",
+        "apps/mobile/src/primitives/press-style.ts"
+      ],
+      "jsPlugins": ["./apps/mobile/lint/design-system.mjs"],
+      "rules": {
+        "milagre-design/font-size-token": "off",
+        "milagre-design/radius-token": "off",
+        "milagre-design/spacing-grid": "off",
+        "milagre-design/no-raw-color": "off",
+        "milagre-design/shadow-token": "off",
+        "milagre-design/opacity-token": "off",
+        "milagre-design/font-weight": "off",
+        "milagre-design/glass-primitive": "off",
+        "milagre-design/accessibility-role": "off",
+        "milagre-design/copy-computer": "off",
+        "milagre-design/toolbar-icon": "off",
+        "milagre-design/disable-reason": "off"
+      }
     }
   ]
 }
