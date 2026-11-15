@@ -355,7 +355,7 @@ test("PR policy reruns on label changes, checks each rule in its own step and re
   assert.match(run, /node scripts\/pr-policy\.cjs images/);
   assert.match(run, /node scripts\/pr-policy\.cjs sync/);
   assert.match(run, /node scripts\/check-lighthouse-budget\.cjs .*apps\/site\/lighthouse-budget\.json/);
-  for (const name of ["Desktop and mobile change together", "Lighthouse budget never gets looser"]) {
+  for (const name of ["Desktop and mobile change together (warning only)", "Lighthouse budget never gets looser"]) {
     const step = job.steps.find((candidate) => candidate.name === name);
     assert.equal(step.env.LABELS, "${{ toJSON(github.event.pull_request.labels.*.name) }}", name);
     assert.match(step.if, /!cancelled\(\)/, `${name} reports even when an earlier rule failed`);
