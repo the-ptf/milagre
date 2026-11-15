@@ -1857,7 +1857,6 @@ const NavigationBody = memo(function NavigationBody({
       links,
       archivingChats: archives.chats,
       archiveRequests,
-      copyOf,
       clientOf,
       worktreeForLinks,
       doneHours,
@@ -1885,13 +1884,21 @@ const NavigationBody = memo(function NavigationBody({
       links,
       archives.chats,
       archiveRequests,
-      copyOf,
       clientOf,
       worktreeForLinks,
       actions,
     ],
   );
-  const renderItem = useCallback(({ item }: { item: Row }) => <NavigationRow item={item} view={rowView} />, [rowView]);
+  const [rowCache] = useState(() => createNavigationRowCache<Row, RowView, ProjectCopy>());
+  useEffect(() => rowCache.prune(new Set(displayedRows.map((row) => row.key))), [rowCache, displayedRows]);
+  const renderItem = useCallback(
+    ({ item }: { item: Row }) => {
+      const copy = "hostId" in item ? copyOf(item.hostId, item.path) : undefined;
+      const props = rowCache.pick(item, rowView, copy);
+      return <NavigationRow {...props} />;
+    },
+    [rowCache, rowView, copyOf],
+  );
 
   // ⌘N, ⌘K and ⌘1 to ⌘9 act on the list on screen; one that opens for a shortcut picks it up as it shows.
   const runCommand = useRef<(command: NavigationCommand) => void>(() => {});
@@ -2148,7 +2155,6 @@ type RowView = {
   links: ReturnType<typeof useLinks>;
   archivingChats: ReturnType<typeof useArchiveActivity>["chats"];
   archiveRequests: Set<string>;
-  copyOf: (hostId: string, projectPath: string) => ProjectCopy | undefined;
   clientOf: (hostId: string) => Client | null;
   worktreeForLinks: (projectPath: string, worktreePath?: string) => { project_id: string; worktree_path: string } | undefined;
   /** Each computer's Done retention in hours (done-retention.ts); a computer missing from it can't keep Done. */
@@ -2278,8 +2284,27 @@ function ProjectHeaderDrag({
   );
 }
 
+/** Keep each cell's item and copy independent of other computers' publishes. */
+export function createNavigationRowCache<Item extends { key: string }, View, Copy>() {
+  const rows = new Map<string, { encoded: string; props: { item: Item; view: View; copy: Copy | undefined } }>();
+  return {
+    pick(item: Item, view: View, copy: Copy | undefined) {
+      const previous = rows.get(item.key);
+      const encoded = JSON.stringify(item);
+      const held = previous?.encoded === encoded ? previous.props.item : item;
+      if (previous && held === previous.props.item && view === previous.props.view && copy === previous.props.copy) return previous.props;
+      const props = { item: held, view, copy };
+      rows.set(item.key, { encoded, props });
+      return props;
+    },
+    prune(keys: ReadonlySet<string>) {
+      for (const key of rows.keys()) if (!keys.has(key)) rows.delete(key);
+    },
+  };
+}
+
 /** One row of the list; memoized, so only a row whose item or view changed renders again. */
-const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; view: RowView }) {
+const NavigationRow = memo(function NavigationRow({ item, view, copy }: { item: Row; view: RowView; copy: ProjectCopy | undefined }) {
   const s = useS();
   const { colors } = useTheme();
   const {
@@ -2299,7 +2324,6 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     links,
     archivingChats,
     archiveRequests,
-    copyOf,
     clientOf,
     worktreeForLinks,
     doneHours,
@@ -2411,14 +2435,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         : "";
     const menu = done ? DONE_MENU : snoozedMenu(doneHours[item.hostId] !== undefined);
     return (
-      <ChatSwipeRow
-        done={done}
-        snoozed={!done}
-        unread={false}
-        disabled={offline || !copyOf(item.hostId, item.path)}
-        background={background}
-        onAction={(action) => act(item, action)}
-      >
+      <ChatSwipeRow done={done} snoozed={!done} unread={false} disabled={offline || !copy} background={background} onAction={(action) => act(item, action)}>
         <View
           style={{
             flexDirection: "row",
@@ -2533,7 +2550,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   if (item.kind === "project") {
     const linked = item.link;
     const client = clientOf(item.hostId);
-    const unsaved = copyOf(item.hostId, item.path)?.project.state.persistence;
+    const unsaved = copy?.project.state.persistence;
     const menu = [
       {
         items: [
@@ -2691,7 +2708,6 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   const pullRequests = rowShow.pullRequests ? item.pullRequests || [] : [];
   const linearIssue = rowShow.linearIssue ? item.linearIssue : undefined;
   const hasChips = pullRequests.length > 0 || !!linearIssue;
-  const copy = copyOf(item.hostId, item.path);
   const worktreeDiff = rowShow.diff && !copy?.project.link && !item.home ? copy?.project.state.worktrees[item.chat.worktree_id]?.diff : undefined;
   const diff = worktreeDiff && (worktreeDiff.added > 0 || worktreeDiff.removed > 0) ? worktreeDiff : undefined;
   const lastAt = rowShow.lastActivity ? item.chat.summary?.lastAt : undefined;
