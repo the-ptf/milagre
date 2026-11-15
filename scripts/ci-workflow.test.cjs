@@ -338,3 +338,37 @@ test("a desktop-gate job always reports for the merge queue and only fails when 
   // The Next beta draft keeps its own gate list; desktop-gate guards merges, not releases.
   assert.ok(!ci.jobs["next-beta"].needs.includes("desktop-gate"));
 });
+
+test("PR policy reruns on label changes, checks each rule in its own step and reports green on merge groups", () => {
+  const workflow = read("pr-policy.yml");
+  assert.deepEqual(workflow.on.pull_request.types, ["opened", "edited", "synchronize", "reopened", "labeled", "unlabeled"]);
+  assert.deepEqual(workflow.on.merge_group, { types: ["checks_requested"] });
+  assert.deepEqual(Object.keys(workflow.jobs), ["policy"], "one cheap job");
+  const job = workflow.jobs.policy;
+  assert.ok(Number.isInteger(job["timeout-minutes"]));
+  const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+  assert.equal(checkout.with["fetch-depth"], 2, "the merge commit and the base it merges into, not the whole history");
+  // A merge group has no PR, so every step is skipped there and the job reports green.
+  for (const step of job.steps) assert.match(step.if, /github\.event_name == 'pull_request'/, step.name ?? step.uses);
+  const run = runs(job).join("\n");
+  assert.match(run, /git diff --name-status -M HEAD\^1 HEAD/);
+  assert.match(run, /node scripts\/pr-policy\.cjs images/);
+  assert.match(run, /node scripts\/pr-policy\.cjs sync/);
+  assert.match(run, /node scripts\/check-lighthouse-budget\.cjs .*apps\/site\/lighthouse-budget\.json/);
+  for (const name of ["Desktop and mobile change together (warning only)", "Lighthouse budget never gets looser"]) {
+    const step = job.steps.find((candidate) => candidate.name === name);
+    assert.equal(step.env.LABELS, "${{ toJSON(github.event.pull_request.labels.*.name) }}", name);
+    assert.match(step.if, /!cancelled\(\)/, `${name} reports even when an earlier rule failed`);
+  }
+});
+
+test("a PR touching the site runs the Lighthouse budget check, which the desktop shards only run for desktop changes", () => {
+  const workflow = read("site-lighthouse.yml");
+  assert.ok(workflow.on.pull_request.paths.includes("apps/site/**"));
+  assert.ok(workflow.on.pull_request.paths.includes("DESIGN.md"), "the /design page is built from DESIGN.md");
+  assert.ok(Number.isInteger(workflow.jobs.lighthouse["timeout-minutes"]));
+  assert.equal(workflow.jobs.lighthouse["runs-on"], "ubuntu-24.04");
+  assert.ok(workflow.jobs.lighthouse.steps.some((step) => step.uses === `./${installAction}`));
+  assert.ok(runs(workflow.jobs.lighthouse).includes("npm test -- --only lighthouse"));
+  assert.ok(!YAML.parse(ci.jobs.changes.steps[0].with.filters).desktop.includes("apps/site/**"), "otherwise the shards already cover it");
+});

@@ -1,0 +1,52 @@
+# Rules from AGENTS.md that a PR's diff can prove: no screenshots in the PR's commits, desktop and mobile change
+# together (a warning only; the single-platform label silences it), and the Lighthouse budget never gets looser (or the PR is labeled
+# lighthouse-budget-approved). One cheap job; label changes rerun it.
+name: PR policy
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+  # A merge group carries no PR or labels, and the PR passed these to enter the queue: every step is skipped there and
+  # the job reports green, like the title check.
+  merge_group:
+    types: [checks_requested]
+permissions:
+  contents: read
+concurrency:
+  group: pr-policy-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # The PR's merge commit and its first parent, the base it merges into: their diff is what the PR changes.
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26
+      - name: List what the PR changes
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --name-status -M HEAD^1 HEAD > "$RUNNER_TEMP/changes.txt"
+          cat "$RUNNER_TEMP/changes.txt"
+      # Each rule reports on its own, so one failure does not hide another.
+      - name: No images in the PR's commits
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        run: node scripts/pr-policy.cjs images < "$RUNNER_TEMP/changes.txt"
+      - name: Desktop and mobile change together (warning only)
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: node scripts/pr-policy.cjs sync < "$RUNNER_TEMP/changes.txt"
+      - name: Lighthouse budget never gets looser
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          git show HEAD^1:apps/site/lighthouse-budget.json > "$RUNNER_TEMP/budget-base.json" 2>/dev/null || true
+          node scripts/check-lighthouse-budget.cjs "$RUNNER_TEMP/budget-base.json" apps/site/lighthouse-budget.json

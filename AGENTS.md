@@ -2,7 +2,7 @@
 
 ### Checks before a PR
 
-Run `npm run typecheck`, `npm run lint` and `npm test -- --unit` before opening or updating a PR. Run the Electron check for the screen you touched with `npm test -- --only <name>`. A change under `apps/desktop/electron` or to window, dock, menu or notification code also gets `npm test -- --only test-desktop` on your Mac: CI runs that macOS smoke on pushes to main only, so a PR is the last place it is caught before merge.
+Run `npm run typecheck`, `npm run lint` and `npm test -- --unit` before opening or updating a PR. The lefthook `pre-push` hook runs the typecheck and lint for you, plus `npm test -- --only test-desktop` when the push touches `apps/desktop/electron`. Run the Electron check for the screen you touched with `npm test -- --only <name>`. A change under `apps/desktop/electron` or to window, dock, menu or notification code also gets `npm test -- --only test-desktop` on your Mac: CI runs that macOS smoke on pushes to main only, so a PR is the last place it is caught before merge.
 
 Every desktop copy an agent or check starts on a Mac someone is using runs with `MILAGRE_BACKGROUND=1` (macOS only; other platforms ignore it): no window, Dock icon, focus change, notification or dialog, while CDP (`Runtime.evaluate`, `Page.captureScreenshot`) still sees the real UI. `test-desktop` and `test-project-links` set it; `MILAGRE_BACKGROUND=0` shows the app.
 
@@ -11,7 +11,7 @@ Every desktop copy an agent or check starts on a Mac someone is using runs with 
 Lighthouse scores for `apps/site` never go down. The floors live in `apps/site/lighthouse-budget.json`: 100 for Accessibility, Best Practices and SEO, plus a Performance floor per form factor (mobile 97, desktop 99, median of three runs).
 
 - After any change under `apps/site`, run `npm test -- --only lighthouse`. It builds the site, serves it compressed like production and fails below the budget.
-- Never lower a number in the budget to make a change pass; find what made the page slower. Raise the numbers when the page gets faster.
+- Never lower a number in the budget to make a change pass; find what made the page slower. Raise the numbers when the page gets faster. The `PR policy` check fails a PR that lowers a number or adds to `skipAudits` unless it carries the `lighthouse-budget-approved` label, and `Site Lighthouse` runs the budget on every PR that touches the site.
 - The one exception is `skipAudits`: an audit the site fails on purpose, with the reason beside it in the budget file. Today that is `robots-txt`, for the Content-Signal line agents read. Add to it only with the user's say-so.
 - Heavy code (React, React Flow) loads after the first paint: on the first interaction or when its section nears the screen. Don't import it into the page's first load.
 
@@ -34,6 +34,7 @@ Every change on desktop must also be applied on mobile, and every change on mobi
 - Inspect both implementations before editing. Keep features, behavior, copy, states and fixes in sync; use each platform's native controls and layout where appropriate.
 - Prefer shared logic when it applies to both platforms. A missing counterpart is work to implement, not an automatic exemption from syncing.
 - Verify the change on both platforms before declaring the task complete. If syncing is blocked, explain what remains and why. The mobile native-build approval rules below still apply; this sync rule does not authorize a new build.
+- The `PR policy` check fails a PR that changes `apps/desktop/app/src` or `apps/mobile/src` (tests aside) without the other. Add the `single-platform` label only when the user asked to keep the change on one platform.
 
 ### Mobile releases are OTA only
 
@@ -58,7 +59,7 @@ Take every PR screenshot from the real app running: the dev app (desktop dev cop
 
 Name the source in the PR body under "Screenshots from" (for example "desktop dev app, Claude Opus, real Chat"). If the real app can't show the state, say so there and leave the screenshot out rather than faking it.
 
-Screenshots never go in the PR's own commits. They live on the `screenshots` branch, which has no shared history with `main`, holds only images and is never merged:
+Screenshots never go in the PR's own commits (the `PR policy` check fails on an image outside the app's asset folders). They live on the `screenshots` branch, which has no shared history with `main`, holds only images and is never merged:
 
 1. Fetch it (`git fetch origin screenshots`) and add the images in a folder named after the feature, e.g. `sidebar-resize/default.png`. Use a temporary worktree or clone so your PR branch stays untouched.
 2. Commit and push to `screenshots`.
