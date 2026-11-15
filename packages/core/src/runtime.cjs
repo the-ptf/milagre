@@ -140,6 +140,10 @@ function createRuntime(options) {
   const active = new Set();
   const starting = new Set();
   const background = new Set();
+  // When each Chat last needed the user (a question, an approval, a failed turn), newest last: a Snooze saved after it
+  // came wakes the Chat at once (patchChat). Only the latest Chats are kept; an older one has no Snooze in flight.
+  const needsUserAt = new Map();
+  const NEEDS_USER_CHATS = 500;
   let closing = false;
   let closed;
   let advisors;
@@ -1399,11 +1403,16 @@ function createRuntime(options) {
         .then((switched) => !switched && limitResume?.observe(chatId, event, token))
         .catch((error) => console.warn("Milagre couldn't continue after a usage limit:", error.message));
     }
-    // A snoozed Chat that needs the user (a question, an approval) or failed comes back to the list now.
-    if (wakesSnoozed(event))
+    // A snoozed Chat that needs the user (a question, an approval) or failed comes back to the list now. When it was
+    // asked, a Snooze still on its way wakes it once saved (patchChat).
+    if (wakesSnoozed(event)) {
+      needsUserAt.delete(chatId);
+      needsUserAt.set(chatId, Date.now());
+      if (needsUserAt.size > NEEDS_USER_CHATS) needsUserAt.delete(needsUserAt.keys().next().value);
       void track(() => wakeSnoozedChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background).catch((error) =>
         console.warn("Milagre couldn't wake a snoozed Chat:", error.message),
       );
+    }
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
     // A turn may have opened, pushed to or merged a PR: its Worktree's PRs are read again now, not on the next tick.
@@ -2402,11 +2411,15 @@ function createRuntime(options) {
   }
   async function patchChat(projectPath, sessionId, raw) {
     if (!scopeStates.has(projectPath)) return;
+    const receivedAt = Date.now();
     const patch = sessionPatch(raw);
     if (patch.archived) return archiveChat(projectPath, sessionId, patch);
     // Done ends the Chat's Heartbeats (its Babysit PR one too) before the save, so no beat lands in it and reopens it.
     if (patch.done_at) routines.chatDone(`${projectPath}#${sessionId}`);
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+    // A question, an approval or a failure that came while this Snooze waited to be saved found the Chat awake, so it
+    // woke nothing: it wakes the Chat now. One the Chat already waited on stays snoozed ("ask me later").
+    if (patch.snoozed_until && (needsUserAt.get(`${projectPath}#${sessionId}`) ?? -Infinity) >= receivedAt) await wakeSnoozedChat(projectPath, sessionId);
   }
   // Writing to a Done Chat takes it back to the list: the work it was Done with goes on. Only a Done one is written.
   async function reopenDoneChat(projectPath, sessionId) {

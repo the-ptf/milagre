@@ -474,6 +474,24 @@ test("a quiet turn sends no completion push; the same turn without quiet sends o
   assert.equal(messages[0].body, "CI failed, fixing.");
 });
 
+// The failure wakes the snoozed Chat, but this push can read the Chat before that wake is saved (statechart, #1039).
+test("a snoozed Chat's finished turn sends no push; its failed turn sends one even before it wakes", async (t) => {
+  const { push, messages } = await fixture(t, {
+    context: async () => ({ projectName: "Project", chatTitle: "Login", provider: "codex", snoozedUntil: 10_000_000 }),
+  });
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started", turnId: "turn-1" });
+  push.observe(chatId, { type: "text-delta", text: "Done fixing login." });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "turn-2" });
+  push.observe(chatId, { type: "turn-failed", message: "Provider unavailable" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].body, "Turn failed: Provider unavailable");
+});
+
 // A heartbeat that fails again after a failed beat is marked quiet too: one push for a broken heartbeat, not one per beat.
 test("a quiet failed turn sends no push; a failed turn without quiet sends one", async (t) => {
   const { push, messages } = await fixture(t);
