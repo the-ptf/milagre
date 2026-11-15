@@ -83,7 +83,7 @@ import type { ModelOption, PermissionMode } from "../model";
 import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import type { ClaudeReplies, OpenLinksIn, UsageDisplay } from "../lib/settings";
-import { USAGE_IN_SIDEBAR_CHOICES, type UsageInSidebar } from "@milagre/shared/usage";
+import { SIDEBAR_USAGE_PICKS, sidebarUsagePick, sidebarUsagePickSettings, type SidebarUsagePick } from "@milagre/shared/usage";
 import { DICTATION_FIX_MODELS, DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
@@ -120,7 +120,6 @@ import {
   MONO_FONTS,
   MOTION_SPEEDS,
   SIDEBAR_SIZES,
-  SIDEBAR_USAGE_MODES,
   PROVIDER_ICON_STYLES,
   UI_FONTS,
   type FontOption,
@@ -1112,6 +1111,7 @@ function WorktreesSettings() {
 
 function GeneralSettings() {
   const settings = useSettings();
+  const usagePick = sidebarUsagePick(settings.usageInSidebar, settings.appearance.sidebarUsage);
   const { editors, editor } = useEditors();
   return (
     <>
@@ -1176,12 +1176,15 @@ function GeneralSettings() {
             ]}
           />
         </Row>
-        <Row label="Show in sidebar" description={USAGE_IN_SIDEBAR_CHOICES.find((choice) => choice.id === settings.usageInSidebar)?.hint}>
-          <Select<UsageInSidebar>
+        <Row label="Show in sidebar" description={SIDEBAR_USAGE_PICKS.find((choice) => choice.id === usagePick)?.hint}>
+          <Select<SidebarUsagePick>
             label="Show usage in sidebar"
-            value={settings.usageInSidebar}
-            onChange={(usageInSidebar) => updateSettings({ usageInSidebar })}
-            options={USAGE_IN_SIDEBAR_CHOICES.map((choice) => ({ value: choice.id, label: choice.label }))}
+            value={usagePick}
+            onChange={(pick) => {
+              const { usageInSidebar, sidebarUsage } = sidebarUsagePickSettings(pick);
+              updateSettings(sidebarUsage ? { usageInSidebar, appearance: { ...settings.appearance, sidebarUsage } } : { usageInSidebar });
+            }}
+            options={SIDEBAR_USAGE_PICKS.map((choice) => ({ value: choice.id, label: choice.label }))}
           />
         </Row>
       </Group>
@@ -1606,19 +1609,6 @@ function AppearanceSettings() {
           </Row>
           <Row label="Film grain" description="A faint grain over the window and the side panels.">
             <SettingCheckbox label="Film grain" checked={appearance.grain !== "off"} onChange={(on) => change("ui", { grain: on ? "on" : "off" })} />
-          </Row>
-          <Row label="Sidebar usage" description="One row per provider, or provider icons in one line." preview={preview.row("usage")}>
-            <Select
-              label="Sidebar usage"
-              width={200}
-              value={appearance.sidebarUsage}
-              onChange={(sidebarUsage) => change("usage", { sidebarUsage })}
-              onOpenChange={preview.menu("usage")}
-              options={SIDEBAR_USAGE_MODES.map((mode) => ({
-                value: mode.id,
-                label: mode.label,
-              }))}
-            />
           </Row>
         </Group>
         <Group title="Diffs">

@@ -133,7 +133,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     title: "Show in sidebar",
     group: "Plan usage",
     description: "A button beside Filters, or a meter per provider",
-    keywords: "usage limits button meters bars off hide popover",
+    keywords: "usage limits button meters bars compact icons one line off hide popover",
   },
   { page: "general", title: "System" },
   {
@@ -210,13 +210,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Layout",
     description: "Original colors, or black and white to match the mode.",
     keywords: "logos monochrome",
-  },
-  {
-    page: "appearance",
-    title: "Sidebar usage",
-    group: "Layout",
-    description: "One row per provider, or provider icons in one line.",
-    keywords: "limits compact",
   },
   {
     page: "appearance",

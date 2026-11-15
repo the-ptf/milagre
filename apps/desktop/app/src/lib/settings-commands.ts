@@ -1,10 +1,18 @@
 import { themes } from "@milagre/shared/themes";
 import { searchTrail } from "@milagre/shared/settings-search";
+import { SIDEBAR_USAGE_PICKS, sidebarUsagePick, sidebarUsagePickSettings, type SidebarUsagePick } from "@milagre/shared/usage";
 import type { SettingsSection } from "../components/Settings";
 import type { Command } from "./commands";
 import { SECTION_KEYWORDS, SECTION_TITLES, SETTINGS_INDEX } from "./settings-index.ts";
 import type { AppSettings } from "./settings";
 import { computerNoun } from "./shortcut-hints.ts";
+
+const SIDEBAR_USAGE_KEYWORDS: Record<SidebarUsagePick, string> = {
+  button: "show plan limits footer icon popover",
+  meters: "show plan limits bars rows",
+  compact: "show plan limits icons one line",
+  off: "hide disable plan limits",
+};
 
 /** Explicit values make commands searchable and safe to run more than once. */
 export function settingsCommands(settings: AppSettings, update: (patch: Partial<AppSettings>) => void): Command[] {
@@ -41,11 +49,23 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
     ),
     choice("usageDisplay", "used", "Usage: Used", "plan limits"),
     choice("usageDisplay", "remaining", "Usage: Remaining", "plan limits left"),
-    choice("usageInSidebar", "button", "Sidebar usage: Button", "show plan limits footer icon popover"),
-    choice("usageInSidebar", "meters", "Sidebar usage: Meters", "show plan limits bars rows"),
-    choice("usageInSidebar", "off", "Sidebar usage: Off", "hide disable plan limits"),
-    appearanceChoice("sidebarUsage", "expanded", "Sidebar usage: Expanded", "appearance plan limits rows"),
-    appearanceChoice("sidebarUsage", "compact", "Sidebar usage: Compact", "appearance plan limits icons one line"),
+    ...SIDEBAR_USAGE_PICKS.map((pick): Command => {
+      const saved = sidebarUsagePickSettings(pick.id);
+      return {
+        id: `setting:sidebarUsage:${pick.id}`,
+        label: `Sidebar usage: ${pick.label}`,
+        keywords: SIDEBAR_USAGE_KEYWORDS[pick.id],
+        group: "Quick settings",
+        icon: "settings",
+        detail: sidebarUsagePick(settings.usageInSidebar, settings.appearance.sidebarUsage) === pick.id ? "Current" : undefined,
+        run: () =>
+          update(
+            saved.sidebarUsage
+              ? { usageInSidebar: saved.usageInSidebar, appearance: { ...settings.appearance, sidebarUsage: saved.sidebarUsage } }
+              : { usageInSidebar: saved.usageInSidebar },
+          ),
+      };
+    }),
     appearanceChoice("grain", "on", "Film grain: On", "appearance noise texture background"),
     appearanceChoice("grain", "off", "Film grain: Off", "appearance noise texture background"),
     appearanceChoice("providerIcons", "original", "Provider icons: Original", "appearance logos brand colors"),

@@ -3167,8 +3167,8 @@ function App() {
     [usageInSidebar, hasSidebarUsage, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
   );
   const sidebarUsageButton = useMemo(
-    () => (usageInSidebar === "button" && hasSidebarUsage ? <UsageButton usage={usage} /> : undefined),
-    [usageInSidebar, hasSidebarUsage, usage.snapshot, usage.loading],
+    () => (usageInSidebar === "button" && hasSidebarUsage ? <UsageButton usage={usage} scope={accountScope} chatsHome={accountScopeIsHome} /> : undefined),
+    [usageInSidebar, hasSidebarUsage, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
   );
   const mentionKey = JSON.stringify(state && !isLinkScopeKey(project?.path ?? "") ? chatMentionChoices(state) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);

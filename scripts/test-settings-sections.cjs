@@ -282,16 +282,8 @@ async function browserChecks() {
     await openMenu("Provider icons");
     await pick("Original");
     await waitFor(`!!document.querySelector("[data-provider-logo=codex] linearGradient")`);
-    // Sidebar usage: switches between Expanded and Compact in the preview and saves to appearance.sidebarUsage.
-    assert.equal(await evaluate(`${region("usage")}.dataset.previewUsage`), "expanded");
-    await openMenu("Sidebar usage");
-    await pick("Compact");
-    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.sidebarUsage === "compact"`);
-    await waitFor(`${region("usage")}.dataset.previewUsage === "compact"`);
-    assert.equal(await evaluate(`${region("usage")}.hasAttribute("data-highlighted")`), true, "changing Sidebar usage highlights the usage area");
-    await openMenu("Sidebar usage");
-    await pick("Expanded");
-    await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
+    // Sidebar usage left Appearance: Settings › General › Show in sidebar picks Meters or Compact meters.
+    assert.equal(await evaluate(`!!document.querySelector('main [aria-label="Sidebar usage"]')`), false);
     await openSection("Church");
     await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`);
     // Routines have no switch: every computer runs them.
