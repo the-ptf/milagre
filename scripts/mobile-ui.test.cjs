@@ -8663,7 +8663,7 @@ test("phone live tool rows update summary headings and command purposes while pr
     detail: "$ npm test\n",
   };
   assert.match(label(command), /^Check recorded swipe events/);
-  assert.match(label(command, true), /^Ran npm test, Needs approval, Waiting for approval/);
+  assert.match(label(command, true), /^Run npm test, Needs approval, Waiting for approval/);
 });
 
 test("tool disclosure reveals late output, while its chat action opens Activity without expanding", () => {
@@ -12849,7 +12849,7 @@ test("mobile tool display keeps compact progress specific and Full detail in ord
   const thinking = compactRow([{ ...command, status: "done" }, thought]);
   assert.equal(find(thinking, (node) => node.type === "ActivityTitle").props.title, "Thinking");
   const waiting = compactRow([command, thought], [{ stepId: command.id }]);
-  assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.title, "Ran `npm test`");
+  assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.title, "Run `npm test`");
   assert.equal(find(waiting, (node) => node.type === "ActivityTitle").props.shimmer, false);
 });
 

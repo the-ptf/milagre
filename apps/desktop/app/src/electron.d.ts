@@ -171,7 +171,7 @@ export type PhoneStatus = {
   lan?: { enabled: boolean; addresses: string[]; error?: string };
 };
 
-/** A phone or computer paired to this Mac, as Settings › Devices lists it. `route`: how it is connected now, or null. */
+/** A phone or computer paired to this Mac, as Settings › Phone & sharing lists it. `route`: how it is connected now, or null. */
 export type PairedDevice = {
   key: string;
   kind: "phone" | "computer";
@@ -179,7 +179,7 @@ export type PairedDevice = {
   name: string | null;
   pairedAt: number | null;
   lastSeen: number | null;
-  /** A phone that paired since the owner last looked at Settings › Devices. Missing from hosts before it. */
+  /** A phone that paired since the owner last looked at Settings › Phone & sharing. Missing from hosts before it. */
   isNew?: boolean;
   route: "lan" | "relay" | null;
 };
@@ -187,7 +187,7 @@ export type PairedDevice = {
 /** A computer pairing with this Mac for the first time, waiting for Allow in its window (devices:pending). */
 export type PendingComputer = { key: string; name: string | null; at: number };
 
-/** How a paired computer stands: "off" while Settings › Devices › Other computers is off. */
+/** How a paired computer stands: "off" while Settings › Phone & sharing › Other computers is off. */
 export type ComputerState = "off" | "connecting" | "online" | "reconnecting" | "offline" | "refused";
 /** A computer this Mac drives, as computers.cjs reports it. `route`: how it is reached while online. */
 export type ComputerView = {
@@ -796,7 +796,7 @@ export type MilagreBridge = {
   listDevices: () => Promise<PairedDevice[]>;
   /** Forgets one and closes its connections; resolves with the devices left. */
   removeDevice: (key: string) => Promise<PairedDevice[]>;
-  /** The owner saw these devices in Settings › Devices, so they are no longer New; resolves with every device. */
+  /** The owner saw these devices in Settings › Phone & sharing, so they are no longer New; resolves with every device. */
   acknowledgeDevices: (keys: string[]) => Promise<PairedDevice[]>;
   /** Computers waiting for Allow, oldest first. */
   listPendingDevices: () => Promise<PendingComputer[]>;
@@ -870,7 +870,7 @@ export type MilagreBridge = {
   onOpenExperimental: (callback: () => void) => () => void;
   /** A notification was clicked: the window is back, and the chat it was about should open. */
   onOpenChat: (callback: (chatId: string) => void) => () => void;
-  /** The "phone paired" notification was clicked: the window is back, and Settings → Devices should open. */
+  /** The "phone paired" notification was clicked: the window is back, and Settings → Phone & sharing should open. */
   onOpenPhoneSettings: (callback: () => void) => () => void;
 };
 

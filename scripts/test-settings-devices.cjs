@@ -11,7 +11,7 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
-/** The New mark on a phone's row in Settings › Devices, as an expression to evaluate in the window. */
+/** The New mark on a phone's row in Settings › Phone & sharing, as an expression to evaluate in the window. */
 const newMark = (key) => `document.querySelector('[data-device-row="phone"][data-device-key="${key}"] [data-device-new]')?.textContent`;
 
 const fixture = `
@@ -150,7 +150,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-phone-qr]')`), false);
     assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(el => el.textContent.includes('Reset access'))`), false);
     await screenshot("devices-off");
-    console.log("PASS: Settings › Devices starts off, with nothing to pair");
+    console.log("PASS: Settings › Phone & sharing starts off, with nothing to pair");
 
     // On: a QR image that decodes, the relay status, the pairing window and the warning.
     await evaluate(`${toggle}.click()`);

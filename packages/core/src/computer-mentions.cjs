@@ -52,7 +52,7 @@ async function computerMentionsContext(request, { remote, thisMac }) {
         return `- ${quote(thisMac)}: this computer, where this Chat runs. Work here with your local tools (worktree_create for a new Worktree, then delegate or chat_start to run a prompt in it).`;
       const target = remote?.computer(name) ?? null;
       if (!target)
-        return `- ${quote(name)}: not a computer this one is paired with, or Settings > Devices > Drive other computers is off. Nothing can be sent there; tell the user.`;
+        return `- ${quote(name)}: not a computer this one is paired with, or Settings > Phone & sharing > Drive other computers is off. Nothing can be sent there; tell the user.`;
       if (!remote.enabled())
         return `- ${quote(target.name)}: paired, but Delegating to another computer is off. Tell the user to turn it on in Settings > Experimental; nothing can be sent there until then.`;
       if (!target.online) return `- ${quote(target.name)}: paired but offline now. Nothing can be sent there until it is back; tell the user.`;

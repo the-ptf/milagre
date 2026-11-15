@@ -65,7 +65,7 @@ export const StepRow = memo(function StepRow({
   const toggle = () => setToggled(!open);
   const detailId = useId();
   const running = step.status === "running";
-  const title = stepDisplayTitle(step, running && !waiting);
+  const title = stepDisplayTitle(step, running && !waiting, waiting);
   const duration = useDisplayValue(1000, (now) => stepDuration(step, now), running && step.startedAt != null);
   const opener = useFileOpener();
   // A read or edit's file opens in the editor from its name; the click doesn't toggle the row.

@@ -1955,7 +1955,7 @@ const NavigationBody = memo(function NavigationBody({
       ? "Add a project from your computer to start a Chat."
       : session.hosts.length
         ? "Every computer is hidden. Show one in Settings."
-        : "Pair your computer. Open Settings → Devices in Milagre on your computer, then scan its pairing code.";
+        : "Pair your computer. Open Settings → Phone & sharing in Milagre on your computer, then scan its pairing code.";
   return (
     <View style={[styles.screen, { backgroundColor: background }]}>
       <View

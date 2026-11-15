@@ -10,7 +10,7 @@ const { chatTitle } = require("@milagre/shared/chats");
 const { createLinkedMcpServer } = require("./linked-mcp-server.cjs");
 const { worktreeLinkText } = require("@milagre/shared/worktree-link");
 
-const NO_COMPUTERS = "none. Pair one and turn on Drive other computers in Settings > Devices.";
+const NO_COMPUTERS = "none. Pair one and turn on Drive other computers in Settings > Phone & sharing.";
 // Every turn and tool call of a linked Chat asks which Worktrees are active; git is asked again after this long.
 const ACTIVE_TTL_MS = 3000;
 

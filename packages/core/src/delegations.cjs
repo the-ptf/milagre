@@ -315,7 +315,7 @@ class Delegations {
       throw new Error(
         remote.list().length
           ? `No paired computer is called ${computer}. linked_overview lists the ones this Chat can delegate to.`
-          : "No other computer is reachable. Pair one and turn on Drive other computers in Settings > Devices.",
+          : "No other computer is reachable. Pair one and turn on Drive other computers in Settings > Phone & sharing.",
       );
     if (!target.online) throw new Error(`${target.name} is offline, so nothing was sent. Try again once it is back.`);
     // Refs come back from that computer bare and reach this Chat qualified (to_chat); either form names the same place.

@@ -1,4 +1,4 @@
-// The pairing link a Mac shows in Settings › Devices, as the phone (apps/mobile/src/pairing.ts) and the desktop's Add
+// The pairing link a Mac shows in Settings › Phone & sharing, as the phone (apps/mobile/src/pairing.ts) and the desktop's Add
 // computer (apps/desktop/electron/computers.cjs) read it. Moved from apps/mobile/src/client.ts and pairing.ts unchanged,
 // with `allowLocalRelay` added for tests that run their own relay.
 
@@ -46,7 +46,7 @@ export function privateDeviceEndpoint(input, { allowLocalRelay = false } = {}) {
  */
 export function validRelay(value, { allowLocalRelay = false } = {}) {
   const relay = value;
-  const damaged = () => new Error("This pairing code is damaged. Scan the code again in Settings → Devices on your Mac.");
+  const damaged = () => new Error("This pairing code is damaged. Scan the code again in Settings → Phone & sharing on your computer.");
   let url;
   try {
     url = new URL(String(relay?.url ?? ""));
@@ -78,7 +78,9 @@ export function privatePairingLink(input) {
   const relay = pairing.relay;
   const direct = [...new Set([...(relay?.direct ?? []), ...(relay && privateDeviceEndpoint(relay.url) ? [relay.url] : [])])];
   if (!relay || !direct.length)
-    throw new Error("This code has no private network address. Choose LAN or Tailscale only in Settings → Devices on your Mac and copy its new link.");
+    throw new Error(
+      "This code has no private network address. Choose LAN or Tailscale only in Settings → Phone & sharing on your computer and copy its new link.",
+    );
   return `milagre://pair?relay=${encodeURIComponent(direct[0])}&host=${relay.hostId}&key=${relay.key}&token=${pairing.token}&name=${encodeURIComponent(pairing.name)}&direct=${encodeURIComponent(JSON.stringify(direct))}`;
 }
 
@@ -100,12 +102,12 @@ export function parsePairing(input, { allowLocalRelay = false } = {}) {
   if (!/^[a-f0-9]{64}$/i.test(token)) throw new Error("This pairing link has no valid token. Restart the host on your Mac and scan the new code.");
   if (params.relay !== undefined || params.host !== undefined || params.key !== undefined) {
     // A link names one way to reach the Mac; one with both was not made by Milagre.
-    if (params.address !== undefined) throw new Error("This pairing link is damaged. Scan the code again in Settings → Devices on your Mac.");
+    if (params.address !== undefined) throw new Error("This pairing link is damaged. Scan the code again in Settings → Phone & sharing on your computer.");
     let direct;
     try {
       direct = params.direct === undefined ? undefined : JSON.parse(params.direct);
     } catch {
-      throw new Error("This pairing link is damaged. Scan the code again in Settings → Devices on your Mac.");
+      throw new Error("This pairing link is damaged. Scan the code again in Settings → Phone & sharing on your computer.");
     }
     const relay = validRelay({ url: params.relay, hostId: params.host, key: params.key, direct }, { allowLocalRelay });
     return {

@@ -6,7 +6,7 @@ export function deviceName(device: Pick<PairedDevice, "kind" | "name">): string 
   return device.name ?? (device.kind === "computer" ? "Computer" : "Phone");
 }
 
-/** The line under a device's name in Settings › Devices. */
+/** The line under a device's name in Settings › Phone & sharing. */
 export function deviceSeenLine(device: Pick<PairedDevice, "route" | "lastSeen">, now: number): string {
   if (device.route === "lan") return "Connected now, same network";
   if (device.route === "relay") return "Connected now, relay";
@@ -14,7 +14,7 @@ export function deviceSeenLine(device: Pick<PairedDevice, "route" | "lastSeen">,
   return `Last seen ${ago(device.lastSeen, now)}`;
 }
 
-/** Keys of the phones that paired since the owner last looked at Settings › Devices. */
+/** Keys of the phones that paired since the owner last looked at Settings › Phone & sharing. */
 export function newDeviceKeys(devices: Pick<PairedDevice, "key" | "isNew">[]): string[] {
   return devices.filter((device) => device.isNew === true).map((device) => device.key);
 }

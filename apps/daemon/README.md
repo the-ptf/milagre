@@ -28,7 +28,7 @@ milagre --version
    milagre serve --project /absolute/path/to/project
    ```
 
-2. Pair a device. On a phone, scan the QR from Milagre's pairing screen. On another desktop, open Settings › Devices › Add computer and paste the link.
+2. Pair a device. On a phone, scan the QR from Milagre's pairing screen. On another desktop, open Settings › Phone & sharing › Add computer and paste the link.
 3. Approve a desktop from a second terminal on the server:
 
    ```sh

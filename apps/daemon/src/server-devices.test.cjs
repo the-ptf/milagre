@@ -215,7 +215,7 @@ test("a phone that pairs while no window is connected is announced once to the n
   assert.deepEqual(await first.call("devices:take-notices"), { claim: null, devices: [] });
   await assert.rejects(first.call("devices:confirm-notices", [42]), /notice claim/);
 
-  // Settings › Devices shows it as New until the window says the owner saw it.
+  // Settings › Phone & sharing shows it as New until the window says the owner saw it.
   assert.equal((await first.call("devices:list"))[0].isNew, true);
   const [after] = await first.call("devices:acknowledge", [[key]]);
   assert.equal(after.isNew, false);

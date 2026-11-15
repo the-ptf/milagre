@@ -698,7 +698,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     title: "Delegate to other computers",
     group: "Beta",
     description:
-      "A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Devices.",
+      "A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Phone & sharing.",
     keywords: "remote agents",
   },
   {

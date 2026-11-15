@@ -49,7 +49,9 @@ test("a relay link previews as the computer it names and how it is reached, with
 
 test("a pasted link that isn't a relay link, this Mac's own, or a computer already added, is refused before any socket opens", async (t) => {
   const { computers } = await setup(t, { saved: [studio] });
-  await assert.rejects(computers.preview("hello"), { message: "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other computer." });
+  await assert.rejects(computers.preview("hello"), {
+    message: "That isn't a Milagre pairing link. Copy it from Settings › Phone & sharing on the other computer.",
+  });
   await assert.rejects(computers.preview(link({ relay: "ws://127.0.0.1:9000" })), /isn't a Milagre pairing link/);
   await assert.rejects(computers.preview(`milagre://pair?address=${encodeURIComponent("https://mac.example.com")}&token=${"a".repeat(64)}&name=x`), {
     message: "This link reaches its computer through a Cloudflare tunnel, which computers can't use yet.",

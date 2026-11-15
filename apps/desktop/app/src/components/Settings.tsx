@@ -3009,7 +3009,7 @@ export function SettingsPanel({
   /** Opens a Chat named on the Usage page, on the computer whose transcripts it reads. */
   onOpenUsageChat?: (computerId: string, projectPath: string, sessionId: number) => void;
   computerId?: string;
-  /** Opens Add computer, from Settings › Devices. */
+  /** Opens Add computer, from Settings › Phone & sharing. */
   onAddComputer?: () => void;
   onSectionChange?: (section: SettingsSection) => void;
   accountScope?: string;
