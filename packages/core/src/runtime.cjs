@@ -7,11 +7,6 @@ const { registerLinkRuntime } = require("./link-runtime.cjs");
 const { isLinkScopeKey, scopeFromKey, scopeKey } = require("@milagre/shared/chat-scopes");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { defaultFallback } = require("./routines/fallback.cjs");
-const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
-const { compactionMessage } = require("@milagre/shared/compaction");
-const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
-const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
-const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
 const { ChatTitles, createChatTitleModels, generateChatTitle, generateRunTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
 const fs = require("node:fs/promises");
@@ -27,8 +22,6 @@ const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp } = require("./agents/antigravity-acp.cjs");
 const { kiroAcp } = require("./agents/kiro-acp.cjs");
-const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
-const { runCliUpdate } = require("./agents/cli-update.cjs");
 const { recoverAntigravitySubagents } = require("./agents/antigravity-subagents.cjs");
 const { loadLoginEnvironment } = require("./agents/environment.cjs");
 const { failedWith, hostNetworkInstructions, loginMessage } = require("./agents/events.cjs");
@@ -51,6 +44,7 @@ const { readPullRequestState } = require("./pull-request.cjs");
 const { registerPullRequests } = require("./runtime/pull-requests.cjs");
 const { registerSettingsCommands } = require("./runtime/settings-commands.cjs");
 const { createToolServices } = require("./runtime/tool-services.cjs");
+const { registerChatLifecycle } = require("./runtime/chat-lifecycle.cjs");
 const { registerProjects } = require("./runtime/projects.cjs");
 const { createWorktrees } = require("./runtime/worktrees.cjs");
 const { createAdvisorsWiring } = require("./runtime/advisors-wiring.cjs");
@@ -65,27 +59,25 @@ const { linearToolDefinitions } = require("./linear/tools.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { DiffRefresher } = require("./diff-refresh.cjs");
 const { chatKey, isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
-const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession } = require("@milagre/shared/project-edits");
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { saveProjectState, readProjectState, compactProjectState, stateFile } = require("./project-store.cjs");
 const { createRecentProjects, launchProject, plainFolder, rememberProject } = require("./recent-projects.cjs");
 const { activeWorktrees, inspectProject, mainCheckoutWorktrees, outsideGit, resolveProject } = require("./project-identity.cjs");
 const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
-const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
+const { createRoutines, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { idleWorktrees, assertIdleWorktree } = require("./storage-worktrees.cjs");
 const { createDoneSweep } = require("./done-sweep.cjs");
 const { createSnoozeSweep } = require("./snooze-sweep.cjs");
 const { wakesSnoozed } = require("@milagre/shared/snooze");
-const { doneDue } = require("@milagre/shared/done");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
 const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
 const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
-const { PERMISSION_MODES, askForUnknownModes } = require("./agents/permissions.cjs");
+const { askForUnknownModes } = require("./agents/permissions.cjs");
 const { createChatsHome } = require("./chats-home.cjs");
 const { isFolderChatsHome } = require("./chats-home-folders.cjs");
 const git = createGit().read;
@@ -118,7 +110,6 @@ function createRuntime(options) {
   function track(work, set = active) {
     return hold(Promise.resolve().then(work), set);
   }
-  // Agent events fold in the order they arrive, so they start at once; holding them keeps close() waiting for each.
   function hold(task, set) {
     set.add(task);
     task.then(
@@ -208,7 +199,7 @@ function createRuntime(options) {
     chats: () => chats,
     ports: () => ports,
     advisors: () => advisors,
-    sendAsUser,
+    sendAsUser: (...args) => sendAsUser(...args),
   });
   const searchFiles = createFileSearch();
   const environmentReady =
@@ -1051,423 +1042,69 @@ function createRuntime(options) {
     tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
-  commands.handle("chat:send", (_event, request) => {
-    turnDefaults.remember(request ?? {});
-    return sendAsUser(request);
+  const {
+    stopChat,
+    respondPermission,
+    answerQuestion,
+    setPermissionMode,
+    sendAsUser,
+    linearIssueMessage,
+    markIssueStarted,
+    archiveChat,
+    moveRunChats,
+    stopChatWork,
+    archiveRunChat,
+    keepRunChat,
+    patchChat,
+    wakeSnoozedChat,
+    archiveDoneChat,
+    readOpenChat,
+    agentCliStatus,
+  } = registerChatLifecycle({
+    options,
+    emit,
+    commands,
+    handlers,
+    agentCli,
+    agents,
+    antigravity,
+    background,
+    chats,
+    editProject,
+    environmentReady,
+    existingChat,
+    heldState,
+    linear,
+    linearIssues,
+    linkStore,
+    mobileUploads,
+    needsUserAt,
+    projectName,
+    readLinearIssue,
+    routing,
+    scopeStates,
+    sentFromNotes,
+    setupReview,
+    states,
+    track,
+    turnDefaults,
+    updateProject,
+    worktreeSetups,
+    terminals,
+    artifacts,
+    computerUseScreen,
+    advisorDelivery: () => advisorDelivery,
+    advisors: () => advisors,
+    bugReports: () => bugReports,
+    canvasChatModes: () => canvasChatModes,
+    chatSecrets: () => chatSecrets,
+    linkRuntime: () => linkRuntime,
+    linked: () => linked,
+    needsUserCount: () => needsUserCount,
+    routines: () => routines,
+    subchatEscalation: () => subchatEscalation,
+    validateAccountScope: (...args) => validateAccountScope(...args),
   });
-  async function sendAsUser(request) {
-    if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
-    const { prAction, linearIssue, compact, sentFrom, ...rest } = request;
-    const action = prAction === undefined ? null : pullRequestActionContext(prAction);
-    if (prAction !== undefined && !action) throw new Error("That pull request action isn't valid.");
-    if (compact && rest.sessionId == null) throw new Error("Open a chat before compacting it.");
-    const message = action
-      ? { ...rest, body: pullRequestActionBody(action), prompt: pullRequestActionPrompt(action), images: [], files: [], context: action }
-      : compact
-        ? { ...rest, ...compactionMessage() }
-        : linearIssue !== undefined
-          ? (await linearIssueMessage(rest, linearIssue)).message
-          : { ...rest, context: undefined };
-    const { sessionId } = await chats.send(
-      compact ? message : sentFromNotes.message({ ...message, sentFrom }, rest.sessionId == null ? null : chatKey(rest.projectPath, rest.sessionId)),
-    );
-    if (!compact) sentFromNotes.sent(chatKey(rest.projectPath, sessionId), sentFrom);
-    noteHumanActed(chatKey(rest.projectPath, sessionId));
-    if (rest.sessionId != null) {
-      await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
-      await reopenDoneChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't reopen a Done Chat:", error.message));
-      await wakeSnoozedChat(rest.projectPath, sessionId, { byUser: true }).catch((error) =>
-        console.warn("Milagre couldn't wake a snoozed Chat:", error.message),
-      );
-    }
-    return { sessionId };
-  }
-  async function linearIssueMessage(rest, request) {
-    const ask = linearIssueRequest(request);
-    if (!ask) throw new Error("That Linear issue isn't valid.");
-    const issue = await readLinearIssue(ask.key, ask.workspace).catch((error) => {
-      console.warn(`Milagre couldn't read ${ask.key} for its card:`, error.message);
-      return null;
-    });
-    if (!issue) return { message: { ...rest, context: undefined }, issue: null };
-    const files = Array.isArray(rest.files) ? rest.files : [];
-    return {
-      message: {
-        ...rest,
-        body: issueFirstMessage(issue, ask.note),
-        prompt: linearIssuePrompt(issue, ask.note) + (files.length ? `\n\nAttached files:\n${files.join("\n")}` : ""),
-        context: linearIssueContext(issue, ask.note),
-      },
-      issue,
-    };
-  }
-  function markIssueStarted(issue) {
-    if (linear.moveToStarted() && linear.canWrite(issue.workspace))
-      void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
-  }
-  commands.handle("chat:resume", async (_event, projectPath, sessionId) => {
-    if (!scopeStates.has(projectPath)) throw new Error("Open the project before continuing its chats.");
-    return chats.resumeChat(projectPath, Number(sessionId));
-  });
-  async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
-    if (!scopeStates.has(projectPath)) return;
-    await chats.cancelLimitResume(projectPath, sessionId);
-    const chatId = `${projectPath}#${sessionId}`;
-    const stopping = stopChatWork(chatId);
-    stopping.catch(() => {});
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
-    void track(() => stopping, background).catch((error) => console.warn("Milagre couldn't stop an archived Chat's work:", error.message));
-  }
-  async function moveRunChats(projectPath, sessionIds, { worktreeId, formerWorktree, archive = [], restore }) {
-    const before = {};
-    await editProject(
-      projectPath,
-      (state) => {
-        const sessions = { ...state.sessions };
-        for (const id of restore ? [] : archive) {
-          const session = sessions[id];
-          if (!session) continue;
-          before[id] = { worktree_id: session.worktree_id, archived: session.archived };
-          sessions[id] = { ...session, archived: true };
-        }
-        for (const id of sessionIds) {
-          const session = sessions[id];
-          if (!session) continue;
-          if (restore) {
-            const previous = restore[id];
-            if (!previous) continue;
-            const { formerWorktree: _former, ...rest } = session;
-            sessions[id] = { ...rest, worktree_id: previous.worktree_id, archived: previous.archived };
-            continue;
-          }
-          before[id] = { worktree_id: session.worktree_id, archived: session.archived };
-          sessions[id] = { ...session, worktree_id: worktreeId, archived: true, formerWorktree };
-        }
-        return { ...state, sessions };
-      },
-      { chats: [] },
-    );
-    return before;
-  }
-  async function stopChatWork(chatId) {
-    terminals.closeChat(chatId);
-    routines.chatArchived(chatId);
-    if (chats.runs[chatId]) return stopChat(chatId);
-    await advisorDelivery.stop(chatId);
-    await advisors.stopChat(chatId);
-  }
-  async function archiveRunChat(projectPath, sessionId, runId) {
-    const left = (session) => isHiddenRunChat(session) && !session.archived && session.routine.runId === runId;
-    if (!scopeStates.has(projectPath) || !left((await scopeStates.get(projectPath)).sessions[sessionId])) return;
-    let archived = false;
-    await editProject(
-      projectPath,
-      (state) => {
-        if (!left(state.sessions[sessionId])) return state;
-        archived = true;
-        return patchSession(state, sessionId, { archived: true });
-      },
-      { chats: [] },
-    );
-    if (archived) await stopChatWork(`${projectPath}#${sessionId}`);
-  }
-  async function keepRunChat(projectPath, sessionId) {
-    if (!scopeStates.has(projectPath)) return;
-    const keepable = (session) => isRunChat(session) && session.routine.hidden !== false;
-    if (!keepable(heldState(projectPath)?.sessions[sessionId])) return;
-    if (!keepable((await scopeStates.get(projectPath)).sessions[sessionId])) return;
-    await editProject(projectPath, (state) => withRunChatsHidden(state, { [sessionId]: false }, (routine) => routine.hidden !== false), { chats: [] });
-  }
-  function sessionPatch(patch) {
-    if (!patch || typeof patch !== "object") return {};
-    const { done, done_at: _clientClock, ...rest } = patch;
-    if (done === true) return { ...rest, done_at: Date.now(), snoozed_until: undefined };
-    if (done === false || rest.archived === false) return { ...rest, done_at: undefined, snoozed_until: undefined };
-    if (rest.archived) return { ...rest, snoozed_until: undefined };
-    return rest;
-  }
-  async function patchChat(projectPath, sessionId, raw) {
-    if (!scopeStates.has(projectPath)) return;
-    const receivedAt = needsUserCount;
-    const patch = sessionPatch(raw);
-    if (patch.archived) return archiveChat(projectPath, sessionId, patch);
-    if (patch.done_at) routines.chatDone(`${projectPath}#${sessionId}`);
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
-    if (patch.snoozed_until && (needsUserAt.get(`${projectPath}#${sessionId}`) ?? 0) > receivedAt) await wakeSnoozedChat(projectPath, sessionId);
-  }
-  async function reopenDoneChat(projectPath, sessionId) {
-    if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.done_at) return;
-    await editProject(projectPath, (state) => patchSession(state, sessionId, { done_at: undefined }), { chats: [] });
-  }
-  async function wakeSnoozedChat(projectPath, sessionId, { due = false, byUser = false } = {}) {
-    if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.snoozed_until) return false;
-    let woke = false;
-    await editProject(
-      projectPath,
-      (state) => {
-        const session = state.sessions[sessionId];
-        if (!session?.snoozed_until || (due && session.snoozed_until > Date.now())) return state;
-        woke = true;
-        return patchSession(state, sessionId, byUser ? { snoozed_until: undefined } : { snoozed_until: undefined, unread: true });
-      },
-      { chats: [] },
-    );
-    return woke;
-  }
-  async function archiveDoneChat(scope, sessionId, retentionHours) {
-    if (!scopeStates.has(scope)) return false;
-    const session = (await scopeStates.get(scope)).sessions[sessionId];
-    if (!doneDue(session, retentionHours)) return false;
-    await archiveChat(scope, sessionId, { archived: true, unread: false });
-    if (isLinkScopeKey(scope) || !states.has(scope)) return true;
-    const state = await states.get(scope);
-    const worktree = state.worktrees[session.worktree_id];
-    if (!worktree?.base || worktree.path === scope) return true;
-    if (Object.values(state.sessions).some((other) => other.worktree_id === worktree.id && !other.archived && other.id !== session.id)) return true;
-    await environmentReady;
-    const status = await worktreeStatus(worktree.path, worktree.base).catch(() => null);
-    if (!status?.removable) return true;
-    await handlers
-      .get("worktree:remove")({}, worktree.path, { projectPath: scope, chatId: `${scope}#${sessionId}`, seen: status })
-      .catch((error) => console.warn("Milagre kept a Done Chat's worktree:", error.message));
-    return true;
-  }
-  commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {
-    await patchChat(projectPath, sessionId, patch);
-    if (patch?.kept === true || patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
-      await keepRunChat(projectPath, sessionId);
-  });
-  commands.handle("chat:delete", async (_event, projectPath, sessionId) => {
-    if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
-    const chatId = `${projectPath}#${sessionId}`;
-    await existingChat("deleting it")(chatId);
-    if (isLinkScopeKey(projectPath)) {
-      const { linkId } = scopeFromKey(projectPath);
-      const link = await linkRuntime.definition(linkId);
-      if (link.canvasLinkId && !(await linkStore.get(linkId)).releasedAt)
-        throw new Error("Switch this Link to separate Chats before deleting its shared conversation.");
-    }
-    await stopChatWork(chatId);
-    await worktreeSetups.cancel(chatId);
-    await agents.closeChat(chatId);
-    await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
-    computerUseScreen.forget(chatId);
-    await artifacts.removeChat(chatId).catch(() => {});
-  });
-  commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
-    scopeStates.has(projectPath)
-      ? editProject(projectPath, (state) => archiveSubagent(state, sessionId, String(id), archived === true), { chats: [] }).then(() => {})
-      : undefined,
-  );
-  commands.handle("chat:archive-finished-subagents", (_event, projectPath, sessionId) =>
-    scopeStates.has(projectPath) ? editProject(projectPath, (state) => archiveFinishedSubagents(state, sessionId), { chats: [] }).then(() => {}) : undefined,
-  );
-  commands.handle("chat:git-note", (_event, chatId, body) => {
-    if (typeof chatId !== "string" || typeof body !== "string" || !scopeStates.has(projectOfKey(chatId))) return undefined;
-    return chats.addNote(chatId, { body, context: { kind: "git-action" } });
-  });
-  async function readOpenChat(chatId = chats.openChat) {
-    if (chatId && scopeStates.has(projectOfKey(chatId))) {
-      await updateProject(projectOfKey(chatId), (state) => patchSession(state, sessionIdFromKey(chatId), { unread: false }), { chats: [] });
-      void track(async () => {
-        await advisors.reconcile(chatId);
-        await chats.recoverSubagents(chatId);
-      }, background).catch((error) => console.warn("Milagre couldn't refresh subagent outcomes:", error.message));
-    }
-  }
-  commands.handle("chat:set-open", (_event, chatId) => {
-    chats.setOpenChat(chatId);
-    return readOpenChat();
-  });
-  commands.handle("chat:runs", () => chats.snapshot());
-  commands.handle("chat:inbox", async () => {
-    const scopes = await Promise.all(
-      scopeStates.projects().map(async (key) => ({
-        path: key,
-        name: isLinkScopeKey(key) ? (await linkRuntime.definition(scopeFromKey(key).linkId)).name : projectName(key),
-        state: await scopeStates.inboxState(key),
-      })),
-    );
-    return require("@milagre/shared/attention").inboxSnapshot(scopes, chats.snapshot().runs);
-  });
-
-  const agentCliStatus = (scope) => (options.agentCliStatus ? options.agentCliStatus() : routing.services(scope).status());
-  agentCliStatus.invalidate = (provider) => {
-    routing.invalidate(provider);
-    options.agentCliStatus?.invalidate?.(provider);
-  };
-  const providerUpdates = options.providerUpdates ?? createProviderUpdates({ ready: () => environmentReady, antigravity });
-  commands.handle("agent:provider-updates", () => providerUpdates());
-  const cliUpdates = new Map();
-  commands.handle("agent:cli-status", async (_event, scope) => agentCliStatus(await validateAccountScope(scope, true)));
-  commands.handle("agent:update-cli", async (_event, provider, targetVersion) => {
-    if (!PROVIDERS.includes(provider)) throw new Error("Unknown provider.");
-    targetVersion ??= undefined;
-    if (targetVersion !== undefined && !releaseVersion(targetVersion)) throw new Error("Invalid provider version.");
-    if (cliUpdates.has(provider)) return cliUpdates.get(provider);
-    const pending = (async () => {
-      const result = await (options.runCliUpdate ?? runCliUpdate)(provider, {
-        targetVersion,
-        antigravity,
-        onProgress: (progress) => emit("agent:cli-progress", { provider, ...progress }),
-      });
-      agentCli.invalidate(provider);
-      agentCliStatus.invalidate(provider);
-      const status = await agentCliStatus();
-      return { ...result, status: status[provider] };
-    })();
-    cliUpdates.set(provider, pending);
-    try {
-      return await pending;
-    } finally {
-      cliUpdates.delete(provider);
-    }
-  });
-
-  commands.handle("agent:models", async (_event, scope) => {
-    scope = await validateAccountScope(scope, true);
-    return options.agentModels ? options.agentModels() : routing.services(scope).models();
-  });
-
-  commands.handle("agent:interrupt", async (_event, chatId) => {
-    await existingChat("stopping advisors")(chatId);
-    await stopChat(chatId);
-  });
-
-  commands.handle("chat:queue-send", async (_event, chatId, id) => {
-    await existingChat("sending a queued message")(chatId);
-    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
-    const { interrupt } = await chats.sendQueuedNow(chatId, id);
-    if (interrupt) await stopChat(chatId);
-  });
-  commands.handle("chat:queue-remove", async (_event, chatId, id) => {
-    await existingChat("removing a queued message")(chatId);
-    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
-    return chats.removeQueued(chatId, id);
-  });
-
-  commands.handle("chat:reload", async (_event, chatId) => {
-    await existingChat("reloading it")(chatId);
-    const state = await scopeStates.get(projectOfKey(chatId));
-    const sessionId = sessionIdFromKey(chatId);
-    if (state.sessions[sessionId]?.readOnlyReason) throw new Error(state.sessions[sessionId].readOnlyReason);
-    await chats.cancelLimitResume(projectOfKey(chatId), sessionId);
-    const background = Math.max(agents.backgroundWork(chatId), processWork(state.sessions[sessionId]).length);
-    if (background) throw new Error(backgroundBusyMessage("reload", background));
-    if (chats.runs[chatId]) await stopChat(chatId);
-    if ((state.sessions[sessionId]?.summary?.count ?? 0) > 0 || state.messages.some((message) => message.session_id === sessionId))
-      await chats.addNote(chatId, { body: RELOAD_TEXT, context: { kind: "reload" } });
-    await agents.closeChat(chatId);
-    await editProject(
-      projectOfKey(chatId),
-      (latest) => {
-        const current = latest.sessions[sessionId];
-        if (!current || (current.suggestion === undefined && current.suggestionTurnId === undefined)) return latest;
-        const { suggestion: _suggestion, suggestionTurnId: _turn, ...session } = current;
-        return { ...latest, sessions: { ...latest.sessions, [sessionId]: session } };
-      },
-      { chats: [] },
-    );
-  });
-
-  commands.handle("chat:task-output", async (_event, chatId, taskId) => {
-    await existingChat("reading a background task")(chatId);
-    if (typeof taskId !== "string" || !taskId || taskId.length > 200) throw new Error("That background task isn't valid.");
-    return agents.taskOutput(chatId, taskId);
-  });
-
-  async function stopChat(chatId) {
-    chatSecrets?.cancel(chatId);
-    bugReports?.cancel(chatId);
-    const cancellingResume = chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
-    void track(() => cancellingResume, background).catch((error) => console.warn("Milagre couldn't save a cancelled continuation:", error.message));
-    await linked.stop({ chatKey: chatId });
-    await advisorDelivery.stop(chatId);
-    await advisors.stopChat(chatId);
-    if (await chats.cancelHandoff(chatId)) return;
-    await worktreeSetups.cancel(chatId);
-    await agents.interrupt(chatId);
-  }
-
-  async function respondPermission({ chatId, requestId, decision }) {
-    if (typeof requestId === "string" && requestId.startsWith("setup-review-")) return setupReview.respond(chatId, requestId, decision);
-    return agents.respondToPermission(chatId, requestId, decision);
-  }
-  commands.handle("agent:respond-permission", async (_event, request) => {
-    const accepted = await respondPermission(request);
-    if (accepted) noteHumanActed(request.chatId);
-    return accepted;
-  });
-  function noteHumanActed(chatId) {
-    void subchatEscalation.humanActed(chatId).catch((error) => console.warn("Milagre couldn't follow a Subchat's family:", error.message));
-  }
-
-  commands.handle("agent:answer-question", (_event, request = {}) => answerQuestion(request));
-  async function answerQuestion({ chatId, requestId, answers, summary, images, suggestionId }, sender = null) {
-    if (require("./chat-secrets.cjs").isSecretRequest(requestId)) {
-      const accepted = chatSecrets.answer(chatId, requestId, answers);
-      if (accepted) noteHumanActed(chatId);
-      return accepted;
-    }
-    if (require("./bug-reports.cjs").isBugReportRequest(requestId)) {
-      if (sender) throw new Error("Only the user can approve a Milagre bug report.");
-      const accepted = bugReports.answer(chatId, requestId, answers);
-      if (accepted) noteHumanActed(chatId);
-      return accepted;
-    }
-    const { answerImages, withAnswerImages } = require("./agents/questions.cjs");
-    const attached = answers ? answerImages(images) : {};
-    for (const [id, list] of Object.entries(attached))
-      attached[id] = (await mobileUploads.resolveImages(projectOfKey(chatId), list)).map(({ id: imageId, name, dataUrl }) => ({ id: imageId, name, dataUrl }));
-    const stored = Object.keys(attached).length ? await chats.storeAnswerImages(chatId, attached) : {};
-    const { agent, shown } = withAnswerImages(answers, stored);
-    const storedImages = Object.values(stored).flat();
-    const recorded =
-      answers && typeof summary === "string" && summary && typeof chatId === "string" && scopeStates.has(projectOfKey(chatId))
-        ? chats.recordAnswers(chatId, summary, { requestId, answers: shown, images: storedImages }).catch((error) => {
-            console.warn("Milagre couldn't show the answers:", error.message);
-            return null;
-          })
-        : Promise.resolve(null);
-    const answering = subchatEscalation.answering(chatId, requestId, {
-      label: sender?.answerLabel ?? summary,
-      suggestionId: typeof suggestionId === "string" ? suggestionId : undefined,
-      sender,
-    });
-    let accepted;
-    try {
-      accepted = await agents.answerQuestion(chatId, requestId, answers && agent);
-    } catch (error) {
-      answering.failed();
-      const messageId = await recorded;
-      if (messageId !== null) await chats.takeBack(chatId, messageId);
-      throw error;
-    }
-    const messageId = await recorded;
-    if (!accepted && messageId !== null) await chats.takeBack(chatId, messageId);
-    if (!accepted) answering.failed();
-    else void answering.accepted().catch((error) => console.warn("Milagre couldn't follow an answer to a Subchat:", error.message));
-    return accepted;
-  }
-
-  commands.handle("agent:dismiss-suggestion", async (_event, { chatId, id } = {}) => {
-    if (typeof chatId !== "string" || typeof id !== "string") throw new Error("That suggestion isn't valid.");
-    return subchatEscalation.suggestions.dismiss(chatId, id);
-  });
-
-  async function setPermissionMode(chatId, mode) {
-    if (!PERMISSION_MODES.has(mode)) throw new Error(`Unknown permission mode: ${mode}`);
-    const scope = projectOfKey(chatId);
-    const state = await scopeStates.get(scope);
-    const session = state.sessions[sessionIdFromKey(chatId)];
-    canvasChatModes.assertWritable(scope, state, session, state.worktrees?.[session?.worktree_id]);
-    if (mode !== "full") await advisors?.stopExecution(chatId);
-    const result = await chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
-    if (mode === "full") advisors?.resumeExecution(chatId);
-    return result;
-  }
-  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode));
-
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
     if (!options.notifyWaiting || !scopeStates.has(projectPath) || !("requestId" in event)) return;
