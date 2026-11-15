@@ -8,7 +8,7 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { AboutSettings } from "/src/components/Settings";
+import { AboutSettings } from "/src/components/settings/AboutSettings";
 import "/src/styles.css";
 window.__channelCalls = [];
 window.milagre = {
