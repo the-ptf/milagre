@@ -10,7 +10,8 @@ import { useFlowDraft } from "../flow-draft";
 import { openStep, unavailableKinds } from "../flow-editor";
 import { stepLook } from "../flow-looks";
 import { StepTile } from "../flow-ui";
-import { tap, useStyles } from "../ui";
+import { lineHeight, radius, space, type } from "../design-tokens";
+import { DISABLED_OPACITY, tap, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 /**
@@ -62,43 +63,43 @@ export default function FlowAddStepSheet() {
   };
 
   return (
-    <View style={{ paddingTop: 24, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: 14 }}>
+    <View style={{ paddingTop: 24, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: space.xl }}>
       <Text accessibilityRole="header" style={[styles.subtitle, { textAlign: "center" }]}>
         Add step
       </Text>
       <View style={{ gap: 4 }}>
-        {FLOW_STEP_TYPES.map((type) => {
-          const off = unavailable.has(type.kind) || (type.kind === "if" && tooDeep);
-          const why = unavailable.has(type.kind) ? "Needs a Linear trigger" : type.kind === "if" && tooDeep ? `Ifs nest ${FLOW_LIMITS.depth} deep at most` : "";
+        {FLOW_STEP_TYPES.map((step) => {
+          const off = unavailable.has(step.kind) || (step.kind === "if" && tooDeep);
+          const why = unavailable.has(step.kind) ? "Needs a Linear trigger" : step.kind === "if" && tooDeep ? `Ifs nest ${FLOW_LIMITS.depth} deep at most` : "";
           return (
             <Pressable
-              key={type.kind}
+              key={step.kind}
               accessibilityRole="button"
-              accessibilityLabel={`${type.name}. ${why || type.description}`}
+              accessibilityLabel={`${step.name}. ${why || step.description}`}
               accessibilityState={{ disabled: off }}
               disabled={off || !routine}
               onPress={() => {
                 tap();
-                pick(type.kind);
+                pick(step.kind);
               }}
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 12,
                 minHeight: 60,
-                paddingHorizontal: 10,
-                paddingVertical: 10,
-                borderRadius: 14,
+                paddingHorizontal: space.lg,
+                paddingVertical: space.md,
+                borderRadius: radius.control,
                 borderCurve: "continuous",
                 backgroundColor: pressed ? colors.hover : "transparent",
-                opacity: off ? 0.4 : 1,
+                opacity: off ? DISABLED_OPACITY.row : 1,
               })}
             >
-              <StepTile look={stepLook(type.kind)} />
+              <StepTile look={stepLook(step.kind)} />
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}>{type.name}</Text>
-                <Text numberOfLines={2} style={{ color: colors.ink3, fontSize: 13, lineHeight: 18 }}>
-                  {why || type.description}
+                <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>{step.name}</Text>
+                <Text numberOfLines={2} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+                  {why || step.description}
                 </Text>
               </View>
             </Pressable>

@@ -107,7 +107,7 @@ export default function ComputerScreen() {
           />
         </Group>
         <ComputerResourcesGroup host={host} online={state === "online"} />
-        <Group title="Settings on this Mac" footer={connecting ? "Connecting…" : undefined}>
+        <Group title="Settings on this computer" footer={connecting ? "Connecting…" : undefined}>
           <Row title="Models" icon={AiBrain01Icon} disabled={connecting} onPress={() => void open("models")} />
           <Row title="Accounts" icon={UserCircleIcon} disabled={connecting} onPress={() => void open("accounts")} />
           <Row title="Usage" icon={ChartColumnIcon} disabled={connecting} onPress={() => void open("usage")} />
@@ -116,7 +116,7 @@ export default function ComputerScreen() {
           <Row title="Worktrees" icon={FolderTreeIcon} disabled={connecting} onPress={() => void open("worktrees")} />
           <Row title="Integrations" icon={ConnectIcon} disabled={connecting} onPress={() => void open("connections")} />
           <Row title="Phone & sharing" icon={SmartphoneIcon} disabled={connecting} onPress={() => void open("phone-sharing")} />
-          <Row title="This Mac" icon={LaptopIcon} disabled={connecting} onPress={() => void open("this-mac")} />
+          <Row title="This computer" icon={LaptopIcon} disabled={connecting} onPress={() => void open("this-mac")} />
         </Group>
         <Group inset={0}>
           <Row title="Rename" chevron={false} onPress={() => renameComputer(host, { onRenamed: () => session.loadHosts(), onError: setError })} />

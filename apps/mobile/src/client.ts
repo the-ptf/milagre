@@ -190,7 +190,7 @@ function relayLive(path: string, { onSignal, onStatus }: LiveOptions, through: P
 
 export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, timeoutMs = 30000, runtime?: RelayRuntime) {
   const relay = host.relay ? validRelay(host.relay) : undefined;
-  if (relay && !runtime) throw new Error("This app cannot reach a Mac through the relay.");
+  if (relay && !runtime) throw new Error("This app cannot reach a computer through the relay.");
   const access = relay ? undefined : host.access;
   const url = relay ? relayAddress(relay.hostId) : localEndpoint(host.address);
   if (access && !url.startsWith("https:")) throw new Error("A Cloudflare access token needs an HTTPS address.");
@@ -315,10 +315,10 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         new Error(
           [401, 403].includes(response.status)
             ? through
-              ? "Your Mac refused this phone. Scan its code again in Settings → Devices."
+              ? "Your computer refused this phone. Scan its code again in Settings → Devices."
               : "Your computer's Cloudflare access was refused. Scan its pairing code again."
             : response.status >= 500
-              ? "Your computer isn't answering. Check that Milagre and its mobile host are running on your Mac."
+              ? "Your computer isn't answering. Check that Milagre and its mobile host are running on it."
               : `Unexpected response from your computer (${response.status}).`,
         ),
         { status: response.status },
@@ -372,7 +372,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         if (!through) throw lost();
         return timed(timeoutMs, (signal) => overRelay(through, "GET", mediaRoute(projectPath, path), {}, undefined, signal));
       });
-      if (response.status !== 200) throw new Error("Could not load this image from your Mac.");
+      if (response.status !== 200) throw new Error("Could not load this image from your computer.");
       return { uri: await runtime!.files.write(name, response.body) };
     })();
     images.set(name, loading);

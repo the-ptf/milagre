@@ -3049,7 +3049,7 @@ test("pairing through the relay builds the client from the pairing and saves the
   assert.equal(created[0][3], relayRuntime);
   assert.deepEqual(JSON.parse(JSON.stringify(saved)), [
     {
-      name: "Mac",
+      name: "Computer",
       address: `relay://${relay.hostId}`,
       token: "a".repeat(64),
       relay,
@@ -3060,7 +3060,7 @@ test("pairing through the relay builds the client from the pairing and saves the
     [[`relay://${relay.hostId}`, { token: "a".repeat(64), relay }]],
     "asks the Mac for its LAN route after connecting",
   );
-  assert.equal(render().hostName, "Mac");
+  assert.equal(render().hostName, "Computer");
 });
 
 test("reloading Projects keeps their order when opening a Chat moves its Project to the top of the host's list", async () => {
@@ -13020,19 +13020,20 @@ test("phone Usage tabs replace the route and keep the current tab selected", () 
   const replaced = [];
   const { UsageTabs } = load("usage-tabs.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native": { View: "View" },
     "expo-router": { router: { replace: (path) => replaced.push(path) } },
-    "./theme": themeHooks,
+    "./ui": { Segmented: "Segmented" },
   });
   for (const value of ["plan", "analytics"]) {
-    const tabs = allNodes(UsageTabs({ value }), (node) => node.props?.accessibilityRole === "tab");
-    assert.deepEqual(
-      tabs.map((tab) => tab.props.accessibilityState.selected),
-      value === "plan" ? [true, false] : [false, true],
-    );
-    tabs.find((tab) => tab.props.accessibilityState.selected).props.onPress();
+    // The shared Segmented control, its selection the current route.
+    const control = find(UsageTabs({ value }), (node) => node.type === "Segmented");
+    assert.equal(control.type, "Segmented");
+    assert.equal(control.props.label, "Usage view");
+    assert.equal(control.props.value, value);
+    assert.equal(control.props.options.map((option) => option.title).join(" | "), "Plan usage | Analytics");
+    control.props.onChange(value);
     assert.equal(replaced.length, value === "plan" ? 0 : 1, "the active tab does not navigate again");
-    tabs.find((tab) => !tab.props.accessibilityState.selected).props.onPress();
+    control.props.onChange(value === "plan" ? "analytics" : "plan");
   }
   assert.deepEqual(replaced, ["/(settings)/token-usage", "/(settings)/usage"]);
 });
@@ -14214,7 +14215,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
         "Studio",
         [
           ["Phone & sharing", ""],
-          ["This Mac", ""],
+          ["This computer", ""],
         ],
       ],
       ["Projects", [["milagre", ""]]],
@@ -14266,7 +14267,7 @@ test("mobile Settings groups this iPhone, then the connected Mac's Agents, Code 
   assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.dot, "gray");
   state.reachability = { a: "checking" };
   assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "Checking…");
-  assert.equal(tile(SettingsView({ onOpen() {} }), "Routines").props.value, "Update your Mac");
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Routines").props.value, "Update your computer");
   state.routinesAvailable = true;
   state.routines = [{ enabled: true }, { enabled: false }, { enabled: true }];
   const available = tile(SettingsView({ onOpen() {} }), "Routines");
@@ -14378,7 +14379,7 @@ test("mobile Linear page shows the Mac's Linear switch and status, re-read on fo
   const offline = load("linear-section.tsx", modules({ client: null })).LinearSection;
   react.begin();
   const empty = offline();
-  assert.ok(text(empty, "Connect to a Mac to change its Linear connection."));
+  assert.ok(text(empty, "Connect to a computer to change its Linear connection."));
   assert.equal(
     find(empty, (n) => n.props?.title === "Linear"),
     undefined,
@@ -16606,7 +16607,7 @@ test("mobile Published pages entry requires owner access", async () => {
     if (allowed) {
       row.props.onPress();
       assert.deepEqual(pushed, ["/published-pages"]);
-    } else assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Only the Mac's owner can manage its published pages."));
+    } else assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Only the computer's owner can manage its published pages."));
   }
 });
 
@@ -17831,7 +17832,7 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   // The lid note is the empty state's, as on desktop: a list of Routines goes without it.
   assert.equal(
     allNodes(tree, (node) => node.type === "Text").some(
-      (node) => textOf(node) === "Routines run while this Mac is awake. Closing the lid on battery pauses them.",
+      (node) => textOf(node) === "Routines run while your computer is awake. Closing the lid on battery pauses them.",
     ),
     false,
   );
@@ -18187,7 +18188,7 @@ test("the phone Routine screen says No Runs yet with the next Run", async () => 
   );
 
   const gone = routineHost({ id: "nope" });
-  assert.ok(allNodes(gone.render(), (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on this Mac."));
+  assert.ok(allNodes(gone.render(), (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on your computer."));
 });
 
 test("the phone Routine screen goes back once the Mac's list has been read and no longer holds its Routine", () => {
@@ -18197,7 +18198,7 @@ test("the phone Routine screen goes back once the Mac's list has been read and n
   assert.equal(host.backs(), 1);
   assert.deepEqual(host.replaced, []);
   // Still on screen while it leaves, with Edit unavailable.
-  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on this Mac."));
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on your computer."));
   assert.equal(find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Edit").props.disabled, true);
   // A later render, or a later focus, doesn't go back again.
   host.render();
@@ -18311,7 +18312,9 @@ function routineFormHost({ params = {}, routines = [], answers = {}, created } =
     "../confirm-store": { confirm: async () => true },
     "../icons": { Icon: "Icon" },
     "../ui": Object.fromEntries(
-      ["Button", "CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowCheckbox"].map((name) => [name, name]),
+      ["Button", "CheckRow", "CircleButton", "ErrorNotice", "Field", "Group", "PageScroll", "PillButton", "PullDown", "RowCheckbox", "SectionLabel"].map(
+        (name) => [name, name],
+      ),
     ),
   });
   const render = () => {
@@ -18470,7 +18473,7 @@ test("on a Mac without Routines the phone screen asks to update Milagre there, w
   await host.settle();
   const tree = host.render();
   const texts = new Set(allNodes(tree, (node) => node.type === "Text").map(textOf));
-  assert.ok(texts.has("Update Milagre on this Mac to use Routines."));
+  assert.ok(texts.has("Update Milagre on your computer to use Routines."));
   assert.ok(!texts.has("Routines are off on this Mac"));
   assert.equal(
     find(tree, (node) => node.type === "ErrorNotice"),
@@ -21966,7 +21969,18 @@ function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async 
     "../icons": { Icon: "Icon" },
     "../mcp-headers": load("mcp-headers.ts", { "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts") }),
     "../use-mcp": { useMcp: () => ({ saveUrl, definition }) },
-    "../ui": { CircleButton: "CircleButton", Field: "Field", PageScroll: "PageScroll" },
+    "../ui": {
+      CheckRow: "CheckRow",
+      CircleButton: "CircleButton",
+      Field: "Field",
+      Group: "Group",
+      IconButton: "IconButton",
+      ListRow: "ListRow",
+      PageScroll: "PageScroll",
+      SheetHeader: "SheetHeader",
+      pressStyle: () => ({}),
+      tap() {},
+    },
   }).default;
   const render = () => {
     hooks.begin();
@@ -21976,7 +21990,15 @@ function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async 
     render,
     backs: () => backs,
     field: (label) => find(render(), (n) => n.type === "Field" && n.props.label === label),
-    button: (label) => find(render(), (n) => n.type === "Pressable" && (n.props.accessibilityLabel === label || n.props.children?.props?.children === label)),
+    // The header's Close and Save are CircleButtons, the catalog's services ListRows, the rest plain Pressables.
+    button: (label) =>
+      find(
+        render(),
+        (n) =>
+          (n.type === "Pressable" && (n.props.accessibilityLabel === label || n.props.children?.props?.children === label)) ||
+          (n.type === "CircleButton" && n.props.label === label) ||
+          (n.type === "ListRow" && n.props.title === label),
+      ),
   };
 }
 
@@ -22022,8 +22044,9 @@ test("MCP token save reports failure, blocks duplicate submits, and allows retry
   host.button("GitHub").props.onPress();
   host.field("Personal access token").props.onChangeText("Bearer test-token");
   host.button("Add").props.onPress();
-  assert.equal(host.button("Add").props.disabled, true);
-  host.button("Add").props.onPress();
+  // While saving, Add gives way to a spinner, so nothing can submit twice.
+  assert.equal(host.button("Add"), undefined);
+  assert.ok(find(host.render(), (n) => n.type === "ActivityIndicator"));
   assert.equal(saved.length, 1);
   pending.reject(new Error("Connection lost"));
   await new Promise(setImmediate);

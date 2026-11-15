@@ -7,7 +7,8 @@ import { Icon } from "./icons";
 import { PageScroll, PillButton } from "./ui";
 import { useTheme } from "./theme";
 import { useDisplayNow, useScreenActive } from "./display-clock";
-import { radius, type } from "./design-tokens";
+import { lineHeight, radius, type } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 
 /** The last minute reads in the attention tone, so a running-out request is noticed before it closes. */
 const URGENT_MS = 60_000;
@@ -59,9 +60,7 @@ export function SecretQuestion({
               borderRadius: radius.sheet,
               borderCurve: "continuous",
               backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.lineStrong,
-              boxShadow: "0 8px 28px #00000017",
+              boxShadow: colors.shadowOverlay,
             }
       }
     >
@@ -70,7 +69,7 @@ export function SecretQuestion({
           <Icon icon={LockKeyIcon} size={12} tone="ink3" />
           <Text style={{ color: colors.ink3, fontSize: type.footnote, fontWeight: "600" }}>Private entry</Text>
         </View>
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, fontWeight: "600", lineHeight: 22 }}>
+        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, fontWeight: "600", lineHeight: lineHeight.body }}>
           {request.questions[0]?.question}
         </Text>
         {!!description && (
@@ -80,7 +79,7 @@ export function SecretQuestion({
             contentContainerStyle={{ padding: 0, paddingBottom: 0 }}
             style={{ maxHeight: 120 }}
           >
-            <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: 20 }}>{description}</Text>
+            <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{description}</Text>
           </PageScroll>
         )}
       </View>
@@ -135,7 +134,7 @@ export function SecretQuestion({
               minHeight: 44,
               alignItems: "center",
               justifyContent: "center",
-              opacity: busy || expired || !value ? 0.4 : pressed ? 0.6 : 1,
+              ...pressStyle({ pressed, disabled: busy || expired || !value }),
             })}
           >
             <Icon icon={revealed ? ViewOffIcon : ViewIcon} size={20} tone="ink2" />

@@ -12,7 +12,8 @@ import {
   type SubchatSummary,
 } from "@milagre/shared/subchat-states";
 import { useDisplayNow } from "./display-clock";
-import { radius, type } from "./design-tokens";
+import { lineHeight, radius, type } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 import { Icon, SpinnerRing, type IconData } from "./icons";
 import { PillPanel, usePillPanel } from "./plan-pill";
 import { useSession } from "./session";
@@ -70,7 +71,7 @@ function SummaryContent({ summary }: { summary: SubchatSummary }) {
   return (
     <>
       {summary.lead && <KindDot kind={summary.lead} />}
-      <Text numberOfLines={1} style={{ fontSize: type.caption2, lineHeight: 14, fontVariant: ["tabular-nums"] }}>
+      <Text numberOfLines={1} style={{ fontSize: type.caption2, lineHeight: lineHeight.caption2, fontVariant: ["tabular-nums"] }}>
         {summary.parts.map((part, index) => (
           <Text key={part.kind} style={{ color: index === 0 ? colors.ink : colors.ink3 }}>
             {index > 0 ? " · " : ""}
@@ -184,7 +185,7 @@ function AnswerButton({ title, primary = false, disabled, onPress }: { title: st
         backgroundColor: primary ? colors.ink : colors.surface,
         borderWidth: primary ? 0 : 1,
         borderColor: colors.lineStrong,
-        opacity: disabled ? 0.4 : pressed ? 0.6 : 1,
+        ...pressStyle({ pressed, disabled }),
       })}
     >
       <Text numberOfLines={1} style={{ color: primary ? colors.onInk : colors.ink, fontSize: type.footnote, fontWeight: "600" }}>
@@ -234,11 +235,11 @@ function SubchatRow({
         style={({ pressed }) => ({
           minHeight: 56,
           paddingHorizontal: 12,
-          paddingVertical: 10,
+          paddingVertical: 8,
           gap: 2,
           borderRadius: radius.control,
           borderCurve: "continuous",
-          opacity: pressed ? 0.6 : 1,
+          ...pressStyle({ pressed, kind: "row" }),
         })}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

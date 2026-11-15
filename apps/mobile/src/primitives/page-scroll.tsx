@@ -79,6 +79,7 @@ export const PageScroll = React.forwardRef<ScrollViewInstance, ScrollViewProps &
       style={[style, { overflow: "hidden" }]}
       maskElement={
         <LinearGradient
+          // oxlint-disable-next-line milagre-design/no-raw-color -- mask colours: only the alpha channel of a MaskedView mask counts, black is opaque in every theme
           colors={[edges.top ? "transparent" : "black", "black", "black", edges.bottom ? "transparent" : "black"]}
           locations={[0, edge, 1 - edge, 1]}
           style={{ flex: 1 }}

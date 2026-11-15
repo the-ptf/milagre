@@ -2,6 +2,7 @@ import { Pressable, Text, View, type ColorValue } from "react-native";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "../icons";
 import { radius, type } from "../design-tokens";
+import { pressStyle } from "./press-style";
 import { useTheme } from "../theme";
 
 /** The whole row is a target; standalone checkboxes keep the same 44pt hit area. */
@@ -35,7 +36,7 @@ export function Checkbox({
         alignItems: "center",
         justifyContent: "center",
         gap: 12,
-        opacity: disabled ? 0.4 : pressed ? 0.6 : 1,
+        ...pressStyle({ pressed, disabled }),
       })}
     >
       {showLabel && <Text style={{ flex: 1, fontSize: type.body, fontWeight: "500", color: colors.ink }}>{label}</Text>}

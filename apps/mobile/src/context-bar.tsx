@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { CONTEXT_GRADIENT_COLORS, CONTEXT_GRADIENT_STOPS, normalizeContextSettings, type ContextSettings } from "@milagre/shared/context-settings";
+import { lineHeight, radius, type } from "./design-tokens";
+import { DISABLED_OPACITY } from "./primitives/press-style";
 import { useTheme } from "./theme";
 
 export function ContextBar({
@@ -28,9 +30,18 @@ export function ContextBar({
         accessibilityRole="progressbar"
         accessibilityLabel="Context usage"
         accessibilityValue={{ min: 0, max: 100, now: Math.round(percent) }}
-        style={{ position: "absolute", left: 0, right: 0, top: 32, height: 6, borderRadius: 999, overflow: "hidden", backgroundColor: colors.lineStrong }}
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 32,
+          height: 6,
+          borderRadius: radius.full,
+          overflow: "hidden",
+          backgroundColor: colors.lineStrong,
+        }}
       >
-        <View style={{ width: `${Math.max(0, Math.min(100, percent))}%`, height: 6, overflow: "hidden", borderRadius: 999 }}>
+        <View style={{ width: `${Math.max(0, Math.min(100, percent))}%`, height: 6, overflow: "hidden", borderRadius: radius.full }}>
           <LinearGradient
             colors={CONTEXT_GRADIENT_COLORS}
             locations={CONTEXT_GRADIENT_STOPS}
@@ -79,13 +90,14 @@ export function ContextBar({
             width: 44,
             height: close ? 35 : 56,
             alignItems: "center",
-            opacity: disabled ? 0.5 : 1,
+            opacity: disabled ? DISABLED_OPACITY.control : 1,
           }}
         >
           <Text
             style={{
               transform: close && key === "autoThreshold" ? [{ translateY: 18 }] : undefined,
-              fontSize: 11,
+              fontSize: type.caption2,
+              lineHeight: lineHeight.caption2,
               fontWeight: "600",
               color: key === "buttonThreshold" ? colors.orangeInk : colors.ink,
               fontVariant: ["tabular-nums"],
@@ -99,7 +111,7 @@ export function ContextBar({
               top: close && key === "autoThreshold" ? -9 : 26,
               width: 18,
               height: 18,
-              borderRadius: 999,
+              borderRadius: radius.full,
               borderWidth: 2.5,
               borderColor: key === "buttonThreshold" ? colors.orange : colors.ink,
               backgroundColor: colors.surface,

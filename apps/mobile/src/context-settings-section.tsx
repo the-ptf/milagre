@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { CONTEXT_DEFAULTS, type ContextSettings } from "@milagre/shared/context-settings";
 import { useTheme } from "./theme";
-import { Field, Toggle, useStyles } from "./ui";
+import { Field, Toggle, pressStyle, tap, useStyles } from "./ui";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { useContextSettings } from "./context-settings";
 import { useCompactButtonDisplay, useShowContextSize } from "./chat-display-setting";
 import { ContextBar } from "./context-bar";
@@ -39,7 +40,7 @@ function ThresholdField({
   };
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-      <Text style={{ flex: 1, fontSize: 15, color: colors.ink }}>{label}</Text>
+      <Text style={{ flex: 1, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, color: colors.ink }}>{label}</Text>
       <View style={{ flexDirection: "row", alignItems: "center" }}>
         <Pressable
           accessibilityRole="button"
@@ -60,7 +61,7 @@ function ThresholdField({
           onSubmitEditing={commit}
           editable={!disabled}
           selectTextOnFocus
-          style={{ width: 52, minHeight: 44, padding: 6, textAlign: "center", fontSize: 15 }}
+          style={{ width: 52, minHeight: 44, padding: 6, textAlign: "center", fontSize: type.subheadline }}
         />
         <Text style={{ color: colors.ink2 }}>%</Text>
         <Pressable
@@ -100,33 +101,48 @@ export function ContextSettingsSection() {
             accessibilityRole="radio"
             accessibilityState={{ checked: mode === display }}
             accessibilityLabel={mode === "always" ? "Show Compact below threshold: On" : "Show Compact below threshold: Off, default"}
-            onPress={() => setDisplay(mode)}
-            style={{
-              flex: 1,
-              padding: 12,
-              borderRadius: 14,
-              borderWidth: mode === display ? 2 : 1,
-              borderColor: mode === display ? colors.accent : colors.line,
-              backgroundColor: colors.surface,
-              minHeight: 196,
-              gap: 10,
+            onPress={() => {
+              if (mode === display) return;
+              tap();
+              setDisplay(mode);
             }}
+            style={({ pressed }) => [
+              {
+                flex: 1,
+                padding: space.lg,
+                borderRadius: radius.card,
+                borderCurve: "continuous",
+                borderWidth: mode === display ? 2 : 1,
+                // Selection is ink, as on the other choice cards: accent is for focus and links.
+                borderColor: mode === display ? colors.ink : colors.line,
+                backgroundColor: colors.surface,
+                minHeight: 196,
+                gap: space.md,
+              },
+              pressStyle({ pressed }),
+            ]}
           >
-            <View style={{ backgroundColor: colors.field, borderRadius: 10, padding: 8, gap: 12 }}>
+            <View style={{ backgroundColor: colors.field, borderRadius: radius.control, borderCurve: "continuous", padding: space.md, gap: space.lg }}>
               {[42, 78].map((n) => (
                 <View key={n} style={{ gap: 4 }}>
-                  <Text style={{ fontSize: 11, color: colors.ink3 }}>At {n}%</Text>
+                  <Text style={{ fontSize: type.caption2, lineHeight: lineHeight.caption2, color: colors.ink3 }}>At {n}%</Text>
                   <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 4 }}>
                     {(mode === "always" || n >= value.buttonThreshold) && (
-                      <Text style={{ fontSize: 11, color: n >= value.buttonThreshold ? colors.orangeInk : colors.ink2 }}>Compact</Text>
+                      <Text
+                        style={{ fontSize: type.caption2, lineHeight: lineHeight.caption2, color: n >= value.buttonThreshold ? colors.orangeInk : colors.ink2 }}
+                      >
+                        Compact
+                      </Text>
                     )}
-                    <Text style={{ fontSize: 11, color: colors.ink2 }}>{n}%</Text>
+                    <Text style={{ fontSize: type.caption2, lineHeight: lineHeight.caption2, color: colors.ink2 }}>{n}%</Text>
                   </View>
                 </View>
               ))}
             </View>
-            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.ink }}>{mode === "always" ? "On" : "Off · default"}</Text>
-            <Text style={{ fontSize: 12, color: colors.ink3 }}>
+            <Text style={{ fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600", color: colors.ink }}>
+              {mode === "always" ? "On" : "Off · default"}
+            </Text>
+            <Text style={{ fontSize: type.caption1, lineHeight: lineHeight.caption1, color: colors.ink3 }}>
               {mode === "always" ? "Show Compact from the first message." : "Show Compact only at your threshold."}
             </Text>
           </Pressable>
@@ -162,9 +178,9 @@ export function ContextSettingsSection() {
         disabled={disabled}
         accessibilityRole="button"
         onPress={() => save({ buttonThreshold: CONTEXT_DEFAULTS.buttonThreshold, autoThreshold: CONTEXT_DEFAULTS.autoThreshold })}
-        style={{ minHeight: 44, justifyContent: "center" }}
+        style={({ pressed }) => [{ minHeight: 44, justifyContent: "center" }, pressStyle({ pressed, disabled })]}
       >
-        <Text style={{ color: colors.accentInk, fontSize: 15 }}>Reset to defaults</Text>
+        <Text style={{ color: colors.accentInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Reset to defaults</Text>
       </Pressable>
       {host.error ? (
         <Text accessibilityRole="alert" style={{ color: colors.redInk }}>

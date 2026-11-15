@@ -18,7 +18,7 @@ let opened: { code: string; title: string } | null = null;
 /** Pele's drawing of `code` at most `width` wide, coloured for React Native's SVG; null with the reason when it doesn't draw. */
 function draw(code: string, width: number, colors: Palette) {
   try {
-    const result = render(code, { maxWidth: width, fontSize: 14 });
+    const result = render(code, { maxWidth: width, fontSize: type.footnote });
     const theme = diagramTheme({ background: colors.surface, ink: colors.ink, muted: colors.ink3, line: colors.ink3, accent: colors.accent });
     return { svg: nativeDiagramSvg(result.svg, theme), width: result.width, height: result.height, type: result.type as string, error: "" };
   } catch (error) {

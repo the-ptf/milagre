@@ -87,7 +87,7 @@ export function deletedLinkText(name, kept) {
  */
 export function linkDeleteFailure(message, { computer } = {}) {
   if (!/not available from mobile|unknown command|no handler/i.test(message)) return message;
-  return computer ? `Update Milagre on ${computer} to delete its Links.` : "Update Milagre on your Mac to delete Links from your phone.";
+  return computer ? `Update Milagre on ${computer} to delete its Links.` : "Update Milagre on your computer to delete Links from your phone.";
 }
 
 /** Whether a Link read or open failed because the Link was deleted (here or on another device). */

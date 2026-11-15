@@ -1,5 +1,5 @@
 import { Children, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import * as Clipboard from "expo-clipboard";
@@ -56,6 +56,7 @@ import { PlaceholderField } from "../placeholder-field";
 import { confirm } from "../confirm-store";
 import { Icon, type IconData } from "../icons";
 import {
+  CheckRow,
   CircleButton,
   ErrorNotice,
   Field,
@@ -68,11 +69,10 @@ import {
   RowCheckbox,
   SectionLabel,
   SheetHeader,
-  pressStyle,
   useSheetBottomInset,
   useStyles,
 } from "../ui";
-import { lineHeight, radius, type } from "../design-tokens";
+import { type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 type Targets = { projects: { path: string; name: string; chats: { chatId: string; title: string; lastAt?: number }[] }[] };
@@ -350,10 +350,10 @@ export default function RoutineFormSheet() {
           {error ? <ErrorNotice message={error} /> : null}
           {routines.unavailable ? (
             <Text style={styles.muted}>
-              {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
+              {routines.unavailable === "older" ? "Update Milagre on your computer to use Routines." : "Routines aren't available on this connection."}
             </Text>
           ) : null}
-          {routines.enabled === false ? <Text style={styles.caption}>{"This Mac can't run Routines yet. Saving this one allows it."}</Text> : null}
+          {routines.enabled === false ? <Text style={styles.caption}>{"Your computer can't run Routines yet. Saving this one allows it."}</Text> : null}
           {/* The pencil sits inside the Field's edge, so focus outlines icon and text together. */}
           <Field
             label="Name"
@@ -367,95 +367,46 @@ export default function RoutineFormSheet() {
           />
           <Problem text={problemFor("name")} />
 
-          {editing ? null : <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Each Run</Text>}
           {editing ? null : (
-            <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 8 }}>
-              {KINDS.map((item) => {
-                const selected = kind === item.id;
-                return (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="radio"
-                    accessibilityLabel={`${item.label}. ${item.hint}`}
-                    accessibilityState={{ checked: selected }}
-                    onPress={() => {
-                      setDirty(true);
-                      setProblem(null);
-                      setKind(item.id);
-                      // A flow starts a Chat of its own for each Run, so it can't check back on an existing Chat.
-                      if (item.id === "flow" && form.runIn === "chat") setForm((current) => withRunIn(current, "worktree", Date.now()));
-                    }}
-                    style={({ pressed }) => ({
-                      flex: 1,
-                      minHeight: 56,
-                      gap: 2,
-                      paddingHorizontal: 10,
-                      paddingVertical: 8,
-                      borderRadius: 14,
-                      borderCurve: "continuous",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: selected ? colors.ink : "transparent",
-                      borderWidth: selected ? 0 : 1,
-                      borderColor: colors.lineStrong,
-                      opacity: pressed ? 0.7 : 1,
-                    })}
-                  >
-                    <Text style={{ color: selected ? colors.onInk : colors.ink, fontSize: 15, fontWeight: "600" }}>{item.label}</Text>
-                    <Text numberOfLines={1} style={{ color: selected ? colors.onInk : colors.ink3, fontSize: 12 }}>
-                      {item.hint}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <Group title="Each Run" role="radiogroup" inset={0}>
+              {KINDS.map((item) => (
+                <CheckRow
+                  key={item.id}
+                  title={item.label}
+                  subtitle={item.hint}
+                  checked={kind === item.id}
+                  onPress={() => {
+                    setDirty(true);
+                    setProblem(null);
+                    setKind(item.id);
+                    // A flow starts a Chat of its own for each Run, so it can't check back on an existing Chat.
+                    if (item.id === "flow" && form.runIn === "chat") setForm((current) => withRunIn(current, "worktree", Date.now()));
+                  }}
+                />
+              ))}
+            </Group>
           )}
 
-          {editing ? null : <SectionLabel flush>Starts</SectionLabel>}
+          {editing ? null : <SectionLabel>Starts</SectionLabel>}
           {/* A Routine's trigger kind can't change, so Edit shows only its rows. */}
-          <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 8, display: editing ? "none" : "flex" }}>
-            {TRIGGERS.map((item) => {
-              const selected = form.trigger === item.id;
-              const locked = editing && !selected;
-              return (
-                <Pressable
-                  key={item.id}
-                  accessibilityRole="radio"
-                  accessibilityLabel={item.label}
-                  accessibilityState={{ checked: selected, disabled: locked }}
-                  disabled={locked}
-                  onPress={() => change(item.id !== "schedule" && heartbeat ? { ...withRunIn(form, "worktree", now), trigger: item.id } : { trigger: item.id })}
-                  style={({ pressed }) => [
-                    {
-                      flex: 1,
-                      minHeight: 56,
-                      gap: 4,
-                      paddingVertical: 8,
-                      borderRadius: radius.card,
-                      borderCurve: "continuous",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: selected ? colors.ink : "transparent",
-                      borderWidth: selected ? 0 : 1,
-                      borderColor: colors.lineStrong,
-                    },
-                    pressStyle({ pressed, disabled: locked, filled: selected }),
-                  ]}
-                >
-                  <Icon icon={item.icon} tone={selected ? "onInk" : "ink2"} size={20} />
-                  <Text
-                    style={{
-                      color: selected ? colors.onInk : colors.ink2,
-                      fontSize: type.footnote,
-                      lineHeight: lineHeight.footnote,
-                      fontWeight: "500",
-                    }}
-                  >
-                    {item.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View style={{ display: editing ? "none" : "flex" }}>
+            <Group role="radiogroup" accessibilityLabel="Starts">
+              {TRIGGERS.map((item) => {
+                const selected = form.trigger === item.id;
+                return (
+                  <CheckRow
+                    key={item.id}
+                    title={item.label}
+                    leading={<Icon icon={item.icon} tone="ink2" size={20} />}
+                    checked={selected}
+                    disabled={editing && !selected}
+                    onPress={() =>
+                      change(item.id !== "schedule" && heartbeat ? { ...withRunIn(form, "worktree", now), trigger: item.id } : { trigger: item.id })
+                    }
+                  />
+                );
+              })}
+            </Group>
           </View>
 
           {form.trigger === "schedule" ? (
@@ -768,7 +719,7 @@ export default function RoutineFormSheet() {
                 sections={[
                   {
                     items: [
-                      { id: DEFAULT, title: "Default", subtitle: "The Mac's default model", checked: !form.model },
+                      { id: DEFAULT, title: "Default", subtitle: "Your computer's default model", checked: !form.model },
                       ...models.map((item) => ({
                         id: `${item.provider}:${item.id}`,
                         title: item.name,
@@ -909,7 +860,7 @@ export default function RoutineFormSheet() {
                   ],
                 },
               ]}
-              onSelect={(kind) => change({ stop: { ...form.stop, kind: kind as RoutineFormState["stop"]["kind"] } })}
+              onSelect={(picked) => change({ stop: { ...form.stop, kind: picked as RoutineFormState["stop"]["kind"] } })}
             >
               <FormRow
                 icon={Flag02Icon}

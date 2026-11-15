@@ -434,7 +434,7 @@ function SurfacesSpecimen() {
       </Block>
       <Block title="Elevation" caption="Each shadow paints its own hairline ring, so an elevated surface takes no border. Dark mode has deeper ones.">
         <View style={{ gap: space.xl, paddingVertical: space.xs }}>
-          {shadow("shadowCard", "An inline card; no screen draws it today")}
+          {shadow("shadowCard", "An inline card; Android's raised segment")}
           {shadow("shadowRaised", "Floating controls: the inbox button, the undo panel; glass on Android")}
           {shadow("shadowOverlay", "The iPad Settings card, the question card")}
         </View>

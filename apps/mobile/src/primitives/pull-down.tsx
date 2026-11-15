@@ -164,6 +164,7 @@ export function PullDown({
             label={
               <Rectangle
                 modifiers={[
+                  // oxlint-disable-next-line milagre-design/no-raw-color -- hit-test hack: SwiftUI drops taps on a fully transparent fill, so the label is painted at 1/255 alpha
                   foregroundStyle("#00000001"),
                   ...(nativeTrigger?.icon ? [opacity(0.001)] : []),
                   contentShape(shapes.rectangle()),
@@ -211,7 +212,6 @@ export function PullDown({
       shouldOpenOnLongPress={!!onPress}
       onSelect={onSelect}
       style={[style, pullBack]}
-      fill={fill}
       label={label}
       trigger={trigger}
     />
@@ -228,7 +228,6 @@ function AndroidMenu({
   shouldOpenOnLongPress,
   onSelect,
   style,
-  fill,
   label,
   trigger,
 }: {
@@ -237,26 +236,20 @@ function AndroidMenu({
   shouldOpenOnLongPress: boolean;
   onSelect: (id: string) => void;
   style: StyleProp<ViewStyle>;
-  fill: boolean;
   label: string;
   trigger: (cap: ViewStyle | null) => React.ReactNode;
 }) {
   const [width, setWidth] = React.useState<number | null>(null);
-  // Only a box the layout sizes (a row's flex, a set width) caps its trigger; a trigger sized by its own label, a chip
-  // or a header switcher, keeps that size, as measuring it would only round it down into an ellipsis.
-  const flat = StyleSheet.flatten(style) ?? {};
-  const sized = fill || flat.flex != null || !!flat.flexGrow || flat.width != null || flat.maxWidth != null;
+  // The trigger takes exactly the width of the box around it: a row stretched by its column or flex puts its value at the
+  // trailing edge and wraps a long title inside it, and a chip sized by its own label keeps that size. Rounded up, as a
+  // width a fraction short ellipsizes the label.
   return (
     <View
       style={style}
-      onLayout={
-        sized
-          ? ({ nativeEvent }) => {
-              const next = Math.round(nativeEvent.layout.width);
-              setWidth((previous) => (previous === next ? previous : next));
-            }
-          : undefined
-      }
+      onLayout={({ nativeEvent }) => {
+        const next = Math.ceil(nativeEvent.layout.width);
+        setWidth((previous) => (previous === next ? previous : next));
+      }}
     >
       <MenuView
         title={title}
@@ -268,7 +261,7 @@ function AndroidMenu({
         }}
         testID={label}
       >
-        {trigger(width === null || !sized ? null : fill ? { width } : { maxWidth: width })}
+        {trigger(width === null ? null : { width })}
       </MenuView>
     </View>
   );

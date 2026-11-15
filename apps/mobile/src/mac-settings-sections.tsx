@@ -15,7 +15,7 @@ export function MacUpdatesSection() {
   const styles = useStyles();
   const session = useSession();
   const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;
-  const macName = host?.name || session.hostName || "your Mac";
+  const macName = host?.name || session.hostName || "your computer";
   // The Mac's desktop app update, checked and installed from here; hidden on a Mac too old to answer.
   const macUpdate = useMacUpdate(session.client);
   // The Mac's Auto update (desktop Settings › About); null until it answers (an older Mac never does).

@@ -10,14 +10,14 @@ import { useComputerResources } from "../../computer-resources-group";
 import { Icon } from "../../icons";
 import { ErrorNotice, PageScroll, PillButton, useStyles } from "../../ui";
 import { useTheme } from "../../theme";
-import { radius, type } from "../../design-tokens";
+import { radius, space, type } from "../../design-tokens";
 
 function PartsCard({ gauge, onCleanup }: { gauge: ResourceGauge; onCleanup?: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
     <View style={[styles.card, { gap: 12, paddingVertical: 16 }]}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
         <Icon icon={gauge.kind === "memory" ? RamMemoryIcon : HardDriveIcon} tone="ink2" size={20} />
         <Text style={{ color: colors.accent, fontSize: type.title3, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{gauge.milagre ?? "—"}</Text>
         <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: type.subheadline }}>
@@ -26,7 +26,7 @@ function PartsCard({ gauge, onCleanup }: { gauge: ResourceGauge; onCleanup?: () 
         {gauge.refreshing ? <ActivityIndicator size="small" color={colors.ink3} accessibilityLabel={MEASURING_TOOLTIP} /> : null}
       </View>
       {gauge.measuring ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: space.xs }}>
           <ActivityIndicator size="small" color={colors.ink3} />
           <Text style={{ color: colors.ink3, fontSize: type.subheadline }}>{MEASURING_TOOLTIP}…</Text>
         </View>
@@ -77,7 +77,7 @@ export default function ComputerUsageScreen() {
         {!online ? (
           <Text style={{ color: colors.ink3, fontSize: type.subheadline, paddingVertical: 16 }}>Offline</Text>
         ) : gauges ? (
-          <View style={{ gap: 22 }}>
+          <View style={{ gap: space.section }}>
             <PartsCard gauge={gauges.memory} />
             {gauges.disk ? (
               <PartsCard gauge={gauges.disk} onCleanup={host ? () => router.push({ pathname: "/computer-cleanup", params: { id: host.id } }) : undefined} />

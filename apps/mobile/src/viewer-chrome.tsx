@@ -90,6 +90,7 @@ export function CommentBox({
         padding: 12,
         gap: 12,
         borderRadius: radius.card,
+        // oxlint-disable-next-line milagre-design/radius-token -- the comment bubble's tail corner: a small point, not a surface radius
         borderTopLeftRadius: 3,
         borderCurve: "continuous",
         borderWidth: 1.5,

@@ -3,7 +3,6 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-n
 import { Stack, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Alert02Icon,
   ArrowDown01Icon,
   ArrowRight01Icon,
   Folder01Icon,
@@ -22,13 +21,13 @@ import { useFlowDraft } from "./flow-draft";
 import { FlowSteps } from "./flow-editor";
 import { FlowRunList } from "./flow-runs";
 import { runName } from "./flow-looks";
-import { FlowButton, FlowChip, FlowNote } from "./flow-ui";
 import { routineIcon } from "./routine-rows";
 import { useActivityClock } from "./chat-row-store";
 import { modelsFor } from "./turn-options";
 import { confirm } from "./confirm-store";
 import { Icon } from "./icons";
-import { ErrorNotice, HeaderButton, PageScroll, PullDown, RowCheckbox, Segmented, showActions, tap, useStyles } from "./ui";
+import { lineHeight, radius, space, type } from "./design-tokens";
+import { Chip, ErrorNotice, HeaderButton, PageScroll, PillButton, PullDown, RowCheckbox, Segmented, Tag, pressStyle, showActions, tap, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 export type FlowTab = "steps" | "runs" | "settings";
@@ -181,8 +180,8 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
         {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
         {error ? <ErrorNotice message={error} /> : null}
         {draft.error ? <ErrorNotice message={`The draft isn't saved: ${draft.error}`} /> : null}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          <FlowChip text={statusText} tone={routine.enabled && revision > 0 ? "green" : "neutral"} dot />
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.md }}>
+          <Tag label={statusText} tone={routine.enabled && revision > 0 ? "green" : "neutral"} dot />
           {changeCount > 0 ? (
             <PullDown
               label={`Draft, ${changeCount} ${changeCount === 1 ? "change" : "changes"}`}
@@ -190,15 +189,14 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
               sections={[{ items: [{ id: "discard", title: "Discard draft", systemImage: "trash", destructive: true }] }]}
               onSelect={() => void discard()}
             >
-              <FlowChip text={`Draft, ${changeCount} ${changeCount === 1 ? "change" : "changes"}`} trailing={ArrowDown01Icon} />
+              <Chip
+                label={`Draft, ${changeCount} ${changeCount === 1 ? "change" : "changes"}`}
+                trailing={<Icon icon={ArrowDown01Icon} tone="ink2" size={12} />}
+              />
             </PullDown>
           ) : null}
         </View>
-        {problem ? (
-          <FlowNote tone="red" icon={Alert02Icon}>
-            {problem}
-          </FlowNote>
-        ) : null}
+        {problem ? <ErrorNotice message={problem} /> : null}
         {waiting ? (
           <Pressable
             accessibilityRole="button"
@@ -207,21 +205,23 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
               tap();
               openFlowRun(routine.id, waiting.id);
             }}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              minHeight: 44,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 10,
-              borderCurve: "continuous",
-              backgroundColor: colors.orangeTint,
-              opacity: pressed ? 0.7 : 1,
-            })}
+            style={({ pressed }) => [
+              {
+                flexDirection: "row",
+                alignItems: "center",
+                gap: space.lg,
+                minHeight: 44,
+                paddingHorizontal: space.xl,
+                paddingVertical: space.lg,
+                borderRadius: radius.control,
+                borderCurve: "continuous",
+                backgroundColor: colors.orangeTint,
+              },
+              pressStyle({ pressed }),
+            ]}
           >
             <Icon icon={PauseCircleIcon} tone="orangeInk" size={18} />
-            <Text numberOfLines={2} style={{ flex: 1, color: colors.ink, fontSize: 15, lineHeight: 19 }}>
+            <Text numberOfLines={2} style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
               {`${runName(routine, waiting)} waits for you${waitingStep ? ` at ${stepTitle(waitingStep)}` : ""}`}
             </Text>
             <Icon icon={ArrowRight01Icon} tone="orangeInk" size={16} />
@@ -250,8 +250,10 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
           <View style={{ gap: 12 }}>
             <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12 }]}>
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}>{routine.enabled ? "On" : "Off"}</Text>
-                <Text style={[styles.caption, { fontSize: 13 }]}>
+                <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>
+                  {routine.enabled ? "On" : "Off"}
+                </Text>
+                <Text style={styles.footnote}>
                   {revision === 0
                     ? "Publish the flow to turn it on."
                     : routine.enabled
@@ -264,20 +266,20 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              style={{ marginHorizontal: -20 }}
-              contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}
+              style={{ marginHorizontal: -space.gutter }}
+              contentContainerStyle={{ gap: space.md, paddingHorizontal: space.gutter }}
             >
-              <SettingChip icon={routineIcon(routine)} text={triggerChipText(routine.trigger, deviceZone())} />
-              <SettingChip
+              <Tag icon={routineIcon(routine)} label={triggerChipText(routine.trigger, deviceZone())} />
+              <Tag
                 icon={routine.target.kind === "new-chat" && routine.target.workspace === "worktree" ? GitBranchIcon : Folder01Icon}
-                text={routineWhereText(routine.target)}
+                label={routineWhereText(routine.target)}
               />
             </ScrollView>
-            {times ? <Text style={[styles.caption, { fontSize: 13, paddingHorizontal: 4 }]}>{times}</Text> : null}
-            <Text style={[styles.caption, { fontSize: 13, paddingHorizontal: 4 }]}>
+            {times ? <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>{times}</Text> : null}
+            <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>
               Each step picks its own model and permissions. Runs in progress keep the revision they started on.
             </Text>
-            <FlowButton title="Edit settings" kind="secondary" icon={PencilEdit02Icon} onPress={edit} />
+            <PillButton title="Edit settings" variant="tinted" icon={PencilEdit02Icon} onPress={edit} />
           </View>
         )}
       </PageScroll>
@@ -289,31 +291,31 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
             left: 0,
             right: 0,
             bottom: 0,
-            gap: 10,
+            gap: space.md,
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: colors.line,
             backgroundColor: colors.page,
-            paddingHorizontal: 16,
-            paddingTop: hint ? 10 : 14,
+            paddingHorizontal: space.gutter,
+            paddingTop: hint ? space.md : space.lg,
             paddingBottom: Math.max(insets.bottom, 16),
           }}
         >
           {hint ? (
-            <Text numberOfLines={2} style={[styles.caption, { textAlign: "center", fontSize: 13, color: problems[0] && !empty ? colors.redInk : colors.ink3 }]}>
+            <Text numberOfLines={2} style={[styles.footnote, { textAlign: "center", color: problems[0] && !empty ? colors.redInk : colors.ink3 }]}>
               {hint}
             </Text>
           ) : null}
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <FlowButton
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            <PillButton
               title="Test run"
-              kind="secondary"
+              variant="tinted"
               icon={TestTube01Icon}
               disabled={!testable || !client}
               loading={busy === "test"}
               onPress={testRun}
               style={{ flex: 1 }}
             />
-            <FlowButton
+            <PillButton
               title={revision === 0 ? "Publish" : `Publish revision ${revision + 1}`}
               disabled={!publishable || !client}
               loading={busy === "publish"}
@@ -323,23 +325,6 @@ export function FlowRoutineScreen({ routine, initialTab = "steps" }: { routine: 
           </View>
         </View>
       ) : null}
-    </View>
-  );
-}
-
-/** A setting as a pill on the field fill, as the Routine page's chips. */
-function SettingChip({ icon, text }: { icon: Parameters<typeof Icon>[0]["icon"]; text: string }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      accessible
-      accessibilityLabel={text}
-      style={{ flexDirection: "row", alignItems: "center", gap: 6, height: 30, paddingHorizontal: 11, borderRadius: 14, backgroundColor: colors.field }}
-    >
-      <Icon icon={icon} tone="ink2" size={16} />
-      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
-        {text}
-      </Text>
     </View>
   );
 }

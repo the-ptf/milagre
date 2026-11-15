@@ -73,11 +73,11 @@ test("after a delete, the kept Worktrees are listed, and nothing is said when no
   assert.equal(deletedLinkText("Food", ["/w/a", "/w/b"]), "Deleted Food. 2 Worktrees with changes stay in their Projects: /w/a, /w/b");
 });
 
-test("a computer too old to delete Links is asked to update, named on desktop and as your Mac on the phone", () => {
+test("a computer too old to delete Links is asked to update, named on desktop and as your computer on the phone", () => {
   for (const refusal of ["Command is not available from mobile", "Unknown command: link:delete", "No handler registered for 'link:delete-check'"]) {
     assert.equal(linkDeleteFailure(refusal, { computer: "Studio" }), "Update Milagre on Studio to delete its Links.");
     assert.equal(linkDeleteFailure(refusal, { computer: "this Mac" }), "Update Milagre on this Mac to delete its Links.");
-    assert.equal(linkDeleteFailure(refusal), "Update Milagre on your Mac to delete Links from your phone.");
+    assert.equal(linkDeleteFailure(refusal), "Update Milagre on your computer to delete Links from your phone.");
   }
   assert.equal(
     linkDeleteFailure("Fix header is running. Stop it before deleting the Link.", { computer: "Studio" }),

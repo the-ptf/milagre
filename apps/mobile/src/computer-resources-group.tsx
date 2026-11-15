@@ -15,7 +15,8 @@ import { relayRuntime } from "./relay-native";
 import { Group } from "./settings-list";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
-import { radius, type } from "./design-tokens";
+import { radius, space, type } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 import type { SavedHost } from "./hosts-store";
 
 // The last read per computer, so the breakdown page and a reopened computer page show numbers at once.
@@ -62,7 +63,7 @@ function GaugeBar({ gauge }: { gauge: ResourceGauge }) {
     <View
       accessible
       accessibilityLabel={gauge.tooltip}
-      style={{ flexDirection: "row", gap: 1, height: 6, borderRadius: radius.full, overflow: "hidden", backgroundColor: colors.inset }}
+      style={{ flexDirection: "row", gap: space.xxs, height: 6, borderRadius: radius.full, overflow: "hidden", backgroundColor: colors.inset }}
     >
       <View style={{ width: `${gauge.shares.milagre * 100}%`, borderRadius: radius.full, backgroundColor: colors.accent }} />
       <View style={{ width: `${gauge.shares.other * 100}%`, borderRadius: radius.full, backgroundColor: gauge.low ? colors.orange : colors.ink4 }} />
@@ -77,9 +78,9 @@ function GaugeRow({ gauge, onPress }: { gauge: ResourceGauge; onPress: () => voi
       accessibilityRole="button"
       accessibilityLabel={`${gauge.kind === "memory" ? "Memory" : "Disk"}: ${gauge.free} ${gauge.of}. ${gauge.tooltip}`}
       onPress={onPress}
-      style={({ pressed }) => ({ gap: 8, paddingVertical: 12, opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => ({ gap: 8, paddingVertical: 12, ...pressStyle({ pressed, kind: "row" }) })}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
         <Icon icon={gauge.kind === "memory" ? RamMemoryIcon : HardDriveIcon} tone={gauge.low ? "orangeInk" : "ink2"} size={20} />
         <Text style={{ color: gauge.low ? colors.orangeInk : colors.ink, fontSize: type.body, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
           {gauge.free}

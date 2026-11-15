@@ -3,7 +3,7 @@ import { Host } from "@expo/ui";
 import { Picker as IOSPicker, Text as IOSText } from "@expo/ui/swift-ui";
 import { accessibilityLabel, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import { Findable } from "../settings-find";
-import { lineHeight, radius, space, type } from "../design-tokens";
+import { hitSlopFor, lineHeight, radius, space, type } from "../design-tokens";
 import { useTheme } from "../theme";
 import { pressStyle } from "./press-style";
 import { tap } from "./tap";
@@ -77,6 +77,7 @@ function AndroidSegmented({
             accessibilityRole="radio"
             accessibilityState={{ selected, checked: selected }}
             accessibilityLabel={option.title}
+            hitSlop={{ top: hitSlopFor(32), bottom: hitSlopFor(32) }}
             onPress={() => {
               if (selected) return;
               tap();

@@ -16,7 +16,7 @@ const refused = (failure: unknown) => {
   const status = (failure as { status?: number })?.status;
   return typeof status === "number" && status >= 400 && status < 500 && status !== 429;
 };
-const message = (failure: unknown) => (failure instanceof Error ? failure.message : "Could not reach your Mac.");
+const message = (failure: unknown) => (failure instanceof Error ? failure.message : "Could not reach your computer.");
 
 /**
  * The connected Mac's Milagre desktop app update (Settings › General › Updates), read through its host
@@ -93,7 +93,7 @@ export function MacUpdateRows({ state, macName }: { state: ReturnType<typeof use
   const available = update ? updateAvailable(update) : null;
   const description = restarting && update?.status !== "installing" ? `Restarting Milagre on ${macName}.` : updateDescription(update ?? null);
   return (
-    <View style={{ gap: 10, paddingBottom: 8 }}>
+    <View style={{ gap: 12, paddingBottom: 8 }}>
       {update && (
         <View accessible style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", minHeight: 28 }}>
           <Text style={styles.text}>Milagre on {macName}</Text>

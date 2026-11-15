@@ -3,10 +3,10 @@ import { ActionSheetIOS, Alert, Platform, Pressable, Text, View } from "react-na
 import { Cancel01Icon, MoreHorizontalIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { WHISPER_MODELS, type WhisperModel } from "@milagre/shared/dictation";
 import { useDictationModel } from "../../chat-display-setting";
-import { radius, type } from "../../design-tokens";
+import { lineHeight, radius, space, type } from "../../design-tokens";
 import { Icon } from "../../icons";
 import { useTheme } from "../../theme";
-import { useStyles } from "../../ui";
+import { PillButton, pressStyle, tap, useStyles } from "../../ui";
 import { SettingsScroll } from "../../settings-find";
 import { DownloadRing } from "../../voice-mic-button";
 import { cancelWhisperModel, deleteWhisperModel, downloadWhisperModel, useWhisperModels, type WhisperModelState } from "../../voice-transcription-whisper";
@@ -23,8 +23,8 @@ function Dots({ label, value }: { label: string; value: number }) {
   const { colors } = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-      <Text style={{ color: colors.ink3, fontSize: type.caption1 }}>{label}</Text>
-      <View style={{ flexDirection: "row", gap: 3 }}>
+      <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>{label}</Text>
+      <View style={{ flexDirection: "row", gap: space.xs }}>
         {[1, 2, 3].map((dot) => (
           <View key={dot} style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: dot <= value ? colors.ink2 : colors.lineStrong }} />
         ))}
@@ -60,11 +60,16 @@ function ModelRow({ model, state, selected, onPick }: { model: WhisperModel; sta
         accessibilityRole="radio"
         accessibilityState={{ checked: selected }}
         accessibilityLabel={`${model.purpose}, ${detail(model, state, selected)}`}
-        onPress={onPick}
-        style={({ pressed }) => ({ flex: 1, paddingVertical: 10, gap: 2, opacity: pressed ? 0.6 : 1 })}
+        onPress={() => {
+          tap();
+          onPick();
+        }}
+        style={({ pressed }) => [{ flex: 1, paddingVertical: space.lg, gap: space.xxs }, pressStyle({ pressed, kind: "row" })]}
       >
-        <Text style={{ color: colors.ink, fontSize: type.body, fontWeight: selected ? "600" : "500" }}>{model.purpose}</Text>
-        <Text style={{ color: colors.ink3, fontSize: type.footnote, fontVariant: ["tabular-nums"] }}>{detail(model, state, selected)}</Text>
+        <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: selected ? "600" : "500" }}>{model.purpose}</Text>
+        <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontVariant: ["tabular-nums"] }}>
+          {detail(model, state, selected)}
+        </Text>
         <View style={{ flexDirection: "row", gap: 16, marginTop: 4 }}>
           <Dots label="Accuracy" value={model.accuracy} />
           <Dots label="Speed" value={model.speed} />
@@ -86,28 +91,20 @@ function ModelRow({ model, state, selected, onPick }: { model: WhisperModel; sta
           accessibilityRole="button"
           accessibilityLabel={`More for ${model.purpose}`}
           onPress={() => confirmDelete(model)}
-          style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+          style={({ pressed }) => [{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
         >
           <Icon icon={MoreHorizontalIcon} size={20} tone="ink2" />
         </Pressable>
       ) : (
-        <Pressable
-          accessibilityRole="button"
+        <PillButton
+          title="Get"
+          size="small"
+          variant="tinted"
           accessibilityLabel={`Download ${model.purpose}, ${megabytes(model.size)} MB`}
           onPress={() => void downloadWhisperModel(model.id).catch(() => {})}
-          hitSlop={6}
-          style={({ pressed }) => ({
-            height: 32,
-            paddingHorizontal: 14,
-            borderRadius: radius.full,
-            justifyContent: "center",
-            backgroundColor: pressed ? colors.hover2 : colors.hover,
-          })}
-        >
-          <Text style={{ color: colors.ink, fontSize: type.subheadline, fontWeight: "600" }}>Get</Text>
-        </Pressable>
+        />
       )}
-      <View style={{ width: 28, alignItems: "center" }}>{selected ? <Icon icon={Tick02Icon} tone="accentInk" size={20} /> : null}</View>
+      <View style={{ width: 28, alignItems: "center" }}>{selected ? <Icon icon={Tick02Icon} tone="ink" size={20} /> : null}</View>
     </View>
   );
 }
@@ -143,7 +140,9 @@ export default function DictationModelScreen() {
             </View>
           ))}
         </View>
-        <Text style={{ color: colors.ink3, fontSize: type.footnote, marginHorizontal: 16 }}>English-only models always listen for English.</Text>
+        <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, marginHorizontal: space.xl }}>
+          English-only models always listen for English.
+        </Text>
       </SettingsScroll>
     </>
   );

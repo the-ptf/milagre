@@ -63,7 +63,7 @@ function foldedLine(run: RoutineRun): { icon: IconData; text: string } {
     return { icon: Moon02Icon, text: note ? `${text} · ${note}` : text };
   }
   if (run.status === "skipped-busy") return { icon: NextIcon, text: "Its Chat was busy" };
-  return { icon: Clock01Icon, text: "This Mac missed its time" };
+  return { icon: Clock01Icon, text: "This computer missed its time" };
 }
 
 /**

@@ -18,6 +18,7 @@ const STEPS = [
 /** The light behind the walkthrough: desktop's onboarding sky, a faint wash of the intro's day over the page. */
 function Sky() {
   const { colors, scheme } = useTheme();
+  // oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the intro sky's dusk and day blues, the same in desktop's onboarding
   const top = scheme === "dark" ? "#1d2d4a" : "#c6dcf4";
   return (
     <LinearGradient
@@ -81,7 +82,7 @@ export function PairWalkthrough({ topInset, children }: { topInset: number; chil
                 style={{
                   width: 26,
                   height: 26,
-                  marginTop: 1,
+                  marginTop: space.xxs,
                   borderRadius: radius.full,
                   backgroundColor: colors.ink,
                   alignItems: "center",

@@ -155,7 +155,7 @@ export default function RoutineScreen() {
         <PageScroll>
           {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
           <Text style={styles.muted}>
-            {!client ? "Connect to a Mac to see its Routines." : routines.loading ? "Loading…" : "This Routine is no longer on this Mac."}
+            {!client ? "Connect to your computer to see its Routines." : routines.loading ? "Loading…" : "This Routine is no longer on your computer."}
           </Text>
         </PageScroll>
       </>

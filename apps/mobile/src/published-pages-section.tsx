@@ -27,9 +27,9 @@ export function PublishedPagesSection() {
       };
     }, [session.client]),
   );
-  if (!session.client) return <Text style={styles.caption}>Connect to a Mac to manage its published pages.</Text>;
+  if (!session.client) return <Text style={styles.caption}>Connect to a computer to manage its published pages.</Text>;
   if (sharingOwner === undefined) return null;
-  if (sharingOwner !== session.client) return <Text style={styles.caption}>{"Only the Mac's owner can manage its published pages."}</Text>;
+  if (sharingOwner !== session.client) return <Text style={styles.caption}>{"Only the computer's owner can manage its published pages."}</Text>;
   return (
     <View style={[styles.card, { gap: 4 }]}>
       <ListRow compact title="Published pages" subtitle="Public links to designs and artifacts." onPress={() => router.push("/published-pages")} />

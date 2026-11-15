@@ -152,7 +152,9 @@ export default function AddComputer() {
                 {!permission?.granted && <Icon icon={QrCodeIcon} tone="onMedia2" size={64} />}
               </View>
               {permission?.granted ? (
-                <Text style={{ color: colors.onMedia2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Point at the QR code on your Mac</Text>
+                <Text style={{ color: colors.onMedia2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
+                  Point at the QR code on your computer
+                </Text>
               ) : (
                 <PillButton
                   secondary
@@ -162,7 +164,7 @@ export default function AddComputer() {
               )}
             </View>
             <View style={{ gap: 6 }}>
-              <Text style={styles.label}>On your Mac</Text>
+              <Text style={styles.label}>On your computer</Text>
               <Text style={styles.text}>Open Milagre, go to Settings → Devices, turn on Allow devices to connect and scan the QR code it shows.</Text>
             </View>
             <Group footer="Automatic tries LAN and Tailscale before the remote connection. Private pairing needs both devices on the same network or tailnet.">
@@ -183,7 +185,7 @@ export default function AddComputer() {
                   title: "Enter address and token",
                   onPress: () => {
                     if (privateOnly) {
-                      setError("For private pairing, scan or paste the Mac's LAN or Tailscale pairing link.");
+                      setError("For private pairing, scan or paste the computer's LAN or Tailscale pairing link.");
                       return;
                     }
                     setManual(true);
