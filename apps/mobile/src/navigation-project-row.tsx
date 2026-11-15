@@ -12,7 +12,7 @@ import { ProjectIcon, ProjectIcons } from "./project-icon";
 import { AttentionDot } from "./attention";
 import { projectOfKey } from "@milagre/shared/agent-runs";
 import { useTheme } from "./theme";
-import { TREE_INDENT } from "./navigation-build";
+import { TREE_INDENT } from "./navigation-rows";
 import { useS } from "./navigation-styles";
 import { type RowActions, type RowProps } from "./navigation-row";
 

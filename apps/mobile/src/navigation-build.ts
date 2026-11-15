@@ -46,7 +46,7 @@ export type Row = { key: string; path: string } & (
       many: boolean;
     } & HostTag)
   /** Nothing matched the search: start a new Chat with it. */
-  | { kind: "start" }
+  | { kind: "start"; query: string }
   /** A Settings page or a row on one whose words match the search: a tap opens it, the row lit up. */
   | { kind: "settingHit"; title: string; trail: string; page: SettingsRoute; find?: string }
   | { kind: "section"; name: string }
@@ -197,8 +197,6 @@ function withDoneMark(chat: AgentSession, mark: DoneMark | undefined): AgentSess
 
 /** The Filters menu's Show choices: which Chats the list keeps. */
 export type Show = "all" | "needs" | "running" | "archived";
-/** In the Tree layout, a Link's member Project and a shared Worktree's Chats sit this far in. */
-export const TREE_INDENT = 16;
 const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
 
 export const sameDeps = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((value, index) => value === b[index]);

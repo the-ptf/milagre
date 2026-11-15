@@ -74,6 +74,10 @@ function hookHost({ effects = false } = {}) {
     useContext(context) {
       return context?.defaultValue;
     },
+    // A test renders each update in full: a deferred value is the latest one.
+    useDeferredValue(value) {
+      return value;
+    },
     effect(fn, deps) {
       const index = cursor++;
       const previous = slots[index];
@@ -178,6 +182,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      // The sidebar's pure rows (navigation-rows.ts) name their imports with extensions for Node's own tests.
+      if (file === "navigation-rows.ts" && /^\.\/.+\.ts$/.test(id)) id = id.slice(0, -3);
       if (/^\.\.?\/offline-tray$/.test(id) && !(id in modules))
         return { ComposerTray: ({ children }) => children, OfflineTray: "OfflineTray", WaitingLabel: () => null };
       if (/^\.\.?\/outbox$/.test(id) && !(id in modules))

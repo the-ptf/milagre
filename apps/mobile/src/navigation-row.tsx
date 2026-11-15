@@ -38,6 +38,7 @@ import { allComputers } from "./all-computers";
 import type { ProjectCopy } from "./all-computers-store";
 import { type Row } from "./navigation-build";
 import { useS } from "./navigation-styles";
+import { useActivityClock } from "./chat-row-store";
 import { OfflineLine, ComputerTag } from "./navigation-chrome";
 import { NavigationProjectRow } from "./navigation-project-row";
 import { NavigationChatRow } from "./navigation-chat-row";
@@ -89,8 +90,6 @@ export type RowView = {
   busy: boolean;
   wide: boolean;
   beside: ReturnType<typeof useBesideChat>;
-  query: string;
-  now: number;
   rowShow: ReturnType<typeof useChatRowShow>;
   chatList: ReturnType<typeof useChatList>[0];
   selectedFill: string;
@@ -147,7 +146,6 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
   const { colors } = useTheme();
   const {
     busy,
-    query,
     clientOf,
     actions: { enter, startNewChat, openSetting, foldDone, foldSnoozed, load },
   } = view;
@@ -201,11 +199,11 @@ export const NavigationRow = memo(function NavigationRow({ item, view, copy }: {
     return (
       <EmptyState
         icon={SearchRemoveIcon}
-        title={`No Chat matches “${query.trim()}”`}
+        title={`No Chat matches “${item.query.trim()}”`}
         action={{
           title: "Start a new Chat with your search",
           icon: PencilEdit02Icon,
-          onPress: () => !busy && startNewChat(query.trim()),
+          onPress: () => !busy && startNewChat(item.query.trim()),
         }}
       />
     );
@@ -360,8 +358,8 @@ function NavigationChatsGroupRow({ item, view }: RowProps<"chatsGroup">) {
 function NavigationDoneRow({ item, view, copy }: RowProps<"done" | "snoozed">) {
   const s = useS();
   const { colors } = useTheme();
+  const now = useActivityClock(true);
   const {
-    now,
     doneHours,
     background,
     actions: { enter, act },

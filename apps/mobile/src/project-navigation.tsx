@@ -2,11 +2,10 @@ import { lineHeight } from "./design-tokens";
 import { type } from "./design-tokens";
 import { hideRevealed } from "./chat-swipe-row";
 import { useDoneRetention } from "./done-retention";
-import { bySnoozedUntil } from "@milagre/shared/snooze";
 import { settleSnooze, snoozeAt, snoozeMarkFor, WAKE, type SnoozeMark } from "./snooze-actions";
 import { useSnoozeMinutes } from "./snooze-setting";
 import { chatSummary } from "@milagre/shared/chat-summary";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FlatList, Platform, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
 import { appVersionLine } from "./app-version";
 import * as Clipboard from "expo-clipboard";
@@ -14,9 +13,6 @@ import type { Href } from "expo-router";
 import { ArrowLeft01Icon, Cancel01Icon, LaptopIcon, MoreHorizontalIcon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { chatMarkTone, chatPullRequests, chatTitle } from "@milagre/shared/chats";
-import { searchMessages } from "@milagre/shared/message-search";
-import { searchTrail } from "@milagre/shared/settings-search";
-import { SETTINGS_PAGES, searchPhoneSettings } from "./settings-index";
 import { unreadRunRoutines } from "@milagre/shared/routines";
 import type { AgentSession } from "@milagre/shared/model";
 import type { ChatSearchMatch, Client, Snapshot } from "./client";
@@ -26,7 +22,6 @@ import { useComposer, useListSnapshot, usePendingChats, useSession, type MobileP
 import { savedChatDefaults, savedChatPins } from "./hosts-native";
 import { dropBefore, moveProject } from "./project-order-store";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
-import { chatsGroupChats, chatsGroupList } from "./chats-group";
 import { UpdateSettingsBadge } from "./update-sheet";
 import { useLinks } from "./use-links";
 import { useRoutinesAvailable } from "./use-routines";
@@ -58,31 +53,15 @@ import { useLinear } from "./use-linear";
 import { useWorktreeLinearIssues } from "./use-worktree-linear-issues";
 import { useTheme } from "./theme";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
-import { saveChatRowShow, useActivityClock, useChatRowShow } from "./chat-row-store";
+import { saveChatRowShow, useChatRowShow } from "./chat-row-store";
 import { useChatList } from "./chat-display-setting";
 import { allComputers, chatsHomePath, useAllComputers, useFoldedProjects } from "./all-computers";
 import type { ProjectCopy } from "./all-computers-store";
-import { mergeChatLists } from "./chat-list-order";
-import { groupByOrigin } from "@milagre/shared/project-origin";
-import { linkOwners, nestUnder, worktreeGroups, worktreeHeading } from "@milagre/shared/project-list";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { SENT_FROM } from "./sent-from";
-import { nestChatRows } from "./subchat-rows";
 import { chatFamily } from "@milagre/shared/subchats";
-import {
-  TREE_INDENT,
-  sameDeps,
-  buildHost,
-  type Destination,
-  type Row,
-  type ChatRow,
-  type SearchScope,
-  type ChatEntry,
-  type ProjectBuild,
-  type HostBuild,
-  type DoneMark,
-  type Show,
-} from "./navigation-build";
+import { sameDeps, buildHost, type Destination, type Row, type HostBuild, type DoneMark, type Show } from "./navigation-build";
+import { computeRows, searchRows } from "./navigation-rows";
 import { useS } from "./navigation-styles";
 import { HeaderButton, HeaderGlass } from "./navigation-chrome";
 import { NavigationRow, HeaderOverCell, createNavigationRowCache, type RowActions, type RowView, type ProjectHeaderEntry } from "./navigation-row";
@@ -103,9 +82,6 @@ const FIELD_SYMBOLS: Record<string, string> = {
   diff: "plusminus",
   lastActivity: "clock",
 };
-
-/** How many Settings matches the Chats search lists under its results. */
-const SETTINGS_SHOWN = 6;
 
 /** The same project tree is the first-run destination and the drawer over a Chat: every computer's Chats, their ⋯ actions and search. */
 type NavigationProps = {
@@ -191,7 +167,8 @@ const NavigationBody = memo(function NavigationBody({
   // The chooser must list Projects and Links even when they have no Chats yet.
   const chatList = currentPath ? savedChatList : "grouped";
   const [query, setQuery] = useState("");
-  const needle = query.trim().toLowerCase();
+  const searchQuery = useDeferredValue(query);
+  const needle = searchQuery.trim().toLowerCase();
   const searching = !!needle;
   const [show, setShow] = useState<Show>("all");
   // Searching or a Show filter reads every Project, folded or not.
@@ -201,14 +178,11 @@ const NavigationBody = memo(function NavigationBody({
   });
   const folds = useFoldedProjects(views.map((view) => view.hostId));
   const rowShow = useChatRowShow();
-  // Last activity reads "5m"; the clock ticks only while the rows show it, which a Chats group row always does.
   // The Done section starts folded and stays as the user left it while the app runs.
   const [doneOpen, setDoneOpen] = useState(false);
   // The Snoozed section starts folded too.
   const [snoozedOpen, setSnoozedOpen] = useState(false);
   const [snoozeMinutes] = useSnoozeMinutes();
-  // An open Done or Snoozed section counts down to each Chat's archive or wake, so the clock ticks then too.
-  const now = useActivityClock(rowShow.lastActivity || doneOpen || snoozedOpen || views.some((view) => view.home?.exists));
   // The Chats group folds for as long as the app runs; it isn't one computer's, so the per-computer folds don't hold it.
   const [chatsFolded, setChatsFolded] = useState(false);
   // Opened subchat families, by the parent row's key, for as long as the app runs (subchat-rows.ts): a family starts
@@ -338,387 +312,10 @@ const NavigationBody = memo(function NavigationBody({
   ]);
 
   const manyHosts = builds.length > 1;
-  const { rows, searchable, projectHits } = useMemo(() => {
-    const result: Row[] = [];
-    // Each Project's Chats under the search, for the Messages section: every computer's, like desktop's ⌘K.
-    const found: SearchScope[] = [];
-    const chatRow = (build: HostBuild, project: ProjectBuild, entry: ChatEntry): ChatRow => ({
-      key: `${build.hostId}|${project.path}#${entry.chat.id}`,
-      path: project.path,
-      kind: "chat",
-      hostId: build.hostId,
-      hostName: build.hostName,
-      reach: build.reach,
-      project: project.name,
-      members: project.members,
-      many: manyHosts,
-      ...entry,
-    });
-    // An offline computer has no row of its own: its Chats stay listed dimmed, and `offlineLine` counts it.
-    const hostNotice = (build: HostBuild): Row | null => {
-      const noData = !build.projects.some((project) => project.copy);
-      if (build.reach !== "offline" && noData && (!build.loaded || build.projects.length))
-        return {
-          key: `notice:${build.hostId}`,
-          path: "",
-          kind: "notice",
-          hostId: build.hostId,
-          hostName: build.hostName,
-          reach: build.reach,
-          message: `Loading chats from ${build.hostName}...`,
-        };
-      return null;
-    };
-    // A Project several computers share: one row, on the first computer that answers (its + and menu go there), then
-    // every copy's Chats in one list, then each copy's own notice.
-    const sharedProject = (copies: { build: HostBuild; project: ProjectBuild }[]): Row[] => {
-      if (show !== "all" && copies.every(({ project }) => project.copy && !project.chats.length && !project.failure)) return [];
-      const head = copies.find(({ build }) => build.reach !== "offline") ?? copies[0]!;
-      const open = !folds.get(head.build.hostId)?.has(head.project.path);
-      const listed: Row[] = [
-        {
-          key: `${head.build.hostId}|${head.project.path}`,
-          path: head.project.path,
-          kind: "project",
-          hostId: head.build.hostId,
-          hostName: head.build.hostName,
-          reach: copies.every(({ build }) => build.reach === "offline") ? "offline" : head.build.reach,
-          name: head.project.name,
-          expanded: open,
-          members: head.project.members,
-          link: head.project.link,
-          chip: false,
-          count: copies.reduce((sum, { project }) => sum + project.chats.length, 0),
-        },
-      ];
-      if (!open) return listed;
-      listed.push(
-        ...mergeChatLists(
-          copies.map(({ build, project }, rank) =>
-            project.chats.map((entry) => ({
-              rank,
-              chat: entry.chat,
-              row: { ...chatRow(build, project, entry), shared: true },
-            })),
-          ),
-        ).map(({ row }) => row),
-      );
-      for (const { build, project } of copies) {
-        if (build.reach === "offline" && (project.failure || !project.copy)) continue;
-        const base = {
-          path: project.path,
-          kind: "notice" as const,
-          hostId: build.hostId,
-          hostName: build.hostName,
-          reach: build.reach,
-          retry: "project" as const,
-        };
-        if (project.failure)
-          listed.push({
-            ...base,
-            key: `${build.hostId}|${project.path}:error`,
-            message: `Could not ${project.copy ? "refresh" : "load"} chats on ${build.hostName}. Tap to retry.`,
-            failed: true,
-          });
-        else if (!project.copy)
-          listed.push({
-            ...base,
-            key: `${build.hostId}|${project.path}:notice`,
-            message: `Loading chats from ${build.hostName}...`,
-          });
-      }
-      if (listed.length === 1)
-        listed.push({
-          key: `${head.build.hostId}|${head.project.path}:notice`,
-          path: head.project.path,
-          kind: "notice",
-          hostId: head.build.hostId,
-          hostName: head.build.hostName,
-          reach: head.build.reach,
-          message:
-            show !== "all"
-              ? "No matching Chats"
-              : copies.some(({ project }) => project.snoozed.length || project.done.length)
-                ? "All caught up. Snoozed and Done Chats are below."
-                : "No Chats yet. Start one with +.",
-        });
-      return listed;
-    };
-    const offlineIds = builds.filter((build) => build.reach === "offline").map((build) => build.hostId);
-    const offlineLine: Row[] = offlineIds.length ? [{ key: "offline", path: "", kind: "offline", hostIds: offlineIds }] : [];
-    // Every computer's Chats without a Project in one list, newest first, above the Projects. With none, no group.
-    const homeRows = chatsGroupChats(
-      builds.flatMap((build) => {
-        const home = build.home;
-        return home
-          ? [
-              {
-                hostId: build.hostId,
-                chats: home.chats.map((entry): ChatRow => Object.assign(chatRow(build, home, entry), { home: true })),
-              },
-            ]
-          : [];
-      }),
-    ).map(({ entry }) => entry);
-    const chatsList = chatsGroupList({
-      computers: builds.length,
-      rows: homeRows,
-      folded: chatsFolded,
-      // Each computer's home, so a Chat waiting in a folded group still marks it.
-      homes: builds.flatMap((build) => (build.home ? [{ hostId: build.hostId, path: build.home.path }] : [])),
-    });
-    const chatsGroup: Row[] = chatsList ? [{ key: "chats-group", path: "", ...chatsList.header }, ...chatsList.rows] : [];
-    // A search lists like ⌘K whichever way the list is set: matching Chats, then Messages and Projects below.
-    if (needle || chatList === "list") {
-      let rank = 0;
-      // The One list has no groups, so no Chats group either: Chats without a Project merge in by the same order as every
-      // other row, as a search finds them too.
-      const lists = builds.flatMap((build) =>
-        build.projects.concat(build.home ? [build.home] : []).map((project) => {
-          const mine = rank++;
-          if (needle && project.copy)
-            found.push({
-              hostId: build.hostId,
-              hostName: build.hostName,
-              reach: build.reach,
-              path: project.path,
-              project: project.name,
-              messages: project.copy.previewOnly || project.copy.project.state.messagesInChats ? null : project.copy.project.state.messages,
-              chats: new Map(project.all.filter(({ pending }) => !pending).map(({ chat, title }) => [chat.id, { chat, title }])),
-            });
-          const home = project === build.home;
-          return project.chats.map((entry) => ({
-            rank: mine,
-            chat: entry.chat,
-            row: home ? { ...chatRow(build, project, entry), home } : chatRow(build, project, entry),
-          }));
-        }),
-      );
-      const chats = mergeChatLists(lists).map(({ row }) => row);
-      if (needle && chats.length)
-        result.push({
-          key: "section:Chats",
-          path: "",
-          kind: "section",
-          name: "Chats",
-        });
-      result.push(...chats);
-      for (const build of builds) {
-        const notice = hostNotice(build);
-        if (notice) result.push(notice);
-      }
-      if (!needle) result.push(...offlineLine);
-    } else {
-      result.push(...chatsGroup);
-      // One repository on several computers (one Git origin) is one Project, in its first copy's place; its Chats merge
-      // by time, each naming its computer.
-      const shared = new Map<ProjectBuild, { build: HostBuild; project: ProjectBuild }[]>();
-      for (const group of groupByOrigin(
-        builds.flatMap((build) =>
-          build.projects.map((project) => ({
-            build,
-            project,
-            origin: project.origin,
-            computerId: build.hostId,
-          })),
-        ),
-      ))
-        if (group.copies.length > 1) for (const copy of group.copies) shared.set(copy.project, group.copies);
-      for (const build of builds) {
-        // A computer that hasn't answered with its Projects has no group to carry its state.
-        const notice = build.projects.length ? null : hostNotice(build);
-        if (notice) result.push(notice);
-        // A Project's group: its header, then (unfolded) its Chats and their notice. In the Tree layout a Project's Chats go
-        // by Worktree (a shared Worktree's under its heading), and a Named Link's member Projects follow the Link, further in.
-        const host = { hostId: build.hostId, hostName: build.hostName, reach: build.reach };
-        const projectGroup = (project: ProjectBuild, member = false, hasMembers = false): Row[] => {
-          const open = !folds.get(build.hostId)?.has(project.path);
-          const indent = member ? TREE_INDENT : 0;
-          const rows: Row[] = [
-            {
-              ...host,
-              key: `${build.hostId}|${project.path}`,
-              path: project.path,
-              kind: "project",
-              name: project.name,
-              expanded: open,
-              members: project.members,
-              link: project.link,
-              chip: manyHosts,
-              count: project.chats.length,
-              ...(member ? { member } : {}),
-            },
-          ];
-          if (!open) return rows;
-          if (chatList === "tree" && !project.link) {
-            const state = project.copy?.project.state;
-            for (const group of worktreeGroups({
-              projectPath: project.path,
-              worktrees: state ? Object.values(state.worktrees).map((worktree) => ({ path: worktree.path, name: worktree.name })) : [],
-              rows: project.chats,
-              pathOf: (entry) => entry.worktreePath,
-              branchOf: (entry) => entry.worktree,
-            })) {
-              const heading = worktreeHeading(group);
-              if (heading)
-                rows.push({
-                  ...host,
-                  key: `${build.hostId}|${project.path}:worktree:${group.path}`,
-                  path: project.path,
-                  kind: "worktree",
-                  name: group.name,
-                  running: group.rows.some((entry) => entry.mark === "running"),
-                });
-              for (const entry of group.rows) rows.push({ ...chatRow(build, project, entry), indent: indent + (heading ? TREE_INDENT : 0) });
-            }
-          } else for (const entry of project.chats) rows.push(indent ? { ...chatRow(build, project, entry), indent } : chatRow(build, project, entry));
-          const base = { ...host, path: project.path, kind: "notice" as const, retry: "project" as const };
-          // An offline computer's failed and unread Projects are the offline line's business, not a notice each.
-          if (build.reach === "offline" && (project.failure || !project.copy)) return rows;
-          if (project.failure)
-            rows.push({
-              ...base,
-              key: `${build.hostId}|${project.path}:error`,
-              message: project.copy ? "Could not refresh Chats. Tap to retry." : "Could not load Chats. Tap to retry.",
-              failed: true,
-            });
-          // A Link whose member Projects follow it, and a member under its Link, need no "No Chats" notice.
-          else if (!project.copy || (!project.chats.length && !hasMembers && !member))
-            rows.push({
-              ...base,
-              key: `${build.hostId}|${project.path}:notice`,
-              message: !project.copy
-                ? "Loading Chats..."
-                : show !== "all"
-                  ? "No matching Chats"
-                  : project.snoozed.length || project.done.length
-                    ? "All caught up. Snoozed and Done Chats are below."
-                    : "No Chats yet. Start one with +.",
-            });
-          return rows;
-        };
-        // A Show filter leaves out the Projects with nothing to show.
-        const empty = (project: ProjectBuild) => show !== "all" && project.copy && !project.chats.length && !project.failure;
-        const owners =
-          chatList === "tree"
-            ? linkOwners(
-                build.projects
-                  .filter((project) => project.link)
-                  .map((project) => ({ key: project.path, memberPaths: (project.members ?? []).map((m) => m.path) })),
-              )
-            : new Map<string, string>();
-        for (const { item: project, children } of nestUnder(
-          build.projects,
-          (item) => item.path,
-          (item) => (shared.has(item) ? undefined : owners.get(item.path)),
-        )) {
-          const copies = shared.get(project);
-          if (copies) {
-            if (copies[0]!.project === project) result.push(...sharedProject(copies));
-            continue;
-          }
-          const members = children.filter((child) => !empty(child));
-          if (empty(project) && !members.length) continue;
-          result.push(...projectGroup(project, false, members.length > 0));
-          if (!folds.get(build.hostId)?.has(project.path)) for (const child of members) result.push(...projectGroup(child, true));
-        }
-      }
-      result.push(...offlineLine);
-    }
-    // Projects whose name matches the search, opened as a new Chat in that Project.
-    const hits: Row[] = needle
-      ? builds.flatMap((build) =>
-          build.projects
-            .filter((project) => project.name.toLowerCase().includes(needle))
-            .map((project) => ({
-              key: `${build.hostId}|${project.path}:hit`,
-              path: project.path,
-              kind: "projectHit" as const,
-              hostId: build.hostId,
-              hostName: build.hostName,
-              reach: build.reach,
-              name: project.name,
-              members: project.members,
-              many: manyHosts,
-            })),
-        )
-      : [];
-    // Every computer's snoozed Chats in one section above Done, the one waking soonest first.
-    if (!needle && show === "all") {
-      const snoozed = builds
-        .flatMap((build) =>
-          build.projects.concat(build.home ? [build.home] : []).flatMap((project) =>
-            project.snoozed.map((entry): Extract<Row, { kind: "snoozed" }> => ({
-              key: `snoozed:${build.hostId}|${project.path}#${entry.chat.id}`,
-              path: project.path,
-              kind: "snoozed",
-              hostId: build.hostId,
-              hostName: build.hostName,
-              reach: build.reach,
-              chat: entry.chat,
-              title: entry.title,
-              many: manyHosts,
-              ...(project === build.home ? { home: true } : {}),
-            })),
-          ),
-        )
-        .sort((a, b) => bySnoozedUntil(a.chat, b.chat));
-      if (snoozed.length) {
-        result.push({
-          key: "snoozed-header",
-          path: "",
-          kind: "snoozedHeader",
-          count: snoozed.length,
-          expanded: snoozedOpen,
-        });
-        if (snoozedOpen) result.push(...snoozed);
-      }
-    }
-    // Every computer's Done Chats in one section under the list, most recently marked first.
-    if (!needle && show === "all") {
-      const done = builds
-        .flatMap((build) =>
-          build.projects.concat(build.home ? [build.home] : []).flatMap((project) =>
-            project.done.map((entry): Row => ({
-              key: `done:${build.hostId}|${project.path}#${entry.chat.id}`,
-              path: project.path,
-              kind: "done",
-              hostId: build.hostId,
-              hostName: build.hostName,
-              reach: build.reach,
-              chat: entry.chat,
-              title: entry.title,
-              many: manyHosts,
-              ...(project === build.home ? { home: true } : {}),
-            })),
-          ),
-        )
-        .sort((a, b) => ((b as { chat: AgentSession }).chat.done_at ?? 0) - ((a as { chat: AgentSession }).chat.done_at ?? 0));
-      if (done.length) {
-        result.push({
-          key: "done-header",
-          path: "",
-          kind: "doneHeader",
-          count: done.length,
-          expanded: doneOpen,
-        });
-        if (doneOpen) result.push(...done);
-      }
-    }
-    // A Show filter that leaves nothing says so, above the offline line.
-    if (!needle && show !== "all" && !result.some((row) => row.kind === "chat"))
-      result.unshift({
-        key: "filter-empty",
-        path: "",
-        kind: "section",
-        name: "No Chats match this filter.",
-      });
-    return {
-      rows: nestChatRows(result, subchatFolds),
-      searchable: found,
-      projectHits: hits,
-    };
-  }, [builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds]);
+  const { rows, searchable, projectHits } = useMemo(
+    () => computeRows({ builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds }),
+    [builds, chatList, needle, show, manyHosts, folds, chatsFolded, doneOpen, snoozedOpen, subchatFolds],
+  );
   // Projects held without their messages (a preview, or a host that keeps them by Chat) are searched on their own
   // computer's host.
   const [hostMatches, setHostMatches] = useState<{
@@ -752,74 +349,23 @@ const NavigationBody = memo(function NavigationBody({
       clearTimeout(timer);
     };
   }, [needle, hostSearchKey, session.client]);
-  // What was said in the Chats, at most three hits per Chat, then the matching Projects; with nothing at all, the row
-  // that starts a new Chat with the search.
-  const listRows = useMemo(() => {
-    if (!needle) return rows;
-    const found: Row[] = [];
-    for (const { hostId, hostName, reach, path, project, messages, chats } of searchable) {
-      const perChat = new Map<number, number>();
-      const matches = messages ? searchMessages(messages, needle, 200) : hostMatches.query === needle ? (hostMatches.matches[`${hostId}\t${path}`] ?? []) : [];
-      for (const match of matches) {
-        const entry = chats.get(match.message.session_id);
-        const count = perChat.get(match.message.session_id) ?? 0;
-        if (!entry || count >= 3) continue;
-        const { chat, title } = entry;
-        perChat.set(chat.id, count + 1);
-        found.push({
-          key: `${hostId}|${path}#${chat.id}:message:${match.message.id}`,
-          path,
-          kind: "message",
-          hostId,
-          hostName,
-          reach,
-          chat,
-          title,
-          project,
-          many: manyHosts,
-          snippet: match.snippet,
-          highlight: match.highlight,
-        });
-      }
-    }
-    const next = [...rows];
-    if (found.length)
-      next.push(
-        {
-          key: "section:Messages",
-          path: "",
-          kind: "section",
-          name: "Messages",
-        },
-        ...found.slice(0, 30),
-      );
-    if (projectHits.length)
-      next.push(
-        {
-          key: "section:Projects",
-          path: "",
-          kind: "section",
-          name: "Projects",
-        },
-        ...projectHits,
-      );
-    // Settings found by the same words, as ⌘K on desktop lists them: last, under everything said in the Chats.
-    const settings: Row[] = searchPhoneSettings(query, { connected: Boolean(session.client), ipad: Platform.OS === "ios" && Platform.isPad })
-      .slice(0, SETTINGS_SHOWN)
-      .map(({ entry }) => ({
-        key: `setting:${entry.row ? "row" : "page"}:${entry.page}:${entry.group ?? ""}:${entry.title}`,
-        path: "",
-        kind: "settingHit" as const,
-        title: entry.title,
-        trail: entry.row ? searchTrail(entry, SETTINGS_PAGES[entry.page].title) : "Settings",
-        page: entry.page,
-        find: entry.row ? entry.title : undefined,
-      }));
-    const settingsSection: Row[] = settings.length ? [{ key: "section:Settings", path: "", kind: "section", name: "Settings" }, ...settings] : [];
-    if (!next.some((row) => row.kind === "chat" || row.kind === "message" || row.kind === "projectHit"))
-      return [...next.filter((row) => row.kind === "notice"), { key: "start", path: "", kind: "start" as const }, ...settingsSection];
-    return [...next, ...settingsSection];
-  }, [rows, needle, query, session.client, searchable, hostMatches, projectHits, manyHosts]);
+  const listRows = useMemo(
+    () =>
+      needle
+        ? searchRows({
+            rows,
+            needle,
+            query: searchQuery,
+            searchable,
+            hostMatches,
+            projectHits,
+            manyHosts,
+            connected: Boolean(session.client),
+            ipad: Platform.OS === "ios" && Platform.isPad,
+          })
+        : rows,
+    [rows, needle, searchQuery, session.client, searchable, hostMatches, projectHits, manyHosts],
+  );
 
   // A hidden Run Chat nobody opened lights the dock's Routines button, read from the open computer's Projects.
   const unreadRuns = useMemo(() => {
@@ -1486,8 +1032,6 @@ const NavigationBody = memo(function NavigationBody({
       busy,
       wide,
       beside,
-      query,
-      now,
       rowShow,
       chatList,
       selectedFill,
@@ -1513,8 +1057,6 @@ const NavigationBody = memo(function NavigationBody({
       busy,
       wide,
       beside,
-      query,
-      now,
       rowShow,
       chatList,
       selectedFill,

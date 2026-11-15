@@ -25,6 +25,7 @@ import { inkFor, useTheme, type Palette } from "./theme";
 import { activityAgo } from "@milagre/shared/chat-row";
 import { WaitingLabel } from "./offline-tray";
 import { useS } from "./navigation-styles";
+import { useActivityClock } from "./chat-row-store";
 import { ComputerTag } from "./navigation-chrome";
 import type { RowActions, RowProps, RowView } from "./navigation-row";
 
@@ -41,7 +42,7 @@ const labels: Record<ChatMark, string> = {
   unread: "Unread",
 };
 
-type ChatRowContext = RowProps<"chat"> & { s: ReturnType<typeof useS>; colors: Palette };
+type ChatRowContext = RowProps<"chat"> & { s: ReturnType<typeof useS>; colors: Palette; now: number };
 type ChatRowBase = ChatRowContext & RowView & RowActions;
 
 /** Whether the row is the open Chat, its menu, and whether it is archiving. */
@@ -309,7 +310,8 @@ type ChatRowParts = ReturnType<typeof chatRowParts>;
 export function NavigationChatRow(props: RowProps<"chat">) {
   const s = useS();
   const { colors } = useTheme();
-  const parts = chatRowParts({ ...props, s, colors });
+  const now = useActivityClock(props.view.rowShow.lastActivity || !!props.item.home);
+  const parts = chatRowParts({ ...props, s, colors, now });
   if (props.item.home && parts.chatList !== "list") return homeChatRow(parts);
   if (!parts.grouped) return inboxChatRow(parts);
   return groupedChatRow(parts);

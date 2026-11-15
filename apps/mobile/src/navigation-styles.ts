@@ -1,7 +1,7 @@
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { StyleSheet } from "react-native";
 import { createStylesHook, type Palette } from "./theme";
-import { TREE_INDENT } from "./navigation-build";
+import { TREE_INDENT } from "./navigation-rows";
 
 const makeS = (colors: Palette) =>
   StyleSheet.create({
