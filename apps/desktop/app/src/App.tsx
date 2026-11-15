@@ -17,6 +17,8 @@ import { useChatLayout } from "./app/useChatLayout";
 import { useModelSelection } from "./app/useModelSelection";
 import { usePrPanel } from "./app/usePrPanel";
 import { useChatRowActions } from "./app/useChatRowActions";
+import { useSendPipeline } from "./app/useSendPipeline";
+import { NO_WORKTREE, shownPendingSend, withSendPreviews } from "./lib/send-pending";
 import { ChatApproval, PermissionCard, approvalShown, type ChatApprovalProps } from "./app/ChatApproval";
 import { ChooseProjectScreen, HostNotices, QuitErrorDialog, StartupErrorScreen } from "./app/StartupScreens";
 import { WorkspaceSlots } from "./app/WorkspaceSlots";
@@ -112,7 +114,7 @@ import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
 import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
-import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { createPendingChat, pendingChatSessionId, withPreview } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { getSettings, toggleTheme, useApplyTheme, useSettings } from "./lib/settings";
@@ -213,20 +215,6 @@ function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorSt
 }
 const NO_REFS: string[] = [];
 const NO_ROUTINES = new Set<string>();
-// `sent`: the main process saved the message; the preview stays until the saved message reaches the window's state.
-// `creatingWorktree`: the send waits for its new Worktree; `provider`: the one the picker sent it to.
-type PendingSend = PendingChat & {
-  view: number;
-  projectPath: string;
-  originSessionId: number | null;
-  originWorktreeId: number;
-  sent?: boolean;
-  creatingWorktree?: boolean;
-  provider?: ModelProvider;
-};
-const NO_WORKTREE = -1;
-type PreparedSendTarget = { view: number; projectPath: string; sessionId: number | null; worktreeId: number };
-type FailedSend = PendingSend & { draft: string; error: string; target: PreparedSendTarget | null };
 
 function App() {
   const [project, setProject] = useState<OpenProject | null>(null);
@@ -385,16 +373,18 @@ function App() {
     chatView.current = ++nextChatView.current;
     setChatView(chatView.current);
   }
-  const sendsInFlight = useRef(new Set<string>());
-  // A new Chat's draft is on its way to another Project (moveNewChat): Enter waits for it to get there.
-  const movingDraft = useRef(false);
-  // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
-  const failedSendIds = useRef(createResendMemory());
-  const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
-  // If persistence fails after setup, retry in the Worktree already prepared for this Chat.
-  const preparedTarget = useRef<PreparedSendTarget | null>(null);
-  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
-  const [restoringSend, setRestoringSend] = useState<FailedSend | null>(null);
+  const {
+    sendsInFlight,
+    movingDraft,
+    failedSendIds,
+    pendingSends,
+    dispatchPending,
+    preparedTarget,
+    failedSends,
+    setFailedSends,
+    restoringSend,
+    setRestoringSend,
+  } = useSendPipeline(states);
   const [loading, setLoading] = useState(true);
   const [hostConnection, setHostConnection] = useState<RuntimeConnection>({ connected: true });
   const [restartingHost, setRestartingHost] = useState(false);
@@ -561,12 +551,7 @@ function App() {
       state && selectedSession ? (lean ? chatWindow.messages : state.messages.filter((message) => message.session_id === selectedSession.id)) : NO_MESSAGES,
     [state?.messages, selectedSession?.id, lean, chatWindow.messages],
   );
-  const pendingSend = pendingSends.findLast(
-    (send) =>
-      send.projectPath === project?.path &&
-      (send.view === chatView.current ||
-        (selectedSession && (send.originSessionId === selectedSession.id || (state && pendingChatSessionId(state, send) === selectedSession.id)))),
-  );
+  const pendingSend = shownPendingSend(pendingSends, { project, view: chatView.current, session: selectedSession, state });
   const pendingHere = Boolean(pendingSend);
   const preparingHere = Boolean(pendingSend && !pendingSend.sent);
   const pendingCanonicalId = state && pendingSend?.projectPath === project?.path ? pendingChatSessionId(state, pendingSend) : null;
@@ -576,20 +561,9 @@ function App() {
     () => (remoteCount > 0 ? { count: remoteCount, load: chatWindow.loadEarlier, loadAll: chatWindow.loadAll } : undefined),
     [remoteCount, chatWindow.loadEarlier, chatWindow.loadAll],
   );
-  // A large Project's state can reach the window after the send's reply; dropping the preview then would hide the new chat until it does.
-  useEffect(() => {
-    setPendingSends((current) => {
-      const next = current.filter((send) => {
-        const latest = states[send.projectPath];
-        return !send.sent || (latest && pendingChatSessionId(latest, send) === null);
-      });
-      return next.length === current.length ? current : next;
-    });
-  }, [pendingSends, states]);
   const sidebarState = useMemo(() => {
     if (!state) return state;
-    const recovered = failedSends.filter((send) => send.projectPath === project?.path).reduce((current, send) => withPendingChat(current, send), state);
-    return pendingSends.filter((send) => send.projectPath === project?.path).reduce((current, send) => withPendingChat(current, send), recovered);
+    return withSendPreviews(state, project?.path, pendingSends, failedSends);
   }, [state, pendingSends, failedSends, project?.path]);
   // The renderer's preview never enters project state. The main process still owns the persisted transcript.
   const loadedMessages = useMemo(
@@ -1881,9 +1855,9 @@ function App() {
       provider: model.provider,
       context: issue ? linearIssueContext(issue, submittedDraft) : (prAction ?? null),
     });
-    setPendingSends((current) => [
-      ...current,
-      {
+    dispatchPending({
+      type: "add",
+      send: {
         ...preview,
         view,
         projectPath: project.path,
@@ -1892,7 +1866,7 @@ function App() {
         creatingWorktree: previewWorktreeId === NO_WORKTREE,
         provider: model.provider,
       },
-    ]);
+    });
     if (!preserveComposer) {
       setDraft("");
       imageDraft.clear();
@@ -1919,13 +1893,7 @@ function App() {
       target = await resolveSendTarget(body, issue, view);
       if (!target) return false;
       if (firstMessage && stillHere()) preparedTarget.current = { ...target, view, projectPath: project.path };
-      setPendingSends((current) =>
-        current.map((pending) =>
-          pending.message.clientMessageId === preview.message.clientMessageId
-            ? { ...pending, creatingWorktree: false, targetSessionId: target!.sessionId, session: { ...pending.session, worktree_id: target!.worktreeId } }
-            : pending,
-        ),
-      );
+      dispatchPending({ type: "target", clientMessageId: preview.message.clientMessageId, sessionId: target.sessionId, worktreeId: target.worktreeId });
       const sendTarget = target;
       // The main process saves the message, then starts the Chat's turn, even if the user has navigated away. A busy or
       // restarting host gets it again until it takes it; the host recognises a resend by its clientMessageId.
@@ -1951,13 +1919,7 @@ function App() {
       if (preparedTarget.current?.view === view) preparedTarget.current = null;
       sent = true;
       failedSendIds.current.forget(resendKey);
-      setPendingSends((current) =>
-        current.map((pending) =>
-          pending.message.clientMessageId === preview.message.clientMessageId
-            ? { ...pending, sent: true, originSessionId: sessionId, originWorktreeId: target!.worktreeId }
-            : pending,
-        ),
-      );
+      dispatchPending({ type: "sent", clientMessageId: preview.message.clientMessageId, sessionId, worktreeId: target.worktreeId });
       if (stillHere()) {
         // Text typed while a new chat was being created belongs to that chat, not to the next new one.
         const carried = draftStore.get();
@@ -1997,7 +1959,7 @@ function App() {
       }
       return false;
     } finally {
-      if (!sent) setPendingSends((current) => current.filter((pending) => pending.message.clientMessageId !== preview.message.clientMessageId));
+      if (!sent) dispatchPending({ type: "drop", clientMessageId: preview.message.clientMessageId });
       sendsInFlight.current.delete(sendKey);
     }
   }
