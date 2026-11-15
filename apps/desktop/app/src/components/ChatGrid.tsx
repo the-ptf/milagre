@@ -11,7 +11,7 @@ import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/c
 import { EditorLinks } from "./editor-links";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Button, IconButton } from "./primitives/Button";
-import { ChatMarkDot } from "./sidebar/ChatRow";
+import { ChatMarkDot } from "./sidebar/ChatMarks";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";

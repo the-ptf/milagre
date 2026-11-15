@@ -45,7 +45,7 @@ import { useProjectImages } from "@/lib/project-images";
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
 import { DiffBar } from "./changes/ChangesChrome";
 import { ProviderLogo } from "./ProviderLogo";
-import { ChatMarkDotInline } from "./sidebar/ChatRow";
+import { ChatMarkDotInline } from "./sidebar/ChatMarks";
 import Tooltip from "./primitives/Tooltip";
 import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";

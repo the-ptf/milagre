@@ -56,7 +56,7 @@ import { AnimatePresence, LayoutGroup } from "motion/react";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { BackgroundWork } from "./agents/BackgroundWork";
 import { backgroundItems } from "@milagre/shared/chat-activity";
-import { ChatMarkDotInline } from "./sidebar/ChatRow";
+import { ChatMarkDotInline } from "./sidebar/ChatMarks";
 import type { ChatActivity } from "@milagre/shared/chat-activity";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import { undoableTasks, type Checkpoint, type CheckpointApi } from "@milagre/shared/checkpoints";

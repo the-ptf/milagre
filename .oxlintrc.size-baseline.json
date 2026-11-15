@@ -553,14 +553,6 @@
     {
       "files": ["apps/desktop/app/src/components/sidebar/ChatRow.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 2133,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
