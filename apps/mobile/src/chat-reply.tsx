@@ -275,7 +275,9 @@ function openMention(path: string, attached: string[], root: string) {
   if (file) router.push({ pathname: "/file-preview", params: { path: file } });
 }
 
-const NO_MENTION_CHATS: readonly MentionChat[] = [];
+/** What a sent message's @ chips read of a Chat: its name, and whether it still opens. */
+export type ReplyChat = Pick<MentionChat, "id" | "title" | "available">;
+const NO_MENTION_CHATS: readonly ReplyChat[] = [];
 export const ChatReply = memo(function ChatReply({
   chats = NO_MENTION_CHATS,
   message,
@@ -293,7 +295,8 @@ export const ChatReply = memo(function ChatReply({
   highlighted = false,
   onOpenChat,
 }: {
-  chats?: readonly MentionChat[];
+  /** The Project's Chats a user message's @ chips name; only user messages read them. */
+  chats?: readonly ReplyChat[];
   message?: ChatMessage;
   /** Opens another Chat by its key, from the sender line of a message that Chat sent. */
   onOpenChat?: (chatKey: string) => void;

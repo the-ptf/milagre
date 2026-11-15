@@ -8,7 +8,7 @@ import { useTheme } from "./theme";
 import { useAttention } from "./attention";
 import { bookmarkOf, type Bookmark } from "./subchat-family";
 import type { AgentSession } from "@milagre/shared/model";
-import type { SubchatInput } from "@milagre/shared/subchat-states";
+import { useRun } from "./session";
 
 /** The capsule's height; the touch area is 44 with the slop. */
 const HEIGHT = 32;
@@ -69,23 +69,25 @@ function SubchatBookmark({ bookmark, top, onBack }: { bookmark: Bookmark; top: n
 }
 
 /**
- * The capsule of the open Chat `chatKey`, which reads the Chats waiting on the user itself so the Chat screen doesn't
- * re-render when the poll answers. Nothing when the Chat has no listed ancestor. `onBack` gets the Chat above it.
+ * The capsule of the open Chat `chatKey`, which reads the Chats waiting on the user and its parent's turn itself, so the
+ * Chat screen doesn't re-render when the poll answers or another Chat streams. Nothing when the Chat has no listed
+ * ancestor. `onBack` gets the Chat above it.
  */
 export function SubchatBookmarkHost({
   sessions,
   chatKey,
-  runs,
   top,
   onBack,
 }: {
   sessions: Record<number, AgentSession | undefined>;
   chatKey: string;
-  runs: Record<string, SubchatInput["run"]> | undefined;
   top: number;
   onBack: (parentKey: string) => void;
 }) {
   const attention = useAttention();
-  const bookmark = bookmarkOf({ sessions, key: chatKey, attention, runs });
+  // Only the parent's turn shows here (its dot and "Needs you"): another Chat's steps re-render nothing.
+  const parent = bookmarkOf({ sessions, key: chatKey, attention: [], runs: undefined })?.parent;
+  const parentRun = useRun(parent);
+  const bookmark = bookmarkOf({ sessions, key: chatKey, attention, runs: parent && parentRun ? { [parent]: parentRun } : undefined });
   return bookmark ? <SubchatBookmark bookmark={bookmark} top={top} onBack={() => onBack(bookmark.parent)} /> : null;
 }
