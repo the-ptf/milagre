@@ -89,6 +89,7 @@ function pickHookQuery(search) {
   return out;
 }
 
+/** The JSON answer for a hook request; every 404 is these exact bytes and headers, so a probe learns nothing. */
 export function hookResponse(answer) {
   return new Response(answer === NOT_FOUND ? NOT_FOUND_BODY : JSON.stringify(answer.json), {
     status: answer.status,
@@ -106,6 +107,8 @@ export function hookResponse(answer) {
 export async function handleHookRequest(request, { lookupRoom, forwardToRoom }) {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
   const url = new URL(request.url);
+  // Answered before any body is read or directory is asked: a probe costs no Durable Object request (Cloudflare bills
+  // each one; see the 2026-11-10 relay outage).
   const secret = hookSecretOf(url.pathname);
   if (!secret) {
     await request.body?.cancel().catch(() => {});
