@@ -7657,6 +7657,39 @@ test("a message another Chat sent is one line, and its text opens in the brief s
   assert.equal(typeof extra.openChat, "function");
 });
 
+test("a back-and-forth with one Chat is one line, its latest reply under it, the exchange opening in the sheet", (t) => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const context = { kind: "chat-message", from: "/api#7", fromLabel: "api / main / Rules to checks" };
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Is the copy fixed?", context },
+    { id: 2, session_id: 42, role: "assistant", body: "Not yet." },
+    { id: 3, session_id: 42, role: "user", body: "And now?", context },
+    { id: 4, session_id: 42, role: "assistant", body: "Fixed." },
+  ];
+  const briefs = [];
+  globalThis.showBrief = (...args) => briefs.push(args);
+  t.after(() => delete globalThis.showBrief);
+  const tree = screen.render();
+  const lines = [];
+  const replies = [];
+  find(tree, (node) => {
+    if (node.type === "LinkedMessageLine") lines.push(node.props);
+    if (node.type === "ChatReply" && node.props.message) replies.push(node.props.message.id);
+    return false;
+  });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].count, 4);
+  assert.deepEqual(replies, [4], "only the latest reply stays in the transcript");
+  lines[0].onOpen();
+  const [text, title] = briefs[0];
+  assert.equal(title, "Messages with Rules to checks");
+  assert.match(text, /^\*\*Rules to checks\*\*\n\nIs the copy fixed\?/);
+  assert.match(text, /\*\*This Chat\*\*\n\nFixed\.$/);
+});
+
 test("a Linear Run's first message shows the routine divider, then its issue card", () => {
   const screen = chatHost();
   screen.params.id = "42";

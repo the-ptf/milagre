@@ -107,7 +107,7 @@ import { chosenDesign, designActivity } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
-import { linkedContext, linkedLine } from "@milagre/shared/linked-message";
+import { exchangeText, foldLinkedExchanges, linkedContext, linkedLine, type LinkedExchange } from "@milagre/shared/linked-message";
 import { LinkedMessageLine } from "../linked-message-line";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider, LimitResetDivider } from "../account-switch-divider";
@@ -824,7 +824,8 @@ function ChatPane({
     trimHistory(() => following.current && !historyRead.current && !historyAnchor.current);
   }, [messages.length, visible, scrollKey, trimHistory]);
   // Quiet heartbeats fold into one line and their replies drop out.
-  const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
+  // A back-and-forth with another Chat folds into one line too, its latest reply under it.
+  const groupedMessages = useMemo(() => foldLinkedExchanges(groupQuietRuns(messages)), [messages]);
   // The transcript renders its last `visible` rows, so new ones at the end push old ones out at the top. The native
   // view then moves the offset to keep what is on screen (maintainVisibleContentPosition) and reports that as a scroll,
   // with the new rows' height left to the end. When as much leaves as arrives, the content size doesn't change and
@@ -2313,16 +2314,18 @@ function ChatPane({
     ) : null;
   };
   // A message another Chat's agent sent here is one line, as a model switch is; its text opens in the brief sheet.
-  const renderLinkedLine = (message: ChatMessage) => {
-    const line = message.role === "user" ? linkedLine(linkedContext(message)) : null;
+  // A back-and-forth with one Chat is one line for the run, the exchange opening in the same sheet.
+  const renderLinkedLine = (message: ChatMessage, exchange?: LinkedExchange) => {
+    const line = exchange?.line ?? (message.role === "user" ? linkedLine(linkedContext(message)) : null);
     if (!line) return null;
     const chat = line.chat;
     return (
       <LinkedMessageLine
         line={line}
-        attachments={(message.images?.length ?? 0) + (message.files?.length ?? 0)}
+        count={exchange?.count}
+        attachments={exchange ? 0 : (message.images?.length ?? 0) + (message.files?.length ?? 0)}
         onOpen={() => {
-          showBrief(message.body, `${line.verb} ${line.name}`, {
+          showBrief(exchange ? exchangeText(exchange) : message.body, exchange ? `Messages with ${line.name}` : `${line.verb} ${line.name}`, {
             ...(line.label !== line.name ? { subtitle: line.label } : {}),
             ...(chat ? { openChat: () => openFamilyChat(chat) } : {}),
           });
@@ -2533,7 +2536,7 @@ function ChatPane({
                       style={{ alignSelf: "center" }}
                     />
                   )}
-                  {groupedMessages.slice(-visible).flatMap(({ message, hidden, merged }) => [
+                  {groupedMessages.slice(-visible).flatMap(({ message, hidden, merged, exchange }) => [
                     ...(liveReply && message === pendingInput ? [liveReply] : []),
                     ...(hidden || notes.silent.has(message.id)
                       ? []
@@ -2558,7 +2561,7 @@ function ChatPane({
                             }}
                           >
                             {renderSubchatNote(message) ??
-                              renderLinkedLine(message) ??
+                              renderLinkedLine(message, exchange) ??
                               (isHandoff(message) ? (
                                 <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
                               ) : isWorktreeLinked(message) ? (

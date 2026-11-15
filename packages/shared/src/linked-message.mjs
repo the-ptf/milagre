@@ -44,3 +44,52 @@ export function linkedLine(context) {
     chat: context.from ?? null,
   };
 }
+
+/** Who sent the message as a line: the sending Chat's key, or its label when there is no Chat to open. */
+const senderOf = (message) => {
+  const line = message?.role === "user" ? linkedLine(linkedContext(message)) : null;
+  return line ? { line, key: line.chat ?? `label:${line.label}` } : null;
+};
+
+/**
+ * Folds a back-and-forth with one other Chat into one line, as Grok shows "2 messages with Roteirista". `entries` are the
+ * transcript's rows ({ message, hidden? }, as groupQuietRuns returns them). A run starts at a message that Chat sent and
+ * goes on through this Chat's replies and more messages from the same Chat; with two or more of its messages, the first
+ * row carries `exchange` (the line, and every message of the run in order) and the rest are hidden, except the last
+ * reply, which stays: it is where the conversation stands. Returns new rows; `entries` is left as it was.
+ */
+export function foldLinkedExchanges(entries) {
+  const rows = entries.map((entry) => ({ ...entry }));
+  for (let start = 0; start < rows.length; start += 1) {
+    const first = rows[start];
+    const sender = first.hidden ? null : senderOf(first.message);
+    if (!sender) continue;
+    const run = [start];
+    let theirs = 1;
+    for (let index = start + 1; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (row.hidden) continue;
+      const next = senderOf(row.message);
+      if (next?.key === sender.key) theirs += 1;
+      // Only this Chat's plain replies belong to the run; a divider, a note or a report ends it.
+      else if (row.message.role !== "assistant" || row.message.context) break;
+      run.push(index);
+    }
+    if (theirs < 2) continue;
+    const lastIndex = run.at(-1);
+    const keep = rows[lastIndex].message.role === "assistant" ? lastIndex : null;
+    const items = run
+      .map((index) => rows[index].message)
+      .filter((message) => message.body?.trim())
+      .map((message) => ({ from: message.role === "user" ? "them" : "us", message }));
+    first.exchange = { line: sender.line, count: items.length, items };
+    for (const index of run.slice(1)) if (index !== keep) rows[index].hidden = true;
+    start = lastIndex;
+  }
+  return rows;
+}
+
+/** The exchange as Markdown for the brief dialog or sheet: each message under who wrote it, oldest first. */
+export function exchangeText(exchange) {
+  return exchange.items.map(({ from, message }) => `**${from === "them" ? exchange.line.name : "This Chat"}**\n\n${message.body.trim()}`).join("\n\n---\n\n");
+}

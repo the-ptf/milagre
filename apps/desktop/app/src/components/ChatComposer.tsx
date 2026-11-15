@@ -140,7 +140,8 @@ import { NewChatGlance } from "./NewChatGlance";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
-import { LinkedMessageHeader, LinkedMessageLine, linkedContext, linkedLine } from "./LinkedMessage";
+import { LinkedExchangeLine, LinkedMessageHeader, LinkedMessageLine, linkedContext, linkedLine } from "./LinkedMessage";
+import { foldLinkedExchanges, type LinkedExchange } from "@milagre/shared/linked-message";
 import { linkedHeading } from "@milagre/shared/linked-message";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
@@ -369,6 +370,7 @@ const MessageSection = memo(function MessageSection({
   onOpenAccounts,
   models,
   merged,
+  exchange,
   undoId,
   undoLatest = false,
   undoDisabled = false,
@@ -379,6 +381,8 @@ const MessageSection = memo(function MessageSection({
   message: AppChatMessage;
   /** Quiet heartbeats folded into this one: how many, and the last. */
   merged?: { count: number; last: RoutineRunContext };
+  /** A back-and-forth with another Chat folded into this message's line. */
+  exchange?: LinkedExchange;
   isUser: boolean;
   models: ModelOption[];
   /** The checkpoint of the task this message started, when it changed files: the hover button opens its preview. */
@@ -437,6 +441,13 @@ const MessageSection = memo(function MessageSection({
     return (
       <article id={`message-${message.id}`} data-slot="message" data-linked={linked.kind} className="flex min-w-0 w-full flex-col">
         <DelegationReportLine marker={marker} body={message.body} chat={linkedHeading(linked).chat} onOpenChat={onOpenChat} />
+      </article>
+    );
+  // A back-and-forth with one Chat is one line for the whole run, the exchange opening in a dialog.
+  if (exchange)
+    return (
+      <article id={`message-${message.id}`} data-slot="message" data-linked={linked?.kind} className="flex min-w-0 w-full flex-col">
+        <LinkedExchangeLine exchange={exchange} onOpenChat={onOpenChat} />
       </article>
     );
   // So is a message another Chat's agent sent here: a line like a model switch, its text opening in a dialog.
@@ -802,7 +813,8 @@ const MessageTranscript = memo(function MessageTranscript({
       ? { id: -1, session_id: messages.at(-1)?.session_id ?? -1, body: streamingText ?? "", context: null, role: "assistant", steps: streamingSteps }
       : undefined;
   // Quiet heartbeats fold away; grouped over the whole Chat so a page boundary doesn't strand a hidden reply.
-  const grouped = useMemo(() => groupQuietRuns(messages), [messages]);
+  // So does a back-and-forth with another Chat: one line, its latest reply under it.
+  const grouped = useMemo(() => foldLinkedExchanges(groupQuietRuns(messages)), [messages]);
   // Subchat escalation notes: some are drawn in place, some elsewhere or by their card (lib/subchat-transcript.ts).
   const hiddenNotes = useMemo(() => hiddenSubchatNotes(messages), [messages]);
   const suggestionResults = useMemo(() => suggestionOutcomes(messages), [messages]);
@@ -865,7 +877,7 @@ const MessageTranscript = memo(function MessageTranscript({
         </Button>
       )}
       {cut && <span ref={tailMarker} hidden />}
-      {shown.map(({ message, merged }) => {
+      {shown.map(({ message, merged, exchange }) => {
         // A Linear Run's first message is its issue card carrying the Run: the divider comes first, then the card.
         const issueRun = isRoutineRun(message) ? null : routineRunOf(message);
         if (hiddenNotes.has(message.id)) return null;
@@ -887,6 +899,7 @@ const MessageTranscript = memo(function MessageTranscript({
             <MessageSection
               message={message}
               merged={merged}
+              exchange={exchange}
               isUser={message.role === "user"}
               onRecommendationSelect={onRecommendationSelect}
               onUpdateCli={onUpdateCli}

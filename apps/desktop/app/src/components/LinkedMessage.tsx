@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-icons";
-import { linkedContext, linkedHeading, linkedLine } from "@milagre/shared/linked-message";
+import { exchangeText, linkedContext, linkedHeading, linkedLine, type LinkedExchange } from "@milagre/shared/linked-message";
 import type { ChatMessage, LinkedContext } from "../model";
 import { Attachments } from "./Attachments";
 import { HandoffBriefDialog } from "./Handover";
@@ -92,6 +92,54 @@ export function LinkedMessageLine({
             </div>
           )}
         </HandoffBriefDialog>
+      )}
+    </TranscriptDivider>
+  );
+}
+
+/**
+ * A back-and-forth with one other Chat as one line ("4 messages with Fix login"); the latest reply stays under it in the
+ * transcript. A click opens the whole exchange, each message under who wrote it.
+ */
+export function LinkedExchangeLine({ exchange, onOpenChat }: { exchange: LinkedExchange; onOpenChat?: (chatKey: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const { line } = exchange;
+  const chat = line.chat;
+  const openChat =
+    chat && onOpenChat
+      ? () => {
+          setOpen(false);
+          onOpenChat(chat);
+        }
+      : undefined;
+  return (
+    <TranscriptDivider data-linked-exchange={String(exchange.items[0]?.message.id ?? "")} label={`${exchange.count} messages with ${line.label}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        title={line.label}
+        className="group/line relative -mx-2 flex min-w-0 items-center gap-1.5 rounded-control px-2 py-0.5 transition-colors duration-fast before:absolute before:-inset-y-1 before:inset-x-0 hover:bg-hover hover:text-ink"
+      >
+        <Icon icon={Link04Icon} size={12} className="shrink-0" />
+        <span className="shrink-0">{exchange.count} messages with</span>
+        <span className="min-w-0 truncate font-medium text-ink-2 group-hover/line:text-ink">{line.name}</span>
+        <Icon icon={ArrowRight01Icon} size={12} className="shrink-0" />
+      </button>
+      {open && (
+        <HandoffBriefDialog
+          title={`Messages with ${line.name}`}
+          description={line.label !== line.name ? line.label : undefined}
+          brief={exchangeText(exchange)}
+          onClose={() => setOpen(false)}
+          action={
+            openChat && (
+              <Button variant="ghost" data-linked-open-chat={chat} onClick={openChat}>
+                Open Chat
+              </Button>
+            )
+          }
+        />
       )}
     </TranscriptDivider>
   );
