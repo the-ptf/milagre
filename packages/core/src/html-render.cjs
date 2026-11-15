@@ -118,11 +118,17 @@ async function withPreviewPage(run, { timeout = 20_000 } = {}) {
     let port;
     while (!port) {
       if (failure) throw failure;
-      if (child.exitCode !== null || Date.now() > deadline) throw Error("The HTML preview browser could not start.");
-      port = Number((await fs.readFile(path.join(directory, "DevToolsActivePort"), "utf8").catch(() => "")).split("\n")[0]);
+      if (child.exitCode !== null) throw Error(`The HTML preview browser could not start: it exited with code ${child.exitCode}.`);
+      if (Date.now() > deadline) throw Error(`The HTML preview browser could not start: no debugging port after ${timeout / 1000} s.`);
+      // Chromium writes the file in place, so a read can catch the port's first digits only: wait for the line to end.
+      const [line, rest] = (await fs.readFile(path.join(directory, "DevToolsActivePort"), "utf8").catch(() => "")).split("\n");
+      if (rest !== undefined) port = Number(line);
       if (!port) await delay(50);
     }
-    const pages = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(5000) }).then((r) => r.json());
+    // The page list shares the start's deadline: a browser still starting up answers late, not never.
+    const pages = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(Math.max(deadline - Date.now(), 1000)) }).then((r) =>
+      r.json(),
+    );
     const page = pages.find((p) => p.type === "page");
     if (!page) throw Error("The HTML preview browser has no page.");
     session = await adapter.session({ host: "127.0.0.1", port }, page.id);
