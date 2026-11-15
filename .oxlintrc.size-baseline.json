@@ -556,12 +556,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 581,
+            "max": 565,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 176]
+        "complexity": ["error", 175]
       }
     },
     {

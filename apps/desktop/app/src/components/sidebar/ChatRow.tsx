@@ -29,68 +29,48 @@ import { useSettings } from "../../lib/settings";
 import { snoozeDurationLabel } from "@milagre/shared/snooze";
 import { HugeIcon, ChatMarkDot, railDotTone } from "./ChatMarks";
 import { LinearIssueChip, PullRequestChip } from "./ChatRowChips";
-import { RowProjectIcon, InboxTitleLine, InboxLine, FamilyBadge, ClassicInboxTitleLine, ClassicInboxLine } from "./InboxLines";
+import { RowProjectIcon, InboxTitleLine, InboxLine, FamilyBadge, ClassicInboxLine } from "./InboxLines";
 import { RenameField } from "./RenameField";
 import { ChatHoverCard } from "./ChatHoverCard";
 import { LinkIssuePopover, ChatMenu } from "./ChatRowMenus";
 import { computerIcon, ROW_PR_LIMIT, MENU_WIDTH } from "./chat-row-parts";
 export { PullRequestOpenContext } from "./ChatRowChips";
 
-/** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
   const now = useDisplayNow(30_000, on);
   return on ? now : 0;
 }
 
-/** What the hover card tells about a chat. */
 type ChatDetails = {
   branch?: string;
   path?: string;
   diff?: DiffStat;
-  /** PRs the chat created or merged, then its worktree branch's PR, in the order they were made. */
   pullRequests?: PullRequest[];
-  /** The Linear issue the chat's Worktree was started from or names. */
   linearIssue?: LinearIssue;
-  /** The key the chat's Worktree is stored as linked to (Worktree.linearIssue). Only while Linear is on. */
   linearKey?: string;
-  /** The chat has its own Worktree that another chat doesn't share, so "Link issue…" is offered. Only while Linear is on. */
   linkable?: boolean;
-  /** The chat's last turn failed. */
   failed?: boolean;
-  /** Ports the chat's commands listen on. */
   ports?: AgentPort[];
-  /** When the chat last got a message or a reply ended (ChatSummary.lastAt). */
   lastAt?: number;
-  /** When the chat got its first message (ChatSummary.firstAt), which orders chats of different Projects by age. */
   firstAt?: number;
 };
 
-/** The computer a row's chat lives on, shown on its second line once there are two or more computers. `local`: this Mac. */
 export type RowComputer = { name: string; offline: boolean; local?: boolean };
 
 export type SidebarRecent = {
   id: string;
-  /** A local Chat preview can be opened, but cannot be edited until the host accepts it. */
   pending?: boolean;
   label: string;
   worktreeCount?: number;
   prompt?: string;
-  /** The mark at the left of the row; idle when absent. */
   mark?: ChatMark;
-  /** With a background mark: how many background agents still work (chat-activity.mjs). */
   background?: number;
-  /** Whether the chat is unread, whatever its mark shows. */
   unread?: boolean;
-  /** In the Pinned section, at `pinOrder` among the pinned chats. */
   pinned?: boolean;
   pinOrder?: number;
-  /** When the chat was marked Done: it leaves the list for the Done section at the bottom (done.mjs). */
   doneAt?: number;
-  /** While the chat is snoozed, when it wakes (ms): it leaves the list for the Snoozed section (snooze.mjs). */
   snoozedUntil?: number;
-  /** The id of the Chat whose Delegation reached this one, in the same scope: the row shows under it (subchat-rows.ts). */
   parent?: string;
-  /** An enabled heartbeat checks back on this Chat: its hover-card line, "Heartbeat · every 15 min · next 10:45". */
   heartbeat?: string;
   details?: ChatDetails;
 };
@@ -98,56 +78,33 @@ export type SidebarRecent = {
 export type ChatRowActions = {
   onRename?: (id: string, title: string) => void;
   onMarkUnread?: (id: string, unread: boolean) => void;
-  /** Restarts the chat's agent so it picks up new MCP servers, skills or a sign-in (stopping a running turn). */
   onReload?: (id: string) => void;
-  /** Opens the chat with "Report a Milagre bug: " in its composer, for its agent to file (report_milagre_bug). */
   onReportBug?: (id: string) => void;
-  /** Pins the chat at `order` among the pinned chats (the end when left out), or unpins it (null). */
   onPin?: (id: string, order?: number | null) => void;
-  /** Marks the chat Done: the hover "Done" button and E on a hovered or focused row. */
   onDone?: (id: string) => void;
-  /** Takes a Done chat back to the list. */
   onReopen?: (id: string) => void;
-  /** Snoozes the chat until `until` (ms): the hover Snooze button (Settings' default) and the menu's Snooze choices. */
   onSnooze?: (id: string, until: number) => void;
-  /** Takes a snoozed chat back to the list now. */
   onWake?: (id: string) => void;
   onReveal?: (id: string) => void;
   onOpenInEditor?: (id: string) => void;
-  /** The chat is on another Mac: the menu leaves out what only acts on this one (Finder, the editor). */
   remote?: boolean;
-  /** Opens the chat with its "Commit and open PR" dialog. */
   onCommit?: (id: string) => void;
-  /**
-   * The chat has no Project (a Chats home's), so no Git and no folder to the user: the menu leaves out "Copy path",
-   * "Copy branch name", Finder, the editor and "Commit and open PR…", and archives in plain words (archiveMode).
-   */
   gitless?: boolean;
-  /** Checks the Chat's Worktree to choose its deletion cleanup mode. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
-  /** Calls off a deletion still waiting out its Undo window; false once it has gone ahead. */
   onUndoArchive?: (id: string) => boolean;
-  /** Links the chat's Worktree to a Linear issue by key. */
   onLinkIssue?: (id: string, key: string, workspace?: string) => void;
-  /** Removes the Worktree's stored Linear issue link. */
   onUnlinkIssue?: (id: string) => void;
-  /** "Link with…": the chat list that leads to the Link popover, at the menu's place. */
   onLinkWith?: (id: string, anchor: { top: number; left: number }) => void;
-  /** "Remove Link with…": the chat's Links, at the menu's place. */
   onRemoveLink?: (id: string, anchor: { top: number; left: number }) => void;
-  /** "Detach from parent", on a subchat: it lists on its own, and its open Delegations stop reporting back. */
   onDetach?: (id: string) => void;
 };
 
 const NO_LINKS: LinkedEnd[] = [];
 
 const HOVER_CARD_DELAY = 500;
-// Long enough for a pointer crossing the list not to read every chat, short enough to finish before most clicks.
 const PREFETCH_DELAY = 90;
-/** Time to cross from the row to the card before it closes, so its PR links can be clicked. */
 const HOVER_CARD_GRACE = 250;
-/** When a snooze of `minutes` from now ends: the hover Snooze button's wake time. */
 const snoozeEnd = (minutes: number) => Date.now() + minutes * 60_000;
 
 function recentInitials(label: string) {
@@ -158,10 +115,6 @@ function recentInitials(label: string) {
   return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
 }
 
-/*
- * E marks the chat under the pointer Done, as the row's own key does for a focused row. One listener serves every
- * row; a row sets `hoveredDone` while the pointer is on it. Typing in a field never reaches it.
- */
 let hoveredDone: (() => void) | null = null;
 let doneKeyListening = false;
 const isDoneKey = (event: KeyboardEvent | ReactKeyboardEvent) =>
@@ -178,7 +131,6 @@ function listenForDoneKey() {
   });
 }
 
-// memo: the sidebar rebuilds on streamed batches, and a row only needs to render when its own item changes.
 export const ChatRow = memo(function ChatRow({
   item,
   active,
@@ -206,41 +158,22 @@ export const ChatRow = memo(function ChatRow({
   active: boolean;
   collapsed: boolean;
   onPick: (item: SidebarRecent) => void;
-  /** The pointer has rested on the row: a chance to read the chat's page before the click. */
   onHover?: (item: SidebarRecent) => void;
   actions: ChatRowActions;
   shortcutHint?: string;
   computer?: RowComputer;
-  /** What the second line shows (the Filters menu's Show). */
   show?: ChatRowShow;
-  /** Dim the row itself when its computer is offline; false inside a section that is already dimmed. */
   dimOffline?: boolean;
-  /** The row is being dragged to a new place. */
   dragging?: boolean;
-  /** The canvas Links that reach the chat's Worktree: a Link icon on the row, one line each in the hover card. */
   linked?: LinkedEnd[];
-  /**
-   * The Project (or Link) the chat belongs to, when the list has no Project header to say so. Only the One list sets it,
-   * and its rows are inbox rows: the Project's icon, the title with its time, and one line of what the chat is about.
-   */
   project?: string;
-  /** The inbox row's Project icon (a Link's first Project's), and the letter shown without one. */
   projectImage?: string | null;
   projectInitial?: string;
-  /** The chat has no Project: the inbox row's icon is the Chats bubble instead of a Project's. */
   projectChats?: boolean;
-  /** A shared Link Chat's Projects: "3 Projects" stands in for the Project's name. */
   linkProjects?: number;
-  /** The row's chat key (scope#id): messages waiting on this Mac for it show as "· 2 waiting". */
   chatKey?: string;
-  /** A subchat, indented under its parent's row (subchat-rows.ts). */
   subchat?: boolean;
-  /** How far in a subchat sits: 1 under its parent, 2 under another subchat; deeper ones stay at 2. */
   depth?: number;
-  /**
-   * A parent's subchats: a count on the Project icon (the One list) or "5 subchats" on line two folds and unfolds them,
-   * orange while one of them waits on you (`asking`).
-   */
   family?: {
     count: number;
     folded: boolean;
@@ -254,7 +187,6 @@ export const ChatRow = memo(function ChatRow({
   const pullRequests = !collapsed && show.pullRequests ? rowPullRequests(item.details?.pullRequests ?? []) : [];
   const linearIssue = !collapsed && show.linearIssue ? item.details?.linearIssue : undefined;
   const hasPullRequests = pullRequests.length > 0;
-  // The chip row shows for a Linear issue alone, too.
   const hasChips = hasPullRequests || linearIssue !== undefined;
   const shownPullRequests = pullRequests.slice(0, ROW_PR_LIMIT);
   const hiddenPullRequests = pullRequests.length - shownPullRequests.length;
@@ -264,7 +196,6 @@ export const ChatRow = memo(function ChatRow({
   const lastAt = show.lastActivity ? item.details?.lastAt : undefined;
   const now = useMinute(lastAt !== undefined);
   const waiting = useOutboxWaiting(chatKey ?? "");
-  // Each shown fact, in order, joined by dots; the chips follow.
   const facts: ReactNode[] = [];
   if (rowComputer)
     facts.push(
@@ -280,9 +211,7 @@ export const ChatRow = memo(function ChatRow({
       </span>,
     );
   const projectName = collapsed ? undefined : project;
-  // The One list's rows: see `project`.
   const inbox = projectName !== undefined;
-  // Settings › Appearance › Sidebar rows: Title first (design Alt A) or Classic, in the One list only.
   const {
     appearance: { sidebarRows: rowStyle },
     snoozeMinutes,
@@ -323,7 +252,6 @@ export const ChatRow = memo(function ChatRow({
       </span>,
     );
   const twoLines = factLine || item.worktreeCount !== undefined || Boolean(shownFamily);
-  // A Link chat alone keeps its Worktrees under the title; any second-line fact moves it there.
   const prLines = factLine;
   const rowRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -334,7 +262,6 @@ export const ChatRow = memo(function ChatRow({
     flip: boolean;
   } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  // The issue picker opened from the menu's "Link issue…", at the menu's place.
   const [linking, setLinking] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const doneable = Boolean(actions.onDone) && !item.pending && !collapsed && !item.doneAt;
@@ -343,7 +270,6 @@ export const ChatRow = memo(function ChatRow({
     hideCard();
     actions.onDone?.(item.id);
   };
-  // Snooze sits beside Done on hover, for Settings' default time; a snoozed row offers Wake there instead (snooze.mjs).
   const snoozed = Boolean(item.snoozedUntil);
   const snoozable = doneable && Boolean(snoozed ? actions.onWake : actions.onSnooze);
   const snoozeLabel = snoozed ? "Wake" : `Snooze for ${snoozeDurationLabel(snoozeMinutes)}`;
@@ -376,7 +302,6 @@ export const ChatRow = memo(function ChatRow({
     if (prefetchTimer.current !== null) window.clearTimeout(prefetchTimer.current);
     prefetchTimer.current = null;
   };
-  // A pointer resting on the row is about to click it: the chat's page is read now, so the click paints at once.
   const prefetchSoon = () => {
     clearPrefetch();
     if (!onHover) return;
@@ -388,14 +313,12 @@ export const ChatRow = memo(function ChatRow({
   const showCardSoon = () => {
     clearHover();
     prefetchSoon();
-    // Back on the row from the card: the card stays as it is. A chat being dragged over the row doesn't open it.
     if (menu || renaming || card || document.documentElement.hasAttribute("data-chat-drag")) return;
     hoverTimer.current = window.setTimeout(() => {
       const row = rowRef.current;
       if (!row) return;
       const rect = row.getBoundingClientRect();
       const sidebar = row.closest("aside")?.getBoundingClientRect() ?? rect;
-      // Rows low in the window open the card upwards so it stays on screen.
       const flip = rect.top > window.innerHeight - 240;
       setCard({
         top: flip ? window.innerHeight - rect.bottom - 4 : rect.top - 4,
@@ -405,7 +328,6 @@ export const ChatRow = memo(function ChatRow({
     }, HOVER_CARD_DELAY);
   };
 
-  // Leaving the row or the card gives the pointer time to reach the other one.
   const hideCardSoon = () => {
     clearHover();
     if (card) hoverTimer.current = window.setTimeout(() => setCard(null), HOVER_CARD_GRACE);
@@ -487,7 +409,6 @@ export const ChatRow = memo(function ChatRow({
             type="button"
             onClick={() => onPick(item)}
             onKeyDown={(event) => {
-              // The inbox row has no ⋯ button: the context menu key (or Shift-F10) opens its menu from the keyboard.
               if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
               event.preventDefault();
               const rect = event.currentTarget.getBoundingClientRect();
@@ -501,32 +422,18 @@ export const ChatRow = memo(function ChatRow({
               edge ? "h-[54px] flex-col rounded-control px-3 pt-2" : "h-[50px] items-start gap-2 rounded-control px-2 py-[7px]"
             } ${active ? "bg-hover-2" : edge ? "hover:bg-hover" : "hover:bg-hover-2"} ${archiving ? "opacity-30" : ""}`}
           >
-            {edge ? (
-              <InboxTitleLine
-                item={item}
-                linked={linked}
-                lastAt={lastAt}
-                now={now}
-                hideTime={Boolean(shortcutHint) || Boolean(menu)}
-                menuOpen={Boolean(menu)}
-                doneable={doneable && !archiving}
-                snoozable={snoozable}
-              />
-            ) : (
-              <>
-                <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />
-                <ClassicInboxTitleLine
-                  item={item}
-                  linked={linked}
-                  lastAt={lastAt}
-                  now={now}
-                  hideTime={Boolean(shortcutHint) || Boolean(menu)}
-                  menuOpen={Boolean(menu)}
-                  doneable={doneable && !archiving}
-                  snoozable={snoozable}
-                />
-              </>
-            )}
+            {!edge && <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} chats={projectChats} />}
+            <InboxTitleLine
+              variant={edge ? "inbox" : "classic"}
+              item={item}
+              linked={linked}
+              lastAt={lastAt}
+              now={now}
+              hideTime={Boolean(shortcutHint) || Boolean(menu)}
+              menuOpen={Boolean(menu)}
+              doneable={doneable && !archiving}
+              snoozable={snoozable}
+            />
           </button>
         ) : (
           <button
@@ -568,7 +475,6 @@ export const ChatRow = memo(function ChatRow({
               }`}
             >
               {linked.length > 0 || item.heartbeat ? (
-                // The icons follow the title, like the presence glyphs Orca puts after a worktree's name.
                 <span className="flex min-w-0 items-center gap-1">
                   <span className="min-w-0">
                     <ChatTitle label={item.label} />
@@ -600,7 +506,6 @@ export const ChatRow = memo(function ChatRow({
           </button>
         )}
 
-        {/* A family folds from the count on its Project icon; the Title first row has it on line two. */}
         {shownFamily && !renaming && !edge && (
           <FamilyBadge item={item} family={shownFamily} archiving={archiving} className="absolute top-[18px] left-[26px] z-20 ring-2 ring-surface" />
         )}
@@ -725,7 +630,6 @@ export const ChatRow = memo(function ChatRow({
           />
         )}
         {archiving && (
-          // Over the whole row, its pull requests included: the row stays in place, faded and untouchable, until the archive ends.
           <div role="status" className="absolute inset-y-0 left-2 right-2 z-40 flex items-center justify-center">
             <span className="flex h-6 items-center gap-1.5 rounded-full bg-surface px-2.5 text-12 font-medium text-ink shadow-card">
               <SpinnerRing size={12} />
@@ -792,7 +696,6 @@ export const ChatRow = memo(function ChatRow({
           />
         )}
       </div>
-      {/* Outside the row, so presses in the card don't reach the row's handlers through the portal. */}
       {card &&
         !menu &&
         createPortal(
