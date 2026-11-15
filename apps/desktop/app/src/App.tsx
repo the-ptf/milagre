@@ -5,7 +5,6 @@ import { OfflineTray, useOfflineTray } from "./components/OfflineTray";
 import { preferenceStorage as localStorage } from "./lib/preference-storage.ts";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { prepareImageUploads, prepareLocalFileUploads } from "./lib/attachment-uploads";
-import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
@@ -15,6 +14,11 @@ import { useAppDialogs } from "./app/useAppDialogs";
 import { useAppShortcuts, useJumpToChat } from "./app/useAppShortcuts";
 import { useFindInChat } from "./app/useFindInChat";
 import { useChatLayout } from "./app/useChatLayout";
+import { ChatApproval, PermissionCard, approvalShown, type ChatApprovalProps } from "./app/ChatApproval";
+import { ChooseProjectScreen, HostNotices, QuitErrorDialog, StartupErrorScreen } from "./app/StartupScreens";
+import { WorkspaceSlots } from "./app/WorkspaceSlots";
+import { ProjectChangesPanel } from "./app/ProjectChangesPanel";
+import { ProjectPalette } from "./app/ProjectPalette";
 import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { DeleteLinkDialog, linkDeletesInFlight } from "./components/DeleteLinkDialog";
 import { createScopeDrafts } from "./lib/link-scope";
@@ -35,8 +39,8 @@ import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { cliName } from "@milagre/shared/providers";
 import { requiredCliVersion } from "./lib/cli-status";
-import { Activity, useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SetStateAction } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type SetStateAction } from "react";
+import { flushSync } from "react-dom";
 import {
   ChatMessage,
   ImageAttachment,
@@ -89,10 +93,9 @@ import { snoozeChat } from "./lib/snooze-pending.ts";
 import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
-import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
+import { firstSection } from "./components/changes/ChangesPanel";
 import { setKeyContext } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
-import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
 import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
@@ -100,7 +103,7 @@ import { formatCommentsMessage } from "./lib/diff-comments";
 import { DiffToolbar, useDiffPreferences, useDiffPresence } from "./components/changes/DiffPrefs";
 import { useChanges } from "./components/changes/useChanges";
 import { useLocalChanges, usePullRequest } from "./components/changes/usePullRequest";
-import { PullRequestPanelBody, type PullRequestPanelActions } from "./components/changes/PullRequestPanel";
+import type { PullRequestPanelActions } from "./components/changes/PullRequestPanel";
 import type { ThreadActions } from "./components/changes/PullRequestReview";
 import type { PrDiffReview } from "./components/changes/DiffView";
 import { PullRequestOpenContext } from "./components/sidebar/ChatRow";
@@ -134,10 +137,6 @@ import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
 import { clearNoticeOnNavigate, showNotice } from "./lib/notice";
 import { withReportPrompt } from "@milagre/shared/bug-report";
-import { Notice as NoticeCard } from "./components/Notice";
-import { Button } from "./components/primitives/Button";
-import { Dialog } from "./components/primitives/Dialog";
-import { InlineError } from "./components/primitives/InlineError";
 import { openInEditor } from "./lib/editors";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
 import { SidebarUsage } from "./components/usage/SidebarUsage";
@@ -152,7 +151,6 @@ import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherCompute
 import { OfflineEmpty } from "./components/OfflineEmpty";
 import { buildCommands } from "./lib/app-commands";
 import { findSetting } from "./lib/settings-find";
-import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { noteScopeOpening, prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
 import { beginChatSwitch, markChatSwitch } from "./lib/chat-switch-timing";
 import { newChatProject, PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
@@ -168,16 +166,14 @@ import { ChatIdentity } from "./components/agents/ChatIdentity";
 import { SubchatBookmark } from "./components/agents/SubchatBookmark";
 import { DetailsPanelHost } from "./components/agents/DetailsPanel";
 import { useChatTerminals } from "./lib/terminal-store";
-import { provideSubchatActions, SubchatWaitingNote, type SubchatActions } from "./components/agents/SubchatMessages";
+import { provideSubchatActions, type SubchatActions } from "./components/agents/SubchatMessages";
 import { useStepApprovalScope } from "./components/agents/step-approval";
-import { pendingWaitingNote } from "./lib/subchat-transcript";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { remoteDelegationsFrom } from "./lib/remote-delegation";
-import { RemoteDelegationCard } from "./components/agents/RemoteDelegationCard";
 import { ChatComposer } from "./components/ChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
@@ -189,7 +185,6 @@ import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow
 import { openStorage } from "./lib/storage-open";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
-const PermissionCard = lazyView(() => import("./components/agents/PermissionCard").then((module) => module.PermissionCard));
 const CanvasView = lazyView(() => import("./components/CanvasView").then((module) => module.CanvasView));
 const RoutinesPage = lazyView(() => import("./components/routines/RoutinesPage").then((module) => module.RoutinesPage));
 const LAZY_VIEWS = [DiffView, GitActionsDialog, SettingsNav, CommandPalette, MediaLightbox, PermissionCard, QuestionCard];
@@ -2839,23 +2834,12 @@ function App() {
 
   if (startupError) {
     return (
-      <main data-startup-error className="flex min-h-screen items-center justify-center p-8 text-ink">
-        {splashOverlay(true)}
-        <section className="w-full max-w-xl rounded-window bg-surface p-6 shadow-overlay" aria-labelledby="startup-error-title">
-          <h1 id="startup-error-title" className="text-17 font-semibold">
-            Project could not open
-          </h1>
-          <p role="alert" className="mt-3 break-words text-13 text-ink-2">
-            {startupError}
-          </p>
-          <div className="mt-6 flex gap-3">
-            <Button onClick={() => void loadInitialProject()}>Retry</Button>
-            <Button variant="secondary" onClick={() => void openProject()}>
-              Open another project
-            </Button>
-          </div>
-        </section>
-      </main>
+      <StartupErrorScreen
+        error={startupError}
+        splash={splashOverlay(true)}
+        onRetry={() => void loadInitialProject()}
+        onOpenAnother={() => void openProject()}
+      />
     );
   }
 
@@ -3064,47 +3048,41 @@ function App() {
 
   if (!loading && !project)
     return (
-      <DotBackground>
-        {splashOverlay(true)}
-        {saveNotices}
-        <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-        <div data-project-chooser className="flex h-screen w-full gap-3 text-ink">
-          <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
-            <SidebarNav
-              fill
-              workspaceName="Projects"
-              recents={[]}
-              onOpenProject={openProjectFromSidebar}
-              onSwitchProject={switchProjectFromSidebar}
-              onSwitchLink={(id) => void selectLink(id)}
-              onEditLink={(id) => void editLink(id)}
-              onDeleteLink={deleteLinkFromSidebar}
-              onAddComputer={openAddComputer}
-              onOpenComputerSettings={openComputerSettings}
-              onOpenProjectSettings={openProjectSettings}
-              onNewChatInScope={newChatInScope}
-              onOpenScopeChat={openScopeChat}
-              onHoverChat={hoverChat}
-              onOpenSettings={() => {
-                setSettingsSection("general");
-                setSettingsOpen(true);
-              }}
-              runningKeys={sidebarRunKeys.running}
-              waitingKeys={sidebarRunKeys.waiting}
-              askingKeys={sidebarRunKeys.asking}
-              attentionPaths={attentionPaths}
-            />
-          </div>
-          <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-            <InlineError>{notice}</InlineError>
-            <h1 className="text-22 font-semibold tracking-[-0.02em]">Choose a Project</h1>
-            <p className="text-13 text-ink-3">Open a Project or Link from the sidebar, or add a Project.</p>
-            <Button onClick={openProjectFromSidebar}>Add Project</Button>
-          </main>
-        </div>
+      <ChooseProjectScreen
+        splash={splashOverlay(true)}
+        saveNotices={saveNotices}
+        notice={notice}
+        onAddProject={openProjectFromSidebar}
+        sidebar={
+          <SidebarNav
+            fill
+            workspaceName="Projects"
+            recents={[]}
+            onOpenProject={openProjectFromSidebar}
+            onSwitchProject={switchProjectFromSidebar}
+            onSwitchLink={(id) => void selectLink(id)}
+            onEditLink={(id) => void editLink(id)}
+            onDeleteLink={deleteLinkFromSidebar}
+            onAddComputer={openAddComputer}
+            onOpenComputerSettings={openComputerSettings}
+            onOpenProjectSettings={openProjectSettings}
+            onNewChatInScope={newChatInScope}
+            onOpenScopeChat={openScopeChat}
+            onHoverChat={hoverChat}
+            onOpenSettings={() => {
+              setSettingsSection("general");
+              setSettingsOpen(true);
+            }}
+            runningKeys={sidebarRunKeys.running}
+            waitingKeys={sidebarRunKeys.waiting}
+            askingKeys={sidebarRunKeys.asking}
+            attentionPaths={attentionPaths}
+          />
+        }
+      >
         {linkDialogs}
         {settingsModal}
-      </DotBackground>
+      </ChooseProjectScreen>
     );
 
   if (loading || !project || !state) {
@@ -3168,54 +3146,36 @@ function App() {
   // its DOM and state out of the document, with its effects and listeners off, so switching between them is one
   // insertion.
   const projectBridge = bridgeForKey(project.path);
+  const approvalProps: ChatApprovalProps = {
+    chatId: chatKey(project.path, selectedSession?.id ?? 0),
+    run,
+    runs: agentRuns.runs,
+    messages: displayedMessages,
+    pendingApproval,
+    approvalCard,
+    pendingQuestion,
+    questionSent,
+    remoteDelegations,
+    dictationChat: { cwd: selectedWorktree?.path ?? project.path, scope: project.path, chatId: selectedSession?.id, provider: selectedModel.provider },
+    onAnswerApproval: answerApproval,
+    onAnswerQuestion: answerQuestion,
+    onRespond: agentRuns.respond,
+    onInterrupt: agentRuns.interrupt,
+    onOpenChat: openChatKey,
+  };
   const projectWorkspace = (
     <BridgeContext.Provider value={projectBridge}>
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
-          <PersistenceNotices scopes={globalUnsavedScopes}>
-            <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag">
-              <ProviderUpdateNotice onSettings={openAccounts} onUpdated={handleProvidersUpdated} />
-            </div>
-            {hostConnection.connected && hostConnection.hostOutdated && (
-              <NoticeCard
-                data-host-outdated
-                className="no-drag"
-                action={
-                  <Button
-                    size={28}
-                    className="shrink-0"
-                    disabled={restartingHost}
-                    onClick={() => {
-                      setRestartingHost(true);
-                      void window.milagre
-                        .restartHost()
-                        .catch((error) => setNotice(`Couldn't restart the host: ${ipcErrorMessage(error)}`))
-                        .finally(() => setRestartingHost(false));
-                    }}
-                  >
-                    {restartingHost ? "Restarting…" : "Restart host"}
-                  </Button>
-                }
-              >
-                {hostConnection.message ?? "Restart Milagre's background host to load large projects."}
-              </NoticeCard>
-            )}
-            {!hostConnection.connected && (
-              <NoticeCard data-host-disconnected className="no-drag">
-                {hostConnection.failed ? (
-                  <>
-                    <p className="font-medium">Couldn't restart Milagre's background host</p>
-                    <p className="mt-1 text-ink-2">{hostConnection.message} Your draft is kept here. Quit and reopen Milagre to try again.</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-medium">Reconnecting to your computer</p>
-                    <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
-                  </>
-                )}
-              </NoticeCard>
-            )}
-          </PersistenceNotices>
+          <HostNotices
+            scopes={globalUnsavedScopes}
+            hostConnection={hostConnection}
+            restartingHost={restartingHost}
+            setRestartingHost={setRestartingHost}
+            setNotice={setNotice}
+            onSettings={openAccounts}
+            onProvidersUpdated={handleProvidersUpdated}
+          />
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <PanelToggles
             // The grid and Subchats buttons sit at the corner's far right; the panel buttons come before them.
@@ -3609,59 +3569,7 @@ function App() {
                         notice={notice}
                         onDismissNotice={() => setNotice(null)}
                         approvalHidden={questionSent && !pendingApproval && !remoteDelegations.length}
-                        approval={
-                          approvalCard ||
-                          pendingQuestion ||
-                          remoteDelegations.length ||
-                          (pendingApproval && pendingWaitingNote(displayedMessages)?.ask === "approval") ? (
-                            <div className="flex w-full flex-col gap-2">
-                              {/* How long the Subchat has waited and who was told: right above the card it belongs to. */}
-                              <SubchatWaitingNote messages={displayedMessages} ask={pendingApproval ? "approval" : "question"} />
-                              {pendingApproval ? (
-                                approvalCard && (
-                                  <PermissionCard
-                                    key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${approvalCard.requestId}`}
-                                    request={approvalCard}
-                                    waiting={(run?.approvals.length ?? 1) - 1}
-                                    answering={sentDecision(run, approvalCard.requestId)}
-                                    onAnswer={answerApproval}
-                                  />
-                                )
-                              ) : pendingQuestion ? (
-                                // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.
-                                <div className={questionSent ? "hidden" : "contents"}>
-                                  <QuestionCard
-                                    key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
-                                    request={pendingQuestion}
-                                    waiting={(run?.questions.length ?? 1) - 1}
-                                    answering={sentReply(run, pendingQuestion.requestId)}
-                                    onAnswer={answerQuestion}
-                                    startedAt={run?.startedAt}
-                                    dictationChat={{
-                                      cwd: selectedWorktree?.path ?? project.path,
-                                      scope: project.path,
-                                      chatId: selectedSession?.id,
-                                      provider: selectedModel.provider,
-                                    }}
-                                  />
-                                </div>
-                              ) : null}
-                              {/* Delegations this Chat sent to other computers, their turns mirrored live from there. */}
-                              {remoteDelegations.map((delegation) => (
-                                <RemoteDelegationCard
-                                  key={delegation.id}
-                                  delegation={delegation}
-                                  run={delegation.to_chat ? agentRuns.runs[delegation.to_chat] : undefined}
-                                  onAnswer={(requestId, decision) => {
-                                    if (delegation.to_chat) void agentRuns.respond(delegation.to_chat, requestId, decision).catch(() => {});
-                                  }}
-                                  onOpenChat={openChatKey}
-                                  onStop={(key) => void agentRuns.interrupt(key).catch(() => {})}
-                                />
-                              ))}
-                            </div>
-                          ) : undefined
-                        }
+                        approval={approvalShown(approvalProps) ? <ChatApproval {...approvalProps} /> : undefined}
                       />
                     </EditorLinks>
                   </ChatGrid>
@@ -3670,41 +3578,17 @@ function App() {
                 </div>
               </div>
             </main>
-            <ChangesPanelSlot open={changes.open}>
-              <ChangesPanel
-                lists={changes.lists}
-                comparison={changes.comparison}
-                mode={changes.mode}
-                onModeChange={changes.setMode}
-                onRefresh={() => {
-                  if (changes.mode !== "pr") return changes.refresh();
-                  localChanges.refresh();
-                  return Promise.all([changes.refresh(), prReview.refresh()]);
-                }}
-                onSelectFile={changes.selectFile}
-                activePath={changes.activePath}
-                commentCounts={diffComments.counts}
-                pullRequest={
-                  prNumber
-                    ? {
-                        number: prNumber,
-                        choices: rowPullRequests(selectedPullRequests),
-                        onPick: (number) => prChatKey && setPrPick({ chat: prChatKey, number }),
-                        loading: prReview.state.status === "loading" || prReview.busy !== null,
-                        body: (
-                          <PullRequestPanelBody
-                            review={prReview}
-                            source={selectedWorktree ? { bridge: bridgeForKey(prChatKey).pr, cwd: selectedWorktree.path } : undefined}
-                            actions={prPanelActions}
-                            activePath={changes.activePath}
-                            local={{ count: localChanges.count, onOpen: () => changes.setMode(firstSection(changes.lists)) }}
-                          />
-                        ),
-                      }
-                    : undefined
-                }
-              />
-            </ChangesPanelSlot>
+            <ProjectChangesPanel
+              changes={changes}
+              prReview={prReview}
+              localChanges={localChanges}
+              commentCounts={diffComments.counts}
+              prNumber={prNumber}
+              prChoices={rowPullRequests(selectedPullRequests)}
+              onPickPr={(number) => prChatKey && setPrPick({ chat: prChatKey, number })}
+              source={selectedWorktree ? { bridge: bridgeForKey(prChatKey).pr, cwd: selectedWorktree.path } : undefined}
+              actions={prPanelActions}
+            />
             {/* The open Chat's Details (Environment, Lineage, Background tasks, Links), from its corner toggle. */}
             <DetailsPanelHost
               chatKey={
@@ -3731,24 +3615,12 @@ function App() {
           {linkDialog}
           {appDialogs}
           {commandPaletteOpen && (
-            <CommandPalette
+            <ProjectPalette
               commands={paletteCommands(project)}
-              searchMessages={
-                lean
-                  ? undefined
-                  : (query) =>
-                      messageCommands(sidebarState?.messages ?? NO_MESSAGES, query, new Map(chats.map((chat) => [Number(chat.id), chat.label])), openMessage)
-              }
-              searchMessagesAsync={
-                lean && project
-                  ? async (query) =>
-                      messageCommandsFrom(
-                        await bridgeForKey(project.path).searchChats(project.path, query),
-                        new Map(chats.map((chat) => [Number(chat.id), chat.label])),
-                        openMessage,
-                      )
-                  : undefined
-              }
+              chats={chats}
+              messages={lean ? null : (sidebarState?.messages ?? NO_MESSAGES)}
+              searchChats={lean ? (query) => bridgeForKey(project.path).searchChats(project.path, query) : null}
+              openMessage={openMessage}
               onStartChat={(query) => startNewChatOnThisMac(query)}
               onClose={() => setCommandPaletteOpen(false)}
               onError={setNotice}
@@ -3782,21 +3654,7 @@ function App() {
           <Notice />
         </DotBackground>
         {splashOverlay(true)}
-        {quitError && (
-          <Dialog
-            role="alertdialog"
-            title="Chats could not be saved"
-            width={448}
-            actions={
-              <Button autoFocus onClick={() => void window.milagre.retryQuit().catch((error) => setQuitError(ipcErrorMessage(error)))}>
-                Retry saving and quit
-              </Button>
-            }
-          >
-            <p className="mt-3 text-13">Keep Milagre open while you fix the storage problem, then retry saving.</p>
-            <p className="mt-3 break-words text-13 text-ink-2">{quitError}</p>
-          </Dialog>
-        )}
+        {quitError && <QuitErrorDialog error={quitError} setError={setQuitError} />}
       </ScopeContext.Provider>
     </BridgeContext.Provider>
   );
@@ -3810,42 +3668,6 @@ function App() {
       {selectedLink && linkDialogs}
       {settingsModal}
     </RunTextContext.Provider>
-  );
-}
-
-/**
- * The workspaces a window keeps mounted: the one on screen, in the host, and the hidden ones in nodes of their own
- * outside the document (as ChatComposer parks transcripts), so nothing that queries the document meets them. A hidden
- * one is an <Activity> in its hidden mode: its state and DOM stay, its effects and listeners stop.
- */
-function WorkspaceSlots({ shown, slots }: { shown: string; slots: { key: string; element: ReactNode }[] }) {
-  const [nodes] = useState(() => new Map<string, HTMLDivElement>());
-  const nodeFor = (key: string) => {
-    let node = nodes.get(key);
-    if (!node) {
-      node = document.createElement("div");
-      node.className = "contents";
-      node.dataset.workspaceSlot = key;
-      nodes.set(key, node);
-    }
-    return node;
-  };
-  // The host takes the shown slot's node as a ref, in the layout phase before the portals' own layout effects.
-  const host = useCallback(
-    (hostNode: HTMLDivElement | null) => {
-      if (!hostNode) return;
-      for (const child of Array.from(hostNode.children)) if (child !== nodes.get(shown)) child.remove();
-      const node = nodeFor(shown);
-      if (node.parentElement !== hostNode) hostNode.appendChild(node);
-    },
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new callback per shown slot is what makes React run it again
-    [shown],
-  );
-  return (
-    <>
-      <div ref={host} className="contents" />
-      {slots.map((slot) => createPortal(<Activity mode={slot.key === shown ? "visible" : "hidden"}>{slot.element}</Activity>, nodeFor(slot.key), slot.key))}
-    </>
   );
 }
 
