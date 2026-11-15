@@ -19,7 +19,7 @@ import { type SubchatMarks } from "./subchat-rows";
 /** Secondary screens push over the current one; a sheet also leaves the sidebar open under it, as confirmations do. */
 export type Destination = (href: Href, secondary?: boolean | "sheet") => void;
 /** The computer a row belongs to: every row and every action carries it, since two computers can share a path and a Chat id. */
-export type HostTag = { hostId: string; hostName: string; reach: Reach };
+type HostTag = { hostId: string; hostName: string; reach: Reach };
 export type Row = { key: string; path: string } & (
   | ({
       kind: "project";
@@ -190,7 +190,7 @@ export type BuildContext = {
 export type DoneMark = { doneAt: number | null };
 
 /** A Chat as a pending Done or Reopen shows it. */
-export function withDoneMark(chat: AgentSession, mark: DoneMark | undefined): AgentSession {
+function withDoneMark(chat: AgentSession, mark: DoneMark | undefined): AgentSession {
   if (!mark || Boolean(mark.doneAt) === Boolean(chat.done_at)) return chat;
   return mark.doneAt ? { ...chat, done_at: mark.doneAt, unread: false } : { ...chat, done_at: undefined };
 }
@@ -199,7 +199,7 @@ export function withDoneMark(chat: AgentSession, mark: DoneMark | undefined): Ag
 export type Show = "all" | "needs" | "running" | "archived";
 /** In the Tree layout, a Link's member Project and a shared Worktree's Chats sit this far in. */
 export const TREE_INDENT = 16;
-export const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
+const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
 
 export const sameDeps = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((value, index) => value === b[index]);
 
@@ -220,7 +220,7 @@ export function buildHost(view: HostView, ctx: BuildContext): HostBuild {
 }
 
 /** One Project's Chats, newest first, with what the search and the Show filter keep of them. */
-export function buildProject(view: HostView, project: RecentProject, ctx: BuildContext, home = false): ProjectBuild {
+function buildProject(view: HostView, project: RecentProject, ctx: BuildContext, home = false): ProjectBuild {
   const current = view.hostId === ctx.currentHostId;
   const saved =
     current && ctx.snapshot && project.path === ctx.snapshot.project.path
