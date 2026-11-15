@@ -119,12 +119,28 @@ test("a question or failure that comes while a Snooze is being saved wakes the C
     assert.equal(await snoozedUntil(), undefined, `${event.type} during the save wakes the Chat`);
   }
 
-  // Snoozing a Chat that already asked is "ask me later": it stays snoozed.
+  // Snoozing a Chat that already asked is "ask me later": it stays snoozed, also when the question came in the same
+  // millisecond, and after the clock is set back.
   emit({ type: "turn-started", turnId: "t2" });
   emit({ type: "question-request", requestId: "q2", questions: [{ id: "0", question: "Again?", options: [] }] });
   await settle();
-  const until = Date.now() + HOUR;
+  let until = Date.now() + HOUR;
   await runtime.invoke("chat:patch", [project, chat.id, { snoozed_until: until }]);
   await settle();
   assert.equal(await snoozedUntil(), until);
+  await runtime.invoke("chat:patch", [project, chat.id, { snoozed_until: false }]);
+  emit({ type: "question-request", requestId: "q3", questions: [{ id: "0", question: "And?", options: [] }] });
+  // The host takes the question in before the Snooze arrives, usually in the same millisecond.
+  await new Promise((resolve) => setImmediate(resolve));
+  until = Date.now() + HOUR;
+  await runtime.invoke("chat:patch", [project, chat.id, { snoozed_until: until }]);
+  await settle();
+  assert.equal(await snoozedUntil(), until, "a question in the same tick, before the Snooze, waits");
+  const realNow = Date.now;
+  t.after(() => (Date.now = realNow));
+  Date.now = () => realNow() - 30_000;
+  until = realNow() + HOUR;
+  await runtime.invoke("chat:patch", [project, chat.id, { snoozed_until: until }]);
+  await settle();
+  assert.equal(await snoozedUntil(), until, "a clock set back wakes nothing");
 });

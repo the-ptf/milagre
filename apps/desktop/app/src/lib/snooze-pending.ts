@@ -38,18 +38,30 @@ function set(chatKey: string, until: number | null | undefined, ms = PENDING_MS)
   for (const listener of listeners) listener();
 }
 
+// Chat key to the latest Snooze or Wake asked of it: only that one's answer moves its mark. Wake is always null and
+// Tomorrow a fixed time, so an older patch can carry the same value as the one the row shows.
+const latest = new Map<string, number>();
+let asked = 0;
+
 /** Snoozes a Chat on its computer until `until` (ms), or wakes it (null); the row moves at once. */
 export async function snoozeChat(scopeKey: string, sessionId: number, until: number | null): Promise<void> {
   const chatKey = `${scopeKey}#${sessionId}`;
+  const ask = ++asked;
+  latest.set(chatKey, ask);
   set(chatKey, until);
+  // Unless a later Snooze or Wake of it, a Done or a sent message took the row since.
+  const ours = () => latest.get(chatKey) === ask && pending.get(chatKey) === until;
   try {
     await bridgeForKey(scopeKey).patchChat(scopeKey, sessionId, { snoozed_until: until ?? false });
   } catch (error) {
-    // Unless a later Snooze or Wake of it took the row since.
-    if (pending.get(chatKey) === until) set(chatKey, undefined);
+    if (ours()) set(chatKey, undefined);
     throw error;
+  } finally {
+    if (latest.get(chatKey) === ask) {
+      if (pending.get(chatKey) === until) set(chatKey, until, ANSWERED_MS);
+      latest.delete(chatKey);
+    }
   }
-  if (pending.get(chatKey) === until) set(chatKey, until, ANSWERED_MS);
 }
 
 /** Forgets a Chat's pending Snooze or Wake: Done or a sent message clears its snooze on the host anyway. */
