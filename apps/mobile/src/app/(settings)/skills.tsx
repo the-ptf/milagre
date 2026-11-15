@@ -36,7 +36,7 @@ export default function SkillsScreen() {
           <>
             <Text style={styles.caption}>
               {projectPath
-                ? "Skills from this Project and your Mac's home folder. When two share a name, the first one found wins. Pull down to reload."
+                ? "Skills from this Project and your computer's home folder. When two share a name, the first one found wins. Pull down to reload."
                 : "Open a Project to see its skills too. Pull down to reload."}
             </Text>
             <Field label="Search skills" hideLabel placeholder="Search skills" value={query} onChangeText={setQuery} clearButtonMode="while-editing" />

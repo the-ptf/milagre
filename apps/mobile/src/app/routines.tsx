@@ -24,7 +24,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "paused", label: "Paused" },
 ];
 /** The spec keeps the lid-close limit to this help line and the switched-off state. */
-export const LID_HELP = "Routines run while this Mac is awake. Closing the lid on battery pauses them.";
+export const LID_HELP = "Routines run while your computer is awake. Closing the lid on battery pauses them.";
 
 const newRoutine = () => router.push("/routine-form");
 const openRoutine = (routine: RoutineWithRuns) => router.push({ pathname: "/routine", params: { id: routine.id } });
@@ -127,12 +127,12 @@ export default function RoutinesScreen() {
         </View>
       ) : (
         <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
-          {!client ? <Text style={styles.muted}>Connect to a Mac to see its Routines.</Text> : null}
+          {!client ? <Text style={styles.muted}>Connect to your computer to see its Routines.</Text> : null}
           {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
           {error ? <ErrorNotice message={error} /> : null}
           {routines.unavailable ? (
             <Text style={styles.muted}>
-              {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
+              {routines.unavailable === "older" ? "Update Milagre on your computer to use Routines." : "Routines aren't available on this connection."}
             </Text>
           ) : null}
           {all.length ? (

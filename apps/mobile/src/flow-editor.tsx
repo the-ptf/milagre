@@ -10,7 +10,8 @@ import type { FlowDraft } from "./flow-draft";
 import { TRIGGER_LOOK, changedStepIds, stepLook, triggerTitle } from "./flow-looks";
 import { StepTile } from "./flow-ui";
 import { Icon } from "./icons";
-import { PullDown, tap, useStyles } from "./ui";
+import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
+import { PullDown, Tag, pressStyle, tap, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 type Where = { parentId: string | null; branch: "yes" | "otherwise" | null; index: number };
@@ -80,28 +81,27 @@ export function FlowSteps({
             flexDirection: "row",
             alignItems: "center",
             gap: 12,
-            paddingVertical: 12,
-            paddingHorizontal: 12,
-            borderRadius: 14,
+            paddingVertical: space.lg,
+            paddingHorizontal: space.lg,
             borderColor: problem ? colors.red : colors.line,
             borderWidth: problem ? 1 : StyleSheet.hairlineWidth,
-            opacity: pressed ? 0.7 : 1,
           },
+          pressStyle({ pressed }),
         ]}
       >
         <StepTile look={look} />
         <View style={{ flex: 1, gap: 2 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: 16, fontWeight: "600" }}>
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>
               {title}
             </Text>
-            {edited ? <View style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: colors.accent }} /> : null}
+            {edited ? <View style={{ width: 7, height: 7, borderRadius: radius.full, backgroundColor: colors.accent }} /> : null}
           </View>
-          <Text numberOfLines={2} style={{ color: colors.ink3, fontSize: 13, lineHeight: 18 }}>
+          <Text numberOfLines={2} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
             {subtitle}
           </Text>
           {problem ? (
-            <Text numberOfLines={2} style={{ color: colors.redInk, fontSize: 13, lineHeight: 18 }}>
+            <Text numberOfLines={2} style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
               {problem}
             </Text>
           ) : null}
@@ -111,40 +111,39 @@ export function FlowSteps({
     );
   };
 
-  /** The line between two cards, with the "+" that adds a step there. */
+  /** The line between two cards, with the "+" that adds a step there: both centred under the cards' tiles (60 wide). Its
+   * target is 44 wide and as tall as the connector, so it never takes a tap meant for the card above or below. */
   const connector = (where: Where, key: string) => (
-    <View key={key} style={{ height: 30, paddingLeft: 22, justifyContent: "center" }}>
+    <View key={key} style={{ height: 32, width: 60, alignItems: "center", justifyContent: "center" }}>
       <View style={{ position: "absolute", left: 29.5, top: 0, bottom: 0, width: 1, backgroundColor: colors.lineStrong }} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Add step here"
-        hitSlop={8}
+        hitSlop={{ top: space.md, bottom: space.md, left: hitSlopFor(16), right: hitSlopFor(16) }}
         onPress={() => {
           tap();
           openAdd(routine.id, where);
         }}
-        style={({ pressed }) => ({
-          width: 16,
-          height: 16,
-          borderRadius: 10,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.page,
-          borderWidth: 1,
-          borderColor: colors.lineStrong,
-          opacity: pressed ? 0.5 : 1,
-        })}
+        style={({ pressed }) => [
+          {
+            width: 16,
+            height: 16,
+            borderRadius: radius.full,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.page,
+            borderWidth: 1,
+            borderColor: colors.lineStrong,
+          },
+          pressStyle({ pressed }),
+        ]}
       >
         <Icon icon={Add01Icon} tone="ink3" size={12} strokeWidth={2} />
       </Pressable>
     </View>
   );
 
-  const pathLabel = (text: string) => (
-    <View style={{ alignSelf: "flex-start", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.field }}>
-      <Text style={{ color: colors.ink2, fontSize: 12, fontWeight: "600" }}>{text}</Text>
-    </View>
-  );
+  const pathLabel = (text: string) => <Tag label={text} square style={{ alignSelf: "flex-start" }} />;
 
   const list = (items: FlowStep[], parentId: string | null, branch: "yes" | "otherwise" | null, depth: number) =>
     items.map((step, index) => (
@@ -180,20 +179,22 @@ export function FlowSteps({
                     tap();
                     openAdd(routine.id, { parentId: step.id, branch, index: 0 });
                   }}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    minHeight: 40,
-                    paddingHorizontal: 12,
-                    borderRadius: 10,
-                    borderCurve: "continuous",
-                    backgroundColor: colors.inset,
-                    opacity: pressed ? 0.6 : 1,
-                  })}
+                  style={({ pressed }) => [
+                    {
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: space.md,
+                      minHeight: 44,
+                      paddingHorizontal: space.lg,
+                      borderRadius: radius.control,
+                      borderCurve: "continuous",
+                      backgroundColor: colors.inset,
+                    },
+                    pressStyle({ pressed }),
+                  ]}
                 >
                   <Icon icon={Add01Icon} tone="ink3" size={12} />
-                  <Text style={{ color: colors.ink2, fontSize: 15 }}>Add step, or go straight on</Text>
+                  <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Add step, or go straight on</Text>
                 </Pressable>
               )}
             </View>
@@ -213,15 +214,16 @@ export function FlowSteps({
       }}
       style={({ pressed }) => [
         styles.card,
-        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 14, opacity: pressed ? 0.7 : 1 },
+        { flexDirection: "row", alignItems: "center", gap: space.lg, paddingVertical: space.lg, paddingHorizontal: space.lg },
+        pressStyle({ pressed }),
       ]}
     >
       <StepTile look={TRIGGER_LOOK} />
       <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}>
+        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>
           {triggerTitle(routine.trigger)}
         </Text>
-        <Text numberOfLines={2} style={{ color: colors.ink3, fontSize: 13, lineHeight: 18 }}>
+        <Text numberOfLines={2} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
           {triggerChipText(routine.trigger, deviceZone())}
         </Text>
       </View>
@@ -244,27 +246,31 @@ export function FlowSteps({
     return (
       <View style={{ gap: 0 }}>
         {trigger}
-        <View style={{ height: 18, marginLeft: 29.5, width: 1, backgroundColor: colors.lineStrong }} />
-        <View style={{ gap: 14, padding: 16, borderRadius: 20, borderCurve: "continuous", backgroundColor: colors.inset }}>
-          <View style={{ gap: 4 }}>
-            <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+        <View style={{ width: 60, height: 20, alignItems: "center" }}>
+          <View style={{ flex: 1, width: 1, backgroundColor: colors.lineStrong }} />
+        </View>
+        <View style={{ gap: space.xl, padding: space.xl, borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.inset }}>
+          <View style={{ gap: space.xs }}>
+            <Text accessibilityRole="header" style={styles.sheetTitle}>
               What should happen next?
             </Text>
-            <Text style={{ color: colors.ink3, fontSize: 15, lineHeight: 19 }}>Each step can read what the trigger and earlier steps give.</Text>
+            <Text style={{ color: colors.ink3, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
+              Each step can read what the trigger and earlier steps give.
+            </Text>
           </View>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {FLOW_STEP_TYPES.map((type) => {
-              const off = unavailable.has(type.kind);
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
+            {FLOW_STEP_TYPES.map((stepType) => {
+              const off = unavailable.has(stepType.kind);
               return (
                 <Pressable
-                  key={type.kind}
+                  key={stepType.kind}
                   accessibilityRole="button"
-                  accessibilityLabel={`${type.name}. ${off ? "Needs a Linear trigger" : type.description}`}
+                  accessibilityLabel={`${stepType.name}. ${off ? "Needs a Linear trigger" : stepType.description}`}
                   accessibilityState={{ disabled: off }}
                   disabled={off}
                   onPress={() => {
                     tap();
-                    add(type.kind);
+                    add(stepType.kind);
                   }}
                   style={({ pressed }) => [
                     styles.card,
@@ -272,17 +278,16 @@ export function FlowSteps({
                       flexBasis: "31%",
                       flexGrow: 1,
                       alignItems: "center",
-                      gap: 8,
-                      paddingVertical: 14,
-                      paddingHorizontal: 6,
-                      borderRadius: 14,
-                      opacity: off ? 0.4 : pressed ? 0.7 : 1,
+                      gap: space.md,
+                      paddingVertical: space.lg,
+                      paddingHorizontal: space.sm,
                     },
+                    pressStyle({ pressed, disabled: off }),
                   ]}
                 >
-                  <StepTile look={stepLook(type.kind)} size={30} />
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: "600" }}>
-                    {type.short}
+                  <StepTile look={stepLook(stepType.kind)} size={30} />
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
+                    {stepType.short}
                   </Text>
                 </Pressable>
               );
@@ -343,7 +348,7 @@ function StartRow({ icon, title, onPress }: { icon: typeof Copy01Icon; title: st
   const body = (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: 12 }}>
       <Icon icon={icon} tone="ink2" size={18} />
-      <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 15 }}>
+      <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
         {title}
       </Text>
       <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
@@ -358,7 +363,7 @@ function StartRow({ icon, title, onPress }: { icon: typeof Copy01Icon; title: st
         tap();
         onPress();
       }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      style={({ pressed }) => pressStyle({ pressed, kind: "row" })}
     >
       {body}
     </Pressable>

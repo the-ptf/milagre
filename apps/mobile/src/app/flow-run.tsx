@@ -26,11 +26,11 @@ import { useFlowDraft } from "../flow-draft";
 import { openStep } from "../flow-editor";
 import { startTestRun } from "../flow-routine";
 import { flowRunState, flowRunTitle, outputChips, runName, stepRunLine, stepStateLook, triggerRunLine, triggerTitle } from "../flow-looks";
-import { FlowButton, FlowChip, FlowNote } from "../flow-ui";
 import { useActivityClock } from "../chat-row-store";
 import { confirm } from "../confirm-store";
 import { Icon, SpinnerRing } from "../icons";
-import { ErrorNotice, Field, HeaderButton, PageScroll, showActions, tap, useStyles } from "../ui";
+import { lineHeight, radius, space, type } from "../design-tokens";
+import { ErrorNotice, Field, HeaderButton, InlineError, PageScroll, PillButton, Tag, pressStyle, showActions, tap, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 /** Sends a flow action for the Run: approve, reject, pause, resume, end or retry. */
@@ -75,7 +75,7 @@ export default function FlowRunScreen() {
         <PageScroll>
           {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
           <Text style={styles.muted}>
-            {!client ? "Connect to a Mac to see this Run." : routines.loading ? "Loading…" : "This Run is no longer on this Mac."}
+            {!client ? "Connect to your computer to see this Run." : routines.loading ? "Loading…" : "This Run is no longer on your computer."}
           </Text>
         </PageScroll>
       </>
@@ -141,17 +141,17 @@ export default function FlowRunScreen() {
 
   const chip =
     state === "you" ? (
-      <FlowChip text="Waiting for you" tone="orange" dot />
+      <Tag label="Waiting for you" tone="orange" dot />
     ) : state === "failed" ? (
-      <FlowChip text={flowRunText(run)} tone="red" />
+      <Tag label={flowRunText(run)} tone="red" />
     ) : state === "done" ? (
-      <FlowChip text={flowRunText(run)} tone="green" icon={CheckmarkCircle02Icon} />
+      <Tag label={flowRunText(run)} tone="green" icon={CheckmarkCircle02Icon} />
     ) : state === "ended" ? (
-      <FlowChip text={flowRunText(run)} icon={/expired/i.test(run.error ?? "") ? AlarmClockOffIcon : StopCircleIcon} />
+      <Tag label={flowRunText(run)} icon={/expired/i.test(run.error ?? "") ? AlarmClockOffIcon : StopCircleIcon} />
     ) : state === "running" ? (
-      <FlowChip text={flowRunText(run)} tone="accent" dot />
+      <Tag label={flowRunText(run)} tone="accent" dot />
     ) : (
-      <FlowChip text={flowRunText(run)} dot />
+      <Tag label={flowRunText(run)} dot />
     );
   const rows = runRows(flow);
   // The step an approval expired or was rejected at: its time limit can be changed in the draft.
@@ -172,29 +172,27 @@ export default function FlowRunScreen() {
           </Stack.Toolbar.View>
         )}
       </Stack.Toolbar>
-      <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: 14 }}>
+      <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: space.xl }}>
         {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
         {error ? <ErrorNotice message={error} /> : null}
-        <View style={{ gap: 10 }}>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        <View style={{ gap: space.md }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
             {chip}
-            {flow.dryRun ? <FlowChip text="Test run" icon={TestTube01Icon} /> : null}
+            {flow.dryRun ? <Tag label="Test run" icon={TestTube01Icon} /> : null}
           </View>
-          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: "600" }}>
+          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
             {flowRunTitle(run, routine.name)}
           </Text>
-          <Text style={[styles.caption, { fontSize: 13 }]}>
-            {`Started ${when(run.startedAt, now)} on ${session.hostName || "this Mac"}, ${routine.name} revision ${flow.revision || 1}`}
+          <Text style={styles.footnote}>
+            {`Started ${when(run.startedAt, now)} on ${session.hostName || "your computer"}, ${routine.name} revision ${flow.revision || 1}`}
           </Text>
-          {flow.dryRun ? (
-            <Text style={[styles.caption, { fontSize: 13 }]}>Simulation: agents use sample or saved fields. Actions and waits do not run.</Text>
-          ) : null}
+          {flow.dryRun ? <Text style={styles.footnote}>Simulation: agents use sample or saved fields. Actions and waits do not run.</Text> : null}
           {active || state === "paused" ? (
             <View style={{ flexDirection: "row" }}>
-              <FlowButton
+              <PillButton
                 title={state === "paused" ? "Resume Run" : flow.pauseRequested ? "Pausing…" : "Pause Run"}
-                kind="secondary"
-                compact
+                variant="tinted"
+                size="small"
                 icon={state === "paused" ? PlayIcon : PauseIcon}
                 disabled={!!flow.pauseRequested && state !== "paused"}
                 loading={busy === "pause" || busy === "resume"}
@@ -203,7 +201,7 @@ export default function FlowRunScreen() {
             </View>
           ) : null}
           {state === "paused" ? (
-            <Text style={[styles.caption, { fontSize: 13 }]}>
+            <Text style={styles.footnote}>
               {stopped
                 ? `Paused at ${stepTitle(stopped)}. The step under way finishes; the next one waits for Resume.`
                 : "Paused. The next step waits for Resume."}
@@ -212,17 +210,19 @@ export default function FlowRunScreen() {
         </View>
 
         {state === "ended" ? (
-          <View style={{ gap: 12, padding: 16, borderRadius: 14, borderCurve: "continuous", backgroundColor: colors.inset }}>
-            <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>{endedText(run, rows, now)}</Text>
+          <View style={{ gap: space.lg, padding: space.xl, borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.inset }}>
+            <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{endedText(run, rows, now)}</Text>
             {flow.dryRun ? null : (
-              <FlowButton
+              <PillButton
                 title={again ? "Run again" : "Test run"}
                 icon={again ? RefreshIcon : TestTube01Icon}
                 loading={busy === "again"}
                 onPress={() => void runAgain()}
               />
             )}
-            {askStepId ? <FlowButton title="Change how long approvals wait" kind="quiet" onPress={() => openStep(routine.id, askStepId)} /> : null}
+            {askStepId ? (
+              <PillButton title="Change how long approvals wait" variant="plain" size="small" onPress={() => openStep(routine.id, askStepId)} />
+            ) : null}
           </View>
         ) : null}
 
@@ -286,10 +286,10 @@ function TimelineRow({
         <View style={{ height: 22, justifyContent: "center" }}>{icon}</View>
         {last ? null : <View style={{ flex: 1, width: 1, minHeight: 10, backgroundColor: colors.lineStrong, marginVertical: 2 }} />}
       </View>
-      <View style={{ flex: 1, gap: 6, paddingBottom: last ? 0 : 14 }}>
+      <View style={{ flex: 1, gap: space.sm, paddingBottom: last ? 0 : space.xl }}>
         <View style={{ gap: 2 }}>
-          <Text style={{ color: dim ? colors.ink3 : colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" }}>{title}</Text>
-          {line ? <Text style={{ color: lineTone ?? colors.ink3, fontSize: 13, lineHeight: 18 }}>{line}</Text> : null}
+          <Text style={{ color: dim ? colors.ink3 : colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>{title}</Text>
+          {line ? <Text style={{ color: lineTone ?? colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{line}</Text> : null}
         </View>
         {children}
       </View>
@@ -305,20 +305,13 @@ function PathRow({ row, last }: { row: Extract<FlowRunRow, { kind: "path" }>; la
   return (
     <View style={{ flexDirection: "row", gap: 12, marginLeft: (row.depth - 1) * 18 }}>
       <View style={{ width: 22, alignItems: "center" }}>{last ? null : <View style={{ flex: 1, width: 1, backgroundColor: colors.lineStrong }} />}</View>
-      <View style={{ paddingBottom: 10, paddingLeft: 18 }}>
-        <View
-          style={{
-            alignSelf: "flex-start",
-            paddingHorizontal: 7,
-            paddingVertical: 3,
-            borderRadius: 6,
-            backgroundColor: row.taken ? colors.greenTint : colors.field,
-          }}
-        >
-          <Text style={{ color: row.taken ? colors.greenInk : colors.ink3, fontSize: 12, fontWeight: "600" }}>
-            {row.empty && row.taken ? `${text}, nothing to run` : text}
-          </Text>
-        </View>
+      <View style={{ paddingBottom: space.md, paddingLeft: space.xl }}>
+        <Tag
+          label={row.empty && row.taken ? `${text}, nothing to run` : text}
+          tone={row.taken ? "green" : "neutral"}
+          square
+          style={{ alignSelf: "flex-start" }}
+        />
       </View>
     </View>
   );
@@ -366,9 +359,7 @@ function StepRow({
       {chips.length || chat ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
           {chips.map((text) => (
-            <View key={text} style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.field }}>
-              <Text style={{ color: colors.ink2, fontSize: 12, fontWeight: "500" }}>{text}</Text>
-            </View>
+            <Tag key={text} label={text} square />
           ))}
           {chat ? <LinkText title="Open Chat" onPress={() => onOpenChat(chat)} /> : null}
         </View>
@@ -392,9 +383,9 @@ function LinkText({ title, onPress }: { title: string; onPress: () => void }) {
         tap();
         onPress();
       }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingHorizontal: 2 })}
+      style={({ pressed }) => [{ paddingHorizontal: space.xxs }, pressStyle({ pressed })]}
     >
-      <Text style={{ color: colors.accentInk, fontSize: 13, fontWeight: "500" }}>{title}</Text>
+      <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}>{title}</Text>
     </Pressable>
   );
 }
@@ -402,28 +393,30 @@ function LinkText({ title, onPress }: { title: string; onPress: () => void }) {
 /** A card under a timeline step. */
 function StepCard({ children }: { children: ReactNode }) {
   const styles = useStyles();
-  return <View style={[styles.card, { gap: 12, padding: 14, borderRadius: 14, marginTop: 4 }]}>{children}</View>;
+  return <View style={[styles.card, { marginTop: space.xs }]}>{children}</View>;
 }
 
 /** Label and value rows inside a card, split by hairlines: what a pull request will open, or its receipt. */
 function Rows({ rows }: { rows: [string, string][] }) {
   const { colors } = useTheme();
   return (
-    <View style={{ borderRadius: 10, borderCurve: "continuous", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden" }}>
+    <View
+      style={{ borderRadius: radius.control, borderCurve: "continuous", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden" }}
+    >
       {rows.map(([label, value], index) => (
         <View
           key={label}
           style={{
             flexDirection: "row",
-            gap: 12,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
+            gap: space.lg,
+            paddingHorizontal: space.lg,
+            paddingVertical: space.md,
             borderTopWidth: index ? StyleSheet.hairlineWidth : 0,
             borderTopColor: colors.line,
           }}
         >
-          <Text style={{ width: 92, color: colors.ink3, fontSize: 13 }}>{label}</Text>
-          <Text selectable style={{ flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18 }}>
+          <Text style={{ width: 92, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{label}</Text>
+          <Text selectable style={{ flex: 1, color: colors.ink, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
             {value}
           </Text>
         </View>
@@ -460,10 +453,10 @@ function ApprovalCard({
   const approveTitle = step.kind === "pull-request" ? (preview?.draft === false ? "Open PR" : "Open draft PR") : "Approve";
   return (
     <StepCard>
-      {approval.message ? <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>{approval.message}</Text> : null}
+      {approval.message ? <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{approval.message}</Text> : null}
       {preview ? (
         <View style={{ gap: 8 }}>
-          <Text style={[styles.label, { fontSize: 13 }]}>This will open</Text>
+          <Text style={styles.label}>This will open</Text>
           <Rows
             rows={[
               ...(preview.repository ? ([["Repository", preview.repository]] as [string, string][]) : []),
@@ -473,13 +466,18 @@ function ApprovalCard({
               ["Opens as", preview.draft ? "Draft PR" : "Pull request"],
             ]}
           />
-          <FlowNote tone="green" icon={Invoice01Icon}>
-            {`Keeps a receipt. If ${runLabel} restarts, it finds this PR by its branch instead of opening a second one.`}
-          </FlowNote>
+          <View style={[styles.error, { flexDirection: "row", backgroundColor: colors.greenTint }]}>
+            <View style={{ paddingTop: space.xxs }}>
+              <Icon icon={Invoice01Icon} tone="greenInk" size={16} />
+            </View>
+            <Text style={{ flex: 1, color: colors.greenInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
+              {`Keeps a receipt. If ${runLabel} restarts, it finds this PR by its branch instead of opening a second one.`}
+            </Text>
+          </View>
         </View>
       ) : null}
       {rejecting ? (
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: space.md }}>
           <Field
             label="Reason"
             hideLabel
@@ -491,11 +489,11 @@ function ApprovalCard({
             onChangeText={setReason}
             style={{ minHeight: 72, textAlignVertical: "top" }}
           />
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <FlowButton title="Cancel" kind="secondary" onPress={() => setRejecting(false)} style={{ flex: 1 }} />
-            <FlowButton
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            <PillButton title="Cancel" variant="tinted" onPress={() => setRejecting(false)} style={{ flex: 1 }} />
+            <PillButton
               title="Reject and end"
-              kind="danger"
+              destructive
               loading={busy === "reject"}
               onPress={() => void onAct("reject", reason.trim() ? { reason: reason.trim() } : {}, "Could not reject.")}
               style={{ flex: 1.4 }}
@@ -503,18 +501,19 @@ function ApprovalCard({
           </View>
         </View>
       ) : (
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <FlowButton title={approveTitle} loading={busy === "approve"} onPress={() => void onAct("approve", {}, "Could not approve.")} style={{ flex: 1 }} />
-          <FlowButton title="Reject" kind="secondary" disabled={!!busy} onPress={() => setRejecting(true)} style={{ flex: 1 }} />
+        <View style={{ flexDirection: "row", gap: space.md }}>
+          <PillButton title={approveTitle} loading={busy === "approve"} onPress={() => void onAct("approve", {}, "Could not approve.")} style={{ flex: 1 }} />
+          <PillButton title="Reject" variant="tinted" destructive disabled={!!busy} onPress={() => setRejecting(true)} style={{ flex: 1 }} />
         </View>
       )}
-      <Text style={[styles.caption, { fontSize: 12, lineHeight: 17 }]}>{`Reject asks for a reason and ends the Run. No answer in ${left} h ends it too.`}</Text>
+      <Text style={styles.caption}>{`Reject asks for a reason and ends the Run. No answer in ${left} h ends it too.`}</Text>
     </StepCard>
   );
 }
 
 /** What a step did that must never happen twice: the pull request it opened (or found) or the comment it posted. */
 function ReceiptCard({ receipt, runLabel }: { receipt: FlowReceipt; runLabel: string }) {
+  const styles = useStyles();
   const { colors } = useTheme();
   const url = receipt.url;
   const rows: [string, string][] =
@@ -527,25 +526,30 @@ function ReceiptCard({ receipt, runLabel }: { receipt: FlowReceipt; runLabel: st
       : [["Comment", `On ${receipt.issue}`]];
   return (
     <StepCard>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
         <Icon icon={Invoice01Icon} tone="greenInk" size={16} />
-        <Text style={{ flex: 1, color: colors.greenInk, fontSize: 15, fontWeight: "600" }}>Receipt</Text>
-        <Text style={{ color: colors.greenInk, fontSize: 12 }}>{`saved ${clock(receipt.at)}`}</Text>
+        <Text style={{ flex: 1, color: colors.greenInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>Receipt</Text>
+        <Text style={{ color: colors.greenInk, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>{`saved ${clock(receipt.at)}`}</Text>
       </View>
       <Rows rows={rows} />
-      {receipt.kind === "pull-request" ? (
-        <Text style={{ color: colors.ink3, fontSize: 12, lineHeight: 17 }}>{`If ${runLabel} restarts, this step finds #${receipt.number} and skips.`}</Text>
-      ) : null}
+      {receipt.kind === "pull-request" ? <Text style={styles.caption}>{`If ${runLabel} restarts, this step finds #${receipt.number} and skips.`}</Text> : null}
       {url ? (
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <FlowButton
+        <View style={{ flexDirection: "row", gap: space.md }}>
+          <PillButton
             title={receipt.kind === "pull-request" ? "Open on GitHub" : "Open in Linear"}
             icon={LinkSquare02Icon}
-            compact
+            size="small"
             onPress={() => void Linking.openURL(url)}
             style={{ flex: 1 }}
           />
-          <FlowButton title="Copy link" kind="secondary" icon={Copy01Icon} compact onPress={() => void Clipboard.setStringAsync(url)} style={{ flex: 1 }} />
+          <PillButton
+            title="Copy link"
+            variant="tinted"
+            icon={Copy01Icon}
+            size="small"
+            onPress={() => void Clipboard.setStringAsync(url)}
+            style={{ flex: 1 }}
+          />
         </View>
       ) : null}
     </StepCard>
@@ -578,15 +582,11 @@ function FailedCard({
   ];
   return (
     <StepCard>
-      {stepRun.error ? (
-        <FlowNote tone="red" icon={CancelCircleIcon}>
-          {stepRun.error}
-        </FlowNote>
-      ) : null}
+      <InlineError message={stepRun.error} />
       {tries.length > 1 ? (
-        <View style={{ gap: 6 }}>
-          <Text style={[styles.label, { fontSize: 13 }]}>Tries</Text>
-          <View style={{ borderRadius: 10, borderCurve: "continuous", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line }}>
+        <View style={{ gap: space.sm }}>
+          <Text style={styles.label}>Tries</Text>
+          <View style={{ borderRadius: radius.control, borderCurve: "continuous", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line }}>
             {tries.map((item, index) => {
               const chat = item.chatId;
               return (
@@ -595,15 +595,15 @@ function FailedCard({
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
+                    gap: space.md,
+                    paddingHorizontal: space.lg,
+                    paddingVertical: space.md,
                     borderTopWidth: index ? StyleSheet.hairlineWidth : 0,
                     borderTopColor: colors.line,
                   }}
                 >
                   <Icon icon={CancelCircleIcon} tone="red" size={16} />
-                  <Text numberOfLines={2} style={{ flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18 }}>
+                  <Text numberOfLines={2} style={{ flex: 1, color: colors.ink, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                     {[`Try ${index + 1}`, runDuration(item.endedAt - item.startedAt), firstLine(item.error)].filter(Boolean).join(", ")}
                   </Text>
                   {chat ? <LinkText title="Chat" onPress={() => onOpenChat(chat)} /> : null}
@@ -614,7 +614,7 @@ function FailedCard({
         </View>
       ) : null}
       {noting ? (
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: space.md }}>
           <Field
             label="Note"
             hideLabel
@@ -626,9 +626,9 @@ function FailedCard({
             onChangeText={setNote}
             style={{ minHeight: 72, textAlignVertical: "top" }}
           />
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <FlowButton title="Cancel" kind="secondary" onPress={() => setNoting(false)} style={{ flex: 1 }} />
-            <FlowButton
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            <PillButton title="Cancel" variant="tinted" onPress={() => setNoting(false)} style={{ flex: 1 }} />
+            <PillButton
               title="Retry"
               icon={RefreshIcon}
               loading={busy === "retry"}
@@ -638,12 +638,12 @@ function FailedCard({
           </View>
         </View>
       ) : (
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <FlowButton title="Retry with a note" icon={RefreshIcon} disabled={!!busy} onPress={() => setNoting(true)} style={{ flex: 1.3 }} />
-          {stepRun.chatId ? <FlowButton title="Open last Chat" kind="secondary" onPress={() => onOpenChat(stepRun.chatId!)} style={{ flex: 1 }} /> : null}
+        <View style={{ flexDirection: "row", gap: space.md }}>
+          <PillButton title="Retry with a note" icon={RefreshIcon} disabled={!!busy} onPress={() => setNoting(true)} style={{ flex: 1.3 }} />
+          {stepRun.chatId ? <PillButton title="Open last Chat" variant="tinted" onPress={() => onOpenChat(stepRun.chatId!)} style={{ flex: 1 }} /> : null}
         </View>
       )}
-      <Text style={[styles.caption, { fontSize: 12, lineHeight: 17 }]}>
+      <Text style={styles.caption}>
         {`Retry runs ${stepTitle(step)} again${step.kind === "agent" ? " in the same Worktree with your note added to the prompt" : ""}. Later steps run as usual.`}
       </Text>
     </StepCard>

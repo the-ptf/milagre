@@ -7,6 +7,7 @@ import { Icon } from "./icons";
 import { PageScroll, PillButton } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 
 const TITLE_LIMIT = 160;
 
@@ -53,9 +54,7 @@ export function BugReportQuestion({
               borderRadius: radius.sheet,
               borderCurve: "continuous",
               backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.lineStrong,
-              boxShadow: "0 8px 28px #00000017",
+              boxShadow: colors.shadowOverlay,
             }
       }
     >
@@ -66,10 +65,10 @@ export function BugReportQuestion({
             {report.repo}
           </Text>
         </View>
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, fontWeight: "600", lineHeight: 22 }}>
+        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, fontWeight: "600", lineHeight: lineHeight.body }}>
           Report a Milagre bug
         </Text>
-        <Text style={{ color: report.recheck ? colors.orangeInk : colors.ink2, fontSize: type.subheadline, lineHeight: 20 }}>
+        <Text style={{ color: report.recheck ? colors.orangeInk : colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
           {report.recheck
             ? "Your edit had more private details. Milagre replaced them; check the text again."
             : `This exact text goes to Milagre's public tracker under your GitHub account. ${
@@ -86,7 +85,7 @@ export function BugReportQuestion({
           maxLength={TITLE_LIMIT}
           editable={!busy}
           autoCorrect={false}
-          style={{ ...field, minHeight: 44, color: colors.ink, fontSize: type.callout, paddingHorizontal: 14, paddingVertical: 10 }}
+          style={{ ...field, minHeight: 44, color: colors.ink, fontSize: type.callout, paddingHorizontal: 12, paddingVertical: 12 }}
         />
       </View>
       <View style={{ gap: 6 }}>
@@ -98,7 +97,7 @@ export function BugReportQuestion({
             disabled={busy}
             onPress={() => setEditing((current) => !current)}
             hitSlop={8}
-            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32, opacity: busy ? 0.4 : pressed ? 0.6 : 1 })}
+            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32, ...pressStyle({ pressed, disabled: busy }) })}
           >
             <Icon icon={editing ? ViewIcon : PencilEdit02Icon} size={16} tone="ink2" />
             <Text style={{ color: colors.ink2, fontSize: type.footnote, fontWeight: "600" }}>{editing ? "Preview" : "Edit"}</Text>

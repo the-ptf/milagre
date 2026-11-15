@@ -7,10 +7,11 @@ import { useTheme } from "./theme";
 import { Icon } from "./icons";
 import { IconButton } from "./primitives/icon-button";
 import { tap } from "./primitives/tap";
-import { radius, type } from "./design-tokens";
+import { lineHeight, radius, space, type } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 
 // The same rounding as a new Chat's tray in app/chat.tsx, so the two trays match.
-const startTrayRadius = 28;
+const startTrayRadius = radius.composer + space.xs;
 
 export type OfflineTrayTarget = { computerId: string; owner: string; sessionId: number | null; computerName: string; offline: boolean };
 
@@ -39,13 +40,14 @@ export function ComposerTray({ start, target, children }: { start: boolean; targ
       style={{
         backgroundColor: colors.inset,
         borderWidth: 1,
-        borderColor: start ? colors.line : colors.lineStrong,
+        // The raised shadow carries its own hairline ring; the edge stays transparent so the padding keeps its place.
+        borderColor: "transparent",
         borderRadius: startTrayRadius,
         borderCurve: "continuous",
-        padding: 5,
-        paddingTop: 3,
+        padding: space.xs,
+        paddingTop: space.xxs,
         gap: 2,
-        boxShadow: "0 4px 20px #0000000f",
+        boxShadow: colors.shadowRaised,
       }}
     >
       {children}
@@ -71,8 +73,8 @@ export function OfflineTray({ target, chip }: { target: OfflineTrayTarget; chip:
   return (
     <View accessibilityLabel={`Waiting for ${target.computerName}`}>
       {!!message && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingTop: 6 }}>
-          <Text accessibilityRole="alert" style={{ flex: 1, color: colors.orangeInk, fontSize: 13 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: space.md, paddingTop: 6 }}>
+          <Text accessibilityRole="alert" style={{ flex: 1, color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
             {message}
           </Text>
           {!!snapshot.error && snapshot.loaded && <TextAction label="Retry saving" onPress={() => act(outbox.retryStorage())} />}
@@ -92,7 +94,7 @@ export function OfflineTray({ target, chip }: { target: OfflineTrayTarget; chip:
               gap: 6,
               height: 28,
               maxWidth: "100%",
-              paddingHorizontal: 10,
+              paddingHorizontal: space.md,
               borderRadius: radius.chip,
               borderCurve: "continuous",
               backgroundColor: colors.field,
@@ -128,18 +130,21 @@ function Row({ item, onAct }: { item: OutboxItem; onAct: (work: Promise<unknown>
   // A send that may have reached the computer is checked before it goes again; a Worktree that may exist can't be redone.
   const retry = failed && item.phase !== "creating" ? (item.phase === "dispatching" ? "Check delivery" : "Retry") : null;
   return (
-    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, paddingLeft: 10, paddingTop: 8, paddingBottom: 6 }}>
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, paddingLeft: space.md, paddingTop: 8, paddingBottom: 6 }}>
       <View style={{ height: 20, justifyContent: "center" }}>
         <Icon icon={failed ? AlertCircleIcon : Clock01Icon} tone="orangeInk" size={16} strokeWidth={2} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 15, lineHeight: 20 }}>
+        <Text numberOfLines={2} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
           {item.request.body.trim() || "Attachments"}
         </Text>
         {!!(attachment || status) && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             {!!attachment && <Icon icon={images.length ? Image01Icon : Attachment01Icon} tone="ink3" size={12} />}
-            <Text numberOfLines={2} style={{ flexShrink: 1, color: failed ? colors.orangeInk : colors.ink3, fontSize: 13 }}>
+            <Text
+              numberOfLines={2}
+              style={{ flexShrink: 1, color: failed ? colors.orangeInk : colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}
+            >
               {[attachment, status].filter(Boolean).join(" · ")}
             </Text>
           </View>
@@ -178,7 +183,7 @@ function TextAction({ label, onPress }: { label: string; onPress: () => void }) 
         paddingHorizontal: 12,
         borderRadius: radius.full,
         backgroundColor: colors.field,
-        opacity: pressed ? 0.6 : 1,
+        ...pressStyle({ pressed }),
       })}
     >
       <Text style={{ color: colors.ink, fontSize: type.subheadline, fontWeight: "600" }}>{label}</Text>

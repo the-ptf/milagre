@@ -2,15 +2,15 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Add01Icon, Alert02Icon, InformationCircleIcon, MinusSignIcon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, InformationCircleIcon, MinusSignIcon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { flowChanges, flowProblems, needsAnswer } from "@milagre/shared/routine-flows";
 import { useSession } from "../session";
 import { useRoutines } from "../use-routines";
 import { useFlowDraft } from "../flow-draft";
 import { changeKind, runName, runsInProgress } from "../flow-looks";
-import { FlowButton, FlowNote } from "../flow-ui";
 import { Icon } from "../icons";
-import { ErrorNotice, useStyles } from "../ui";
+import { lineHeight, radius, space, type } from "../design-tokens";
+import { ErrorNotice, PillButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 /**
@@ -62,10 +62,10 @@ export default function FlowPublishSheet() {
   return (
     <View style={{ paddingTop: 24, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: 16 }}>
       <View style={{ gap: 4 }}>
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, fontWeight: "600" }}>
+        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
           {`Publish revision ${next}`}
         </Text>
-        <Text style={[styles.muted, { fontSize: 15 }]}>
+        <Text style={styles.muted}>
           {revision === 0
             ? "The first revision. Publishing turns the flow on."
             : `${changes.length} ${changes.length === 1 ? "change" : "changes"} since revision ${revision}`}
@@ -73,15 +73,17 @@ export default function FlowPublishSheet() {
       </View>
       {error ? <ErrorNotice message={error} /> : null}
       {changes.length && revision > 0 ? (
-        <View style={{ borderRadius: 14, borderCurve: "continuous", backgroundColor: colors.field, overflow: "hidden" }}>
+        <View style={{ borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.field, overflow: "hidden" }}>
           {changes.slice(0, 12).map((line, index) => {
             const kind = changeKind(line);
             return (
               <View key={`${index}:${line}`}>
                 {index > 0 ? <View style={styles.separator} /> : null}
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44, paddingHorizontal: 14, paddingVertical: 10 }}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: 44, paddingHorizontal: space.xl, paddingVertical: space.lg }}
+                >
                   <Icon icon={kind === "added" ? Add01Icon : kind === "removed" ? MinusSignIcon : PencilEdit02Icon} tone="ink2" size={16} />
-                  <Text style={{ flex: 1, color: colors.ink, fontSize: 15, lineHeight: 20 }}>{line}</Text>
+                  <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{line}</Text>
                 </View>
               </View>
             );
@@ -89,29 +91,29 @@ export default function FlowPublishSheet() {
           {changes.length > 12 ? (
             <View>
               <View style={styles.separator} />
-              <Text style={[styles.caption, { paddingHorizontal: 14, paddingVertical: 10, fontSize: 13 }]}>{`${changes.length - 12} more`}</Text>
+              <Text style={[styles.footnote, { paddingHorizontal: space.xl, paddingVertical: space.lg }]}>{`${changes.length - 12} more`}</Text>
             </View>
           ) : null}
         </View>
       ) : null}
-      {problem ? (
-        <FlowNote tone="red" icon={Alert02Icon}>
-          {problem.message}
-        </FlowNote>
-      ) : null}
+      {problem ? <ErrorNotice message={problem.message} /> : null}
       {note ? (
-        <FlowNote tone="orange" icon={InformationCircleIcon}>
-          {note}
-        </FlowNote>
+        <View style={[styles.error, { flexDirection: "row", backgroundColor: colors.orangeTint }]}>
+          <View style={{ paddingTop: space.xxs }}>
+            <Icon icon={InformationCircleIcon} tone="orangeInk" size={16} />
+          </View>
+          <Text style={{ flex: 1, color: colors.orangeInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{note}</Text>
+        </View>
       ) : null}
-      <View style={{ gap: 6 }}>
-        <FlowButton
+      <View style={{ gap: space.sm }}>
+        <PillButton
           title={`Publish revision ${next}`}
+          size="large"
           loading={publishing}
           disabled={!routine || !!problem || (revision > 0 && changes.length === 0)}
           onPress={() => void publish()}
         />
-        <FlowButton title="Cancel" kind="quiet" onPress={() => router.back()} style={{ minHeight: 44 }} />
+        <PillButton title="Cancel" variant="plain" muted onPress={() => router.back()} />
       </View>
     </View>
   );

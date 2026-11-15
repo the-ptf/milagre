@@ -205,7 +205,17 @@ function RightDock() {
       </Animated.View>
       <Animated.View
         pointerEvents="none"
-        style={[s.standIn, { top: top.top, bottom: Math.max(insets.bottom, CARD_MARGIN), backgroundColor: colors.surface, borderColor: colors.line }, standIn]}
+        style={[
+          s.standIn,
+          {
+            top: top.top,
+            bottom: Math.max(insets.bottom, CARD_MARGIN),
+            backgroundColor: colors.surface,
+            borderColor: "transparent",
+            boxShadow: colors.shadowRaised,
+          },
+          standIn,
+        ]}
       >
         <View style={[s.standInBadge, { backgroundColor: colors.page }]}>
           <Icon icon={ArrowHorizontalIcon} tone="ink3" size={20} />
@@ -342,7 +352,6 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
   },
   standInBadge: { width: 56, height: 56, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
   grip: { width: 4, height: 44, borderRadius: radius.full },

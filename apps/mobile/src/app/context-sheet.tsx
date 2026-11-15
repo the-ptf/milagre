@@ -9,6 +9,7 @@ import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useComposer, useSession } from "../session";
 import { PillButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { type } from "../design-tokens";
 
 /**
  * Desktop's context card as a sheet: how full the Chat's context window is. Reads the live numbers, so it fills while
@@ -38,7 +39,7 @@ export default function ContextSheet() {
   const blocked = Boolean(session.error) || Boolean(chat?.archived);
   return (
     <View style={{ paddingTop: 28, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: 16 }}>
-      <Text selectable style={{ color: colors.ink2, fontSize: 13, fontVariant: ["tabular-nums"] }}>
+      <Text selectable style={{ color: colors.ink2, fontSize: type.footnote, fontVariant: ["tabular-nums"] }}>
         {tokens}
       </Text>
       <ContextBar percent={percent} settings={settings} />
@@ -54,7 +55,7 @@ export default function ContextSheet() {
             }}
           />
           {blocked && (
-            <Text accessibilityLiveRegion="polite" style={[styles.muted, { textAlign: "center", fontSize: 13 }]}>
+            <Text accessibilityLiveRegion="polite" style={[styles.muted, { textAlign: "center", fontSize: type.footnote }]}>
               Chat unavailable.
             </Text>
           )}

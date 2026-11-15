@@ -17,7 +17,7 @@ import { TOKEN_USAGE_PROVIDER_COLORS, formatTokenCount, formatUsd, type TokenUsa
 import { PROVIDER_NAMES, formatPercent, formatResetsIn, shownPercent, usageTone, visibleProviders, type UsageDisplay } from "@milagre/shared/usage";
 import { useAccountUsage } from "@milagre/shared/use-account-usage";
 import type { Client } from "./client";
-import { radius, type } from "./design-tokens";
+import { radius, space, type } from "./design-tokens";
 import { Icon, ProviderLogo } from "./icons";
 import { useTheme, type Palette } from "./theme";
 import { useUsageDisplay } from "./usage-display-setting";
@@ -166,7 +166,7 @@ function PullRequestRow({ pr }: { pr: GlancePullRequest }) {
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
+        gap: 12,
         minHeight: 44,
         marginHorizontal: -8,
         paddingHorizontal: 8,
@@ -269,7 +269,7 @@ function TodayCard({ today }: { today: GlanceToday }) {
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        style={{ flexDirection: "row", alignItems: "flex-end", gap: 3, height: BAR_HEIGHT }}
+        style={{ flexDirection: "row", alignItems: "flex-end", gap: space.xs, height: BAR_HEIGHT }}
       >
         {HOURS.map((hour) => {
           const share = shares[hour] ?? 0;
@@ -281,6 +281,7 @@ function TodayCard({ today }: { today: GlanceToday }) {
                 borderRadius: radius.full,
                 height: share > 0 ? Math.max(4, share * BAR_HEIGHT) : 3,
                 backgroundColor: hour > today.currentHour || share === 0 ? colors.lineStrong : colors.accent,
+                // oxlint-disable-next-line milagre-design/opacity-token -- chart bars: past hours are drawn quieter, not a press or disabled state
                 opacity: hour < today.currentHour && share > 0 ? 0.6 : 1,
               }}
             />

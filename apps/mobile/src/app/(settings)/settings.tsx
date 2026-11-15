@@ -46,7 +46,7 @@ import { searchTrail } from "@milagre/shared/settings-search";
 import { SETTINGS_PAGES, searchPhoneSettings, type SettingsRoute } from "../../settings-index";
 import { useTheme } from "../../theme";
 import { HeaderButton, PageScroll, pressStyle, useStyles } from "../../ui";
-import { lineHeight, radius, type } from "../../design-tokens";
+import { lineHeight, radius, space, type } from "../../design-tokens";
 
 // Every page Settings opens, from its list or from search.
 type SettingsPage = SettingsRoute;
@@ -108,7 +108,7 @@ function Marked({ text, ranges, color }: { text: string; ranges: [number, number
 
 /**
  * What Settings search found: pages first when their name matches, then rows, each with the page and card it sits in.
- * A page of the connected Mac's settings shows only with one connected, and Keybindings only on an iPad, as on the list.
+ * A page of the connected computer's settings shows only with one connected, and Keybindings only on an iPad, as on the list.
  */
 export function SettingsResults({ query, onOpen }: { query: string; onOpen: (page: SettingsPage, find?: string) => void }) {
   const { colors } = useTheme();
@@ -116,7 +116,11 @@ export function SettingsResults({ query, onOpen }: { query: string; onOpen: (pag
   const connected = Boolean(useSession().client);
   const hits = useMemo(() => searchPhoneSettings(query, { connected, ipad: Platform.OS === "ios" && Platform.isPad }), [query, connected]);
   if (!hits.length) {
-    return <Text style={{ color: colors.ink2, fontSize: 15, textAlign: "center", marginTop: 32 }}>No settings match “{query.trim()}”.</Text>;
+    return (
+      <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center", marginTop: space.xxxl }}>
+        No settings match “{query.trim()}”.
+      </Text>
+    );
   }
   return (
     <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 16, gap: 0 }]}>
@@ -129,14 +133,17 @@ export function SettingsResults({ query, onOpen }: { query: string; onOpen: (pag
               accessibilityRole="button"
               accessibilityLabel={trail === entry.title ? entry.title : `${entry.title}. ${trail}`}
               onPress={() => onOpen(entry.page, entry.row ? entry.title : undefined)}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
+              style={({ pressed }) => [
+                { flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: 52, paddingVertical: space.md },
+                pressStyle({ pressed, kind: "row" }),
+              ]}
             >
               <View style={{ flex: 1, gap: 2 }}>
-                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 17 }}>
+                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.body, lineHeight: lineHeight.body }}>
                   <Marked text={entry.title} ranges={ranges} color={colors.ink} />
                 </Text>
                 {trail !== entry.title ? (
-                  <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 13 }}>
+                  <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                     {trail}
                   </Text>
                 ) : null}
@@ -230,7 +237,7 @@ export function SettingsView({
   const archived = useArchivedCount();
   const client = session.client;
   const host = client ? session.hosts.find((saved) => saved.id === client.url) : undefined;
-  const macName = host?.name || session.hostName || "Your Mac";
+  const macName = host?.name || session.hostName || "Your computer";
   const projects = session.recent.filter((project) => !project.link);
   // Connections only lists what the phone can change: a connected Mac that answers for Linear. Re-read on focus, since
   // the Mac can turn it on or connect while the phone is elsewhere; an older Mac answers null and keeps it hidden.
@@ -283,7 +290,7 @@ export function SettingsView({
   const routinesAvailable = useRoutinesAvailable(client);
   const routines = useRoutines(routinesAvailable ? client : null);
   const routinesOn = routines.routines.filter((routine) => routine.enabled).length;
-  const routinesValue = !client ? "No computer connected" : !routinesAvailable ? "Update your Mac" : routines.loading ? undefined : `${routinesOn} on`;
+  const routinesValue = !client ? "No computer connected" : !routinesAvailable ? "Update your computer" : routines.loading ? undefined : `${routinesOn} on`;
   return (
     <View style={{ gap: 24 }}>
       <View style={{ flexDirection: "row", gap: 12 }}>
@@ -356,7 +363,7 @@ export function SettingsView({
           </Group>
           <Group title={macName}>
             <Row title="Phone & sharing" icon={SmartphoneIcon} selected={selected === "phone-sharing"} onPress={() => onOpen("phone-sharing")} />
-            <Row title="This Mac" icon={LaptopIcon} selected={selected === "this-mac"} onPress={() => onOpen("this-mac")} />
+            <Row title="This computer" icon={LaptopIcon} selected={selected === "this-mac"} onPress={() => onOpen("this-mac")} />
           </Group>
         </>
       ) : null}

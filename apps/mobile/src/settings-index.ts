@@ -34,7 +34,7 @@ export const SETTINGS_PAGES = {
   "babysit-prs": { title: "Babysit PRs", needs: "computer" },
   "phone-sharing": { title: "Phone & sharing", needs: "computer" },
   simlock: { title: "Simlock devices", needs: "computer" },
-  "this-mac": { title: "This Mac", needs: "computer" },
+  "this-mac": { title: "This computer", needs: "computer" },
   "computer-use": { title: "Computer use", needs: "computer" },
   experimental: { title: "Church" },
   "design-system": { title: "Design system" },
@@ -331,7 +331,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     page: "simlock",
     title: "Devices at once",
     group: "Limits",
-    description: "Leases this Mac holds together. Simlock also caps leases per token.",
+    description: "Leases this computer holds together. Simlock also caps leases per token.",
     keywords: "simulators emulators leases pool",
   },
   {

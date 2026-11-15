@@ -1,4 +1,5 @@
 import { Platform, StyleSheet, View } from "react-native";
+// oxlint-disable-next-line milagre-design/glass-primitive -- the composer needs a tinted blur GlassSurface lacks: a tunable blurAmount, a 50-76% surface tint over it, and an Android overlayColor of transparent
 import { BlurView } from "@sbaiahmed1/react-native-blur";
 import { withAlpha } from "@milagre/shared/themes";
 import { useTheme } from "./theme";

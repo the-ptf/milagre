@@ -40,7 +40,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="models" options={{ title: "Models" }} />
       <Stack.Screen name="worktrees" options={{ title: "Worktrees" }} />
       <Stack.Screen name="phone-sharing" options={{ title: "Phone & sharing" }} />
-      <Stack.Screen name="this-mac" options={{ title: "This Mac" }} />
+      <Stack.Screen name="this-mac" options={{ title: "This computer" }} />
       <Stack.Screen name="dictation-language" options={{ title: "Dictation language" }} />
       <Stack.Screen name="dictation-model" options={{ title: "Speech model" }} />
       <Stack.Screen name="keybindings" options={{ title: "Keybindings" }} />

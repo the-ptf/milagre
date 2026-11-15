@@ -26,6 +26,7 @@ import { useVoiceDictation, type DictationChat } from "./voice-dictation-hook";
 import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { IconButton, InlineError, PillButton, pressStyle, PullDown, Tag, useStyles } from "./ui";
 import { lineHeight, radius, type } from "./design-tokens";
+import { DISABLED_OPACITY } from "./primitives/press-style";
 import { useTheme } from "./theme";
 
 export type InboxQuestionDraft = {
@@ -432,7 +433,7 @@ export function Questions({
                 ]}
                 onSelect={(kind) => void attach(kind as "photos" | "camera" | "paste")}
               >
-                <View style={{ width: 32, height: 32, alignItems: "center", justifyContent: "center", opacity: busy ? 0.35 : 1 }}>
+                <View style={{ width: 32, height: 32, alignItems: "center", justifyContent: "center", opacity: busy ? DISABLED_OPACITY.control : 1 }}>
                   <Icon icon={Image01Icon} tone="ink2" size={18} />
                 </View>
               </PullDown>

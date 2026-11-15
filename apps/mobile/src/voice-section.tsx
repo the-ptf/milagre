@@ -5,7 +5,7 @@ import { DICTATION_ACTION_OPTIONS } from "@milagre/shared/voice-dictation";
 import { useDictationAction, useDictationFixModel, useDictationFixUp, useDictationLanguage, useDictationModel } from "./chat-display-setting";
 import { ChoiceCards, DictationPreview } from "./chat-display-choices";
 import { ListRow, Toggle, showActions, useStyles } from "./ui";
-import { radius } from "./design-tokens";
+import { radius, space } from "./design-tokens";
 
 /** Settings › Voice: dictation, kept on this phone (desktop's Voice page). */
 export function VoiceSection() {
@@ -16,7 +16,7 @@ export function VoiceSection() {
   const [fixUp, setFixUp] = useDictationFixUp();
   const [fixModel, setFixModel] = useDictationFixModel();
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: space.md }}>
       <Text style={styles.section}>When dictation finishes</Text>
       <ChoiceCards
         compact
@@ -67,9 +67,9 @@ export function VoiceSection() {
           />
         </View>
       )}
-      <Text style={[styles.caption, { paddingHorizontal: 4, lineHeight: 17 }]}>
-        After you stop, your Mac corrects misheard file, code and provider names using the Chat. The words show at once and update a few seconds later, unless
-        you edit them first. Automatic uses the smallest model of the Chat&apos;s agent.
+      <Text style={[styles.caption, { paddingHorizontal: space.xs }]}>
+        After you stop, your computer corrects misheard file, code and provider names using the Chat. The words show at once and update a few seconds later,
+        unless you edit them first. Automatic uses the smallest model of the Chat&apos;s agent.
       </Text>
     </View>
   );

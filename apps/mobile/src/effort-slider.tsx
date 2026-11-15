@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
+import { withAlpha } from "@milagre/shared/themes";
 import { useMotionScale, springTo } from "./motion";
 import { radius } from "./design-tokens";
 import { tap } from "./primitives/tap";
@@ -71,7 +72,7 @@ export function EffortSlider({
           justifyContent: "center",
         }}
       >
-        <Animated.View style={[{ position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: colors.ink, opacity: 0.12 }, fill]} />
+        <Animated.View style={[{ position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: withAlpha(colors.ink, 0.12) }, fill]} />
         {width > 0 &&
           Array.from({ length: count }, (_, stop) => (
             <View

@@ -93,7 +93,7 @@ export function MacUpdateRows({ state, macName }: { state: ReturnType<typeof use
   const available = update ? updateAvailable(update) : null;
   const description = restarting && update?.status !== "installing" ? `Restarting Milagre on ${macName}.` : updateDescription(update ?? null);
   return (
-    <View style={{ gap: 10, paddingBottom: 8 }}>
+    <View style={{ gap: 12, paddingBottom: 8 }}>
       {update && (
         <View accessible style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", minHeight: 28 }}>
           <Text style={styles.text}>Milagre on {macName}</Text>

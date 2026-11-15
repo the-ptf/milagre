@@ -94,6 +94,7 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
           accessibilityElementsHidden
           style={{
             fontFamily: font,
+            // oxlint-disable-next-line milagre-design/font-size-token -- artwork: the fatality word is a one-off display size, off the type scale like the rest of the Ultracode artwork
             fontSize: 56,
             letterSpacing: 2,
             color: mix(colors.purple, colors.onMedia, 0.3),
@@ -153,6 +154,7 @@ function Dot({
           height: size,
           borderRadius: size / 2,
           backgroundColor: light ? mix(colors.purple, colors.onMedia, 0.6) : spark,
+          // oxlint-disable-next-line milagre-design/shadow-token -- artwork: a spark particle's glow in its own colour, not an elevation
           boxShadow: `0 0 10px 2px ${withAlpha(spark, 0.9)}`,
         },
         style,

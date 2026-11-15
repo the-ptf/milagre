@@ -32,7 +32,8 @@ import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { announce, CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, PullDown, SheetHeader, useStyles, type MenuSection } from "./ui";
 import { over } from "@milagre/shared/themes";
-import { lineHeight, radius, type } from "./design-tokens";
+import { lineHeight, radius, space, type } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 import type { ChatTab } from "./panel-tabs";
 import { useReachableHost } from "./routes-native";
 import type { AgentPort } from "@milagre/shared/model";
@@ -326,7 +327,7 @@ export function BrowserSheet({
           items: [
             { id: "copy", title: "Copy link", systemImage: "link" },
             { id: "safari", title: "Open in Safari", systemImage: "safari", disabled: !externalUrl },
-            ...(controls?.viaMacAvailable ? [{ id: "mac", title: "Load through Mac", systemImage: "desktopcomputer" }] : []),
+            ...(controls?.viaMacAvailable ? [{ id: "mac", title: "Load through computer", systemImage: "desktopcomputer" }] : []),
           ],
         },
         ...(pages.length > 1 && docked
@@ -397,7 +398,7 @@ export function BrowserSheet({
       {/* Keep the header as one native view: form-sheet scroll sizing cannot account for a flattened header. */}
       <View collapsable={false} style={{ flexShrink: 0 }}>
         {docked ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingTop: 12, paddingBottom: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: space.md, paddingTop: 12, paddingBottom: 8 }}>
             {selected && <CircleButton label="Back" icon={ArrowLeft01Icon} onPress={controls ? () => controls.back() : undefined} />}
             {selected && <CircleButton label="Forward" icon={ArrowRight01Icon} onPress={controls ? () => controls.forward() : undefined} />}
             {pagesButton}
@@ -577,7 +578,7 @@ function CommentHint({ bottom, count, onDone }: { bottom: number; count: number;
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 10,
+          gap: space.lg,
           paddingLeft: 16,
           paddingRight: 6,
           paddingVertical: 6,
@@ -597,7 +598,8 @@ function CommentHint({ bottom, count, onDone }: { bottom: number; count: number;
             paddingHorizontal: 12,
             paddingVertical: 6,
             borderRadius: radius.full,
-            backgroundColor: over(pressed ? "#ffffff33" : "#ffffff1f", colors.ink),
+            backgroundColor: colors.onMediaTint,
+            ...pressStyle({ pressed }),
           })}
         >
           <Text style={{ color: colors.page, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>Done</Text>
@@ -798,7 +800,7 @@ function BrowserWebView({
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
         <ActivityIndicator color={colors.ink3} />
         <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-          {forceProxy || !directPageUrl(url, host, loopbackOnly) ? "Opening through your Mac…" : "Connecting to page…"}
+          {forceProxy || !directPageUrl(url, host, loopbackOnly) ? "Opening through your computer…" : "Connecting to page…"}
         </Text>
       </View>
     );
@@ -896,7 +898,7 @@ function PageError({
     /* Shown as written. */
   }
   return (
-    <PageScroll contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: 14 }}>
+    <PageScroll contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24, gap: space.xl }}>
       <View style={{ width: 56, height: 56, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.field }}>
         <Icon icon={WifiDisconnected01Icon} size={24} tone="ink2" />
       </View>
@@ -906,8 +908,8 @@ function PageError({
       <Text selectable style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center", maxWidth: 320 }}>
         {message}
       </Text>
-      <View style={{ gap: 10, alignSelf: "stretch", alignItems: "center", paddingTop: 6 }}>
-        {viaMac && <PillButton title="Load through Mac" icon={LaptopIcon} onPress={viaMac} style={{ minWidth: 240 }} />}
+      <View style={{ gap: space.lg, alignSelf: "stretch", alignItems: "center", paddingTop: 6 }}>
+        {viaMac && <PillButton title="Load through computer" icon={LaptopIcon} onPress={viaMac} style={{ minWidth: 240 }} />}
         <PillButton title="Retry" icon={Refresh01Icon} secondary={!!viaMac} onPress={retry} style={{ minWidth: 240 }} />
         <PillButton title="Open in Safari" variant="plain" onPress={openExternally} />
       </View>

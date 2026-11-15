@@ -16,7 +16,7 @@ export default function DesignShareScreen() {
   if (!source || !chatId)
     return (
       <SheetBody>
-        <Text style={styles.muted}>Reconnect to this Mac to share this page.</Text>
+        <Text style={styles.muted}>Reconnect to your computer to share this page.</Text>
       </SheetBody>
     );
   return (

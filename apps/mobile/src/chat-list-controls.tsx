@@ -21,7 +21,7 @@ import { Icon } from "./icons";
 import { scaledTiming, useMotionScale } from "./motion";
 import { GlassIconButton, PullDown } from "./ui";
 import type { MenuSection } from "./primitives/menu";
-import { duration, easing, radius, type } from "./design-tokens";
+import { duration, easing, lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { pinsControls, shownHidden } from "./chat-list-controls-pin";
 import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
@@ -196,7 +196,7 @@ export function ChatListControls({
                       bottom: MIC_SIZE + 8,
                       width: 260,
                       padding: 12,
-                      borderRadius: 14,
+                      borderRadius: radius.card,
                       borderCurve: "continuous",
                       backgroundColor: colors.surface,
                     }}
@@ -204,7 +204,7 @@ export function ChatListControls({
                     <Text
                       accessibilityLabel={dictation.phase === "preparing" ? "Preparing the microphone" : `Dictation preview: ${dictation.partial.text}`}
                       numberOfLines={3}
-                      style={{ color: colors.ink2, fontSize: 15 }}
+                      style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}
                     >
                       {dictation.partial.text || "Preparing the microphone\u2026"}
                     </Text>

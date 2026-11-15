@@ -16,6 +16,7 @@ import Svg, { Circle, Path } from "react-native-svg";
 import { Cancel01Icon, Mic01Icon } from "@hugeicons/core-free-icons";
 import { withAlpha } from "@milagre/shared/themes";
 import { radius } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { useReducedMotion } from "./motion";
@@ -44,7 +45,7 @@ export function VoiceMicButton({ onPress, processing = null }: { onPress: () => 
       accessibilityHint={busy ? "Starts a new dictation and drops the pending correction" : undefined}
       accessibilityLiveRegion="polite"
       onPress={onPress}
-      style={({ pressed }) => ({ width: MIC_SIZE, height: MIC_SIZE, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => ({ width: MIC_SIZE, height: MIC_SIZE, alignItems: "center", justifyContent: "center", ...pressStyle({ pressed }) })}
     >
       <View
         style={{
@@ -139,7 +140,7 @@ function DictationDownload({ progress, onCancel }: { progress: number; onCancel:
       accessibilityLabel={`Downloading speech model, ${Math.round(progress * 100)} percent`}
       accessibilityHint="Cancels the download"
       onPress={onCancel}
-      style={({ pressed }) => ({ width: MIC_SIZE, height: MIC_SIZE, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => ({ width: MIC_SIZE, height: MIC_SIZE, alignItems: "center", justifyContent: "center", ...pressStyle({ pressed }) })}
     >
       <DownloadRing size={30} stroke={2.5} progress={progress}>
         <DroppingArrow />
@@ -188,7 +189,7 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
         gap: 4,
         height: CAPSULE_HEIGHT,
         paddingHorizontal: 6,
-        borderRadius: 999,
+        borderRadius: radius.full,
         borderCurve: "continuous",
         backgroundColor: colors.hover,
       }}
@@ -199,7 +200,7 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
         accessibilityHint="Takes the dictated words back out and leaves the rest of the message"
         hitSlop={8}
         onPress={onDiscard}
-        style={({ pressed }) => ({ width: CONTROL, height: CONTROL, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+        style={({ pressed }) => ({ width: CONTROL, height: CONTROL, alignItems: "center", justifyContent: "center", ...pressStyle({ pressed }) })}
       >
         <Icon icon={Cancel01Icon} size={18} tone="ink2" />
       </Pressable>
@@ -209,7 +210,7 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
           accessibilityLabel="Stop dictation"
           hitSlop={8}
           onPress={onStop}
-          style={({ pressed }) => ({ width: CONTROL, height: CONTROL, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+          style={({ pressed }) => ({ width: CONTROL, height: CONTROL, alignItems: "center", justifyContent: "center", ...pressStyle({ pressed }) })}
         >
           <Animated.View
             pointerEvents="none"
