@@ -47,6 +47,7 @@ const ALLOWED: Record<string, string[]> = {
     "restartHost",
     "retryQuit",
   ],
+  "app/useAppDialogs.ts": ["listRecentProjects"],
   "components/AddProjectDialog.tsx": ["openProject", "chooseFolder"],
   "components/FloatingInbox.tsx": [
     "getFloatingInboxOpen",
