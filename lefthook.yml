@@ -8,3 +8,19 @@ pre-commit:
       glob: "*.{js,jsx,ts,tsx,cjs,mjs,cts,mts,json,md,yml,yaml,css}"
       exclude: ["package-lock.json"]
       run: npx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+
+# Typecheck and lint before a push (about 7 s and 1 s on an M-series Mac). Unit tests stay in CI: `npm test -- --unit`
+# took 84-132 s locally. LEFTHOOK=0 git push skips the hook; CI never pushes with it.
+pre-push:
+  parallel: true
+  skip:
+    - run: test -n "$CI"
+  commands:
+    typecheck:
+      run: npm run typecheck
+    lint:
+      run: npm run lint
+    # AGENTS.md: a change under apps/desktop/electron gets the macOS desktop smoke on your Mac; CI runs it only on main.
+    desktop-smoke:
+      glob: "apps/desktop/electron/**"
+      run: '[ -z "{push_files}" ] || npm test -- --only test-desktop'
