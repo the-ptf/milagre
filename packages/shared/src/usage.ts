@@ -71,11 +71,29 @@ export function overviewUpdatedAt(snapshot: UsageSnapshot | null): string | null
 /** What the sidebar shows for plan usage: one footer button that opens every provider's limits, a meter per provider, or nothing. */
 export type UsageInSidebar = "button" | "meters" | "off";
 
-export const USAGE_IN_SIDEBAR_CHOICES: readonly { id: UsageInSidebar; label: string; hint: string }[] = [
+/**
+ * The one sidebar usage choice desktop Settings offers. It saves two settings: `usageInSidebar`, and for Meters the
+ * appearance's `sidebarUsage` row style (Compact meters puts the provider icons in one line).
+ */
+export type SidebarUsagePick = UsageInSidebar | "compact";
+
+export const SIDEBAR_USAGE_PICKS: readonly { id: SidebarUsagePick; label: string; hint: string }[] = [
   { id: "button", label: "Button", hint: "A button beside Filters shows every provider's limits" },
   { id: "meters", label: "Meters", hint: "A meter per provider; hover one for its limits and reset times" },
+  { id: "compact", label: "Compact meters", hint: "Provider icons in one line; hover one for its limits" },
   { id: "off", label: "Off", hint: "Plan usage stays in Settings › Usage" },
 ];
+
+export function sidebarUsagePick(usageInSidebar: UsageInSidebar, sidebarUsage: "expanded" | "compact"): SidebarUsagePick {
+  return usageInSidebar === "meters" && sidebarUsage === "compact" ? "compact" : usageInSidebar;
+}
+
+/** What a pick saves; Button and Off leave the meters' row style as it was. */
+export function sidebarUsagePickSettings(pick: SidebarUsagePick): { usageInSidebar: UsageInSidebar; sidebarUsage?: "expanded" | "compact" } {
+  if (pick === "compact") return { usageInSidebar: "meters", sidebarUsage: "compact" };
+  if (pick === "meters") return { usageInSidebar: "meters", sidebarUsage: "expanded" };
+  return { usageInSidebar: pick };
+}
 
 /** The footer button's name, and the title of what it opens, on desktop and phone. */
 export const USAGE_BUTTON_LABEL = "Plan usage";

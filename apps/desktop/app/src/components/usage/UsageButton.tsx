@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Alert02Icon, DashboardSpeed02Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, DashboardSpeed02Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { Popover } from "../primitives/Popover";
 import { ProviderLogo } from "../ProviderLogo";
 import { PROVIDER_NAMES, USAGE_BUTTON_LABEL, formatUpdatedAgo, overviewUpdatedAt, visibleProviders } from "./format";
-import { USAGE_CARD_WIDTH, UsageWindows } from "./UsageCard";
+import { AccountPicker, USAGE_CARD_WIDTH, UsageWindows } from "./UsageCard";
+import { useRefreshSpin } from "../changes/useRefreshSpin";
 import type { UsageState } from "./useUsage";
 
 const OPEN_DELAY_MS = 120;
@@ -17,7 +18,7 @@ const STALE_AFTER_MS = 60_000;
  * Settings › General › Plan usage › Show in sidebar › Button: one footer button beside Filters. Hovering it (or focusing
  * it from the keyboard, or clicking it) opens a popover with every provider's windows, the meters' cards in one panel.
  */
-export function UsageButton({ usage }: { usage: UsageState }) {
+export function UsageButton({ usage, scope, chatsHome }: { usage: UsageState; scope?: string; chatsHome?: boolean }) {
   const button = useRef<HTMLButtonElement>(null);
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -26,6 +27,12 @@ export function UsageButton({ usage }: { usage: UsageState }) {
   const closeTimer = useRef<number | null>(null);
   // The pointer is over the button or the popover: a click there moves focus off the button, which mustn't close it.
   const pointerInside = useRef(false);
+  // An account picker's panel opens outside the popover (portalled to the body): pressing in it, leaving the popover
+  // for it, or the Escape that closes it must not close the popover. `pickerClosing` covers that Escape, which
+  // closes the picker first and then bubbles (through React's tree) to the popover.
+  const pickerOpen = useRef(false);
+  const pickerClosing = useRef(false);
+  const spin = useRefreshSpin(() => usage.refresh(), usage.loading);
   const providers = usage.snapshot ? visibleProviders(usage.snapshot) : [];
   const updatedAt = overviewUpdatedAt(usage.snapshot);
 
@@ -44,6 +51,7 @@ export function UsageButton({ usage }: { usage: UsageState }) {
   }
 
   function close() {
+    if (pickerOpen.current || pickerClosing.current) return;
     clearTimers();
     setOpen(false);
   }
@@ -60,6 +68,7 @@ export function UsageButton({ usage }: { usage: UsageState }) {
   }
 
   function scheduleHide() {
+    if (pickerOpen.current) return;
     clearTimers();
     closeTimer.current = window.setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
   }
@@ -70,7 +79,24 @@ export function UsageButton({ usage }: { usage: UsageState }) {
     closeTimer.current = null;
   }
 
+  function onPickerOpenChange(next: boolean) {
+    pickerOpen.current = next;
+    if (next) return;
+    pickerClosing.current = true;
+    // A choice or Escape hands focus back to the picker after this runs; a press elsewhere leaves the pointer
+    // wherever it is, possibly outside the popover, which then closes as a hover popover would.
+    window.setTimeout(() => {
+      pickerClosing.current = false;
+      const panel = document.querySelector("[data-usage-popover]");
+      if (panel && !panel.matches(":hover") && !panel.contains(document.activeElement)) scheduleHide();
+    }, 0);
+  }
+
   useEffect(() => clearTimers, []);
+
+  useEffect(() => {
+    if (!open) pickerOpen.current = false;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -78,7 +104,7 @@ export function UsageButton({ usage }: { usage: UsageState }) {
     // Capture on window runs before App's window-level Escape handler, which cancels the running agent: Escape closes
     // the popover, with focus still on the button, and goes no further.
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || pickerOpen.current) return;
       event.preventDefault();
       event.stopPropagation();
       close();
@@ -141,10 +167,24 @@ export function UsageButton({ usage }: { usage: UsageState }) {
                       <ProviderLogo provider={item.provider} size={16} />
                     </span>
                     <span className="shrink-0 text-13 font-medium text-ink">{PROVIDER_NAMES[item.provider]}</span>
-                    {account && <span className="ml-auto min-w-0 truncate text-12 text-ink-3">{account}</span>}
+                    <span className="ml-auto flex min-w-0">
+                      {scope ? (
+                        <AccountPicker
+                          key={scope}
+                          scope={scope}
+                          chatsHome={chatsHome}
+                          provider={item.provider}
+                          account={account}
+                          small
+                          onOpenChange={onPickerOpenChange}
+                        />
+                      ) : (
+                        account && <span className="min-w-0 truncate text-12 text-ink-3">{account}</span>
+                      )}
+                    </span>
                     {/* The last read failed: its last-known numbers stay, and this says so. */}
                     {item.status === "error" && (
-                      <span data-usage-error title="Couldn't read usage" className={`flex shrink-0 text-red-ink ${account ? "" : "ml-auto"}`}>
+                      <span data-usage-error title="Couldn't read usage" className="flex shrink-0 text-red-ink">
                         <Icon icon={Alert02Icon} size={12} />
                       </span>
                     )}
@@ -153,7 +193,27 @@ export function UsageButton({ usage }: { usage: UsageState }) {
                 </section>
               );
             })}
-            {updatedAt && <p className="border-t border-line px-2 pb-1 pt-2 text-11 text-ink-3">{formatUpdatedAgo(updatedAt, now)}</p>}
+            <div className="flex items-center gap-2 border-t border-line pb-0.5 pl-2 pt-1">
+              <p className="min-w-0 flex-1 truncate text-11 text-ink-3">{updatedAt ? formatUpdatedAgo(updatedAt, now) : "Not updated yet"}</p>
+              <IconButton
+                size={24}
+                label="Refresh plan usage"
+                data-usage-refresh=""
+                onClick={() => {
+                  if (!spin.busy) spin.refresh();
+                }}
+                // aria-disabled, not disabled: a disabled button drops focus to <body>, which would close the popover.
+                aria-disabled={spin.busy}
+              >
+                <span
+                  className={`flex ${spin.spinning ? "refresh-spin animate-spin" : ""}`}
+                  onAnimationIteration={spin.onAnimationIteration}
+                  onAnimationEnd={spin.onAnimationEnd}
+                >
+                  <Icon icon={RefreshIcon} size={14} />
+                </span>
+              </IconButton>
+            </div>
           </div>
         </Popover>
       )}
