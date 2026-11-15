@@ -19,7 +19,6 @@ function useLayoutState() {
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   useEffect(() => saveChatLayout(localStorage, layout), [layout]);
-  // Chats kept in the grid while idle: dropped there from the sidebar, or pinned from a tile's header.
   const [gridPins, setGridPins] = useState<readonly string[]>(() => readGridPins(localStorage));
   const changeGridPins = (change: (pins: readonly string[]) => readonly string[]) =>
     setGridPins((current) => {
@@ -27,12 +26,9 @@ function useLayoutState() {
       saveGridPins(localStorage, next);
       return next;
     });
-  // The split view's Chats, in order: the open one and the ones dragged beside it from the sidebar.
   const [splitKeys, setSplitKeys] = useState<readonly string[]>(() => readSplitChats(localStorage));
   useEffect(() => saveSplitChats(localStorage, splitKeys), [splitKeys]);
-  // The split tile being closed while focus moves to its neighbour: it leaves the split once focus has left it.
   const [closingTile, setClosingTile] = useState<string | null>(null);
-  // A Chat a split tile's menu swapped in (swapSplitTile): the split waits for it to take focus instead of ending while it loads.
   const [splitTarget, setSplitTarget] = useState<string | null>(null);
   return { layout, setLayout, layoutRef, gridPins, changeGridPins, splitKeys, setSplitKeys, closingTile, setClosingTile, splitTarget, setSplitTarget };
 }
@@ -41,7 +37,6 @@ type LayoutState = ReturnType<typeof useLayoutState>;
 
 function useGridTiles(state: LayoutState, gridOn: boolean, gridFocusKey: string | null, runs: AgentRuns, linkedWork: LinkedWork, gridStates: States) {
   const { gridPins, changeGridPins } = state;
-  // A pin whose Chat was archived or left with its Worktree drops out; one in a Project not read yet stays.
   const livePins = useMemo(
     () =>
       gridPins.filter((key) => {
@@ -63,14 +58,9 @@ function useGridTiles(state: LayoutState, gridOn: boolean, gridFocusKey: string 
   return { pinnedTiles, toggleGridPin, gridTiles, setGridTiles };
 }
 
-/**
- * One split rule: a Chat on screen is focused; any other Chat ends the split and opens alone (below). Nothing takes a
- * neighbour's tile. Only focus moves in the Chat view count: a Run Chat opened beside its Routine's page never joins the split.
- */
 function useSplit(state: LayoutState, chatView: boolean, gridFocusKey: string | null, gridStates: States) {
   const { layout, setLayout, splitKeys, setSplitKeys, closingTile, setClosingTile, splitTarget, setSplitTarget } = state;
   const [splitFocus, setSplitFocus] = useState(gridFocusKey);
-  // A new Chat's draft takes the view from a Chat that was open: that ends the split too, the draft never joins it.
   const leftForDraft =
     chatView && splitFocus !== gridFocusKey && splitFocus !== null && !isDraftTileKey(splitFocus) && gridFocusKey !== null && isDraftTileKey(gridFocusKey);
   const focusMoved = chatView && splitFocus !== gridFocusKey;
@@ -79,7 +69,6 @@ function useSplit(state: LayoutState, chatView: boolean, gridFocusKey: string | 
     if (closingTile !== null) setClosingTile(null);
   }
   const split = focusMoved && layout === "split" && closingTile === splitFocus ? splitKeys.filter((key) => key !== closingTile) : splitKeys;
-  // A split Chat archived or gone with its Worktree drops out, as a pin does; the focused draft tile stays.
   const liveSplit = useMemo(
     () =>
       split.filter((key) => {
@@ -92,9 +81,6 @@ function useSplit(state: LayoutState, chatView: boolean, gridFocusKey: string | 
   );
   const splitShown = layout === "split" && gridFocusKey !== null && liveSplit.length > 1 && liveSplit.includes(gridFocusKey);
   if (splitTarget !== null && gridFocusKey === splitTarget) setSplitTarget(null);
-  // A split down to one Chat, or one the open Chat isn't in (a Chat opened from outside it, or after a reload), ends: the
-  // view shows that Chat alone. A draft focus doesn't end it by itself, since the window shows one while it restores the
-  // open Chat; only leaving a Chat for a new one does (leftForDraft).
   if (
     layout === "split" &&
     chatView &&
@@ -157,7 +143,6 @@ function useDropTarget(
 function useTileMenu(inputs: ChatLayoutInputs, endSplit: () => void, swapSplitTile: (tile: string, next: string) => void) {
   const { gridStates, runs, linkedWork } = inputs;
   const openAlone = useEvent((key: string) => inputs.openAlone(key));
-  // What a tile's menu reads when it opens: its Chat's Project, the live runs and the open Delegations as of now.
   const familyReadsRef = useRef<TileMenuControls["reads"]>(() => ({ sessions: undefined, runs: {}, work: { delegations: [] } }));
   familyReadsRef.current = (key) => ({
     sessions: isLinkScopeKey(projectOfKey(key)) ? undefined : (gridStates[projectOfKey(key)] as CoordinatorState | undefined)?.sessions,
@@ -177,14 +162,20 @@ function useTileMenu(inputs: ChatLayoutInputs, endSplit: () => void, swapSplitTi
   );
 }
 
-/** The Chat view's grid and split: which Chats show as tiles, and every way in and out of them. */
+/**
+ * The Chat view's grid and split: which Chats show as tiles, and every way in and out of them.
+ *
+ * One split rule: a Chat on screen is focused; opening any other Chat ends the split and shows it alone, and so does
+ * leaving a Chat for a new Chat's draft. A split waits while a closed or swapped tile's neighbour loads, so it never
+ * drops to one Chat mid-load. A new Chat not saved yet holds its grid slot as a draft tile. Pins and split Chats whose
+ * Chat was archived drop out; ones in a Project not read yet stay.
+ */
 export function useChatLayout(inputs: ChatLayoutInputs) {
   const { view, projectPath, linkOpen, linkOpenRef, focusedChatKey, gridStates, openLinkedChat } = inputs;
   const state = useLayoutState();
   const { layout, setLayout, layoutRef, changeGridPins, setSplitKeys, setClosingTile, setSplitTarget } = state;
   const toggleLayout = () => setLayout((current) => (current === "grid" ? "single" : "grid"));
   const gridOn = layout === "grid" && view === "chat";
-  // A new Chat not saved yet keeps the grid as a draft tile, whose slot the Chat takes once it is saved.
   const gridFocusKey = focusedChatKey ?? (projectPath !== undefined && !linkOpen ? draftTileKey(projectPath) : null);
   const { pinnedTiles, toggleGridPin, gridTiles, setGridTiles } = useGridTiles(state, gridOn, gridFocusKey, inputs.runs, inputs.linkedWork, gridStates);
   const { splitOn, liveSplit } = useSplit(state, view === "chat", gridFocusKey, gridStates);
@@ -195,8 +186,6 @@ export function useChatLayout(inputs: ChatLayoutInputs) {
   focusedChatKeyRef.current = focusedChatKey;
   const gridFocusKeyRef = useRef(gridFocusKey);
   gridFocusKeyRef.current = gridFocusKey;
-  // A Chat dropped on the grid is kept there where it was dropped. Dropped beside the one Chat on screen, or on a split's
-  // tile, it joins a split view of only those Chats: the other active Chats stay out of it.
   const dropOnGrid = useEvent((key: string, target: GridDropTarget) => {
     const focused = focusedChatKeyRef.current;
     if (layoutRef.current === "grid") {
@@ -207,8 +196,6 @@ export function useChatLayout(inputs: ChatLayoutInputs) {
     setSplitKeys(placeDropped(shownTilesRef.current, key, target, focused));
     setLayout("split");
   });
-  // Closing a split tile leaves the others; the last one left shows alone. Closing the focused tile focuses its neighbour
-  // first and leaves the split once that Chat is open, so the split never drops to one Chat while it loads.
   const closeSplitTile = useEvent((key: string) => {
     const tiles = shownTilesRef.current;
     const next = tiles.filter((item) => item !== key);
@@ -221,8 +208,6 @@ export function useChatLayout(inputs: ChatLayoutInputs) {
     setClosingTile(key);
     openLinkedChat(neighbour);
   });
-  // Subchats (subchats.ts): the focused Chat's family, and the three ways into a split of it. A subchat is a normal Chat:
-  // every route opens it alone (openAlone), and the split is only ever a choice made here, in a tile's menu or by a drag.
   const focusedFamily = useMemo(
     () => (focusedChatKey ? chatFamily(gridStates[projectOfKey(focusedChatKey)]?.sessions, focusedChatKey) : null),
     [gridStates, focusedChatKey],
@@ -231,26 +216,22 @@ export function useChatLayout(inputs: ChatLayoutInputs) {
     setSplitKeys(NO_KEYS);
     setLayout("single");
   });
-  // The family menu's "Open beside parent": the parent and the open Chat, the open one staying focused.
   const openBeside = useEvent((parent: string) => {
     const open = gridFocusKeyRef.current;
     if (!open || linkOpenRef.current) return;
     setSplitKeys(besideParent(parent, open));
     setLayout("split");
   });
-  // "Show all N side by side": the whole family, the focused Chat always among it.
   const showFamily = useEvent(() => {
     if (!focusedFamily) return;
     setSplitKeys(familySplit(focusedFamily, gridFocusKeyRef.current));
     setLayout("split");
   });
   useDropTarget(inputs, shownTilesRef, focusedChatKeyRef, dropOnGrid);
-  // A split tile's menu: "Open alone" ends the split on that Chat; a family row takes the tile's place, the one explicit swap.
   const swapSplitTile = useEvent((tile: string, next: string) => {
     const swapped = swapTile(shownTilesRef.current, tile, next);
     if (swapped === shownTilesRef.current) return;
     setSplitKeys(swapped);
-    // The focused tile swapped out: the split waits for its replacement to take focus.
     if (tile === gridFocusKeyRef.current) {
       setSplitTarget(next);
       openLinkedChat(next);

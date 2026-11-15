@@ -36,7 +36,6 @@ function useRecentProjects(paletteOpen: boolean) {
 }
 
 function useStorageComputer() {
-  // /storage in a Chat: Clean up worktrees for its computer, opened right over the Chat. undefined while closed.
   const [storageComputer, setStorageComputer] = useState<string | null | undefined>(undefined);
   const onOpenStorage = useEvent((event: Event) => setStorageComputer((event as CustomEvent<string | null>).detail ?? null));
   useEffect(() => {
@@ -53,12 +52,9 @@ function useStorageComputer() {
 export function useAppDialogs(place: string) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const recentProjects = useRecentProjects(commandPaletteOpen);
-  // Settings is a modal over whatever view is on screen; closing it goes back to that view as it was.
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
-  // Opening another Chat, Project or Link (from the palette, a notification or a shortcut) leaves Settings. The first
-  // Project or Link to load at startup is no move: Settings opened while the window loads stays open.
   const shownPlace = useRef(place);
   useEffect(() => {
     const before = shownPlace.current;
@@ -66,7 +62,6 @@ export function useAppDialogs(place: string) {
     if (before !== place && !before.startsWith("||")) setSettingsOpen(false);
   }, [place]);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
-  // Which Project the Settings page shows; any recent Project can be picked there, the open one by default.
   const [settingsProject, setSettingsProject] = useState<{ path: string; name: string } | null>(null);
   const [settingsComputer, setSettingsComputer] = useState<string | null>(null);
   const [addComputerOpen, setAddComputerOpen] = useState(false);
@@ -79,7 +74,6 @@ export function useAppDialogs(place: string) {
   };
   const openSettings = useEvent(() => setSettingsOpen(true));
   const openAccounts = useEvent(() => openSettingsAt("accounts"));
-  // The computers popover's gears: a computer's own section, or This Mac's.
   const openComputerSettings = useEvent((id: string | null) => {
     if (id === null) setSettingsSection("this-mac");
     else {

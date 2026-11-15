@@ -9,7 +9,6 @@ import { lazyView } from "../lib/lazy-view";
 import type { OpenProject } from "../model";
 import type { AppDialogsState } from "./useAppDialogs";
 
-// Not on screen at first paint, so each loads as its own chunk; App fetches them once the window is idle.
 export const SettingsNav = lazyView(() => import("../components/Settings").then((module) => module.SettingsNav));
 const SettingsPanel = lazyView(() => import("../components/Settings").then((module) => module.SettingsPanel));
 
@@ -41,7 +40,6 @@ export function AppSettingsModal({
 }) {
   const { settingsSection, setSettingsSection, settingsProject, settingsComputer } = dialogs;
   if (!dialogs.settingsOpen) return null;
-  // The Chats home is no Project to the user: it is never the Settings Project, and a leftover Project section falls back.
   const shownSettingsProject = settingsProject ?? (projectSettings ? (project ?? undefined) : undefined);
   const shownSettingsSection = settingsSection === "project" && !shownSettingsProject ? "general" : settingsSection;
   const section = inProject ? shownSettingsSection : settingsSection;

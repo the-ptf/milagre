@@ -15,7 +15,6 @@ export function useFindInChat({
 }) {
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
-  // Text the find bar starts with, from a ⌘K message result; ⌘F clears it.
   const [findSeed, setFindSeed] = useState<string | undefined>();
   const findRef = useRef({ open: false, canOpen: false });
   findRef.current = { open: findOpen, canOpen };
@@ -26,7 +25,6 @@ export function useFindInChat({
     setFindSignal((current) => current + 1);
   }
   useEffect(() => setFindOpen(false), [shownSessionId]);
-  // A ⌘K message result opens its chat first; the find bar opens once that chat's messages are on screen.
   const pendingFind = useRef<{ sessionId: number; term: string } | null>(null);
   useEffect(() => {
     const pending = pendingFind.current;

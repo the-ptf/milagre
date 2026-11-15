@@ -55,7 +55,6 @@ function focusGridNeighbour(ctx: AppShortcutContext, step: -1 | 1, event: Keyboa
   if (tiles.length < 2) return;
   event.preventDefault();
   const at = tiles.indexOf(ctx.gridFocusKeyRef.current ?? "");
-  // A new Chat's draft tile is left, never landed on: it has no Chat to open.
   const others = tiles.filter((key, index) => index === at || !isDraftTileKey(key));
   const from = others.indexOf(ctx.gridFocusKeyRef.current ?? "");
   const next = others[(from + step + others.length) % others.length];
@@ -66,7 +65,6 @@ function runChatShortcut(ctx: AppShortcutContext, command: string, event: Keyboa
   if (command === "changes.toggle") {
     if (!ctx.changesAvailableRef.current) return;
     event.preventDefault();
-    // Shows or hides the panel on the view it was left on (Changes or the PR), never switching it.
     ctx.changes.toggle();
   } else if (command === "canvas.open") {
     event.preventDefault();
@@ -77,7 +75,6 @@ function runChatShortcut(ctx: AppShortcutContext, command: string, event: Keyboa
     ctx.changes.closeDiff();
     ctx.openSettingsAt("usage");
   } else if (command === "chat.parent") {
-    // The bookmark's way up: the open Chat's nearest listed ancestor, alone. Nothing on a Chat that has none.
     const open = ctx.gridFocusKeyRef.current;
     const parent = open && !isDraftTileKey(open) ? chatBookmark(ctx.familySessionsRef.current, open)?.parent : undefined;
     if (!parent) return;
@@ -106,8 +103,6 @@ function handleShortcut(ctx: AppShortcutContext, event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing || appShortcutsBlocked()) return;
   const command = shortcutCommand(event);
   if (!command) return;
-  // A Link's workspace takes its own Chat shortcuts (Changes, New Chat, search, New Terminal, Find) and has its own
-  // canvas and grid; the window-wide ones, Settings and the theme, still work over it.
   const inLink = Boolean(ctx.linkOpenRef.current);
   if (command === "settings.open") {
     event.preventDefault();
@@ -119,7 +114,6 @@ function handleShortcut(ctx: AppShortcutContext, event: KeyboardEvent) {
     toggleTheme();
     return;
   }
-  // Over Settings, ⌘K opens the palette on top of it; any other app shortcut closes Settings and runs in the Chat.
   if (ctx.settingsOpenRef.current && command !== "commandPalette.toggle") ctx.setSettingsOpen(false);
   if (inLink) return;
   if (command === "grid.focusPrevious" || command === "grid.focusNext") {
@@ -130,18 +124,14 @@ function handleShortcut(ctx: AppShortcutContext, event: KeyboardEvent) {
 }
 
 function handleEscape(ctx: EscapeContext, event: KeyboardEvent) {
-  // A menu, picker or search that Escape closed has already consumed it.
   if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
-  // The Settings modal closes on its own Escape (the dialog's cancel); nothing behind it, a running turn least of all, takes it.
   if (ctx.settingsOpenRef.current) return;
-  // The Link's workspace takes every Escape over a Link.
   if (ctx.linkOpenRef.current) return;
   if (ctx.findRef.current.open) {
     event.preventDefault();
     ctx.setFindOpen(false);
     return;
   }
-  // A Run Chat beside its Routine's page closes first, then the page goes back to the Routines page.
   if (ctx.runPaneOpen) {
     event.preventDefault();
     ctx.closeRunPane();
@@ -163,11 +153,13 @@ function handleEscape(ctx: EscapeContext, event: KeyboardEvent) {
 /**
  * The window's keyboard shortcuts. The shortcut listener subscribes once, with the first render's context, and reads
  * the refs it carries; the Escape listener re-subscribes on `escape.deps`.
+ *
+ * Keys pressed in an embedded frame (a design, an HTML reply, the simulator) arrive from the main process and are
+ * replayed as window keydowns. Over a Link only Settings and the theme run here; the Link's workspace takes the rest.
+ * Over Settings, ⌘K opens the palette on top and any other shortcut closes Settings first. Escape closes, in order:
+ * find, a Run Chat pane, a Routine's page, the canvas or Routines, then answers or stops the open Chat's turn.
  */
 export function useAppShortcuts(shortcuts: AppShortcutContext, escape: EscapeContext) {
-  // The main process sends on the app's frame-wide keys (Settings, the theme, the canvas, the grid, the side panels) pressed
-  // in any frame, including an embedded one (a design, an HTML reply, the simulator) the window's listeners never see;
-  // replayed here, every handler takes them as if pressed in the window.
   useEffect(
     () =>
       window.milagre.onAppShortcut?.(({ key, code, meta, control, alt, shift }) =>
