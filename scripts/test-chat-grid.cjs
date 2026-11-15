@@ -16,7 +16,7 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { RunTextContext, createRunTextStore } from "/src/lib/run-text";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
-import { createDraftStore } from "/src/lib/draft-store";
+import { createDraftStore, useDraftQuotes } from "/src/lib/draft-store";
 const draftStore = createDraftStore();
 const unsubscribe = () => () => {};
 // The sidebar's first read of another Project answers a little later, as the main process does.
@@ -57,11 +57,10 @@ const runs = {
 const model = MODEL_CATALOG[0];
 // The focused tile's composer, as App's: the focused Chat's key, and its quotes.
 function FocusedChat({ chatKey }) {
-  const [quotes, setQuotes] = useState([]);
+  const quotes = useDraftQuotes(draftStore);
   window.composerQuotes = quotes;
   return (
   <ChatComposer messages={state.messages.filter((item) => item.session_id === 1)} chatId={Number(chatKey.split("#")[1])} agentChatId={chatKey}
-    quotes={quotes} onQuotesChange={setQuotes}
     imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
     projectPath="/fixture" store={draftStore} onSend={noop} isSending={false} sendBlocked={false}
     models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}

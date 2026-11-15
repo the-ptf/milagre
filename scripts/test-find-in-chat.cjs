@@ -15,6 +15,8 @@ import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore, useDraftText } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 const filler = "The migration touches the session store and the reply renderer, so each step is checked against the fixtures before moving on. ".repeat(6);
 const bodies = [
@@ -64,8 +66,6 @@ const appFixture = `
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";
-import { createDraftStore, useDraftText } from "/src/lib/draft-store";
-const draftStore = createDraftStore();
 // A project's state as the main process reads it.
 const state = { next_id: 1, projects: { 1: { id: 1, name: "Fixture" } }, worktrees: {}, sessions: {}, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 state.worktrees = { 1: { id: 1, name: "main", path: "/fixture", project_id: 1 } };
