@@ -27,6 +27,7 @@
 
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
@@ -72,20 +73,21 @@ function measure() {
     const options = lim[rule].options;
     return ["error", typeof options === "number" ? 0 : { ...options, max: 0 }];
   };
-  const tmp = path.join(root, ".oxlintrc.code-health.tmp.json");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "code-health-"));
+  const tmp = path.join(dir, "oxlintrc.json");
   fs.writeFileSync(
     tmp,
     JSON.stringify({
       plugins: ["typescript", "react"],
       categories: { correctness: "off", suspicious: "off", perf: "off" },
       rules: Object.fromEntries(RULES.map((rule) => [rule, zero(rule)])),
-      ignorePatterns: config.ignorePatterns ?? [],
     }),
   );
   const { cmd, pre } = bin("oxlint");
   let raw;
   try {
-    raw = execFileSync(cmd, [...pre, "-c", tmp, "-f", "json"], {
+    const ignores = (config.ignorePatterns ?? []).flatMap((pattern) => ["--ignore-pattern", pattern]);
+    raw = execFileSync(cmd, [...pre, "-c", tmp, ...ignores, "-f", "json", "."], {
       cwd: root,
       encoding: "utf8",
       maxBuffer: 1 << 30,
@@ -94,7 +96,7 @@ function measure() {
   } catch (error) {
     raw = error.stdout; // oxlint exits 1 because every file breaks a limit of 0
   } finally {
-    fs.rmSync(tmp, { force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
   const byFile = new Map();
   for (const d of JSON.parse(raw).diagnostics ?? []) {
