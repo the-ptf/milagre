@@ -21,12 +21,6 @@ function readChatModels(): Record<string, string> {
 
 type ProviderEntry = { reported: AgentModels | null; cliStatus: AgentCliStatus | null; reportedAt?: number; cliStatusAt?: number };
 
-/**
- * The agents' own model lists and CLI status for a Project or Link, with the maintained list standing in until they
- * arrive. Each scope's last read is cached with its time: switching back shows it at once and reads again only once
- * it is older than PROVIDERS_FRESH_MS. A refetch that changed nothing keeps the old objects, so opening the picker
- * doesn't re-render the app.
- */
 function useProviderLists(accountScope: string | undefined) {
   const accountScopeRef = useRef(accountScope);
   accountScopeRef.current = accountScope;
@@ -123,7 +117,9 @@ function useCliUpdate(cliStatus: AgentCliStatus | null, refreshCliStatus: () => 
  * hasn't picked a model and the open chat isn't on another agent (`preferredProviderRef`); after that a model the agents
  * don't offer only gives way to its provider's recommended model. A pick in an open chat stays with that chat (a Link's
  * composer names its chat); on a new-chat screen it becomes the default. Updating a CLI is global: the open scope reads
- * its lists again at once, the others when next shown.
+ * its lists again at once, the others when next shown. The agents' own lists and CLI status are cached per Project or
+ * Link with when they were read: switching back shows them at once and reads again only once they are older than
+ * PROVIDERS_FRESH_MS, and a refetch that changed nothing keeps the old objects so the app doesn't re-render.
  */
 export function useModelSelection({
   accountScope,
