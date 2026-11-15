@@ -6,6 +6,7 @@ import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE,
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
+import { DESIGN_SECTIONS, DESIGN_SYSTEM_GROUPS } from "./design-system-catalogue.ts";
 
 /**
  * The Settings pages the phone's search can open, by route, with the title each shows and what it needs: "computer" for
@@ -36,6 +37,7 @@ export const SETTINGS_PAGES = {
   "this-mac": { title: "This Mac", needs: "computer" },
   "computer-use": { title: "Computer use", needs: "computer" },
   experimental: { title: "Church" },
+  "design-system": { title: "Design system" },
   keybindings: { title: "Keybindings", needs: "ipad" },
 } as const satisfies Record<string, { title: string; needs?: "computer" | "ipad" }>;
 
@@ -429,6 +431,14 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: "Milagre MCP",
     keywords: "connection token access config",
   },
+
+  // Design system: each page of the catalogue is a row of its index, titled from design-system-catalogue.ts.
+  ...DESIGN_SECTIONS.map((section) => ({
+    page: "design-system" as const,
+    title: section.title,
+    group: DESIGN_SYSTEM_GROUPS.find((group) => group.sections.includes(section))?.title,
+    keywords: section.keywords,
+  })),
 
   // Keybindings
   {

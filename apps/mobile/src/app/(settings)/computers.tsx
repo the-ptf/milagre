@@ -90,11 +90,11 @@ export default function ComputersScreen() {
           </View>
         ) : (
           <EmptyState icon={ComputerIcon} title="No computers paired">
-            Open Settings → Devices in Milagre on your Mac, then scan its pairing code with +.
+            Open Settings → Devices in Milagre on your computer, then scan its pairing code with +.
           </EmptyState>
         )}
         {error ? <ErrorNotice message={error} /> : null}
-        <Group title="This iPhone">
+        <Group title={Platform.OS === "ios" ? (Platform.isPad ? "This iPad" : "This iPhone") : "This phone"}>
           <ListRow title="Name on computers" icon={SmartPhone01Icon} value={phoneName || undefined} chevron={false} />
         </Group>
       </PageScroll>

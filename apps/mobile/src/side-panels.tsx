@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { afterPaint } from "@milagre/shared/after-paint";
-import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -82,6 +82,9 @@ type Panels = {
   pull: (side: Side) => void;
   settled: (to: number) => void;
   navigate: (href?: Href, secondary?: boolean | "sheet") => void;
+  /** The screen holding the panels that another screen (a sheet, a pushed page) now covers. */
+  covered: object | null;
+  setCovered: (update: (covered: object | null) => object | null) => void;
 };
 
 const SPRING = { damping: 32, stiffness: 320, mass: 0.9, reduceMotion: ReduceMotion.System };
@@ -127,6 +130,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const dockedNow = useRef(false);
   const [chatTabs, setChatTabs] = useState<ChatTabs | null>(null);
   const [pick, setPick] = useState<string | null>(null);
+  const [covered, setCovered] = useState<object | null>(null);
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
@@ -329,11 +333,13 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!open) return;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
+      // On an Android phone the Chats list is the app's home, as a launcher's first page is: back from it leaves the app.
+      if (open === "left" && Platform.OS === "android" && widthClass(width) === "compact") return false;
       show(null);
       return true;
     });
     return () => back.remove();
-  }, [open, show]);
+  }, [open, show, width]);
   const value = useMemo(
     () => ({
       screen,
@@ -359,6 +365,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       pull,
       settled,
       navigate,
+      covered,
+      setCovered,
     }),
     [
       screen,
@@ -384,6 +392,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       pull,
       settled,
       navigate,
+      covered,
     ],
   );
   return <PanelsContext.Provider value={value}>{children}</PanelsContext.Provider>;
@@ -497,6 +506,30 @@ export function useSidePanels({
   const travel = panelTravel(width);
   // Where the sidebar is pinned beside the Chat, a drag only reaches Changes.
   const { dockable } = useSplitLayout();
+  // Android: the system back from a Chat at the root of the stack slides the Chats list over it (iOS has the sidebar
+  // button and the edge swipe; Android's edge swipe is the system back itself). A screen another one covers draws its
+  // panels under that screen, not over it: Android sheets live in the app's own view tree, below the panels.
+  const openNow = useRef(panels.open);
+  useEffect(() => {
+    openNow.current = panels.open;
+  }, [panels.open]);
+  const { setCovered } = panels;
+  const stack = useNavigation() as unknown as { canGoBack(): boolean };
+  useFocusEffect(
+    useCallback(() => {
+      if (passive || Platform.OS !== "android") return;
+      setCovered((covered) => (covered === token ? null : covered));
+      const back = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (openNow.current || dockable || stack.canGoBack()) return false;
+        show("left");
+        return true;
+      });
+      return () => {
+        back.remove();
+        setCovered(() => token);
+      };
+    }, [passive, setCovered, token, dockable, stack, show]),
+  );
   const ours = panels.screen?.token === token;
   const scale = useMotionScale();
   const gesture = useMemo(
@@ -601,7 +634,7 @@ function swipe({
 export function SidePanelsHost() {
   const { colors } = useTheme();
   const session = useSession();
-  const { screen, open, mounted, progress, from, show, settled, navigate, docks, chatTabs } = usePanels();
+  const { screen, open, mounted, progress, from, show, settled, navigate, docks, chatTabs, covered } = usePanels();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cardTop = useCardTop();
@@ -675,11 +708,20 @@ export function SidePanelsHost() {
       pointerEvents={open ? "auto" : "none"}
       accessibilityViewIsModal={!!open}
       onAccessibilityEscape={open ? () => show(null) : undefined}
-      style={StyleSheet.absoluteFill}
+      // Kept mounted, so the list keeps its place and the open panel shows again when the covering screen closes.
+      style={[StyleSheet.absoluteFill, covered === screen.token && { display: "none" }]}
     >
       {/* Outside a card (an iPad's panels), a tap on the dimmed screen closes the panel, as a sheet's backdrop does. */}
       <Animated.View pointerEvents={open && card ? "auto" : "none"} style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, shade]}>
-        <Pressable accessibilityLabel="Close panel" accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => show(null)} />
+        <Pressable
+          accessibilityLabel="Close panel"
+          accessibilityRole="button"
+          // Closed, the scrim isn't there: a screen reader must not find a full-screen button over the Chat.
+          accessibilityElementsHidden={!open}
+          importantForAccessibility={open ? "auto" : "no-hide-descendants"}
+          style={StyleSheet.absoluteFill}
+          onPress={() => show(null)}
+        />
       </Animated.View>
       <GestureDetector gesture={close}>
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>

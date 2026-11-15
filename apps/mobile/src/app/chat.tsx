@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -152,7 +152,7 @@ import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
 import { HeaderAction, HeaderActionGroup } from "../primitives/header-action-group";
-import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
+import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -252,13 +252,18 @@ function HeaderTitleBox({ actionCount, children }: { actionCount: number; childr
 /** The native header's sidebar button: shows or hides the pinned sidebar, or slides the navigation over on a narrower window. */
 function SidebarToolbar({ onOpenNavigation }: { onOpenNavigation: (side: "left") => void }) {
   const split = useSplit();
+  const label = split.dockable ? (split.pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation";
+  const press = () => (split.dockable ? split.toggle() : onOpenNavigation("left"));
+  // Stack.Toolbar.Button takes SF Symbols only on iOS; Android needs a React child.
   return (
     <Stack.Toolbar placement="left">
-      <Stack.Toolbar.Button
-        icon="sidebar.left"
-        accessibilityLabel={split.dockable ? (split.pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation"}
-        onPress={() => (split.dockable ? split.toggle() : onOpenNavigation("left"))}
-      />
+      {Platform.OS === "ios" ? (
+        <Stack.Toolbar.Button icon="sidebar.left" accessibilityLabel={label} onPress={press} />
+      ) : (
+        <Stack.Toolbar.View>
+          <HeaderButton label={label} icon={SidebarLeftIcon} onPress={press} />
+        </Stack.Toolbar.View>
+      )}
     </Stack.Toolbar>
   );
 }
@@ -502,10 +507,30 @@ function ChatPane({
   const dots = useDotBackground();
   const following = useRef(true);
   const scrollingToBottom = useRef(false);
-  const scrollToBottom = useCallback((animated: boolean) => {
-    scrollingToBottom.current = true;
-    scroll.current?.scrollToEnd({ animated });
+  const endFrame = useRef<number | undefined>(undefined);
+  const cancelEndFrame = useCallback(() => {
+    if (endFrame.current !== undefined) cancelAnimationFrame(endFrame.current);
+    endFrame.current = undefined;
   }, []);
+  const scrollToBottom = useCallback(
+    (animated: boolean) => {
+      scrollingToBottom.current = true;
+      if (Platform.OS !== "android") {
+        scroll.current?.scrollToEnd({ animated });
+        return;
+      }
+      // Android runs a view command ahead of the mount it arrives with, so a jump asked for from onContentSizeChange
+      // stops at the end the content had before it grew: at the end already, it doesn't move at all. Timers fire after
+      // that frame's mount, so the jump a frame later reaches the grown end. Bursts of growth share one jump.
+      cancelEndFrame();
+      endFrame.current = requestAnimationFrame(() => {
+        endFrame.current = undefined;
+        scrollingToBottom.current = true;
+        scroll.current?.scrollToEnd({ animated });
+      });
+    },
+    [cancelEndFrame],
+  );
   const contentHeight = useRef(0);
   const scrollOffset = useRef(0);
   // Between a drag's start and the end of its fling: only then are scroll events the reader's own.
@@ -561,8 +586,9 @@ function ChatPane({
     return () => {
       clearTimeout(placeTimer.current);
       placeTimer.current = undefined;
+      cancelEndFrame();
     };
-  }, [scrollKey]);
+  }, [scrollKey, cancelEndFrame]);
   // Short transcripts never auto-scroll: a scroll to the end while the keyboard is up would stay offset after it hides.
   const viewport = useRef(0);
   const place = () => {
@@ -2380,6 +2406,7 @@ function ChatPane({
                   onScrollBeginDrag={() => {
                     dragging.current = true;
                     scrollingToBottom.current = false;
+                    cancelEndFrame();
                     // Pause before the first scroll event: a small drag must not compete with streamed growth.
                     following.current = false;
                   }}

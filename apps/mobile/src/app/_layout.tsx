@@ -102,7 +102,13 @@ export default function Layout() {
                           {/* A Chat opened from the open navigation swaps in under it, which then slides off (side-panels.tsx). */}
                           <Stack.Screen
                             name="chat"
-                            options={({ route }) => ({ title: "Chat", ...(enterUnderPanel(route.key) ? { animation: "none" as const } : {}) })}
+                            options={({ route }) => ({
+                              title: "Chat",
+                              // The Chat clears its own header (topClear) and fades the transcript under it, on Android too.
+                              headerTransparent: true,
+                              headerStyle: { backgroundColor: "transparent" },
+                              ...(enterUnderPanel(route.key) ? { animation: "none" as const } : {}),
+                            })}
                           />
                           <Stack.Screen name="context-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="permission-sheet" options={{ ...sheet, sheetAllowedDetents: [0.42, 0.6], sheetInitialDetentIndex: 0 }} />

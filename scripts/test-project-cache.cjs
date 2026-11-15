@@ -126,6 +126,8 @@ const stubs = {
   // The toast pill draws the phone's icons and theme, native-only: here it is its text and Undo.
   "./primitives/toast":
     'export const ToastPill = ({ text, onUndo }) => <div role="status">{text}{onUndo ? <button aria-label="Undo" onClick={onUndo} /> : null}</div>;',
+  // The surface behind floating controls is native glass or a themed surface: here it draws nothing.
+  "./primitives/glass-surface": "export const GlassSurface = () => null;",
   "@sbaiahmed1/react-native-blur": "export const LiquidGlassView = ({ children }) => <div>{children}</div>;",
   "expo-router": "import { useEffect } from 'react'; export const useFocusEffect = effect => useEffect(effect, [effect]);",
   "expo-linking": "export const openURL = async () => {};",

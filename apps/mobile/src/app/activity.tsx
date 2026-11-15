@@ -70,7 +70,8 @@ export default function ActivitySheet() {
       />
       <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
         {outputPending && (
-          <Text accessibilityRole="status" style={styles.muted}>
+          // A live region, as pr-overview's caption: "status" is no accessibilityRole, and Android rejects the view with it.
+          <Text accessibilityLiveRegion="polite" style={styles.muted}>
             {readError ? "Could not load tool output." : "Loading output…"}
           </Text>
         )}

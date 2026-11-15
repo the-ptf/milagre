@@ -182,21 +182,22 @@ export function PullDown({
   }
   // The system draws menus below the keyboard, so a touch on the trigger lowers it first.
   const box = [fill ? { flex: 1 } : styles.shrink, padOut];
-  const trigger = onPress ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      onTouchStart={() => Keyboard.dismiss()}
-      style={({ pressed }) => [box, pressStyle({ pressed })]}
-    >
-      {children}
-    </Pressable>
-  ) : (
-    <View accessible accessibilityRole="button" accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={box}>
-      {children}
-    </View>
-  );
+  const trigger = (cap: ViewStyle | null) =>
+    onPress ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        onPress={onPress}
+        onTouchStart={() => Keyboard.dismiss()}
+        style={({ pressed }) => [box, cap, pressStyle({ pressed })]}
+      >
+        {children}
+      </Pressable>
+    ) : (
+      <View accessible accessibilityRole="button" accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={[box, cap]}>
+        {children}
+      </View>
+    );
   const actions: MenuAction[] = sections.map((section, index) => ({
     id: `section-${index}`,
     title: section.title || "",
@@ -204,19 +205,72 @@ export function PullDown({
     subactions: section.items.map(menuAction),
   }));
   return (
-    <MenuView
+    <AndroidMenu
       title={title}
       actions={actions}
       shouldOpenOnLongPress={!!onPress}
-      onPressAction={({ nativeEvent }) => {
-        tap();
-        onSelect(nativeEvent.event);
-      }}
+      onSelect={onSelect}
       style={[style, pullBack]}
-      testID={label}
+      fill={fill}
+      label={label}
+      trigger={trigger}
+    />
+  );
+}
+
+/**
+ * Android's menu hosts its trigger in Compose, which measures it at the content's own width: a long Chat title ran past its
+ * row and under the row's ⋯. The box `style` gives is measured here and caps the trigger instead.
+ */
+function AndroidMenu({
+  title,
+  actions,
+  shouldOpenOnLongPress,
+  onSelect,
+  style,
+  fill,
+  label,
+  trigger,
+}: {
+  title?: string;
+  actions: MenuAction[];
+  shouldOpenOnLongPress: boolean;
+  onSelect: (id: string) => void;
+  style: StyleProp<ViewStyle>;
+  fill: boolean;
+  label: string;
+  trigger: (cap: ViewStyle | null) => React.ReactNode;
+}) {
+  const [width, setWidth] = React.useState<number | null>(null);
+  // Only a box the layout sizes (a row's flex, a set width) caps its trigger; a trigger sized by its own label, a chip
+  // or a header switcher, keeps that size, as measuring it would only round it down into an ellipsis.
+  const flat = StyleSheet.flatten(style) ?? {};
+  const sized = fill || flat.flex != null || !!flat.flexGrow || flat.width != null || flat.maxWidth != null;
+  return (
+    <View
+      style={style}
+      onLayout={
+        sized
+          ? ({ nativeEvent }) => {
+              const next = Math.round(nativeEvent.layout.width);
+              setWidth((previous) => (previous === next ? previous : next));
+            }
+          : undefined
+      }
     >
-      {trigger}
-    </MenuView>
+      <MenuView
+        title={title}
+        actions={actions}
+        shouldOpenOnLongPress={shouldOpenOnLongPress}
+        onPressAction={({ nativeEvent }) => {
+          tap();
+          onSelect(nativeEvent.event);
+        }}
+        testID={label}
+      >
+        {trigger(width === null || !sized ? null : fill ? { width } : { maxWidth: width })}
+      </MenuView>
+    </View>
   );
 }
 

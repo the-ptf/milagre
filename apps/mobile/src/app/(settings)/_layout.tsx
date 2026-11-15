@@ -58,6 +58,8 @@ export default function SettingsLayout() {
       <Stack.Screen name="computer-use" options={{ title: "Computer use" }} />
       <Stack.Screen name="project-settings" options={{ title: "Project" }} />
       <Stack.Screen name="published-pages" />
+      <Stack.Screen name="design-system" options={{ title: "Design system" }} />
+      <Stack.Screen name="design-system-page" options={{ title: "" }} />
     </Stack>
   );
 }

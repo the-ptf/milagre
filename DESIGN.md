@@ -511,6 +511,8 @@ Hugeicons everywhere (`@hugeicons/core-free-icons`), drawn in the text colour.
 - 44pt targets, Dynamic Type (`minHeight`, never a fixed height on text controls), continuous corners.
 - Dialogs are sheets; Settings is a stack of screens.
 - iPad side panels use `radius.sheet` (20).
+- The phone's own chapter, with every palette key, every primitive and where iOS and Android differ, is
+  [apps/mobile/DESIGN.md](apps/mobile/DESIGN.md); Settings › Design system on the phone shows it live.
 
 ### Desktop and phone stay in sync
 
