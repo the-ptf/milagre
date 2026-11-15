@@ -3,13 +3,13 @@
     "name": "Milagre",
     "slug": "milagre",
     "scheme": ["milagre", "milagre-local"],
-    "version": "0.1.2",
+    "version": "0.1.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",
-      "expo-secure-store",
+      ["expo-secure-store", { "faceIDPermission": false }],
       [
         "expo-build-properties",
         {
@@ -38,7 +38,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Milagre uses the camera to scan your Mac's pairing code and to take photos for a Chat.",
+          "cameraPermission": "Milagre uses the camera to scan your computer's pairing code and to take photos for a Chat.",
           "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this device.",
           "recordAudioAndroid": false
         }
@@ -47,7 +47,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Milagre attaches the photos you pick to a Chat.",
-          "cameraPermission": "Milagre uses the camera to scan your Mac's pairing code and to take photos for a Chat.",
+          "cameraPermission": "Milagre uses the camera to scan your computer's pairing code and to take photos for a Chat.",
           "microphonePermission": false
         }
       ],
