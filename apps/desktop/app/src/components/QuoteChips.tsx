@@ -1,38 +1,44 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Cancel01Icon, LeftToRightBlockQuoteIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, MessageSquareQuoteIcon } from "@hugeicons/core-free-icons";
 import type { ComposerQuote } from "@milagre/shared/prompt-parts";
 import { Icon } from "./primitives/Icon";
-import { ScrollArea } from "./primitives/ScrollArea";
 import Tooltip from "./primitives/Tooltip";
 
 // A tooltip shows a long quote's start; the message carries all of it.
 const TOOLTIP_CHARACTERS = 600;
 const tooltipText = (text: string) => (text.length > TOOLTIP_CHARACTERS ? `${text.slice(0, TOOLTIP_CHARACTERS).trimEnd()}…` : text);
 
-/** The passages quoted into the next message, one row each in the order they were added, over the prompt. */
+/**
+ * The passages quoted into the next message, in the order they were added: a pill each in the attachments row, like an
+ * image's tile, reading “the passage's start…. The tooltip names where it came from and shows more.
+ */
 export function QuoteChips({ quotes, onRemove }: { quotes: readonly ComposerQuote[]; onRemove: (id: string) => void }) {
-  if (!quotes.length) return null;
-  return (
-    <ScrollArea as="ul" chainScroll aria-label="Quotes" className="flex max-h-30 flex-col gap-1">
-      {quotes.map((quote) => (
-        <li key={quote.id} data-quote-chip className="flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-control bg-inset pr-1 pl-2.5 text-12 text-ink-2">
-          <Icon icon={LeftToRightBlockQuoteIcon} size={14} className="shrink-0 text-ink-3" />
-          <Tooltip label={tooltipText(quote.text)} wrap className="min-w-0 flex-1">
-            <span className="min-w-0 flex-1 truncate">{quote.text.replace(/\s+/g, " ")}</span>
-          </Tooltip>
-          {quote.source && <span className="shrink-0 text-11 text-ink-3">{quote.source}</span>}
-          <button
-            type="button"
-            aria-label="Remove quote"
-            onClick={() => onRemove(quote.id)}
-            className="flex size-6 shrink-0 items-center justify-center rounded-inline text-ink-3 transition-colors duration-fast hover:bg-hover hover:text-ink"
-          >
-            <Icon icon={Cancel01Icon} size={12} />
-          </button>
-        </li>
-      ))}
-    </ScrollArea>
-  );
+  return quotes.map((quote) => {
+    const text = quote.text.replace(/\s+/g, " ").trim();
+    return (
+      <div
+        key={quote.id}
+        data-quote-chip
+        data-source={quote.source}
+        className="relative flex h-8 max-w-60 min-w-0 items-center gap-1.5 rounded-control border border-line bg-inset pr-3 pl-2.5 text-13 text-ink"
+      >
+        <Icon icon={MessageSquareQuoteIcon} size={16} className="shrink-0 text-ink-2" />
+        <Tooltip label={quote.source ? `${quote.source}: ${tooltipText(quote.text)}` : tooltipText(quote.text)} wrap className="flex min-w-0">
+          <span data-quote-text className="min-w-0 truncate">
+            “{text}
+          </span>
+        </Tooltip>
+        <button
+          type="button"
+          aria-label="Remove quote"
+          onClick={() => onRemove(quote.id)}
+          className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-ink transition-colors duration-fast before:absolute before:-inset-0.5 hover:bg-hover"
+        >
+          <Icon icon={Cancel01Icon} size={12} />
+        </button>
+      </div>
+    );
+  });
 }
 
 /** A quote at the head of a sent message: a bar and muted text, three lines until clicked open. */

@@ -979,16 +979,18 @@ export function PromptComposer({
               event.target.value = "";
             }}
           />
-          {onRemoveQuote && (
-            <QuoteChips
-              quotes={quotes}
-              onRemove={(id) => {
-                onRemoveQuote(id);
-                inputRef.current?.focus();
-              }}
-            />
-          )}
           <Attachments
+            leading={
+              onRemoveQuote && quotes.length ? (
+                <QuoteChips
+                  quotes={quotes}
+                  onRemove={(id) => {
+                    onRemoveQuote(id);
+                    inputRef.current?.focus();
+                  }}
+                />
+              ) : undefined
+            }
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}
             files={imageDraft.files.filter((file) => !chipPaths.includes(file))}

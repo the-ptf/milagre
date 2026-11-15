@@ -168,7 +168,12 @@ async function browserChecks() {
         const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
         return selection.toString();
       })()`);
-    const chips = () => evaluate(`[...document.querySelectorAll('[data-quote-chip]')].map(chip => chip.textContent)`);
+    const chips = () => evaluate(`[...document.querySelectorAll('[data-quote-chip]')].map(chip => chip.textContent + '|' + chip.dataset.source)`);
+    // Visit another Chat and come back: the composer keeps the first transcript parked, and a shortcut still quotes once.
+    await key("1", { metaKey: true });
+    await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Other chat")`);
+    await key("2", { metaKey: true });
+    await waitFor(`!!document.querySelector("article#message-7 [data-quotable]")`);
     await type("My question");
     const passage = await select("article#message-7 [data-quotable]");
     await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
@@ -178,7 +183,7 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...quotePoint });
     window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...quotePoint });
     await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
-    assert.match((await chips())[0], /^The written design is committed\..*Claude reply$/);
+    assert.match((await chips())[0], /^“The written design is committed\..*\|Claude reply$/);
     await waitFor(`document.activeElement.matches('[data-prompt-editor]')`);
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question", "Quote keeps the draft as typed");
     assert.equal(await evaluate("window.calls.length"), 0, "Quote does not send");
@@ -195,7 +200,9 @@ async function browserChecks() {
       `document.dispatchEvent(new KeyboardEvent('keydown', { key: '"', code: 'Quote', shiftKey: true, ${process.platform === "darwin" ? "metaKey" : "ctrlKey"}: true, bubbles: true, cancelable: true }))`,
     );
     await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 2`);
-    assert.equal((await chips())[1], `${own}Your message`);
+    await delay(150);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-quote-chip]').length`), 2, "One shortcut press quotes once");
+    assert.equal((await chips())[1], `“${own}|Your message`);
     await screenshot("quote-chips");
     // The message goes out as the quotes' blockquotes, then the text. Held, it shows them as quotes in its bubble;
     // when it fails, the quotes come back as chips and the text as typed.
@@ -210,11 +217,11 @@ async function browserChecks() {
     await screenshot("sent-quotes");
     await evaluate(`window.holdSend = false; window.releaseSend(); window.heldSend = null`);
     await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 2`);
-    assert.match((await chips())[0], /Claude reply$/, "A quote put back keeps its source");
+    assert.match((await chips())[0], /\|Claude reply$/, "A quote put back keeps its source");
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question");
     await click('[data-quote-chip] [aria-label="Remove quote"]');
     await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
-    assert.match((await chips())[0], /Your message$/, "X removes that quote alone");
+    assert.match((await chips())[0], /\|Your message$/, "X removes that quote alone");
     await click('[data-quote-chip] [aria-label="Remove quote"]');
     await waitFor(`!document.querySelector('[data-quote-chip]')`);
     await type("");
