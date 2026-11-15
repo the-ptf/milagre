@@ -8,6 +8,8 @@ import { useTheme } from "./theme";
  * the CPU every frame, which janks the transcript's scroll, so they get the near-opaque surface instead.
  */
 const COMPOSER_BLURS = Platform.OS === "ios" || (Platform.OS === "android" && Number(Platform.Version) >= 31);
+/** The surface over the blur: desktop's 76% on iOS, 50% over Android's denser blur, 95% with no blur at all. */
+const TINT = !COMPOSER_BLURS ? 0.95 : Platform.OS === "android" ? 0.5 : 0.76;
 
 /**
  * The composer's glass, as on desktop (DESIGN.md › Composer): the surface at 76% over the chip blur, so the transcript
@@ -22,12 +24,16 @@ export function ComposerGlass({ radius }: { radius: number }) {
       {COMPOSER_BLURS && (
         <BlurView
           blurType={scheme === "dark" ? "dark" : "light"}
-          blurAmount={8}
+          // Android's blur is much heavier than iOS's at the same amount: a lighter blur and tint keep the text showing through.
+          blurAmount={Platform.OS === "android" ? 3 : 8}
           reducedTransparencyFallbackColor={colors.surface}
+          // Android's blur paints its own tint (the dark one near half opaque), which under the surface tint hid the
+          // transcript entirely; the surface below is the only tint, as on desktop.
+          overlayColor={Platform.OS === "android" ? "transparent" : undefined}
           style={StyleSheet.absoluteFill}
         />
       )}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: withAlpha(colors.surface, COMPOSER_BLURS ? 0.76 : 0.95) }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: withAlpha(colors.surface, TINT) }]} />
     </View>
   );
 }
