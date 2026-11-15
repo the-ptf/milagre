@@ -111,6 +111,7 @@ import { ComputerUseRow, ComputerUseSettings } from "./settings/ComputerUseSetti
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { AppearanceWindowPreview, type PreviewArea } from "./settings/AppearanceWindowPreview";
+import { AppIconPicker } from "./settings/AppIconPicker";
 import {
   CHAT_SIZES,
   CHAT_WIDTHS,
@@ -1510,6 +1511,7 @@ function AppearanceSettings() {
         </Row>
         {settings.customThemeEnabled && <CustomThemeEditor />}
       </Group>
+      <AppIconPicker />
       <div>
         <PinnedPreview highlight={preview.highlight} playMotion={playMotion} />
         <Group title="Typography">
