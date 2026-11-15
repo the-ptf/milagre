@@ -106,11 +106,24 @@ async function toolTurn(turn) {
     type: "assistant",
     session_id: session,
     parent_tool_use_id: null,
-    message: { model: MODEL, role: "assistant", content: [{ type: "text", text: `perf-reply-${turn}\n\nRunning the build.` }, { type: "tool_use", id, name: "Bash", input }], usage },
+    message: {
+      model: MODEL,
+      role: "assistant",
+      content: [
+        { type: "text", text: `perf-reply-${turn}\n\nRunning the build.` },
+        { type: "tool_use", id, name: "Bash", input },
+      ],
+      usage,
+    },
   });
   event({ type: "message_stop" });
   await delay(SECONDS * 1000);
-  send({ type: "user", session_id: session, parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "done" }] } });
+  send({
+    type: "user",
+    session_id: session,
+    parent_tool_use_id: null,
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "done" }] },
+  });
   await reply("The build finished.", null);
   mark(`turn-${turn}-end`);
   void started;

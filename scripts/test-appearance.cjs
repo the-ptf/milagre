@@ -47,7 +47,7 @@ function Fixture() {
   useApplyTheme();
   const [panel, setPanel] = useState(false);
   const [shift, setShift] = useState(false);
-  // The edge fades: a long transcript to scroll text under them, a running turn (data-busy), and a tile (focused ChatGrid tile) behind the chat.
+  // The edge fades: a long transcript to scroll text under them, a running turn, and a tile (focused ChatGrid tile) behind the chat.
   const [long, setLong] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tile, setTile] = useState(false);
@@ -296,7 +296,8 @@ async function browserChecks() {
     const fades = async (label, background) => {
       for (const busy of [false, true]) {
         await evaluate(`window.__setBusy(${busy})`);
-        await waitFor(`!!document.querySelector('.chat-top-blur')?.hasAttribute('data-busy') === ${busy}`);
+        // The band is the same either way; the running mark shows the turn has started or ended.
+        await waitFor(`!!document.querySelector('.running-logo') === ${busy}`);
         await delay(100);
         const where = label + (busy ? ", turn running" : ", idle");
         const top = await tintOf(".chat-top-blur");
@@ -308,7 +309,9 @@ async function browserChecks() {
           );
         assert.equal(top.alpha, 1, where + ": the top fade starts at the transcript background itself (got " + JSON.stringify(top) + ")");
         assert.equal(
-          await evaluate(`[...document.querySelectorAll('.chat-top-blur > :not(:last-child)')].every((layer) => getComputedStyle(layer).display === 'none')`),
+          await evaluate(
+            `[document.querySelector('.chat-top-blur'), ...document.querySelectorAll('.chat-top-blur *')].every((layer) => getComputedStyle(layer).backdropFilter === 'none')`,
+          ),
           true,
           where + ": the top edge fades without blurring the transcript",
         );

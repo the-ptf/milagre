@@ -333,10 +333,13 @@ async function scenario(name, page, work, options, browser) {
       (seconds * 1000) / 2,
     );
   if (process.env.PERF_SHOT)
-    setTimeout(async () => {
-      const { data } = await page.call("Page.captureScreenshot", { format: "png" });
-      fs.writeFileSync(`${process.env.PERF_SHOT}-mid.png`, Buffer.from(data, "base64"));
-    }, (seconds * 1000) / 2);
+    setTimeout(
+      async () => {
+        const { data } = await page.call("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(`${process.env.PERF_SHOT}-mid.png`, Buffer.from(data, "base64"));
+      },
+      (seconds * 1000) / 2,
+    );
   if (process.env.PERF_LAYERS)
     setTimeout(
       async () => {
