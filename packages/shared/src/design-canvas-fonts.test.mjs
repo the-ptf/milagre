@@ -3,25 +3,36 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { DESIGNS_CANVAS_SCRIPT, artifactDocument } from "./artifact-document.mjs";
 
-const element = () => ({
-  style: {},
-  children: [],
-  clientWidth: 390,
-  clientHeight: 844,
-  classList: { add() {}, remove() {} },
-  appendChild(child) {
-    this.children.push(child);
-  },
-  attributes: {},
-  setAttribute(name, value) {
-    this.attributes = { ...this.attributes, [name]: String(value) };
-  },
-  getAttribute(name) {
-    return this.attributes[name] ?? null;
-  },
-  addEventListener() {},
-  remove() {},
-});
+const element = () => {
+  const classes = new Set();
+  return {
+    style: { setProperty() {} },
+    children: [],
+    clientWidth: 390,
+    clientHeight: 844,
+    classes,
+    classList: {
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
+      toggle: (name, on = !classes.has(name)) => (on ? classes.add(name) : classes.delete(name), classes.has(name)),
+    },
+    appendChild(child) {
+      this.children.push(child);
+    },
+    insertBefore(child) {
+      this.children.push(child);
+    },
+    attributes: {},
+    setAttribute(name, value) {
+      this.attributes = { ...this.attributes, [name]: String(value) };
+    },
+    getAttribute(name) {
+      return this.attributes[name] ?? null;
+    },
+    addEventListener() {},
+    remove() {},
+  };
+};
 
 function page() {
   const nodes = { port: element(), world: element(), marks: element() };
@@ -37,7 +48,7 @@ function page() {
   });
   const run = (message) => window.milagreCanvas.run(message);
   run({ t: "set", rows: [{ designs: [{ id: "home", w: 390, h: 844 }] }] });
-  return { run, posted, frame: () => nodes.world.children[0].children[0] };
+  return { run, posted, world: nodes.world, frame: () => nodes.world.children[0].children[0] };
 }
 
 test("canvas splices held fonts exactly, keeps full HTML unchanged, and updates font versions", () => {
@@ -89,4 +100,32 @@ test("an interactive design's frame runs scripts, and Try hands it the touches u
   p.run({ t: "comment", on: true });
   assert.deepEqual(p.posted.at(-1), { t: "play", id: null });
   assert.equal(p.frame().style.pointerEvents, "none", "commenting takes them back");
+});
+
+test("the chosen design is outlined and the other options in its row step back", () => {
+  const p = page();
+  p.run({
+    t: "set",
+    rows: [
+      {
+        group: "Today",
+        designs: [
+          { id: "a", w: 390, h: 844 },
+          { id: "b", w: 390, h: 844 },
+        ],
+      },
+      { designs: [{ id: "c", w: 390, h: 844 }] },
+    ],
+  });
+  // The first board is the page()'s own "home", which the new rows replace.
+  const board = (index) => p.world.children[index + 1];
+  p.run({ t: "chosen", id: "b", ink: "#fff" });
+  assert.deepEqual([...board(0).classes], ["dim"]);
+  assert.deepEqual([...board(1).classes], ["chosen"]);
+  assert.deepEqual([...board(2).classes], [], "another row keeps its look");
+  p.run({ t: "chosen", id: null });
+  assert.deepEqual(
+    [board(0), board(1)].map((b) => [...b.classes]),
+    [[], []],
+  );
 });

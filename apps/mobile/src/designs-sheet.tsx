@@ -286,6 +286,12 @@ export function DesignsSheet({
     command({ t: "comment", on: commenting });
   }, [command, epoch, commenting]);
 
+  // The chosen design (waiting for Send, or sent) is outlined and the other options in its row step back, as on the desktop.
+  const chosenId = choice?.id ?? (chosen ? chosen.slice(0, chosen.lastIndexOf(":")) : null);
+  useEffect(() => {
+    command({ t: "chosen", id: chosenId, ink: colors.ink });
+  }, [command, epoch, layoutKey, chosenId, colors.ink]);
+
   const sentDocs = useRef(new Map<string, string>());
   const sentFonts = useRef(new Set<string>());
   useEffect(() => {
@@ -519,7 +525,11 @@ export function DesignsSheet({
     }
   };
 
-  const position = row && summary && row.designs.length > 1 ? `${row.designs.indexOf(summary) + 1} of ${row.designs.length}` : "";
+  // An option's letter within its row, as the desktop canvas labels it.
+  const position =
+    row && summary && row.designs.length > 1
+      ? `Option ${row.designs.indexOf(summary) < 26 ? String.fromCharCode(65 + row.designs.indexOf(summary)) : row.designs.indexOf(summary) + 1}`
+      : "";
   const title = canvasMode ? "All designs" : (summary?.title ?? shown?.title ?? "Designs");
   const subtitle = canvasMode
     ? `${ordered.length} ${ordered.length === 1 ? "design" : "designs"}${rows.length > 1 ? ` · ${rows.length} screens` : ""}`

@@ -556,15 +556,12 @@ async function browserChecks() {
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     await waitFor(`${inView("login")} && ${inView("home")}`);
     assert.equal(await evaluate(`${frame("home")}.querySelector("[data-design-body]").parentElement.style.width`), "390px");
-    // The zoom floats at the canvas's bottom-left, as on the main Canvas; the header keeps Share as an icon.
+    // One bar floats at the bottom centre of the Designs canvas: View/Comment, then the zoom; the header keeps Share as an icon.
     const zoomBar = `${dock}.querySelector("[data-slot=artifact-zoom-bar]")`;
     const barPlace = await evaluate(
       `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const b = ${zoomBar}.getBoundingClientRect(); return { left: b.left - c.left, bottom: c.bottom - b.bottom, right: c.right - b.right }; })()`,
     );
-    assert.ok(
-      barPlace.left > 0 && barPlace.left <= 24 && barPlace.bottom > 0 && barPlace.bottom <= 24 && barPlace.right > 100,
-      "the zoom bar sits at the bottom-left",
-    );
+    assert.ok(barPlace.bottom > 0 && barPlace.bottom <= 24 && Math.abs(barPlace.left - barPlace.right) <= 2, "the mode and zoom bar sits at the bottom centre");
     assert.equal(await evaluate(`!!${dock}.querySelector("header [aria-label='Zoom in']")`), false, "the zoom left the header");
     assert.equal(await evaluate(`${dock}.querySelector("header [aria-label='Share page']").textContent.trim()`), "", "Share is an icon button");
     const zoom = await evaluate(`${dock}.querySelector("[data-slot=artifact-zoom]").textContent`);
@@ -713,7 +710,7 @@ async function browserChecks() {
     await waitFor(`!${frame("login")}.querySelector("[data-design-body]").dataset.active && !!${dock}`);
     assert.notEqual(await evaluate("document.activeElement?.tagName"), "IFRAME", "the focus comes back to the canvas");
 
-    // Designs grouped by the part of the app they belong to sit in one named block per group, numbered across blocks.
+    // Designs grouped by the part of the app they belong to sit under one named label per group, lettered as options in it.
     // (Last of the iframe checks: regrouping remounts the frames, which reorders mainFrame.frames.)
     const regroup = (groups) => evaluate(`window.groups = ${JSON.stringify(groups)}; window.rereadCatalog()`);
     const groups = `[...${dock}.querySelectorAll("[data-slot=artifact-canvas-group]")]`;
@@ -726,7 +723,7 @@ async function browserChecks() {
       true,
       "a group's block sits below the one before it",
     );
-    assert.equal(await evaluate(`${frame("home")}.textContent.trim().startsWith("2")`), true, "frames are numbered across blocks");
+    assert.equal(await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-frame-label]").textContent`), "A", "each group letters its own options");
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     await screenshot("canvas-groups");
     // Zoomed out, a frame's floating controls sit over its top edge, clear of its group's name above the row.

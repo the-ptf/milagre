@@ -9,6 +9,7 @@ import {
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Comment01Icon,
+  Cursor01Icon,
   PaintBoardIcon,
   File01Icon,
   Share08Icon,
@@ -1158,20 +1159,22 @@ function ArtifactDock({
           </Tooltip>
         )}
         {sharingAvailable && <IconButton label="Share page" icon={Share08Icon} size={24} onClick={() => setSharingChat(chatId)} />}
-        <CommentOptions shown={showResolved} onChange={setShowResolved}>
-          <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY}>
-            {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
-            <IconButton
-              label={commentLabel}
-              icon={Comment01Icon}
-              size={24}
-              tone="accent"
-              aria-pressed={commenting}
-              disabled={!onSend}
-              onClick={toggleComment}
-            />
-          </Tooltip>
-        </CommentOptions>
+        {kind === "artifacts" && (
+          <CommentOptions shown={showResolved} onChange={setShowResolved}>
+            <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY}>
+              {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
+              <IconButton
+                label={commentLabel}
+                icon={Comment01Icon}
+                size={24}
+                tone="accent"
+                aria-pressed={commenting}
+                disabled={!onSend}
+                onClick={toggleComment}
+              />
+            </Tooltip>
+          </CommentOptions>
+        )}
         {!cramped && (
           <IconButton
             label={expanded ? `Show the Chat beside the ${kind}` : `Fill the window with the ${kind}`}
@@ -1246,9 +1249,43 @@ function ArtifactDock({
             }}
             onView={setView}
           />
+          {/* The Designs canvas's one floating bar: what a click on a design does (View or Comment), then the zoom. */}
           <ZoomBar
             data-slot="artifact-zoom-bar"
-            className="absolute bottom-4 left-4"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2"
+            leading={
+              <div role="group" aria-label="Canvas mode" className="flex items-center gap-0.5">
+                <Tooltip label="View and try designs" asChild>
+                  <button
+                    type="button"
+                    data-slot="artifact-mode-view"
+                    aria-pressed={!commenting}
+                    onClick={() => commenting && toggleComment()}
+                    className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-12 font-medium transition-colors ${commenting ? "text-ink-2 hover:bg-hover" : "bg-hover-2 text-ink"}`}
+                  >
+                    <Icon icon={Cursor01Icon} size={14} />
+                    View
+                  </button>
+                </Tooltip>
+                <CommentOptions shown={showResolved} onChange={setShowResolved}>
+                  <Tooltip label={`${commentLabel}. Right-click or hold for comment options`} keyHint={COMMENT_KEY} asChild>
+                    {/* Comment mode is armed: it changes what a click on a design does, so it's the accent pressed look. */}
+                    <button
+                      type="button"
+                      data-slot="artifact-mode-comment"
+                      aria-label={commentLabel}
+                      aria-pressed={commenting}
+                      disabled={!onSend}
+                      onClick={toggleComment}
+                      className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-12 font-medium transition-colors disabled:opacity-40 ${commenting ? "bg-accent-tint text-accent-ink" : "text-ink-2 enabled:hover:bg-hover"}`}
+                    >
+                      <Icon icon={Comment01Icon} size={14} />
+                      Comment
+                    </button>
+                  </Tooltip>
+                </CommentOptions>
+              </div>
+            }
             zoom={view?.scale ?? null}
             onZoomOut={() => canvas.current?.zoomBy(1 / 1.25)}
             onReset={() => canvas.current?.zoomTo(1)}

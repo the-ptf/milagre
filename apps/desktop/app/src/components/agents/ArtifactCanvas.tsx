@@ -1,6 +1,14 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon, Download04Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  CheckmarkCircle02Icon,
+  Delete02Icon,
+  Download04Icon,
+  MoreHorizontalIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_CSP,
   DESIGN_CODE_CSP,
@@ -102,7 +110,6 @@ const GAP = 80;
 const HEADER = 32;
 // A group's name above its block, in screen pixels, and the block's padding around its frames, in canvas pixels.
 const GROUP_LABEL = 30;
-const GROUP_PADDING = 48;
 const MIN_SCALE = 0.05;
 // Fit leaves this much room around the designs, in screen pixels; at the bottom, room for the zoom bar floating there
 // (ArtifactDock: 16px from the edge, 32px tall), so neither a frame nor the agent's cursor on it goes under the bar.
@@ -619,7 +626,7 @@ export const ArtifactCanvas = forwardRef<
           transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
         }}
       >
-        {rows.map((row, index) => (
+        {rows.map((row) => (
           <section
             key={row.group ?? ""}
             data-slot={grouped ? "artifact-canvas-group" : undefined}
@@ -628,23 +635,26 @@ export const ArtifactCanvas = forwardRef<
             className={grouped ? "flex flex-col items-start" : "contents"}
           >
             {grouped && (
-              <div className="relative shrink-0" style={{ height: GROUP_LABEL / view.scale }}>
+              // The group's name and count, then a hairline across the row: a label, not a box around the designs.
+              <div className="relative shrink-0 self-stretch" style={{ height: GROUP_LABEL / view.scale }}>
                 <div
-                  className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-13 whitespace-nowrap"
-                  style={{ transform: `scale(${1 / view.scale})` }}
+                  className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-2 pb-2 text-13 whitespace-nowrap"
+                  style={{ transform: `scale(${1 / view.scale})`, width: `${view.scale * 100}%` }}
                 >
-                  <span className={`font-medium ${row.group ? "text-ink" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
+                  <span className={`font-medium ${row.group ? "text-ink-2" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
                   <span className="text-ink-3 tabular-nums">{row.designs.length}</span>
+                  <span aria-hidden className="h-px min-w-6 flex-1 bg-line" />
                 </div>
               </div>
             )}
-            <div className={`flex items-start ${grouped ? "rounded-card bg-hover" : ""}`} style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}>
+            <div className="flex items-start" style={{ gap: GAP }}>
               {row.designs.map((design, offset) => (
                 <DesignFrame
                   key={`${chatId}\n${design.id}`}
                   chatId={chatId}
                   design={design}
-                  number={rows.slice(0, index).reduce((total, row) => total + row.designs.length, 0) + offset + 1}
+                  label={optionLabel(offset)}
+                  dimmed={dimmedInRow(row.designs, design.id, choice)}
                   version={versions[design.id] ?? null}
                   onVersion={onVersion}
                   commenting={commenting}
@@ -677,11 +687,23 @@ export const ArtifactCanvas = forwardRef<
   );
 });
 
+/** An option's letter within its row: A to Z, then AA, AB… */
+function optionLabel(index: number): string {
+  return index < 26 ? String.fromCharCode(65 + index) : optionLabel(Math.floor(index / 26) - 1) + optionLabel(index % 26);
+}
+
+/** Whether a design steps back because another design in its row is chosen (waiting for Send, or sent). */
+function dimmedInRow(row: ArtifactRef[], id: string, choice: ChoiceControls): boolean {
+  const chosen = choice.pending ?? choice.sent;
+  return !!chosen && chosen.id !== id && row.some((design) => design.id === chosen.id);
+}
+
 // Memoized: panning re-renders the canvas, not its frames.
 const DesignFrame = memo(function DesignFrame({
   chatId,
   design,
-  number,
+  label,
+  dimmed,
   version,
   onVersion,
   commenting,
@@ -696,7 +718,10 @@ const DesignFrame = memo(function DesignFrame({
 }: {
   chatId: string;
   design: ArtifactRef;
-  number: number;
+  /** The option's letter within its group (A, B, C), as the agent's message and the Chat's cards name it. */
+  label: string;
+  /** Another option in the same group is chosen: this one steps back until the pointer is on it. */
+  dimmed: boolean;
   version: number | null;
   onVersion: (id: string, version: number | null) => void;
   commenting: boolean;
@@ -783,11 +808,9 @@ const DesignFrame = memo(function DesignFrame({
     return pin.design.version === shown.version ? [pin] : [];
   });
   const go = (next: number) => onVersion(design.id, next >= last ? null : next);
-  // Too narrow on screen for the title and its controls on one row, the controls go under the title. Zoomed out
-  // further, the controls wouldn't fit under it either: the row keeps the number and title, and the controls float
-  // over the frame's top edge while the pointer or focus is on it, clear of the group's name above the row.
-  const compact = width * scale < 260;
-  const narrow = !compact && width * scale < 300;
+  // The actions float over the frame's top edge while the pointer or focus is on it. Zoomed out too far for the chips,
+  // the row keeps the letter, the title and a chosen tick.
+  const compact = width * scale < 200;
   const controls = (
     <>
       {design.format !== "html" && (
@@ -806,11 +829,6 @@ const DesignFrame = memo(function DesignFrame({
             {artifact?.kit && (
               <span className="ml-2" title={designKitLabel(artifact)}>
                 {designKitLabel(artifact)}
-              </span>
-            )}
-            {isInteractiveDesign(artifact) && (
-              <span className="ml-2" data-slot="artifact-interactive" title="Click the design to try it">
-                Interactive
               </span>
             )}
           </span>
@@ -884,25 +902,53 @@ const DesignFrame = memo(function DesignFrame({
             />
           </Tooltip>
         ))}
-      {sentHere ? (
-        <span data-slot="artifact-chosen" className="flex h-6 items-center gap-1.5 rounded-control bg-hover-2 px-2 font-medium text-ink">
-          <Icon icon={CheckmarkCircle02Icon} size={14} />
+      {!sentHere && choice.onChoose && (
+        <button
+          type="button"
+          aria-label={pendingHere ? `Unchoose ${shown.title}` : `Choose ${shown.title}, version ${shown.version}`}
+          aria-pressed={pendingHere}
+          data-slot={pendingHere ? "artifact-choice-pending" : undefined}
+          onClick={() => choice.onChoose?.(shown)}
+          className={`flex h-6 items-center gap-1.5 rounded-control px-2 font-medium transition-colors ${pendingHere ? "bg-hover-2 text-ink" : "bg-surface text-ink shadow-btn hover:bg-hover"}`}
+        >
+          {pendingHere && <Icon icon={CheckmarkCircle02Icon} size={14} />}
+          {pendingHere ? "Chosen" : "Choose"}
+        </button>
+      )}
+    </>
+  );
+  // What the frame is, at a glance and always shown: interactive (live while it has the mouse), its version when it
+  // has more than one, and chosen. The actions stay out of the way until the pointer or focus is on the frame.
+  const chips = (
+    <>
+      {isInteractiveDesign(artifact) && (
+        <span
+          data-slot="artifact-interactive"
+          title={active ? "Clicks go to the design. Click outside it to let go." : "Click the design to try it"}
+          className="flex h-5 shrink-0 items-center gap-1 rounded-chip bg-field px-1.5 text-11 font-medium text-ink-2"
+        >
+          <span aria-hidden className={`size-1.5 rounded-full ${active ? "bg-green" : "bg-ink-4"}`} />
+          {active ? "Live" : "Interactive"}
+        </span>
+      )}
+      {last > 1 && (
+        <span
+          data-slot="artifact-version-chip"
+          title={`Version ${shown.version} of ${last}`}
+          className="flex h-5 shrink-0 items-center rounded-chip bg-field px-1.5 text-11 font-medium text-ink-2 tabular-nums"
+        >
+          v{shown.version}
+        </span>
+      )}
+      {isChosen && (
+        <span
+          data-slot={sentHere ? "artifact-chosen" : undefined}
+          title={sentHere ? undefined : "Chosen here; Send tells the agent"}
+          className={`flex h-5 shrink-0 items-center gap-1 rounded-chip px-1.5 text-11 font-semibold ${sentHere ? "bg-ink text-on-ink" : "text-ink ring-1 ring-ink ring-inset"}`}
+        >
+          <Icon icon={Tick02Icon} size={12} />
           Chosen
         </span>
-      ) : (
-        choice.onChoose && (
-          <button
-            type="button"
-            aria-label={pendingHere ? `Unchoose ${shown.title}` : `Choose ${shown.title}, version ${shown.version}`}
-            aria-pressed={pendingHere}
-            data-slot={pendingHere ? "artifact-choice-pending" : undefined}
-            onClick={() => choice.onChoose?.(shown)}
-            className={`flex h-6 items-center gap-1.5 rounded-control px-2 font-medium transition-colors ${pendingHere ? "bg-hover-2 text-ink" : "bg-surface text-ink shadow-btn hover:bg-hover"}`}
-          >
-            {pendingHere && <Icon icon={CheckmarkCircle02Icon} size={14} />}
-            {pendingHere ? "Chosen" : "Choose"}
-          </button>
-        )
       )}
     </>
   );
@@ -915,43 +961,35 @@ const DesignFrame = memo(function DesignFrame({
       className="group/frame flex shrink-0 flex-col"
       style={{ width }}
     >
-      <div
-        className={`relative shrink-0 ${compact ? "group-focus-within/frame:z-20 group-hover/frame:z-20" : ""}`}
-        style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}
-      >
+      <div className="relative z-10 shrink-0 group-focus-within/frame:z-20 group-hover/frame:z-20" style={{ height: HEADER / scale }}>
         <div
-          className={`absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 pb-1.5 text-12 text-ink ${narrow ? "flex-wrap content-end" : ""}`}
-          style={{
-            width: width * scale,
-            height: narrow ? HEADER * 2 : HEADER,
-            transform: `scale(${1 / scale})`,
-          }}
+          className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1.5 pb-1.5 text-12"
+          style={{ width: width * scale, height: HEADER, transform: `scale(${1 / scale})` }}
         >
-          <span className="text-ink-3">{number}</span>
-          <span className={`min-w-0 flex-1 truncate ${narrow ? "basis-[calc(100%-1.5rem)]" : ""}`} title={compact ? shown.title : undefined}>
+          <span className="shrink-0 font-semibold text-ink-3" data-slot="artifact-frame-label">
+            {label}
+          </span>
+          <span className={`min-w-0 flex-1 truncate font-medium ${dimmed ? "text-ink-2" : "text-ink"}`} title={shown.title}>
             {shown.title}
           </span>
-          {compact ? (
-            <>
-              {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />}
-              <div
-                data-slot="artifact-frame-controls"
-                className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
-              >
-                {controls}
-              </div>
-            </>
-          ) : (
-            controls
-          )}
+          {compact
+            ? isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />
+            : chips}
+          <div
+            data-slot="artifact-frame-controls"
+            className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 text-ink shadow-raised ${deleting || moreOpen ? "" : "pointer-events-none opacity-0 transition-opacity group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
+          >
+            {controls}
+          </div>
         </div>
       </div>
-      <div className="relative" style={{ width, height }}>
+      {/* On the canvas colour, so a dimmed design steps back instead of letting the dot grid through. */}
+      <div className="relative rounded-card bg-canvas" style={{ width, height }}>
         <div
           data-design-body
           data-painted={(!!artifact && painted === artifact) || undefined}
           data-active={active || undefined}
-          className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised ${active ? "border-accent" : isChosen ? "border-ink" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
+          className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised transition-opacity ${active ? "border-accent" : isChosen ? "border-ink" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"} ${dimmed && !active ? "opacity-45 group-hover/frame:opacity-100" : ""}`}
         >
           {artifact ? (
             <CanvasDesignBody

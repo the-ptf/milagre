@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { FitToScreenIcon, MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { IconButton } from "./Button";
 
@@ -18,7 +18,9 @@ export function ZoomBar({
   canZoomOut = true,
   fitLabel = "Fit everything",
   resetProps,
+  leading,
   className = "",
+  children: _children,
   ...props
 }: {
   /** The zoom as a fraction (1 is 100%), or null before the canvas has one. */
@@ -33,9 +35,17 @@ export function ZoomBar({
   fitLabel?: string;
   /** Extra attributes for the zoom reading, e.g. a data-slot a check reads it by. */
   resetProps?: HTMLAttributes<HTMLButtonElement> & Record<`data-${string}`, string>;
+  /** Controls before the zoom, such as the Designs canvas's View/Comment modes, set apart by a divider. */
+  leading?: ReactNode;
 } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div {...props} className={`flex items-center gap-0.5 rounded-full bg-surface p-1 shadow-raised ${className}`}>
+      {leading && (
+        <>
+          {leading}
+          <span aria-hidden className="mx-0.5 h-4 w-px bg-line" />
+        </>
+      )}
       <IconButton label="Zoom out" icon={MinusSignIcon} size={28} shape="pill" disabled={!canZoomOut} onClick={onZoomOut} />
       <button
         {...resetProps}
