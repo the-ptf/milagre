@@ -8,7 +8,7 @@ const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { MainSyncDefaultSetting, MainSyncSetting } from '/src/components/Settings';
+import { MainSyncDefaultSetting, MainSyncSetting } from '/src/components/settings/MainSyncSettings';
 import '/src/styles.css';
 const state = { defaultValue: false, override: null, last: { at: Date.now() - 3 * 60000, outcome: 'skipped', branch: 'main', message: 'The main checkout has uncommitted changes' } };
 const listeners = [];
