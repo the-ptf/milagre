@@ -165,7 +165,7 @@ export default function AddComputer() {
             </View>
             <View style={{ gap: 6 }}>
               <Text style={styles.label}>On your computer</Text>
-              <Text style={styles.text}>Open Milagre, go to Settings → Devices, turn on Allow devices to connect and scan the QR code it shows.</Text>
+              <Text style={styles.text}>Open Milagre, go to Settings → Phone & sharing, turn on Allow devices to connect and scan the QR code it shows.</Text>
             </View>
             <Group footer="Automatic tries LAN and Tailscale before the remote connection. Private pairing needs both devices on the same network or tailnet.">
               <ListRow title="LAN or Tailscale only" disabled={busy} toggle={{ value: privateOnly, onChange: () => setPrivateOnly(!privateOnly) }} />

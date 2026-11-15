@@ -207,7 +207,7 @@ export default function ComputersScreen() {
             </Group>
           ) : (
             <EmptyState icon={LaptopIcon} title="Pair your computer">
-              Open Settings › Devices in Milagre on your computer, then scan its pairing code. Your Projects and Chats will appear here.
+              Open Settings › Phone & sharing in Milagre on your computer, then scan its pairing code. Your Projects and Chats will appear here.
             </EmptyState>
           )}
           {error ? <ErrorNotice message={error} /> : null}

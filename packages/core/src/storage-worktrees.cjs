@@ -1,4 +1,4 @@
-// Settings › Devices › What Milagre uses › Clean up worktrees: the worktrees Milagre made that nothing has used for a
+// Settings › Phone & sharing › What Milagre uses › Clean up worktrees: the worktrees Milagre made that nothing has used for a
 // while, on desktop and phone. A worktree's Chats go with it when it is removed (worktree:remove), so one is offered only
 // while none of its Chats runs, and its age is its newest Chat's last message, or the folder's when no Chat has one.
 const fs = require("node:fs/promises");

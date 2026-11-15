@@ -1,4 +1,4 @@
-// Clean up worktrees, from What Milagre uses on the desktop's Settings › Devices and the phone's computer page, and the
+// Clean up worktrees, from What Milagre uses on the desktop's Settings › Phone & sharing and the phone's computer page, and the
 // /storage command that opens it. The host lists its idle worktrees (core storage-worktrees.cjs); this groups, words and
 // removes them the same way on both platforms.
 import { lossReason, type WorktreeStatus } from "./archive.mjs";

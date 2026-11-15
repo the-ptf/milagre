@@ -466,7 +466,7 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
       if (channel !== "devices:pending") return;
       for (const request of payload?.requests ?? []) void client.call("devices:allow", [request.key]).catch(() => {});
     });
-  // Turning phone access on opens the pairing window, as showing the QR in Settings › Devices does.
+  // Turning phone access on opens the pairing window, as showing the QR in Settings › Phone & sharing does.
   await client.call("phone:set-enabled", [true]);
   await until(async () => {
     const status = await client.call("phone:status");

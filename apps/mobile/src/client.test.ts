@@ -443,7 +443,7 @@ test("a refused relay pairing shows its own copy, and any other failure is a los
     fetch,
     30000,
     fakeRelay(() => {
-      throw new RelayTransportError("bad-token", "This phone was paired with an older code. Scan the new one in Settings → Devices.");
+      throw new RelayTransportError("bad-token", "This phone was paired with an older code. Scan the new one in Settings → Phone & sharing.");
     }).runtime,
   );
   await assert.rejects(refused.call("daemon:status"), /paired with an older code/);

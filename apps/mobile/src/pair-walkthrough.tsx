@@ -11,7 +11,7 @@ import { useTheme } from "./theme";
 
 const STEPS = [
   { title: "Get Milagre on your computer", detail: "From milagre.cloud, for macOS, Windows and Linux" },
-  { title: "Open Settings › Devices", detail: "Milagre on the computer shows a pairing code" },
+  { title: "Open Settings › Phone & sharing", detail: "Milagre on the computer shows a pairing code" },
   { title: "Scan it with this phone", detail: "Or open the code with the Camera app" },
 ];
 

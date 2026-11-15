@@ -315,7 +315,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         new Error(
           [401, 403].includes(response.status)
             ? through
-              ? "Your computer refused this phone. Scan its code again in Settings → Devices."
+              ? "Your computer refused this phone. Scan its code again in Settings → Phone & sharing."
               : "Your computer's Cloudflare access was refused. Scan its pairing code again."
             : response.status >= 500
               ? "Your computer isn't answering. Check that Milagre and its mobile host are running on it."

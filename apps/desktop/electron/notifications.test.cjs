@@ -155,13 +155,13 @@ test("Dock counts distinct waiting or unread chats, survives project changes, an
   assert.equal(badge, "");
 });
 
-test("a first phone pairing is announced even while Milagre has focus, and its click opens Settings › Devices", () => {
+test("a first phone pairing is announced even while Milagre has focus, and its click opens Settings › Phone & sharing", () => {
   const { notifier, shown, opened } = setup({ focused: true });
   assert.equal(notifier.notifyDevicePaired(), true);
   assert.equal(shown.length, 1);
   assert.equal(shown[0].visible, true);
   assert.equal(shown[0].options.title, "New phone paired");
-  assert.match(shown[0].options.body, /If it wasn't you, remove it in Settings → Devices/);
+  assert.match(shown[0].options.body, /If it wasn't you, remove it in Settings → Phone & sharing/);
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
   // A second pairing replaces the first notice.
@@ -170,11 +170,14 @@ test("a first phone pairing is announced even while Milagre has focus, and its c
   assert.equal(shown[1].visible, true);
 });
 
-test("a computer's first pairing says another Mac can now drive this one, and its click opens Settings › Devices", () => {
+test("a computer's first pairing says another Mac can now drive this one, and its click opens Settings › Phone & sharing", () => {
   const { notifier, shown, opened } = setup();
   assert.equal(notifier.notifyDevicePaired("computer"), true);
   assert.equal(shown[0].options.title, "New computer paired");
-  assert.equal(shown[0].options.body, `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
+  assert.equal(
+    shown[0].options.body,
+    `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Phone & sharing.`,
+  );
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
   // One pairing notice at a time, whatever paired.
@@ -183,14 +186,14 @@ test("a computer's first pairing says another Mac can now drive this one, and it
   assert.equal(shown[1].options.title, "New phone paired");
 });
 
-test("phones that paired while Milagre was closed are named and announced as such, and the click opens Settings › Devices", () => {
+test("phones that paired while Milagre was closed are named and announced as such, and the click opens Settings › Phone & sharing", () => {
   const { notifier, shown, opened } = setup({ focused: true });
   assert.equal(notifier.notifyPhonesPaired([]), false, "nothing paired, nothing shown");
   assert.equal(notifier.notifyPhonesPaired([{ name: "Victor's iPhone" }], { away: true }), true);
   assert.deepEqual(shown[0].options, {
     title: "New phone paired",
     subtitle: "",
-    body: `Victor's iPhone paired with ${thisComputer} while Milagre was closed. If it wasn't you, remove it in Settings → Devices.`,
+    body: `Victor's iPhone paired with ${thisComputer} while Milagre was closed. If it wasn't you, remove it in Settings → Phone & sharing.`,
   });
   shown[0].emit("click");
   assert.deepEqual(opened, ["settings:phone"]);
@@ -199,13 +202,16 @@ test("phones that paired while Milagre was closed are named and announced as suc
   assert.deepEqual(shown[1].options, {
     title: "2 new phones paired",
     subtitle: "",
-    body: `2 phones paired with ${thisComputer} while Milagre was closed. If one wasn't you, remove it in Settings → Devices.`,
+    body: `2 phones paired with ${thisComputer} while Milagre was closed. If one wasn't you, remove it in Settings → Phone & sharing.`,
   });
   // While Milagre is open: named when the phone sent a name, as before otherwise.
   notifier.notifyPhonesPaired([{ name: "Victor's iPhone" }]);
-  assert.equal(shown[2].options.body, `Victor's iPhone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
+  assert.equal(
+    shown[2].options.body,
+    `Victor's iPhone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Phone & sharing.`,
+  );
   notifier.notifyPhonesPaired([{ name: null }]);
-  assert.equal(shown[3].options.body, `A phone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`);
+  assert.equal(shown[3].options.body, `A phone can now reach your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Phone & sharing.`);
 });
 
 test("a computer waiting for Allow is announced once while Milagre is in the background, and its click opens the window", () => {

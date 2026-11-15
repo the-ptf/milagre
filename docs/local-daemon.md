@@ -15,7 +15,7 @@ npm install --global milagre
 milagre serve
 ```
 
-The server uses `~/.milagre/server` and prints a pairing link and a terminal QR code. Paste the link into another desktop's Settings > Devices > Add computer, then run `milagre devices pending` and `milagre devices allow KEY` on the server to approve it. Phones scan the QR in Milagre. Agent CLIs and their sign-ins belong on the server computer. No desktop UI is needed there.
+The server uses `~/.milagre/server` and prints a pairing link and a terminal QR code. Paste the link into another desktop's Settings > Phone & sharing > Add computer, then run `milagre devices pending` and `milagre devices allow KEY` on the server to approve it. Phones scan the QR in Milagre. Agent CLIs and their sign-ins belong on the server computer. No desktop UI is needed there.
 
 `milagre pair` reopens the 10-minute pairing window. `milagre status`, `milagre devices list` and `milagre stop` manage the running server. `--project /path/to/project` opens a Project on startup; repeat it for several. `MILAGRE_DATA_DIR` or `--data-dir /absolute/profile` selects another profile; use the same profile for every command.
 
@@ -37,7 +37,7 @@ Native actions such as editor launch, clipboard and application updates still re
 
 ## Desktop host and source daemon
 
-Desktop starts or connects to a persistent `@milagre/core` daemon through a private Unix socket on macOS or Linux. It uses the same Electron userData directory and existing Project files, so Chat history and provider IDs do not move. Closing desktop leaves agents running. The mobile bridge attaches to the same profile and owner. Desktop Settings > Devices manages phone access through the public encrypted relay or a configured Cloudflare tunnel; see [mobile setup](mobile-local.md).
+Desktop starts or connects to a persistent `@milagre/core` daemon through a private Unix socket on macOS or Linux. It uses the same Electron userData directory and existing Project files, so Chat history and provider IDs do not move. Closing desktop leaves agents running. The mobile bridge attaches to the same profile and owner. Desktop Settings > Phone & sharing manages phone access through the public encrypted relay or a configured Cloudflare tunnel; see [mobile setup](mobile-local.md).
 
 For the first upgrade from an embedded-runtime desktop, close that older app before launching the new build. Never open the same Projects through an older desktop while the new host owns them. The running app is not automatically replaced by development checks.
 
@@ -66,7 +66,7 @@ Updates install only through the explicit restart action. It saves and stops the
 
 Reconnect retains at most 1,024 events or 16 MiB while obtaining its snapshot. If that limit is exceeded, it disconnects and retries the snapshot without replaying commands. A deleted Project is skipped so another Project can still be opened. Other Project errors remain visible as a failed reconnect rather than being silently ignored.
 
-Desktop startup does not install a login service. An older embedded-runtime desktop must be closed before a current desktop can take ownership of its profile. Phone access is managed separately by the daemon through Settings > Devices.
+Desktop startup does not install a login service. An older embedded-runtime desktop must be closed before a current desktop can take ownership of its profile. Phone access is managed separately by the daemon through Settings > Phone & sharing.
 
 ## Ownership and recovery
 

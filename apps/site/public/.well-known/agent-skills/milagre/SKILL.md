@@ -29,7 +29,7 @@ Each `/download/...` link redirects to the matching file of the latest GitHub re
 
 ## Pair the phone
 
-1. On the computer, open Milagre's Settings › Devices and turn it on. A QR code appears.
+1. On the computer, open Milagre's Settings › Phone & sharing and turn it on. A QR code appears.
 2. Scan it with the Milagre phone app.
 
 On the same network the phone talks to the computer directly. Away from it, the two connect through Milagre's relay, and Chat content and files are encrypted between the devices. The computer runs the agents, so it has to stay awake, online and running Milagre.

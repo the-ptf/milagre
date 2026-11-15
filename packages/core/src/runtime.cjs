@@ -1836,7 +1836,7 @@ function createRuntime(options) {
   });
   // `{ fresh: true }` measures the folders again now (after a cleanup) instead of waiting out the half hour.
   commands.handle("computer:resources:read", (_event, options) => computerResources.read(options));
-  // Clean up worktrees (Settings › Devices on desktop, a computer's What Milagre uses on the phone): the worktrees Milagre
+  // Clean up worktrees (Settings › Phone & sharing on desktop, a computer's What Milagre uses on the phone): the worktrees Milagre
   // made that no Chat has used for 30 days or more, with what removing each loses.
   commands.handle("storage:worktrees", async () => {
     await environmentReady;

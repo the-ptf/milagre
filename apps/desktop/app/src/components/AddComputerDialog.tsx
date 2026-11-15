@@ -194,8 +194,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       )}
       {preview && (
         <p className="mt-3 text-12 text-ink-3">
-          This window gets full control of {preview.name}'s Projects, like its own window. Remove it any time from {preview.name}'s Settings › Devices &
-          sharing.
+          This window gets full control of {preview.name}'s Projects, like its own window. Remove it any time from {preview.name}'s Settings › Phone & sharing.
         </p>
       )}
       <InlineError size={12} data-add-computer-error className="mt-3">

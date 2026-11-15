@@ -68,7 +68,7 @@ export function FiltersButton({
 }: {
   /** Null when the sidebar lists only the open Project, so there is nothing to choose. */
   projects: PickerProject[] | null;
-  /** Computers › (with Settings › Devices › Other computers on): Add computer and each computer's gear. */
+  /** Computers › (with Settings › Phone & sharing › Other computers on): Add computer and each computer's gear. */
   computerMenu?: { onAddComputer: () => void; onOpenSettings: (id: string | null) => void } | null;
   /** With other computers, the sections Projects are listed under; null with this Mac alone. A hidden computer's Projects aren't passed. */
   computers: ComputerSection[] | null;

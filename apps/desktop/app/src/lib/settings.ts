@@ -87,7 +87,7 @@ export interface AppSettings {
   newChatGlance: boolean;
   showContextSize: boolean;
   compactButtonDisplay: CompactButtonDisplay;
-  /** Settings › Devices: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
+  /** Settings › Phone & sharing: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
   otherComputers: boolean;
   /** Experimental: turning Ultracode on plays the Mortal Kombat Fatality overlay and the announcer's voice. */
   ultracodeFatality: boolean;

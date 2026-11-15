@@ -3,7 +3,7 @@
 const GENERIC = new Set(["iPhone", "iPad", "iPod touch"]);
 const MAX_NAME = 64;
 
-/** What this phone is called in Settings › Devices on a Mac: its owner's name for it, else its model, else null. */
+/** What this phone is called in Settings › Phone & sharing on a Mac: its owner's name for it, else its model, else null. */
 export function phoneNameFrom(deviceName: string | null | undefined, modelName: string | null | undefined): string | null {
   const own = deviceName?.trim() || null;
   const model = modelName?.trim() || null;

@@ -126,7 +126,7 @@ function offView(current: ComputersSnapshot): ComputersSnapshot {
   return view;
 }
 
-/** This Mac's name and its computers; none while Settings › Devices › Other computers is off. */
+/** This Mac's name and its computers; none while Settings › Phone & sharing › Other computers is off. */
 export function useComputers(): ComputersSnapshot {
   const { otherComputers } = useSettings();
   const current = useSyncExternalStore(subscribeComputers, computersSnapshot);
