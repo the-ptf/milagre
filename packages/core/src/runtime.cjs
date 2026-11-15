@@ -159,7 +159,10 @@ function createRuntime(options) {
   // The home as the Milagre MCP host and Routines see it: a project-less Chat's own tools and Heartbeats reach it.
   const chatsHomeEntries = async () => ((await chatsHome.exists()) ? [{ path: chatsHome.path, name: projectName(chatsHome.path), kind: "chats" }] : []);
   function track(work, set = active) {
-    const task = Promise.resolve().then(work);
+    return hold(Promise.resolve().then(work), set);
+  }
+  // Agent events fold in the order they arrive, so they start at once; holding them keeps close() waiting for each.
+  function hold(task, set) {
     set.add(task);
     task.then(
       () => set.delete(task),
@@ -1462,7 +1465,7 @@ function createRuntime(options) {
         return "";
       }
     },
-    send: (chatId, event) => void chats.receive(chatId, event),
+    send: (chatId, event) => void hold(chats.receive(chatId, event), background),
   });
 
   // The ports each chat's commands listen on, polled while any agent runs or anything it started still does.
