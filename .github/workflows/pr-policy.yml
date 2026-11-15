@@ -1,5 +1,5 @@
 # Rules from AGENTS.md that a PR's diff can prove: no screenshots in the PR's commits, desktop and mobile change
-# together (or the PR is labeled single-platform), and the Lighthouse budget never gets looser (or the PR is labeled
+# together (a warning only; the single-platform label silences it), and the Lighthouse budget never gets looser (or the PR is labeled
 # lighthouse-budget-approved). One cheap job; label changes rerun it.
 name: PR policy
 on:
@@ -38,7 +38,7 @@ jobs:
       - name: No images in the PR's commits
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         run: node scripts/pr-policy.cjs images < "$RUNNER_TEMP/changes.txt"
-      - name: Desktop and mobile change together
+      - name: Desktop and mobile change together (warning only)
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}

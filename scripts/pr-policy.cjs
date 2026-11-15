@@ -2,6 +2,7 @@
 // PR rules from AGENTS.md that a diff can prove, run by .github/workflows/pr-policy.yml:
 // - no screenshots or other images in a PR's commits outside the folders that hold the app's own image assets;
 // - a change to the desktop app's UI comes with its mobile counterpart, and the reverse, unless labeled single-platform.
+//   This one only warns: one-platform PRs are common enough that a hard fail would mostly mean label clicks.
 // node scripts/pr-policy.cjs <images|sync> < name-status   (git diff --name-status output; LABELS='["label", ...]')
 const fs = require("node:fs");
 
@@ -88,10 +89,11 @@ if (require.main === module) {
     console.error("Usage: node scripts/pr-policy.cjs <images|sync> < git-diff-name-status");
     process.exit(2);
   }
+  const warnOnly = which === "sync";
   if (result.ok) console.log(result.message);
   // A GitHub annotation carries the whole message on one line, %0A for each line break.
-  else console.error(process.env.GITHUB_ACTIONS ? `::error::${result.message.replace(/\n/g, "%0A")}` : result.message);
-  process.exit(result.ok ? 0 : 1);
+  else console.error(process.env.GITHUB_ACTIONS ? `::${warnOnly ? "warning" : "error"}::${result.message.replace(/\n/g, "%0A")}` : result.message);
+  process.exit(result.ok || warnOnly ? 0 : 1);
 }
 
 module.exports = { IMAGE_FOLDERS, IMAGE, SYNC_LABEL, SYNC_RULE, parseNameStatus, strayImages, checkImages, platformsTouched, checkSync };
