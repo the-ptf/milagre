@@ -5,7 +5,7 @@ const { acpStep, acpStepResult } = require("./acp-events.cjs");
 const { code } = require("./steps.cjs");
 const { active, update: setSubagent } = require("./subagents.cjs");
 
-// Antigravity's subagents as Milagre subagents (docs/adr/0006-antigravity-over-acp.md). ACP says nothing about
+// Antigravity's subagents as Milagre subagents (docs/providers.md). ACP says nothing about
 // them: the parent's `start_subagent` call ends as soon as the children are launched, and the children's tool
 // calls stream on the parent session with no parent field. What there is, verified against agy 1.3.0:
 //   - a child's tool call id is "<child conversationId>:N", 32 hex digits before the colon; the parent's own are

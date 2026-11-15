@@ -1,4 +1,4 @@
-// Linear connection copy, shared by desktop and phone (see docs/superpowers/specs/2026-10-08-linear-integration-design.md).
+// Linear connection copy, shared by desktop and phone.
 
 export type LinearViewer = { name: string; email: string };
 export type LinearOrganization = { name: string; urlKey: string };

@@ -1,4 +1,4 @@
-// A Terminal is an interactive shell the user opened in a Chat (see GLOSSARY.md and ADR-0008). The host owns its
+// A Terminal is an interactive shell the user opened in a Chat (see GLOSSARY.md and docs/host.md). The host owns its
 // PTY, so it outlives the desktop window and a paired phone can use it too. Output stays in memory only: the newest
 // lines, enough for a viewer that opens it later. Every viewer may type; the PTY takes the size of whichever viewer
 // typed or resized last.

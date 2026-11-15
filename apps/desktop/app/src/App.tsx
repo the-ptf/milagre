@@ -279,7 +279,7 @@ function App() {
   const projectNavigation = useRef(0);
   projectRef.current = project;
   // The latest state of every project the main process has sent this window; it's their only writer
-  // (see ADR-0001). The ref leads, so callbacks read a state that arrived since the last render.
+  // (see docs/host.md). The ref leads, so callbacks read a state that arrived since the last render.
   const [selectedLink, setSelectedLink] = useState<OpenLink | null>(null);
   // The Link shown last stays mounted behind the Project (an <Activity>), so going back to it is a style change.
   const [lastLink, setLastLink] = useState<OpenLink | null>(null);

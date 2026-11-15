@@ -1,7 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-// Antigravity plan usage (docs/adr/0006-antigravity-over-acp.md). Google's Cloud Code backend reports the Gemini
+// Antigravity plan usage (docs/providers.md). Google's Cloud Code backend reports the Gemini
 // quota for the signed-in account. The agent owns <GEMINI_HOME>/antigravity-acp/acp_token.json and rewrites it, so this
 // module only ever reads it: it exchanges the refresh token for an access token in memory and keeps that per profile.
 // No token or secret is written anywhere, logged, or put in an error message.
