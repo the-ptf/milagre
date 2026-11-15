@@ -487,7 +487,7 @@ const MessageSection = memo(function MessageSection({
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
       className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble ? (copyUser && undoId && onUndo ? "items-end pl-18" : "items-end pl-12") : feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
-      style={animate ? { animation: "fade-up var(--duration-slow) var(--ease-enter) both" } : undefined}
+      style={animate ? { animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" } : undefined}
     >
       {linked && (
         <div className="flex min-w-0 max-w-full items-center gap-1.5">
@@ -1238,7 +1238,7 @@ function NewChatHeader({
 
   return (
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
-    <div className={`px-2.5 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+    <div className={`px-2.5 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}>
       {!chats && !link && noGit && selected && (
         <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-13 text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
@@ -1541,6 +1541,8 @@ export function ChatComposer({
   // Set while the transcript is scrolled up: its "Go to bottom" sits at the right end of the chip row, never over text.
   // Kept with the transcript it belongs to, so a Chat opened next (or a parked one) never shows another's button.
   const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
+  // At the transcript's end the dock floats over its empty bottom pad, so its glass has nothing to blur (styles.css).
+  const [transcriptAtEnd, setTranscriptAtEnd] = useState(true);
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
   // The transcript slot on screen (TranscriptSlots); a parked one comes back at its latest message.
@@ -1751,7 +1753,7 @@ export function ChatComposer({
             ]
               .filter(Boolean)
               .join(" ")}
-            style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}
+            style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}
           >
             <NewChatHeading
               projectKey={newChatProjectKey}
@@ -1809,6 +1811,7 @@ export function ChatComposer({
                   contentClassName="min-h-full"
                   // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
                   autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
+                  onAtEndChange={setTranscriptAtEnd}
                   onJumpToBottomChange={(jump) =>
                     setJumpToBottom((current) => (jump ? { key: transcriptKey, jump } : current?.key === transcriptKey ? null : current))
                   }
@@ -1863,7 +1866,7 @@ export function ChatComposer({
                     {/* While a tool row waits on its approval, or a question waits on its answer, that row or card already shows
                         the time and the agent is blocked on the user: no running timer under it. */}
                     {isSending && !stepApproval && !asking && (
-                      <div className="w-full" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+                      <div className="w-full" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}>
                         <ThinkingIndicator
                           startedAt={runStartedAt}
                           label={phase ?? (waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`)}
@@ -1898,6 +1901,7 @@ export function ChatComposer({
         <div
           ref={dockRef}
           data-composer-dock
+          data-at-end={(!isNewChat && transcriptAtEnd) || undefined}
           className={isNewChat ? "contents" : "pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col pb-[var(--chat-edge-pad,0px)]"}
         >
           <div
