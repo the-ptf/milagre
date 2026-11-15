@@ -87,7 +87,10 @@ window.showUsageButton = () => {
   window.usageStaleReads = 0;
   function ButtonFixture() {
     const [collapsed, setCollapsed] = useState(false);
+    const [scope, setScope] = useState(undefined);
     window.setButtonCollapsed = setCollapsed;
+    window.setButtonScope = setScope;
+    window.usageRefreshes = 0;
     const snapshot = { providers: [
       { provider: "claude", account: { id: "work", label: "Work" }, status: "ok", updatedAt: new Date().toISOString(), windows: [{ ...session, usedPercent: 0 }, { ...weekly, usedPercent: 82 }] },
       { provider: "codex", account: { id: "personal", label: "Personal", email: "victor@example.test" }, status: "error", updatedAt: new Date().toISOString(), windows: [weekly] },
@@ -97,7 +100,7 @@ window.showUsageButton = () => {
     return <aside className="bg-page" data-sidebar-collapsed={collapsed} style={{ position: "absolute", left: 0, bottom: 0, width: collapsed ? 48 : 240, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
       <div className={collapsed ? "mx-auto flex w-8 flex-col-reverse items-center gap-1 py-1.5" : "mx-2 flex items-center gap-1 py-1.5"}>
         <span className="size-8 rounded-control bg-field" data-filters-stand-in />
-        <UsageButton usage={{ snapshot, loading: false, refresh: async () => {}, refreshIfStale: () => { window.usageStaleReads++; } }} />
+        <UsageButton scope={scope} usage={{ snapshot, loading: false, refresh: async () => { window.usageRefreshes++; }, refreshIfStale: () => { window.usageStaleReads++; } }} />
       </div>
     </aside>;
   }
@@ -434,6 +437,47 @@ async function browserChecks() {
     await waitFor(`Boolean(${popover})`);
     await evaluate('document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); true');
     await waitFor(`!${popover}`);
+    // The footer's Refresh reads every provider again, and the popover stays.
+    await evaluate(`${usageButton}.click()`);
+    await waitFor(`Boolean(${popover}?.querySelector("[data-usage-refresh]"))`);
+    await evaluate(`${popover}.querySelector("[data-usage-refresh]").click()`);
+    await waitFor("window.usageRefreshes === 1");
+    assert.equal(await evaluate(`Boolean(${popover})`), true, "Refresh keeps the popover open");
+    // With a Project, Claude's account is a picker at the right of its name; choosing one keeps the popover open.
+    await evaluate("window.setButtonScope('/projects/work')");
+    const buttonPicker = `${popover}?.querySelector("[data-usage-provider=claude] [aria-haspopup=listbox]")`;
+    await waitFor(`Boolean(${buttonPicker})`);
+    assert.equal(
+      await evaluate(`Boolean(${popover}.querySelector("[data-usage-provider=codex] [aria-haspopup=listbox]"))`),
+      false,
+      "One saved account stays text",
+    );
+    const before = await evaluate("window.assigned.length");
+    await evaluate(`${buttonPicker}.click()`);
+    await waitFor('Boolean(document.querySelector("[role=listbox] [data-picker-row]"))');
+    // The pointer leaves the popover for the picker's panel, outside it.
+    await unhover(popover, 'document.querySelector("[role=listbox]")');
+    await delay(300);
+    assert.equal(await evaluate(`Boolean(${popover})`), true, "The popover stays while its picker is open");
+    await screenshot("button-popover-account-picker");
+    await evaluate(
+      '(() => { const row = [...document.querySelectorAll("[role=listbox] [data-picker-row]")].find((row) => row.textContent.includes("work@example.test")); row.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); row.click(); return true; })()',
+    );
+    await waitFor(`window.assigned.length === ${before + 1}`);
+    // The first row holding work@ is Default (work is the default account), which clears the Project's choice.
+    assert.deepEqual(await evaluate("window.assigned.at(-1)"), ["/projects/work", "claude", null]);
+    await delay(50);
+    assert.equal(await evaluate(`Boolean(${popover})`), true, "Choosing an account keeps the popover open");
+    await evaluate(`${buttonPicker}.click()`);
+    await waitFor('Boolean(document.querySelector("[role=listbox] [data-picker-row]"))');
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor('!document.querySelector("[role=listbox] [data-picker-row]")');
+    await delay(50);
+    assert.equal(await evaluate(`Boolean(${popover})`), true, "Escape closes the picker, not the popover");
+    await screenshot("button-popover-scoped");
+    await evaluate('document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); true');
+    await waitFor(`!${popover}`);
+    await evaluate("window.setButtonScope(undefined)");
     await evaluate("window.setTheme('light')");
     await evaluate(`${usageButton}.click()`);
     await waitFor(`Boolean(${popover})`);
@@ -507,7 +551,7 @@ async function browserChecks() {
     assert.equal(await evaluate("window.localUsageReads"), 0, "The chosen Account refreshes usage on its owning computer");
     await screenshot("remote-live-usage");
     console.log(
-      "PASS: usage button popover (hover, click, Escape, collapsed, tone), weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, compact one-line mode, collapsed rail, account email and name fallback, account picker",
+      "PASS: usage button popover (hover, click, Escape, collapsed, tone, refresh, account picker), weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, compact one-line mode, collapsed rail, account email and name fallback, account picker",
     );
     app.exit(0);
   } catch (error) {

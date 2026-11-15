@@ -33,41 +33,48 @@ type UsageCardProps = {
   onBlur: (event: FocusEvent<HTMLDivElement>) => void;
 };
 
-function AccountText({ account }: { account?: string }) {
+function AccountText({ account, small = false }: { account?: string; small?: boolean }) {
   return (
-    <p className="break-words text-15 font-semibold" data-usage-account>
+    <p className={small ? "min-w-0 truncate text-12 text-ink-3" : "break-words text-15 font-semibold"} data-usage-account>
       {account || "Account unavailable"}
     </p>
   );
 }
 
-// The account line in the card's header: a picker when the Project has more than one saved account for the provider.
-function AccountPicker({
+/**
+ * The account line: a picker when the Project has more than one saved account for the provider. The card's header
+ * shows it large; `small` is the usage button's popover, where it sits at the right of each provider's name.
+ */
+export function AccountPicker({
   scope,
   chatsHome,
   provider,
   account,
+  small = false,
   onOpenChange,
 }: {
   scope: string;
   chatsHome?: boolean;
   provider: ModelProvider;
   account?: string;
+  small?: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const { shown, busy, error, act } = useProjectAccounts(scope);
   const group = shown?.providers.find((item) => item.provider === provider);
-  if (!group || group.accounts.filter((item) => !item.missing).length < 2) return <AccountText account={account} />;
+  if (!group || group.accounts.filter((item) => !item.missing).length < 2) return <AccountText account={account} small={small} />;
   const defaultAccount = group.accounts.find((item) => item.id === group.defaultId);
   return (
-    <div className="flex min-w-0 flex-col items-start" data-usage-account>
+    <div className={`flex min-w-0 flex-col ${small ? "items-end" : "items-start"}`} data-usage-account>
       <Select
         label={accountPickerLabel(provider, chatsHome)}
         value={group.accountId ?? ""}
         width={300}
         variant="text"
+        align={small ? "end" : "start"}
+        compact={small}
         onOpenChange={onOpenChange}
-        triggerClassName="text-15 font-semibold"
+        triggerClassName={small ? "text-ink-3 hover:text-ink" : "text-15 font-semibold"}
         // Not `disabled` while saving: a disabled trigger drops focus to <body>, which closes the card.
         onChange={(next) => {
           if (!busy) void act(() => bridgeForKey(scope).assignProjectAccount(scope, provider, next || null));
