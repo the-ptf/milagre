@@ -96,7 +96,8 @@ import { UI_COPY } from "@milagre/shared/model-copy";
 import { SpinnerRing } from "./primitives/SpinnerRing";
 import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
-import { PromptComposer } from "./PromptComposer";
+import { DraftPromptComposer } from "./DraftPromptComposer";
+import type { DraftStore } from "../lib/draft-store";
 import { QueuedMessages } from "./QueuedMessages";
 import { ComputerUseCard } from "./agents/ComputerUseCard";
 import { HeartbeatCard } from "./routines/HeartbeatCard";
@@ -175,7 +176,6 @@ type IconData = IconSvgElement;
  * A reply with no answer that ended or stopped to ask shows its last thinking instead, dimmed.
  */
 const NO_FILES: readonly string[] = [];
-const NO_QUOTES: readonly ComposerQuote[] = [];
 const NO_IMAGES: NonNullable<AppChatMessage["images"]> = [];
 
 /** The skills a sent message names (lowercase name to description) and the attached files and images it mentions inline as chips. */
@@ -979,11 +979,11 @@ interface ChatComposerProps {
   onRetryLoad?: () => void;
   /** Unsaved input appears below the reply still streaming while the backend prepares the send. */
   pendingMessageId?: number;
-  draft: string;
-  onDraftChange: (draft: string) => void;
-  /** Passages quoted from the transcript into the next message, sent as blockquotes before the draft. */
-  quotes: readonly ComposerQuote[];
-  onQuotesChange: (quotes: readonly ComposerQuote[]) => void;
+  /**
+   * The Chat's draft: the typed text and the passages quoted above it. Only the prompt subscribes to it, so a keystroke
+   * re-renders the prompt and not this whole composer; the handlers here read it when they run.
+   */
+  store: DraftStore;
   onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
@@ -1398,10 +1398,7 @@ export function ChatComposer({
   loadError,
   onRetryLoad,
   pendingMessageId,
-  draft,
-  onDraftChange,
-  quotes = NO_QUOTES,
-  onQuotesChange,
+  store,
   onSend,
   onStop,
   onCompact,
@@ -1653,8 +1650,8 @@ export function ChatComposer({
     if (
       isSending ||
       review.view !== "closed" ||
-      draft.trim() ||
-      quotes.length ||
+      store.text().trim() ||
+      store.quotes().length ||
       typing ||
       hidden ||
       isModalOpen() ||
@@ -1676,14 +1673,15 @@ export function ChatComposer({
   }, [runtimeChat, offlineName, onEscape]);
   // `/undo` opens the same list instead of going to the agent.
   const send = useEvent((delivery?: MessageDelivery) => {
+    const draft = store.text();
     if (runtimeChat && draft.trim() === "/undo") {
-      onDraftChange("");
+      store.setText("");
       openUndo();
       return;
     }
     // `/storage` opens Clean up worktrees for the Chat's computer instead of going to the agent.
     if (draft.trim() === `/${STORAGE_COMMAND}`) {
-      onDraftChange("");
+      store.setText("");
       const computer = computerOfKey(runtimeChat ?? "");
       openStorage(computer === LOCAL_COMPUTER ? null : computer);
       return;
@@ -1700,10 +1698,8 @@ export function ChatComposer({
   const artifactSteps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
   const { userMessages, promptHistory } = history;
 
-  const draftLatest = useRef(draft);
-  draftLatest.current = draft;
   const addQuotes = useEvent((added: readonly ComposerQuote[]) => {
-    onQuotesChange([...quotes, ...added]);
+    store.setQuotes([...store.quotes(), ...added]);
     focusPrompt(true);
   });
   // A quote taken from this Chat's tile while another tile had the composer arrives once this one has it.
@@ -1715,7 +1711,7 @@ export function ChatComposer({
     event.preventDefault();
     void imageDraft.attachFiles(files).then((indices) => {
       if (!indices.length) return;
-      onDraftChange(insertImageMentions(draftLatest.current, indices).value);
+      store.setText(insertImageMentions(store.text(), indices).value);
     });
     event.currentTarget.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
   }
@@ -2089,17 +2085,14 @@ export function ChatComposer({
                 />
               )}
               <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
-                <PromptComposer
+                <DraftPromptComposer
+                  store={store}
                   offlineName={offlineName}
                   reconnectingName={reconnectingName}
                   imageDraft={imageDraft}
                   projectPath={projectPath}
                   skillScope={skillScope}
                   accountScope={messageScope ?? projectPath}
-                  draft={draft}
-                  onDraftChange={onDraftChange}
-                  quotes={quotes}
-                  onRemoveQuote={(id) => onQuotesChange(quotes.filter((quote) => quote.id !== id))}
                   history={promptHistory}
                   onSend={send}
                   canUndo={Boolean(runtimeChat) && !readOnlyHistory}

@@ -959,6 +959,15 @@ function ChatPane({
     },
     [targetHost, secondary],
   );
+  // Transcript links, the pills and the title menu share one route: every Chat opens alone, never beside this one. One
+  // identity across renders, so the memo()'d ChatReply rows skip when ChatPane re-renders.
+  const openFamilyChat = useCallback(
+    (key: string) => {
+      if (params.id && key === `${projectPath}#${params.id}`) return;
+      openOtherChat(key);
+    },
+    [params.id, projectPath, openOtherChat],
+  );
   const { rememberChat } = session;
   const canRemember = !secondary && !!params.id && !!session.snapshot?.project.state.sessions[Number(params.id)] && targetMatches;
   useFocusEffect(
@@ -2122,11 +2131,6 @@ function ChatPane({
   }
   // A Chat with subchats, or a subchat: its title opens a menu of the family (subchats.ts, subchat-family.ts).
   const family = chat && !secondary ? chatFamily(project.state.sessions, `${project.path}#${chat.id}`) : null;
-  // Transcript links, the pills and the title menu share one route: every Chat opens alone, never beside this one.
-  function openFamilyChat(key: string) {
-    if (key === `${project.path}#${chat?.id}`) return;
-    openOtherChat(key);
-  }
   // "Open beside parent" is the one way into a split from a Subchat, for a wide iPad's second pane.
   const besideParent = bookmark && split.widthClass === "wide" && !secondary ? sessionIdFromKey(bookmark.parent) : undefined;
   const familyItems: MenuSection[] =

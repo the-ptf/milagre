@@ -34,6 +34,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { createDraftStore } from "/src/lib/draft-store";
 import { Markdown } from "/src/components/markdown/Markdown";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
@@ -47,6 +48,7 @@ window.rejections = [];
 window.addEventListener("unhandledrejection", (event) => window.rejections.push(String(event.reason)));
 function Fixture() {
   const [said, setSaid] = useState([]);
+  const [draftStore] = useState(createDraftStore);
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [finished, setFinished] = useState([]);
@@ -71,7 +73,7 @@ function Fixture() {
   <div data-fixture="chat" style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages} onSendDesignMessage={onSendDesignMessage}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" messageScope="/fixture" agentChatId="/fixture#1" draft="" onDraftChange={noop} onSend={noop} isSending={streaming} sendBlocked={false}
+      projectPath="/fixture" messageScope="/fixture" agentChatId="/fixture#1" store={draftStore} onSend={noop} isSending={streaming} sendBlocked={false}
       streamingText={streaming ? streamingText : ""} asking={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
