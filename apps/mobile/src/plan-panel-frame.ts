@@ -1,3 +1,5 @@
+import { radius } from "./design-tokens.ts";
+
 export type MorphRect = { x: number; y: number; width: number; height: number; radius: number };
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -5,7 +7,7 @@ type Box = { x: number; y: number; width: number; height: number };
  * The Tasks panel's room: the composer column's own side padding, a gap under the header, at most this share of the
  * window above the keyboard, and its corner radius.
  */
-export const PLAN_PANEL = { edge: 12, top: 52, share: 0.7, radius: 20 } as const;
+export const PLAN_PANEL = { edge: 12, top: 52, share: 0.7, radius: radius.sheet } as const;
 
 /**
  * Where the Tasks pill's surface starts and ends, relative to the overlay it is drawn in. It grows from the pill to the

@@ -4,17 +4,18 @@ import { useFocusEffect } from "expo-router";
 import { SIGN_INS_FOOTER, SIGN_INS_TITLE, SIGN_OUT, SIGNED_OUT, SIGNING_OUT, type BrowserSignIns } from "@milagre/shared/browser-sign-ins";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
-import { ErrorNotice, useStyles } from "./ui";
+import { ErrorNotice, pressStyle, useStyles } from "./ui";
+import { hitSlopFor, lineHeight, space, type } from "./design-tokens";
 
 /**
- * Settings › Browser: the connected Mac's Browser panel sign-ins, this Mac's Chats' and each paired computer's, each
- * signed out on its own (desktop Settings › Browser). Hidden on a Mac too old to list them.
+ * Settings › Browser: the connected computer's Browser panel sign-ins, its own Chats' and each paired computer's, each
+ * signed out on its own (desktop Settings › Browser). Hidden on a computer too old to list them.
  */
 export function BrowserSignInsSection() {
   const styles = useStyles();
   const session = useSession();
   const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;
-  const macName = host?.name || session.hostName || "your Mac";
+  const macName = host?.name || session.hostName || "your computer";
   const [list, setList] = useState<BrowserSignIns["sessions"] | null>(null);
   const [error, setError] = useState("");
   useFocusEffect(
@@ -74,8 +75,8 @@ function SignOutRow({ computerId, name, onError }: { computerId: string; name: s
   const label = state === "busy" ? SIGNING_OUT : state === "done" ? SIGNED_OUT : SIGN_OUT;
   // A plain row, not settings-list's Row: that one is a Pressable, which VoiceOver reads as one element, hiding Sign out.
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 14, minHeight: 52 }}>
-      <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: 52 }}>
+      <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>
         {name}
       </Text>
       <Pressable
@@ -83,11 +84,11 @@ function SignOutRow({ computerId, name, onError }: { computerId: string; name: s
         accessibilityLabel={`${SIGN_OUT}: ${name}`}
         accessibilityState={{ disabled: state !== "idle", busy: state === "busy" }}
         disabled={state !== "idle"}
-        hitSlop={8}
+        hitSlop={hitSlopFor(lineHeight.body)}
         onPress={() => void signOut()}
-        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+        style={({ pressed }) => pressStyle({ pressed })}
       >
-        <Text style={{ color: state === "idle" ? colors.redInk : colors.ink3, fontSize: 17 }}>{label}</Text>
+        <Text style={{ color: state === "idle" ? colors.redInk : colors.ink3, fontSize: type.body, lineHeight: lineHeight.body }}>{label}</Text>
       </Pressable>
     </View>
   );

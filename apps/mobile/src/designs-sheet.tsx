@@ -600,7 +600,7 @@ export function DesignsSheet({
       />
       <View style={{ flex: 1 }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
         {!matching ? (
-          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this Mac to open this page.</Text>
+          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to your computer to open this page.</Text>
         ) : feature.enabled !== true ? (
           <View style={{ padding: 16 }}>
             {feature.enabled !== false && feature.error ? (
@@ -608,7 +608,7 @@ export function DesignsSheet({
             ) : (
               <Text style={styles.muted}>
                 {feature.enabled === false
-                  ? "Designs is off for this Mac. Update Milagre on the Mac to use Designs."
+                  ? "Designs is off for this computer. Update Milagre on the computer to use Designs."
                   : "Checking whether Designs is available…"}
               </Text>
             )}
@@ -688,6 +688,7 @@ function DrawingDesignIcon() {
   const outline = useAnimatedProps(() => ({ strokeDashoffset: drawn(PALETTE_LENGTH) }));
   const dot = useAnimatedProps(() => ({ strokeDashoffset: drawn(DOT_LENGTH) }));
   const fade = useAnimatedStyle(() => ({
+    // oxlint-disable-next-line milagre-design/opacity-token -- animation: the palette icon's fade-out, not a press or disabled state
     opacity: reduced ? (progress.value < 0.5 ? 1 : 0.45) : progress.value > 0.85 ? 1 - (progress.value - 0.85) / 0.15 : 1,
   }));
   return (

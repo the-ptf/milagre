@@ -9,7 +9,7 @@ import { InlineError } from "./primitives/InlineError";
 /**
  * Asks this Mac's owner whether a computer pairing for the first time may drive it (spec "Allowing a new computer").
  * The daemon holds that computer's channel until Allow or Deny; two at once are asked oldest first. Escape answers
- * Deny at once, the choice that can't give anything away; the buttons wait ARM_MS after each new request. Not behind Settings › Devices › Other computers: the computer asking has the flag
+ * Deny at once, the choice that can't give anything away; the buttons wait ARM_MS after each new request. Not behind Settings › Phone & sharing › Other computers: the computer asking has the flag
  * on, this Mac may not.
  */
 // A request's buttons stay off this long after it appears, so the second click of a double-click on the one before can't allow it unread.

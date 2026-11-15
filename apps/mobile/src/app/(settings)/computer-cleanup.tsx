@@ -30,7 +30,7 @@ import { CheckRow } from "../../primitives/check-row";
 import { Toast } from "../../primitives/toast";
 import { ErrorNotice, PageScroll, PillButton, Segmented, useStyles } from "../../ui";
 import { useTheme } from "../../theme";
-import { radius, type } from "../../design-tokens";
+import { radius, space, type } from "../../design-tokens";
 
 const DAY_OPTIONS = IDLE_DAYS.map((days) => ({ value: String(days), title: `${days} days` }));
 const olderMilagre = (error: string) => /unknown|not (available|allowed|supported)|no handler/i.test(error);
@@ -150,7 +150,7 @@ export default function ComputerCleanupScreen() {
     <>
       <Stack.Screen options={{ title: CLEANUP_TITLE }} />
       <PageScroll>
-        <View style={{ gap: 22 }}>
+        <View style={{ gap: space.section }}>
           <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>{CLEANUP_INTRO}</Text>
           <Segmented
             label="Unused for at least"

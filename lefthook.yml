@@ -13,3 +13,21 @@ commit-msg:
   commands:
     attribution:
       run: node scripts/check-attribution.cjs --commit-msg {1}
+
+# Typecheck and lint before a push (about 8 s and 1 s on an M-series Mac). Unit tests stay in CI: `npm test -- --unit`
+# took 84-132 s locally. LEFTHOOK=0 git push skips the hook; CI never pushes with it.
+# Git exports GIT_DIR to hooks: a command here that runs git in another folder (a check's fixture repo) must drop it,
+# or `git init` there re-initializes this repository as bare. pre-push-desktop-smoke.cjs does.
+pre-push:
+  parallel: true
+  skip:
+    - run: test -n "$CI"
+  commands:
+    typecheck:
+      run: npm run typecheck
+    lint:
+      run: npm run lint -- --quiet
+    # AGENTS.md: a change under apps/desktop/electron gets the macOS desktop smoke on your Mac; CI runs it only on main.
+    desktop-smoke:
+      use_stdin: true
+      run: node scripts/pre-push-desktop-smoke.cjs

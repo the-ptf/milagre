@@ -5,6 +5,7 @@ import { Renderer } from "@milagre/shared/genui-renderer";
 import type { ActionEvent, ParseResult } from "@milagre/shared/genui-renderer";
 import { GENUI_ACTION_TYPE, genuiTextOverLimit } from "@milagre/shared/genui";
 import { genuiLibrary } from "./library";
+import { DISABLED_OPACITY } from "../primitives/press-style";
 
 type Send = (text: string) => Promise<boolean | "busy">;
 const SendContext = createContext<{ send?: Send }>({});
@@ -56,7 +57,7 @@ export function GenerativeUI({ code, fallback }: { code: string; fallback: React
   if (rootless && !streaming) return <>{fallback}</>;
   return (
     <Boundary fallback={fallback}>
-      <View pointerEvents={busy ? "none" : "auto"} style={{ opacity: busy ? 0.6 : 1 }}>
+      <View pointerEvents={busy ? "none" : "auto"} style={{ opacity: busy ? DISABLED_OPACITY.row : 1 }}>
         <Renderer response={code} library={genuiLibrary} isStreaming={streaming || busy || !send} onParseResult={onParseResult} onAction={onAction} />
       </View>
     </Boundary>

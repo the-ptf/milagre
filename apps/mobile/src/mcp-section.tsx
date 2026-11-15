@@ -62,7 +62,7 @@ export function McpSection() {
               key={row.name}
               title={row.name}
               subtitle={mcpTransportLine(row)}
-              value="On the Mac"
+              value="On your computer"
               onPress={() => openServer(row)}
               leading={
                 <View
@@ -119,7 +119,7 @@ export function McpSection() {
           ) : null}
         </View>
       ) : null}
-      {empty ? <EmptyState title="No MCP servers yet">Tap + to add one, or use the Claude or Codex CLI on the Mac.</EmptyState> : null}
+      {empty ? <EmptyState title="No MCP servers yet">Tap + to add one, or use the Claude or Codex CLI on your computer.</EmptyState> : null}
     </View>
   );
 }

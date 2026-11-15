@@ -659,7 +659,7 @@ function createPhone({
     releaseDeviceNotices(claim) {
       relayPhones?.releaseNotices(claim);
     },
-    /** The owner saw these devices in Settings › Devices, so they are no longer New. Returns the list. */
+    /** The owner saw these devices in Settings › Phone & sharing, so they are no longer New. Returns the list. */
     async acknowledgeDevices(keys) {
       if (!Array.isArray(keys) || !keys.every((key) => typeof key === "string" && PHONE_KEY.test(key))) throw new Error("Expected device keys");
       await (await deviceStore()).acknowledge(keys);

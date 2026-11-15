@@ -200,7 +200,11 @@ function ActivityRow({
   const summary = activitySummary(steps, { credits });
   const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, live, now), live);
   const runningCount = steps.filter((step) => step.status === "running").length;
-  const label = current ? stepDisplayTitle({ ...current, description: undefined, detail: undefined }, !waiting) : live ? "Working" : summary.text || "Activity";
+  const label = current
+    ? stepDisplayTitle({ ...current, description: undefined, detail: undefined }, !waiting, waiting)
+    : live
+      ? "Working"
+      : summary.text || "Activity";
   return (
     <Pressable
       accessibilityRole="button"

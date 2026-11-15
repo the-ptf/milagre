@@ -49,7 +49,7 @@ const NO_CHATS: readonly MentionChat[] = [];
 /** Without a control row the field still shows its mic under the text. */
 const micAlone = (mic: ReactNode) => mic;
 const NO_COMPUTERS: readonly MentionComputer[] = [];
-const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
+const OLD_MAC_ROW = "Update Milagre on your computer to mention files.";
 // Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
 // nothing, so `[Image #1]` reads as an image chip in a field that can only style its own characters. Loaded at runtime,
 // so it ships over the air.

@@ -6,10 +6,11 @@ import { useSession } from "./session";
 import { Group } from "./settings-list";
 import { useTheme } from "./theme";
 import { ErrorNotice, Field, PillButton, Segmented, Toggle, useStyles } from "./ui";
+import { lineHeight, type } from "./design-tokens";
 
 const DEVICES = [1, 2, 3, 4, 6, 8].map((count) => ({ value: String(count), title: String(count) }));
 const MINUTES = [15, 30, 60, 120, 240].map((minutes) => ({ value: String(minutes), title: minutes < 60 ? `${minutes} min` : `${minutes / 60} h` }));
-const message = (error: unknown) => (error instanceof Error ? error.message : "Could not reach this Mac.");
+const message = (error: unknown) => (error instanceof Error ? error.message : "Could not reach this computer.");
 
 /**
  * Settings › Phone & sharing › Simlock devices, as on desktop: the connected Mac's pool. The agent token is sent once to the
@@ -73,8 +74,8 @@ export function SimlockSection() {
       setCheck({ ok: false, text: message(cause) });
     }
   };
-  if (!client) return <Text style={styles.muted}>Connect to a Mac to set up Simlock devices.</Text>;
-  if (loadError) return <ErrorNotice message={`This Mac can't lease Simlock devices yet. Update Milagre on it. (${loadError})`} />;
+  if (!client) return <Text style={styles.muted}>Connect to a computer to set up Simlock devices.</Text>;
+  if (loadError) return <ErrorNotice message={`This computer can't lease Simlock devices yet. Update Milagre on it. (${loadError})`} />;
   if (!settings) return <Text style={styles.muted}>Loading...</Text>;
   const detected = settings.detected;
   return (
@@ -88,8 +89,8 @@ export function SimlockSection() {
           onPress={() => void save({ enabled: !settings.enabled })}
         />
         <Text style={styles.caption}>
-          Agents lease a simulator or emulator of their own from a Simlock pool, watch it here and on the Mac, and return it wiped. Simlock runs on your own
-          Macs; Milagre doesn&apos;t install it.
+          Agents lease a simulator or emulator of their own from a Simlock pool, watch it here and on your computer, and return it wiped. Simlock runs on your
+          own computers; Milagre doesn&apos;t install it.
         </Text>
       </View>
       {settings.enabled && (
@@ -107,7 +108,7 @@ export function SimlockSection() {
               />
               <Text style={styles.caption}>
                 {detected
-                  ? `Leave it empty to use the Mac's ${detected.source === "worker" ? "Simlock worker" : "agent-device setup"} at ${detected.gatewayUrl}.`
+                  ? `Leave it empty to use your computer's ${detected.source === "worker" ? "Simlock worker" : "agent-device setup"} at ${detected.gatewayUrl}.`
                   : "A Simlock gateway or worker's address, such as https://gateway.example.ts.net:4700."}
               </Text>
               <Field
@@ -117,10 +118,10 @@ export function SimlockSection() {
                 onChangeText={setToken}
                 secureTextEntry
                 textContentType="password"
-                placeholder={settings.tokenSource === "settings" ? "Saved" : settings.tokenSource ? "The Mac's Simlock token" : "slk_..."}
+                placeholder={settings.tokenSource === "settings" ? "Saved" : settings.tokenSource ? "Your computer's Simlock token" : "slk_..."}
               />
               <Text style={styles.caption}>
-                From simlock token create --role agent, one per Mac running Milagre. It stays on the Mac and goes only to its gateway.
+                From simlock token create --role agent, one per computer running Milagre. It stays on that computer and goes only to its gateway.
               </Text>
             </View>
             <View style={{ gap: 12, paddingVertical: 12 }}>
@@ -137,17 +138,17 @@ export function SimlockSection() {
           </Group>
           <Group title="Limits">
             <View style={{ gap: 8, paddingVertical: 12 }}>
-              <Text style={{ color: colors.ink, fontSize: 17 }}>Devices at once</Text>
+              <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Devices at once</Text>
               <Segmented
                 label="Devices at once"
                 value={String(settings.maxLeases)}
                 options={DEVICES}
                 onChange={(value) => void save({ maxLeases: Number(value) })}
               />
-              <Text style={styles.caption}>Leases this Mac holds together. Simlock also caps leases per token.</Text>
+              <Text style={styles.caption}>Leases this computer holds together. Simlock also caps leases per token.</Text>
             </View>
             <View style={{ gap: 8, paddingVertical: 12 }}>
-              <Text style={{ color: colors.ink, fontSize: 17 }}>Return a device after</Text>
+              <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Return a device after</Text>
               <Segmented
                 label="Return a device after"
                 value={String(settings.maxLeaseMinutes)}

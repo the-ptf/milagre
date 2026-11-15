@@ -111,8 +111,8 @@ export function BabysitSection() {
   const ownRule = useAutosave(state.settings?.ownRuleText ?? "", "ownRuleText", save, ownRuleInput);
   const instructions = useAutosave(state.settings?.instructions ?? "", "instructions", save, instructionsInput);
   const settings = state.settings;
-  if (!client) return <Text style={styles.muted}>Connect to a Mac to change Babysit PRs.</Text>;
-  if (state.unsupported) return <Text style={styles.muted}>Update Milagre on your Mac to use Babysit PRs.</Text>;
+  if (!client) return <Text style={styles.muted}>Connect to a computer to change Babysit PRs.</Text>;
+  if (state.unsupported) return <Text style={styles.muted}>Update Milagre on your computer to use Babysit PRs.</Text>;
   const error = state.error ? <ErrorNotice message={state.error} /> : null;
   if (!settings) return error;
   // Switches, choices and chips save at once; a failure shows in the error above the groups.

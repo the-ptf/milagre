@@ -23,7 +23,7 @@ async function printPairing(client, { output = process.stdout, qr = output.isTTY
   if (status.pairingLink !== status.computerLink) output.write(`\nPhone pairing link:\n${status.pairingLink}\n`);
   if (qr) output.write(await require("qrcode").toString(status.pairingLink, { type: "terminal", small: true }));
   output.write(`\nPairing closes at ${new Date(status.pairingUntil).toISOString()}. Keep these links private.\n`);
-  output.write("On desktop, use Settings > Devices > Add computer and paste the link.\nApprove it here with: milagre devices allow KEY\n");
+  output.write("On desktop, use Settings > Phone & sharing > Add computer and paste the link.\nApprove it here with: milagre devices allow KEY\n");
   output.write("Use the same MILAGRE_DATA_DIR or --data-dir for every command.\n");
   return status;
 }

@@ -44,7 +44,7 @@ export function createMcpStore(initial: McpClient, appState?: McpAppState) {
           busy: false,
           error:
             (cause as { status?: number }).status === 403
-              ? "Not available on this computer. Update Milagre on the Mac, then refresh."
+              ? "Not available on this computer. Update Milagre on it, then refresh."
               : "Could not reach the computer. Check the connection, then refresh.",
         });
       return;

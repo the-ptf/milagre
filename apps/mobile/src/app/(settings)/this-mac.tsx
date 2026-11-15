@@ -6,13 +6,13 @@ import { MacUpdatesSection } from "../../mac-settings-sections";
 import { MacFeatureRow } from "../../mac-feature-row";
 import { useSession } from "../../session";
 
-/** Settings › This Mac: the connected Mac's Milagre update and Computer use, like desktop's This Mac page. */
+/** Settings › This computer (route `this-mac`): the connected computer's Milagre update and Computer use, like desktop's This Mac page. */
 export default function ThisMacScreen() {
   const session = useSession();
   const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;
   return (
     <>
-      <Stack.Screen options={{ title: host?.name || session.hostName || "This Mac" }} />
+      <Stack.Screen options={{ title: host?.name || session.hostName || "This computer" }} />
       <SettingsScroll>
         <View style={{ gap: 24 }}>
           <MacUpdatesSection />
@@ -21,7 +21,7 @@ export default function ThisMacScreen() {
             <MacFeatureRow
               read="computer-use:settings:read"
               title="Computer use"
-              description="Agents see and operate apps on the Mac, asking before each new app."
+              description="Agents see and operate apps on this computer, asking before each new app."
               href="/computer-use"
             />
           </View>

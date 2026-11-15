@@ -158,7 +158,7 @@ type SidebarNavProps = {
   onSwitchLink?: (id: string) => void;
   /** Opens Add computer. */
   onAddComputer?: () => void;
-  /** Opens a computer's settings; null for This Mac (Settings › Devices). */
+  /** Opens a computer's settings; null for This Mac (Settings › Phone & sharing). */
   onOpenComputerSettings?: (id: string | null) => void;
   /** Opens the dialog that renames a Link or changes its member Projects. */
   onEditLink?: (id: string) => void;
@@ -614,7 +614,7 @@ export default memo(function SidebarNav({
   const { chatOrder, chatRowShow, chatList } = useSettings();
   // This Mac's pins: another computer's or the phone's never show here (chat-pins.ts).
   const pins = useChatPins();
-  // Other computers (Settings › Devices): their Projects join the list, and every row says its computer.
+  // Other computers (Settings › Phone & sharing): their Projects join the list, and every row says its computer.
   const { thisMac, computers } = useComputers();
   const remote = useComputerScopes(computers);
   const multi = computers.length > 0;

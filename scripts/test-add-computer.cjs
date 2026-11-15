@@ -33,7 +33,7 @@ window.milagre = {
       if (link === ${JSON.stringify(LINK)}) return { name: "studio", hostId: "h".repeat(22), relayHost: "relay.milagre.cloud" };
       if (link === ${JSON.stringify(PRIVATE_LINK)}) return { name: "studio", hostId: "h".repeat(22), relayHost: "192.168.1.20:8798" };
       if (link === ${JSON.stringify(OWN)}) throw new Error("That's this Mac's own link. Copy the one on the other Mac.");
-      throw new Error("That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac.");
+      throw new Error("That isn't a Milagre pairing link. Copy it from Settings › Phone & sharing on the other computer.");
     },
     add: (link, options) =>
       new Promise((resolve) => {
@@ -114,7 +114,7 @@ async function browserChecks() {
 
     await type("Pairing link", "hello");
     await waitFor(`!!document.querySelector('[data-add-computer-error]')`);
-    assert.equal(await text("[data-add-computer-error]"), "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac.");
+    assert.equal(await text("[data-add-computer-error]"), "That isn't a Milagre pairing link. Copy it from Settings › Phone & sharing on the other computer.");
     assert.equal(await evaluate(`[...document.querySelectorAll('dialog button')].find((b) => b.textContent.trim() === 'Add computer').disabled`), true);
     await type("Pairing link", OWN);
     await waitFor(`document.querySelector('[data-add-computer-error]')?.textContent.includes("own link")`);

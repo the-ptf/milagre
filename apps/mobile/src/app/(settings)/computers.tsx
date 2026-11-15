@@ -90,7 +90,7 @@ export default function ComputersScreen() {
           </View>
         ) : (
           <EmptyState icon={ComputerIcon} title="No computers paired">
-            Open Settings → Devices in Milagre on your computer, then scan its pairing code with +.
+            Open Settings → Phone & sharing in Milagre on your computer, then scan its pairing code with +.
           </EmptyState>
         )}
         {error ? <ErrorNotice message={error} /> : null}

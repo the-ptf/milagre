@@ -1,5 +1,5 @@
 import { EmptyState } from "./ui";
-import { radius } from "./design-tokens";
+import { lineHeight, radius, space } from "./design-tokens";
 import { type } from "./design-tokens";
 import { ChatSwipeRow, hideRevealed } from "./chat-swipe-row";
 import { retentionOf, useDoneRetention } from "./done-retention";
@@ -79,7 +79,7 @@ import { ChatMarkIcon } from "./status-indicators";
 import { Icon, SpinnerRing, type IconData } from "./icons";
 import { tap } from "./primitives/tap";
 import { LoadingLogo } from "./loading-logo";
-import { ErrorNotice, IconButton, PRESSED_OPACITY, PullDown, useStyles } from "./ui";
+import { DISABLED_OPACITY, ErrorNotice, IconButton, PRESSED_OPACITY, PullDown, useStyles } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./navigation-commands";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
@@ -1606,7 +1606,7 @@ const NavigationBody = memo(function NavigationBody({
     if (action !== "remove" || !client) return;
     const confirmed = await confirm(
       `Remove ${name}?`,
-      "It leaves this list on your phone and your Mac. Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back. Running Chats keep running.",
+      "It leaves this list on your phone and your computer. Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back. Running Chats keep running.",
       "Remove",
     );
     if (!confirmed) return;
@@ -1619,7 +1619,7 @@ const NavigationBody = memo(function NavigationBody({
       await allComputers.refreshAll();
     } catch (e) {
       const message = (e as Error).message;
-      if (alive.current) setError(/not available from mobile/i.test(message) ? "Update Milagre on your Mac to remove Projects from your phone." : message);
+      if (alive.current) setError(/not available from mobile/i.test(message) ? "Update Milagre on your computer to remove Projects from your phone." : message);
     }
   }
   // Deleting a Link asks first, as desktop does; the open one leaves for this list, and Worktrees it kept are named.
@@ -1937,7 +1937,8 @@ const NavigationBody = memo(function NavigationBody({
             style={{
               flex: 1,
               color: colors.ink,
-              fontSize: 17,
+              fontSize: type.body,
+              lineHeight: lineHeight.body,
               fontWeight: "600",
             }}
           >
@@ -1954,7 +1955,7 @@ const NavigationBody = memo(function NavigationBody({
       ? "Add a project from your computer to start a Chat."
       : session.hosts.length
         ? "Every computer is hidden. Show one in Settings."
-        : "Pair your computer. Open Settings → Devices in Milagre on your Mac, then scan its pairing code.";
+        : "Pair your computer. Open Settings → Phone & sharing in Milagre on your computer, then scan its pairing code.";
   return (
     <View style={[styles.screen, { backgroundColor: background }]}>
       <View
@@ -1971,7 +1972,8 @@ const NavigationBody = memo(function NavigationBody({
             style={{
               flex: 1,
               color: colors.ink,
-              fontSize: 22,
+              fontSize: type.title2,
+              lineHeight: lineHeight.title2,
               fontWeight: "600",
             }}
           >
@@ -2239,6 +2241,7 @@ function ProjectHeaderDrag({
   reorderProjects: RowActions["reorderProjects"];
   children: ReactNode;
 }) {
+  const { colors } = useTheme();
   const ref = useRef<ViewInstance>(null);
   const lifted = useSharedValue(0);
   const offset = useSharedValue(0);
@@ -2258,9 +2261,11 @@ function ProjectHeaderDrag({
   const lift = useAnimatedStyle(() => ({
     transform: [{ translateY: offset.get() }, { scale: 1 + lifted.get() * 0.02 }],
     borderRadius: radius.control,
-    shadowColor: "#000",
+    shadowColor: colors.media,
     shadowOpacity: lifted.get() * 0.14,
+    // oxlint-disable-next-line milagre-design/shadow-token -- the drag lift fades its shadow in with the spring, which a static boxShadow token cannot
     shadowRadius: 10,
+    // oxlint-disable-next-line milagre-design/shadow-token -- same animated drag-lift shadow as shadowRadius above
     shadowOffset: { width: 0, height: 3 },
     zIndex: lifted.get() ? 2 : 0,
   }));
@@ -2337,7 +2342,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     // Styled like a Project group: a tap folds it, a long press or ⋯ opens its menu, + starts a Chat without a Project.
     // Its ⋯ keeps the chevron and attention dot in the same column as every Project header's.
     return (
-      <View style={[s.project, { opacity: item.offline ? 0.6 : 1 }]}>
+      <View style={[s.project, { opacity: item.offline ? DISABLED_OPACITY.row : 1 }]}>
         <PullDown
           label={`${item.expanded ? "Collapse" : "Expand"} ${CHATS_GROUP_LABEL}`}
           title={CHATS_GROUP_LABEL}
@@ -2418,7 +2423,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           style={{
             flexDirection: "row",
             alignItems: "center",
-            opacity: offline ? 0.6 : 1,
+            opacity: offline ? DISABLED_OPACITY.row : 1,
           }}
         >
           {/* A long press or the ⋯ button offers Reopen or Wake, so leaving the section needn't be found by swiping. */}
@@ -2433,7 +2438,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             <View style={[s.doneRow, { paddingRight: 0 }]}>
               <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, color: colors.ink3 }}>
+                  <Text numberOfLines={1} style={{ flex: 1, fontSize: type.callout, lineHeight: lineHeight.callout, color: colors.ink3 }}>
                     {item.title}
                   </Text>
                   {countdown ? (
@@ -2509,7 +2514,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         style={({ pressed }) => [
           s.projectHit,
           {
-            opacity: offline ? 0.6 : 1,
+            opacity: offline ? DISABLED_OPACITY.row : 1,
             backgroundColor: pressed ? colors.hover : "transparent",
           },
         ]}
@@ -2572,7 +2577,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     );
     // A tap folds the group. A long press lifts it to drag, like Mail's edit-mode reorder; the menu moves to the ⋯ button.
     return (
-      <View style={[s.project, item.member ? { marginTop: 4, paddingLeft: 8 + TREE_INDENT } : null, { opacity: offline ? 0.6 : 1 }]}>
+      <View style={[s.project, item.member ? { marginTop: 4, paddingLeft: 8 + TREE_INDENT } : null, { opacity: offline ? DISABLED_OPACITY.row : 1 }]}>
         {canReorder ? (
           <ProjectHeaderDrag
             hostId={item.hostId}
@@ -2621,7 +2626,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         style={({ pressed }) => [s.chat, { backgroundColor: pressed ? colors.hover : "transparent" }]}
       >
         <View style={[s.chatBody, { flex: 1 }]}>
-          <View style={{ flex: 1, gap: 5 }}>
+          <View style={{ flex: 1, gap: space.xs }}>
             <Text numberOfLines={2} style={s.chatTitle}>
               {item.snippet.slice(0, start)}
               <Text style={{ fontWeight: "600" }}>{item.snippet.slice(start, end)}</Text>
@@ -2637,7 +2642,11 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   }
   if (item.kind === "worktree")
     return (
-      <View accessible accessibilityLabel={`${item.name}${item.running ? ", running" : ""}`} style={[s.worktree, { opacity: offline ? 0.6 : 1 }]}>
+      <View
+        accessible
+        accessibilityLabel={`${item.name}${item.running ? ", running" : ""}`}
+        style={[s.worktree, { opacity: offline ? DISABLED_OPACITY.row : 1 }]}
+      >
         <View style={[s.worktreeDot, { backgroundColor: item.running ? colors.green : colors.ink4 }]} />
         <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: colors.ink2 }]}>
           {item.name}
@@ -2753,8 +2762,8 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         style={[
           StyleSheet.absoluteFill,
           {
-            borderRadius: 10,
-            backgroundColor: family.asking ? colors.orange : family.folded ? colors.lineStrong : colors.accentTint,
+            borderRadius: radius.full,
+            backgroundColor: family.asking ? colors.orangeInk : family.folded ? colors.lineStrong : colors.accentTint,
           },
         ]}
       />
@@ -2762,7 +2771,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         style={[
           s.subchatBadgeText,
           {
-            color: family.asking ? "#1a1206" : family.folded ? colors.ink : colors.accentInk,
+            color: family.asking ? colors.onOrange : family.folded ? colors.ink : colors.accentInk,
           },
         ]}
       >
@@ -2816,7 +2825,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         background={background}
         onAction={(action) => act(item, action)}
       >
-        <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.6 : 1 }}>
+        <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? DISABLED_OPACITY.row : 1 }}>
           <HoverView
             style={[
               s.chat,
@@ -2828,7 +2837,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
           >
             <View
-              style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
+              style={{ flex: 1, opacity: archiving ? DISABLED_OPACITY.row : 1 }}
               accessibilityElementsHidden={archiving}
               importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
             >
@@ -2846,7 +2855,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               >
                 <View style={s.chatBody}>
                   <ChatMarkIcon mark={item.mark} background={item.background} />
-                  <View style={{ flex: 1, gap: 3 }}>
+                  <View style={{ flex: 1, gap: space.xs }}>
                     <Text
                       numberOfLines={2}
                       style={[
@@ -2862,7 +2871,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                     <View
                       style={{
                         flexDirection: "row",
-                        gap: 5,
+                        gap: space.xs,
                         alignItems: "center",
                       }}
                     >
@@ -2987,7 +2996,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         <View
           pointerEvents={archiving ? "none" : "auto"}
           style={{
-            opacity: offline ? 0.6 : 1,
+            opacity: offline ? DISABLED_OPACITY.row : 1,
             ...subchatIndent,
           }}
         >
@@ -3016,12 +3025,12 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             </PullDown>
             <View
               pointerEvents="box-none"
-              style={[s.inboxContent, { opacity: archiving ? 0.3 : 1 }]}
+              style={[s.inboxContent, { opacity: archiving ? DISABLED_OPACITY.row : 1 }]}
               accessibilityElementsHidden={archiving}
               importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
             >
               {rowProjectIcon}
-              <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
+              <View pointerEvents="box-none" style={{ flex: 1, gap: space.xs }}>
                 <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
                   {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                   {linkedIcon}
@@ -3093,7 +3102,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       <View
         pointerEvents={archiving ? "none" : "auto"}
         style={{
-          opacity: offline ? 0.6 : 1,
+          opacity: offline ? DISABLED_OPACITY.row : 1,
           ...subchatIndent,
         }}
       >
@@ -3108,9 +3117,9 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           ]}
           hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
         >
-          {family && <View style={{ marginLeft: 12, opacity: archiving ? 0.3 : 1 }}>{rowProjectIcon}</View>}
+          {family && <View style={{ marginLeft: 12, opacity: archiving ? DISABLED_OPACITY.row : 1 }}>{rowProjectIcon}</View>}
           <View
-            style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
+            style={{ flex: 1, opacity: archiving ? DISABLED_OPACITY.row : 1 }}
             accessibilityElementsHidden={archiving}
             importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
           >
@@ -3135,7 +3144,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                 ]}
               >
                 <ChatMarkIcon mark={item.mark} background={item.background} />
-                <View style={{ flex: 1, gap: 3 }}>
+                <View style={{ flex: 1, gap: space.xs }}>
                   <Text
                     numberOfLines={hasChips ? 1 : 2}
                     style={[
@@ -3152,7 +3161,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                     <View
                       style={{
                         flexDirection: "row",
-                        gap: 5,
+                        gap: space.xs,
                         alignItems: "center",
                       }}
                     >
@@ -3222,7 +3231,7 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
     >
       {({ pressed }) => (
         <>
-          {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 20, backgroundColor: colors.hover }]} />}
+          {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.sheet, backgroundColor: colors.hover }]} />}
           <Icon icon={icon} tone="ink" size={20} />
         </>
       )}
@@ -3232,7 +3241,7 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
 
 /** The Liquid Glass behind the header capsule, as the list's floating controls have. */
 function HeaderGlass() {
-  return <GlassSurface radius={20} />;
+  return <GlassSurface radius={radius.sheet} />;
 }
 
 /** "2 computers offline" in ink3 at the end of the list, with Retry reading just those computers again. */
@@ -3254,14 +3263,17 @@ function OfflineLine({ hostIds }: { hostIds: string[] }) {
   };
   return (
     <View style={s.offlineLine}>
-      <Text style={{ color: colors.ink3, fontSize: 13 }}>{hostIds.length === 1 ? "1 computer offline" : `${hostIds.length} computers offline`}</Text>
+      <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+        {hostIds.length === 1 ? "1 computer offline" : `${hostIds.length} computers offline`}
+      </Text>
       <Pressable accessibilityRole="button" accessibilityLabel="Retry offline computers" disabled={retrying} hitSlop={8} onPress={retry}>
         <Text
           style={{
             color: colors.ink3,
-            fontSize: 13,
+            fontSize: type.footnote,
+            lineHeight: lineHeight.footnote,
             fontWeight: "600",
-            opacity: retrying ? 0.5 : 1,
+            opacity: retrying ? DISABLED_OPACITY.control : 1,
           }}
         >
           {retrying ? "Retrying..." : "Retry"}
@@ -3287,35 +3299,36 @@ function ComputerTag({ name, offline, chip = false, large = false }: { name: str
 
 const makeS = (colors: Palette) =>
   StyleSheet.create({
-    secondary: { color: colors.ink2, fontSize: 15 },
-    detail: { color: colors.ink2, fontSize: 12 },
+    secondary: { color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
+    detail: { color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
     headerGroup: {
       flexDirection: "row",
       alignItems: "center",
       height: 40,
       paddingHorizontal: 2,
-      borderRadius: 20,
+      borderRadius: radius.sheet,
       borderCurve: "continuous",
     },
     headerButton: {
       width: 40,
       height: 40,
-      borderRadius: 20,
+      borderRadius: radius.sheet,
       alignItems: "center",
       justifyContent: "center",
     },
     startEmpty: {
       alignItems: "center",
-      gap: 10,
+      gap: space.md,
       paddingHorizontal: 16,
       paddingTop: 80,
     },
     startTitle: {
       color: colors.ink,
-      fontSize: 17,
+      fontSize: type.body,
+      lineHeight: lineHeight.body,
       fontWeight: "600",
       textAlign: "center",
-      marginBottom: 14,
+      marginBottom: space.xl,
     },
     startCard: {
       alignSelf: "stretch",
@@ -3346,7 +3359,7 @@ const makeS = (colors: Palette) =>
     chip: {
       paddingHorizontal: 6,
       paddingVertical: 2,
-      borderRadius: 6,
+      borderRadius: radius.chip,
       borderCurve: "continuous",
       backgroundColor: colors.field,
     },
@@ -3398,13 +3411,14 @@ const makeS = (colors: Palette) =>
       minWidth: 20,
       height: 20,
       paddingHorizontal: 4,
-      borderRadius: 10,
+      borderRadius: radius.full,
       borderWidth: 2,
       alignItems: "center",
       justifyContent: "center",
     },
     subchatBadgeText: {
-      fontSize: 11,
+      fontSize: type.caption2,
+      lineHeight: lineHeight.caption2,
       fontWeight: "600",
       fontVariant: ["tabular-nums"],
     },
@@ -3441,16 +3455,17 @@ const makeS = (colors: Palette) =>
       minHeight: 20,
       overflow: "hidden",
     },
-    inboxTitle: { flex: 1, fontSize: 16, lineHeight: 21 },
+    inboxTitle: { flex: 1, fontSize: type.callout, lineHeight: lineHeight.callout },
     inboxTime: {
       color: colors.ink3,
-      fontSize: 13,
+      fontSize: type.footnote,
+      lineHeight: lineHeight.footnote,
       fontVariant: ["tabular-nums"],
     },
     inboxText: { color: colors.ink2, fontSize: type.subheadline },
     inboxSeparator: { color: colors.ink3, fontSize: type.subheadline },
     inboxPart: { flexDirection: "row", alignItems: "center", gap: 6 },
-    chatTitle: { color: colors.ink, fontSize: 15, lineHeight: 20 },
+    chatTitle: { color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
     // Under the Project's name, where its Chats' titles start.
     // A shared Worktree's heading in the Tree layout: its dot under the Project icon's column, its Chats after it.
     worktree: {
@@ -3472,7 +3487,7 @@ const makeS = (colors: Palette) =>
       minHeight: 44,
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
+      gap: space.md,
       paddingHorizontal: 16,
     },
   });

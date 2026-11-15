@@ -1,12 +1,4 @@
 {
-  "font": {
-    "chat-display-choices.tsx": 1,
-    "diagram.tsx": 1,
-    "ultracode-fatality.tsx": 1
-  },
-  "radius": {
-    "viewer-chrome.tsx": 1
-  },
   "computedFont": {
     "prompt-chip.tsx": 1
   },
@@ -26,6 +18,5 @@
   "uppercase": {},
   "tracking": {
     "ultracode-fatality.tsx": 1
-  },
-  "bold": {}
+  }
 }

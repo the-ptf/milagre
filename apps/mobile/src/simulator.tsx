@@ -23,6 +23,7 @@ import {
 import type { Client } from "./client";
 import { useSession } from "./session";
 import { lineHeight, radius, type } from "./design-tokens";
+import { DISABLED_OPACITY } from "./primitives/press-style";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
@@ -49,7 +50,7 @@ function useSimulators(client: Client | null, chatId?: string) {
         const started = revision.current;
         try {
           const value = await client.call<SimulatorList>("simulator:list", [{ chatId }]);
-          if (value.chatId !== chatId) throw new Error("Update Milagre on this Mac to attach simulators to Chats.");
+          if (value.chatId !== chatId) throw new Error("Update Milagre on this computer to attach simulators to Chats.");
           if (!disposed && started === revision.current) setList(value);
         } catch (error) {
           if (!disposed && started === revision.current)
@@ -265,7 +266,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
         ) : (
           <SheetHeader
             title={attaching ? "Attach simulator" : "Simulators"}
-            subtitle={attaching ? "Other devices on this Mac" : "This Chat"}
+            subtitle={attaching ? "Other devices on this computer" : "This Chat"}
             leading={
               attaching ? (
                 <CircleButton
@@ -289,7 +290,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source ? (
-          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this Mac to open its simulators.</Text>
+          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to your computer to open its simulators.</Text>
         ) : paused ? (
           <View style={{ padding: 16, gap: 16 }}>
             <Text style={styles.muted}>Viewer paused while the app was hidden.</Text>
@@ -316,7 +317,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
             {!!list?.error && <ErrorNotice message={list.error} />}
             {list?.supported === false && <Text style={styles.muted}>Simulators are unavailable on this computer.</Text>}
             {list?.supported && !list.error && !(attaching ? list.available : list.attached)?.length && (
-              <Text style={styles.muted}>{attaching ? "No other devices are running on this Mac." : "No simulators attached to this Chat."}</Text>
+              <Text style={styles.muted}>{attaching ? "No other devices are running on this computer." : "No simulators attached to this Chat."}</Text>
             )}
             {(attaching ? (list?.available ?? []) : (list?.attached ?? [])).map((device) => {
               const running = attaching || list?.devices.some((d) => d.id === device.id);
@@ -384,15 +385,15 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                     style={({ pressed }) => ({
                       flexDirection: "row",
                       alignItems: "center",
-                      padding: 14,
-                      gap: 10,
+                      padding: 16,
+                      gap: 12,
                       borderRadius: radius.card,
-                      opacity: busy ? 0.5 : 1,
+                      opacity: busy ? DISABLED_OPACITY.control : 1,
                       backgroundColor: pressed ? colors.hover : docked ? colors.page : colors.surface,
                     })}
                   >
                     <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
-                    <Text style={{ flex: 1, color: colors.ink, fontSize: 15 }}>{model.model}</Text>
+                    <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{model.model}</Text>
                     <Text style={styles.muted}>
                       {model.platform === "android" ? "Android" : "iOS"} {model.version}
                     </Text>

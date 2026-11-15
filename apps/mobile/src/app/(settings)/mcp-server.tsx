@@ -70,7 +70,7 @@ export default function McpServerScreen() {
                 />
                 <View style={{ paddingBottom: 6 }}>
                   <ChipLine
-                    text={chip.state === "needs-sign-in" ? "Needs sign-in. Sign in on the Mac." : mcpChipLine(chip)}
+                    text={chip.state === "needs-sign-in" ? "Needs sign-in. Sign in on your computer." : mcpChipLine(chip)}
                     style={[styles.muted, { color: chip.state === "failed" ? colors.redInk : colors.ink2 }]}
                   />
                 </View>
@@ -85,7 +85,7 @@ export default function McpServerScreen() {
             <PillButton title="Remove" secondary destructive loading={removing} onPress={() => void remove()} />
           </View>
         ) : row.editable ? (
-          <Text style={[styles.muted, { paddingHorizontal: 4 }]}>Edit on the Mac.</Text>
+          <Text style={[styles.muted, { paddingHorizontal: 4 }]}>Edit on your computer.</Text>
         ) : (
           <Text style={[styles.muted, { paddingHorizontal: 4 }]}>Set up outside Milagre. Change it where it is defined.</Text>
         )}

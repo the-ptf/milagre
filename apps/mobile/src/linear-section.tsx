@@ -79,8 +79,8 @@ export function LinearSection() {
       setLinearError(failure instanceof Error ? failure.message : "Could not change this setting.");
     }
   }
-  if (!session.client) return <Text style={styles.caption}>Connect to a Mac to change its Linear connection.</Text>;
-  if (linear === null) return <Text style={styles.caption}>This Mac has no Linear connection to show.</Text>;
+  if (!session.client) return <Text style={styles.caption}>Connect to a computer to change its Linear connection.</Text>;
+  if (linear === null) return <Text style={styles.caption}>This computer has no Linear connection to show.</Text>;
   return (
     <View style={{ gap: 8 }}>
       <View style={[styles.card, { gap: 4 }]}>

@@ -1,7 +1,7 @@
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
-import { chrome, radius } from "../design-tokens";
+import { chrome, lineHeight, radius, space, type } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { compactionContext } from "@milagre/shared/compaction";
@@ -152,7 +152,19 @@ import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
 import { HeaderAction, HeaderActionGroup } from "../primitives/header-action-group";
-import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
+import {
+  DISABLED_OPACITY,
+  ErrorNotice,
+  GlassIconButton,
+  HeaderButton,
+  IconButton,
+  PageScroll,
+  PillButton,
+  PullDown,
+  pressStyle,
+  useStyles,
+  type MenuSection,
+} from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -1275,9 +1287,9 @@ function ChatPane({
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        paddingHorizontal: 10,
+        paddingHorizontal: space.md,
         paddingVertical: 6,
-        opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
+        ...pressStyle({ pressed, disabled: targetDisabled }),
       })}
     >
       <LinearLogo size={13} />
@@ -1316,11 +1328,13 @@ function ChatPane({
           alignItems: "center",
           justifyContent: "center",
           paddingHorizontal: 8,
-          opacity: compactBlocked ? 0.4 : pressed ? 0.6 : 1,
+          ...pressStyle({ pressed, disabled: compactBlocked }),
         })}
       >
         <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={12} />
-        <Text style={{ fontSize: 12, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}>
+        <Text
+          style={{ fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}
+        >
           {compacting ? "Compacting…" : compactQueued ? "Queued" : run ? "After turn" : "Compact"}
         </Text>
       </Pressable>
@@ -2136,7 +2150,11 @@ function ChatPane({
   }
   const titleRow = (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-      <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
+      <Text
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600", flexShrink: 1 }}
+      >
         {title}
       </Text>
       {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={12} />}
@@ -2159,25 +2177,29 @@ function ChatPane({
           titleRow
         )}
         {(paired || (!project.link && !chatsHomeOpen) || (!!pr && !!chat && !chatsHomeOpen)) && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, maxWidth: "100%" }}>
             {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
             {paired && (
               <Text
                 numberOfLines={1}
                 ellipsizeMode="tail"
                 accessibilityLabel={otherComputer ? `${projectName} on ${hostName}` : projectName}
-                style={{ color: colors.ink2, fontSize: 12, fontWeight: "500", flexShrink: 1 }}
+                style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "500", flexShrink: 1 }}
               >
                 {otherComputer ? `${projectName} · ${hostName}` : projectName}
               </Text>
             )}
             {!project.link && !chatsHomeOpen && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
                 <Icon icon={GitBranchIcon} tone="ink3" size={12} />
-                <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
+                <Text
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}
+                >
                   {chatBranchLabel(chat, worktree?.name) ?? ""}
                 </Text>
-                <Text style={{ fontSize: 12 }}>
+                <Text style={{ fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
                   <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
                   {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
                   <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
@@ -2613,7 +2635,9 @@ function ChatPane({
                     />
                   )}
                   {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" && heartbeat.nextRunAt > now ? (
-                    <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
+                    <Text
+                      style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, textAlign: "center" }}
+                    >{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
                   ) : null}
                   {chat?.resumeTurn && !run && (
                     <PillButton
@@ -2677,12 +2701,17 @@ function ChatPane({
                             justifyContent: "center",
                             alignItems: "center",
                             columnGap: 6,
-                            opacity: pressed ? 0.6 : 1,
+                            ...pressStyle({ pressed }),
                           })}
                         >
-                          <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>{JUST_CHAT_HEADING} on</Text>
+                          <Text style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.ink }}>
+                            {JUST_CHAT_HEADING} on
+                          </Text>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                            <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                            <Text
+                              numberOfLines={1}
+                              style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.accent, flexShrink: 1 }}
+                            >
                               {chatsComputer}
                             </Text>
                             <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2694,9 +2723,11 @@ function ChatPane({
                           disabled={busy}
                           onPress={chooseProject}
                           hitSlop={8}
-                          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                          style={({ pressed }) => pressStyle({ pressed })}
                         >
-                          <Text style={{ fontSize: 15, color: colors.ink3, textAlign: "center" }}>{NO_PROJECT_LINE}</Text>
+                          <Text style={{ fontSize: type.subheadline, lineHeight: lineHeight.subheadline, color: colors.ink3, textAlign: "center" }}>
+                            {NO_PROJECT_LINE}
+                          </Text>
                         </Pressable>
                       </>
                     ) : (
@@ -2711,12 +2742,15 @@ function ChatPane({
                           justifyContent: "center",
                           alignItems: "center",
                           columnGap: 6,
-                          opacity: pressed ? 0.6 : 1,
+                          ...pressStyle({ pressed }),
                         })}
                       >
-                        <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
+                        <Text style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                          <Text
+                            numberOfLines={1}
+                            style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.accent, flexShrink: 1 }}
+                          >
                             {projectName}
                           </Text>
                           <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2889,7 +2923,7 @@ function ChatPane({
                         <ComposerTray start={startTray} target={trayTarget}>
                           {startTray && chatsHomeOpen ? (
                             // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: space.md, paddingVertical: 6 }}>
                               <Icon icon={BubbleChatIcon} tone="ink2" size={12} />
                               <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
                             </View>
@@ -2940,9 +2974,9 @@ function ChatPane({
                                         flexDirection: "row",
                                         alignItems: "center",
                                         gap: 6,
-                                        paddingHorizontal: 10,
+                                        paddingHorizontal: space.md,
                                         paddingVertical: 6,
-                                        opacity: targetDisabled ? 0.35 : 1,
+                                        opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
                                       }}
                                     >
                                       <Icon icon={ComputerIcon} tone="ink2" size={12} />
@@ -2994,9 +3028,9 @@ function ChatPane({
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
-                                      paddingHorizontal: 10,
+                                      paddingHorizontal: space.md,
                                       paddingVertical: 6,
-                                      opacity: targetDisabled ? 0.35 : 1,
+                                      opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
                                     }}
                                   >
                                     <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={12} />
@@ -3049,9 +3083,9 @@ function ChatPane({
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
-                                      paddingHorizontal: 10,
+                                      paddingHorizontal: space.md,
                                       paddingVertical: 6,
-                                      opacity: branchDisabled ? 0.35 : 1,
+                                      opacity: branchDisabled ? DISABLED_OPACITY.control : 1,
                                     }}
                                   >
                                     <Icon icon={GitBranchIcon} tone="ink2" size={12} />
@@ -3075,20 +3109,22 @@ function ChatPane({
                               // An open Chat's composer is glass over the transcript, as on desktop; a new Chat's sits solid in its tray.
                               backgroundColor: startTray ? colors.surface : "transparent",
                               borderWidth: 1,
-                              borderColor: startTray ? colors.lineStrong : colors.line,
-                              borderRadius: startTray || offline ? 23 : 24,
+                              // The raised shadow carries its own hairline ring, so the edge is transparent (not 0 wide: the padding stays put).
+                              borderColor: startTray ? colors.lineStrong : ultracodeOn ? colors.line : "transparent",
+                              borderRadius: radius.composer,
                               borderCurve: "continuous",
                               // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
                               paddingHorizontal: 8,
                               paddingBottom: 6,
                               gap: 4,
-                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : "0 4px 20px #0000000f",
+                              // oxlint-disable-next-line milagre-design/shadow-token -- Ultracode's purple glow is brand artwork, not an elevation
+                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : colors.shadowRaised,
                             }}
                           >
-                            {!startTray && <ComposerGlass radius={offline ? 23 : 24} />}
+                            {!startTray && <ComposerGlass radius={radius.composer} />}
                             {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
-                            {ultracodeOn && <UltracodeGlow radius={startTray ? 23 : 24} />}
+                            {ultracodeOn && <UltracodeGlow radius={radius.composer} />}
                             {picking && (
                               <Text accessibilityRole="progressbar" accessibilityLabel="Preparing attachment" style={styles.caption}>
                                 Preparing attachment...
@@ -3105,7 +3141,7 @@ function ChatPane({
                                         backgroundColor: colors.field,
                                         borderRadius: radius.card,
                                         borderCurve: "continuous",
-                                        paddingLeft: item.image ? 4 : 10,
+                                        paddingLeft: item.image ? 4 : space.md,
                                         flexDirection: "row",
                                         alignItems: "center",
                                         maxWidth: 220,
@@ -3252,7 +3288,13 @@ function ChatPane({
                                     onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
                                   >
                                     <View
-                                      style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}
+                                      style={{
+                                        width: 44,
+                                        height: 44,
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        opacity: attachmentDisabled ? DISABLED_OPACITY.control : 1,
+                                      }}
                                     >
                                       <Icon icon={Attachment01Icon} tone="ink2" size={18} />
                                     </View>
@@ -3281,7 +3323,7 @@ function ChatPane({
                                     <Text
                                       accessibilityRole="text"
                                       accessibilityLiveRegion="polite"
-                                      style={{ fontSize: 12, color: colors.greenInk, paddingHorizontal: 8 }}
+                                      style={{ fontSize: type.caption1, lineHeight: lineHeight.caption1, color: colors.greenInk, paddingHorizontal: 8 }}
                                     >
                                       ✓ {compactionFeedback.percent}% · {compactionFeedback.freed} freed
                                     </Text>
@@ -3299,8 +3341,8 @@ function ChatPane({
                                               right: 0,
                                               top: "50%",
                                               height: 34,
-                                              marginTop: -17,
-                                              borderRadius: 999,
+                                              transform: [{ translateY: -17 }],
+                                              borderRadius: radius.full,
                                               backgroundColor: colors.orangeTint,
                                             }}
                                           />

@@ -1,6 +1,6 @@
 # Phone pairing and connectivity
 
-1. On desktop, open Settings > Devices and enable Allow devices to connect.
+1. On desktop, open Settings > Phone & sharing and enable Allow devices to connect.
 2. In the installed phone app, add a computer and scan the pairing code.
 3. Open a Project and its Chat. The computer runs agents; the phone follows the same saved and live work.
 
@@ -10,7 +10,7 @@ Pairing permits new phones for 10 minutes after the code is shown. Existing pair
 
 ## Narrow diagnosis
 
-Confirm desktop can open the affected Chat and Settings > Devices shows access enabled. If desktop works but the phone fails, inspect the selected computer and redacted connection error. Check whether pairing expired, the computer went offline/asleep, or a configured tunnel is unavailable. Confirm the phone selected the same computer/profile as desktop. Avoid restarting a healthy host while it has active agents.
+Confirm desktop can open the affected Chat and Settings > Phone & sharing shows access enabled. If desktop works but the phone fails, inspect the selected computer and redacted connection error. Check whether pairing expired, the computer went offline/asleep, or a configured tunnel is unavailable. Confirm the phone selected the same computer/profile as desktop. Avoid restarting a healthy host while it has active agents.
 
 A lost send acknowledgement does not prove failure. Reconnect and inspect messages before sending again; drafts remain when sending fails. Forget this computer removes the remembered phone connection. It does not stop the computer's host.
 

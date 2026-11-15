@@ -7,7 +7,7 @@ import { observeComputerUseScreen, type ComputerUseFrame } from "@milagre/shared
 import type { ChatStep } from "@milagre/shared/model";
 import { Icon } from "./icons";
 import { useSession } from "./session";
-import { radius, type } from "./design-tokens";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { showImages } from "./viewer-store";
 
@@ -71,8 +71,8 @@ export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?:
         ) : (
           <Icon icon={ComputerIcon} size={16} tone="ink2" />
         )}
-        {live && <Text style={{ color: colors.greenInk, fontSize: 13, fontWeight: "600" }}>Live</Text>}
-        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: 13 }}>
+        {live && <Text style={{ color: colors.greenInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>Live</Text>}
+        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
           {[apps.join(", "), `${steps.length} ${steps.length === 1 ? "step" : "steps"}`].filter(Boolean).join(" · ")}
         </Text>
       </View>
@@ -87,14 +87,23 @@ export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?:
         {uri ? (
           <Image source={{ uri }} resizeMode="contain" style={{ width: "100%", aspectRatio: ratio, maxHeight: 320 }} />
         ) : (
-          <Text style={{ color: colors.ink3, fontSize: 13, textAlign: "center", paddingVertical: 36, paddingHorizontal: 24 }}>
+          <Text
+            style={{
+              color: colors.ink3,
+              fontSize: type.footnote,
+              lineHeight: lineHeight.footnote,
+              textAlign: "center",
+              paddingVertical: 36,
+              paddingHorizontal: space.xxl,
+            }}
+          >
             {shown?.error === "screen-recording"
-              ? "Turn on Screen Recording for Milagre on the Mac (Settings › This Mac › Computer use) to see the screen here."
+              ? "Turn on Screen Recording for Milagre on your computer (Settings › This computer › Computer use) to see the screen here."
               : "The screen shows here while the agent works in an app."}
           </Text>
         )}
       </Pressable>
-      <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
+      <View style={{ paddingHorizontal: space.lg, paddingVertical: space.lg, gap: space.md }}>
         {steps.length > VISIBLE_STEPS && !allSteps && (
           <Pressable accessibilityRole="button" onPress={() => setAllSteps(true)} hitSlop={8}>
             <Text style={{ color: colors.ink3, fontSize: type.footnote }}>

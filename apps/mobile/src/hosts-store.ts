@@ -33,7 +33,7 @@ function validate(value: unknown): SavedHost {
   if (host.relay) {
     const relay = validRelay(host.relay);
     const address = relayAddress(relay.hostId);
-    return { id: address, name: String(host.name || "Mac").slice(0, 80), address, token: String(host.token), relay, ...routes, ...hidden, lastUsed };
+    return { id: address, name: String(host.name || "Computer").slice(0, 80), address, token: String(host.token), relay, ...routes, ...hidden, lastUsed };
   }
   const address = localEndpoint(String(host?.address ?? ""));
   const access = validAccess(host.access);

@@ -35,7 +35,7 @@ const shown = ({ announced: _announced, ...device }) => ({ ...device });
  * (relay-phones.json) moves in as nameless phones and is deleted. Writes land in call order, so a clear is never
  * overwritten by an add that started before it. Any method may run before load(): the first one reads the file.
  *
- * A phone pairs without its owner at this Mac, so it arrives `isNew` (Settings › Devices marks it New until the owner
+ * A phone pairs without its owner at this Mac, so it arrives `isNew` (Settings › Phone & sharing marks it New until the owner
  * looks: `acknowledge`) and not yet `announced` (the "New phone paired" notice waits for a desktop to take it:
  * `takeNotices`, then `confirmNotices` once it showed them). Both survive restarts, so a phone that pairs while no
  * desktop is open is still told about. A computer pairs only after its owner's Allow in this Mac's window, so it is
@@ -188,7 +188,7 @@ function createDevices(dataDir, { now = Date.now } = {}) {
       for (const [key, held] of claims) if (held.id === claim) claims.delete(key);
     },
     /**
-     * The owner saw these devices in Settings › Devices: they are no longer New. Returns how many were. A failed write
+     * The owner saw these devices in Settings › Phone & sharing: they are no longer New. Returns how many were. A failed write
      * leaves them New in memory too, so the next acknowledge writes them.
      */
     async acknowledge(keys) {

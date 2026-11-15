@@ -41,6 +41,7 @@ import { useArtifactCatalog } from "./use-design-catalog";
 import { Icon } from "./icons";
 import { over } from "@milagre/shared/themes";
 import { lineHeight, radius, space, type } from "./design-tokens";
+import { DISABLED_OPACITY } from "./primitives/press-style";
 import { CircleButton, ErrorNotice, PullDown, PillButton, tap, useStyles, type MenuSection } from "./ui";
 import { useTheme } from "./theme";
 import { PELE_SCRIPT } from "./pele-script";
@@ -302,7 +303,7 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
         borderWidth: 1,
         borderColor: colors.line,
         backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
-        opacity: openable ? 1 : 0.6,
+        opacity: openable ? 1 : DISABLED_OPACITY.row,
       })}
     >
       <View
@@ -374,7 +375,7 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
         borderWidth: 1,
         borderColor: isChosen ? colors.accent : colors.line,
         backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
-        opacity: openable ? 1 : 0.6,
+        opacity: openable ? 1 : DISABLED_OPACITY.row,
       })}
     >
       <View
@@ -772,8 +773,8 @@ export function ArtifactSheet({
             {/* PullDown lays its children in a wrapper of its own; this centres the tab line under the title. */}
             <View style={{ alignItems: "center" }}>
               {heading}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1 }}>
                   {tab.title}
                 </Text>
                 <Icon icon={UnfoldMoreIcon} size={12} tone="ink3" />
@@ -783,7 +784,7 @@ export function ArtifactSheet({
         ) : (
           <View style={{ flex: 1, alignItems: "center" }}>
             {heading}
-            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1 }}>
               Artifact
             </Text>
           </View>
@@ -817,9 +818,9 @@ export function ArtifactSheet({
           )}
         </View>
       </View>
-      <View style={{ flex: 1, backgroundColor: "#ffffff" }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
+      <View style={{ flex: 1, backgroundColor: colors.paper }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
         {!source ? (
-          <Text style={[styles.muted, { padding: space.xl }]}>Reconnect to this Mac to open this page.</Text>
+          <Text style={[styles.muted, { padding: space.xl }]}>Reconnect to your computer to open this page.</Text>
         ) : state.error ? (
           <View style={{ padding: space.xl }}>
             <ErrorNotice message={state.error} retry={() => setRevision((value) => value + 1)} retryTitle="Retry" />
@@ -889,6 +890,7 @@ function ArtifactWebView({
   files?: boolean;
   onMessage?: (data: string) => void;
 }) {
+  const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
   // Written while rendering, so the page is there on the first frame; each page gets a file of its own, removed when
   // the page changes or goes. Named for this view and the page's content: two views never share a file.
@@ -928,7 +930,7 @@ function ArtifactWebView({
       ref={ref}
       source={{ uri }}
       // ponytail: an HTML page's own default paper is white in every theme; a page that wants dark sets its own.
-      style={{ flex: 1, backgroundColor: "#ffffff" }}
+      style={{ flex: 1, backgroundColor: colors.paper }}
       containerStyle={{ flex: 1 }}
       useExpoModulesBridge={false}
       allowsInlineMediaPlayback

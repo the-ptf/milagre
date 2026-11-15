@@ -17,6 +17,24 @@ const fall = Easing.bezier(0.45, 0, 0.15, 1);
 const cloudEase = Easing.bezier(0.16, 1, 0.3, 1);
 // The scene's own beats in ms (desktop's keyframes), not UI motion, so they don't use the `duration` tokens.
 const BEAT = { dim: 432, light: 288, swell: 480, turn: 360, leave: 900, raysTurn: 90000 } as const;
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const WHITE = "#fff";
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const NIGHT = ["#070b1f", "#141c45", "#252a5c"] as const;
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const DAWN = ["#262c66", "#7b62a3", "#e29a9a", "#f8cf98"] as const;
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const DAY = ["#c3dbf3", "#e9f0f8", "#fff2dd", "#fffaf0"] as const;
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const RAY = "#ffecbe";
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const SUN = ["#fff4d4", "#ffe2a0", "#ffd68c"] as const;
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const HALO = ["rgba(255,244,214,0.95)", "rgba(255,214,150,0.35)", "rgba(255,214,150,0)"] as const;
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const PAPER_INK = { title: "#33291a", lede: "#7d6c53", accent: "#5c4a2f", button: "#2a2116", buttonGlow: "#c49234", buttonLabel: "#fffaf0" } as const;
+// oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the Dawn scene's own palette, the same in every theme (desktop's .onboarding-intro-*)
+const SKIP = { night: "rgba(255,255,255,0.6)", day: "rgba(60,48,30,0.6)" } as const;
 
 function seeded(seed: number) {
   return () => {
@@ -154,7 +172,7 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
   const runSteps = [0, 1, 2, 3];
   const layer = (path: string) => (
     <Svg width={LOGO} height={LOGO} viewBox="-4 -4 154 154">
-      <Path d={path} fill="#fff" />
+      <Path d={path} fill={WHITE} />
     </Svg>
   );
 
@@ -165,18 +183,18 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
         StyleSheet.absoluteFill,
         {
           zIndex: 10,
-          backgroundColor: "#070b1f",
+          backgroundColor: NIGHT[0],
           opacity: leaving.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
           transform: [{ scale: leaving.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }],
         },
       ]}
     >
-      <LinearGradient colors={["#070b1f", "#141c45", "#252a5c"]} locations={[0, 0.55, 1]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={NIGHT} locations={[0, 0.55, 1]} style={StyleSheet.absoluteFill} />
       <Animated.View style={[StyleSheet.absoluteFill, fade(dawn)]}>
-        <LinearGradient colors={["#262c66", "#7b62a3", "#e29a9a", "#f8cf98"]} locations={[0, 0.36, 0.64, 1]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={DAWN} locations={[0, 0.36, 0.64, 1]} style={StyleSheet.absoluteFill} />
       </Animated.View>
       <Animated.View style={[StyleSheet.absoluteFill, fade(day)]}>
-        <LinearGradient colors={["#c3dbf3", "#e9f0f8", "#fff2dd", "#fffaf0"]} locations={[0, 0.36, 0.72, 1]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={DAY} locations={[0, 0.36, 0.72, 1]} style={StyleSheet.absoluteFill} />
       </Animated.View>
       <Animated.View
         pointerEvents="none"
@@ -192,7 +210,7 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
               width: star.size,
               height: star.size,
               borderRadius: star.size,
-              backgroundColor: "#fff",
+              backgroundColor: WHITE,
               opacity: star.opacity,
             }}
           />
@@ -213,9 +231,9 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
         <Svg width={raysSize} height={raysSize} viewBox="-100 -100 200 200">
           <Defs>
             <RadialGradient id="ray" cx="0" cy="0" r="100" gradientUnits="userSpaceOnUse">
-              <Stop offset="0" stopColor="#ffecbe" stopOpacity={0.34} />
-              <Stop offset="0.18" stopColor="#ffecbe" stopOpacity={0.2} />
-              <Stop offset="0.52" stopColor="#ffecbe" stopOpacity={0} />
+              <Stop offset="0" stopColor={RAY} stopOpacity={0.34} />
+              <Stop offset="0.18" stopColor={RAY} stopOpacity={0.2} />
+              <Stop offset="0.52" stopColor={RAY} stopOpacity={0} />
             </RadialGradient>
           </Defs>
           <G fill="url(#ray)">
@@ -262,10 +280,10 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
         <Svg width={haloSize} height={haloSize}>
           <Defs>
             <RadialGradient id="halo" cx="50%" cy="50%" r="50%">
-              <Stop offset="0" stopColor="#fff4d4" stopOpacity={0.95} />
-              <Stop offset="0.22" stopColor="#ffe2a0" stopOpacity={0.55} />
-              <Stop offset="0.45" stopColor="#ffd68c" stopOpacity={0.18} />
-              <Stop offset="0.68" stopColor="#ffd68c" stopOpacity={0} />
+              <Stop offset="0" stopColor={SUN[0]} stopOpacity={0.95} />
+              <Stop offset="0.22" stopColor={SUN[1]} stopOpacity={0.55} />
+              <Stop offset="0.45" stopColor={SUN[2]} stopOpacity={0.18} />
+              <Stop offset="0.68" stopColor={SUN[2]} stopOpacity={0} />
             </RadialGradient>
           </Defs>
           <Circle cx={haloSize / 2} cy={haloSize / 2} r={haloSize / 2} fill="url(#halo)" />
@@ -305,13 +323,7 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
             transform: [{ rotate: `${tailAngle}rad` }],
           }}
         >
-          <LinearGradient
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            colors={["rgba(255,244,214,0.95)", "rgba(255,214,150,0.35)", "rgba(255,214,150,0)"]}
-            locations={[0, 0.4, 1]}
-            style={StyleSheet.absoluteFill}
-          />
+          <LinearGradient start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} colors={HALO} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
         </Animated.View>
         <Animated.View
           style={{
@@ -324,21 +336,21 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
           }}
         >
           <Svg width="100%" height="100%" viewBox={`${STAR_BOX.x} ${STAR_BOX.y} ${STAR_BOX.size} ${STAR_BOX.size}`}>
-            <Path d={STAR} fill="#fff" />
+            <Path d={STAR} fill={WHITE} />
           </Svg>
         </Animated.View>
       </Animated.View>
       <View style={{ position: "absolute", left: 24, right: 24, top: centerY + LOGO * 0.78, alignItems: "center" }}>
         <Animated.Text
           accessibilityRole="header"
-          style={[{ fontFamily: SERIF, fontSize: type.largeTitle, lineHeight: lineHeight.largeTitle, color: "#33291a" }, rise(title)]}
+          style={[{ fontFamily: SERIF, fontSize: type.largeTitle, lineHeight: lineHeight.largeTitle, color: PAPER_INK.title }, rise(title)]}
         >
           Milagre
         </Animated.Text>
         <Animated.Text
-          style={[{ marginTop: 6, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, color: "#7d6c53", textAlign: "center" }, rise(lede)]}
+          style={[{ marginTop: 6, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, color: PAPER_INK.lede, textAlign: "center" }, rise(lede)]}
         >
-          Portuguese for <Text style={{ fontFamily: SERIF, fontStyle: "italic", color: "#5c4a2f" }}>miracle</Text>. Let’s make one.
+          Portuguese for <Text style={{ fontFamily: SERIF, fontStyle: "italic", color: PAPER_INK.accent }}>miracle</Text>. Let’s make one.
         </Animated.Text>
       </View>
       <Animated.View style={[{ position: "absolute", left: 24, right: 24, bottom: Math.max(insets.bottom, 16) + 24 }, rise(begin)]}>
@@ -349,18 +361,21 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
             {
               height: 54,
               borderRadius: radius.full,
-              backgroundColor: "#2a2116",
+              backgroundColor: PAPER_INK.button,
               alignItems: "center",
               justifyContent: "center",
-              shadowColor: "#c49234",
+              shadowColor: PAPER_INK.buttonGlow,
+              // oxlint-disable-next-line milagre-design/shadow-token -- artwork: the Begin button's warm glow, not an elevation
               shadowOpacity: 0.38,
+              // oxlint-disable-next-line milagre-design/shadow-token -- artwork: the Begin button's warm glow, not an elevation
               shadowRadius: 17,
+              // oxlint-disable-next-line milagre-design/shadow-token -- artwork: the Begin button's warm glow, not an elevation
               shadowOffset: { width: 0, height: 10 },
             },
             pressStyle({ pressed }),
           ]}
         >
-          <Text style={{ color: "#fffaf0", fontSize: type.body, fontWeight: "600" }}>Begin</Text>
+          <Text style={{ color: PAPER_INK.buttonLabel, fontSize: type.body, fontWeight: "600" }}>Begin</Text>
         </Pressable>
       </Animated.View>
       <Pressable
@@ -375,15 +390,13 @@ export function OnboardingIntro({ onDone }: { onDone: () => void }) {
             style={{
               fontSize: type.subheadline,
               fontWeight: "500",
-              color: "rgba(255,255,255,0.6)",
+              color: SKIP.night,
               opacity: skipTone.progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
             }}
           >
             Skip
           </Animated.Text>
-          <Animated.Text
-            style={{ position: "absolute", fontSize: type.subheadline, fontWeight: "500", color: "rgba(60,48,30,0.6)", opacity: skipTone.progress }}
-          >
+          <Animated.Text style={{ position: "absolute", fontSize: type.subheadline, fontWeight: "500", color: SKIP.day, opacity: skipTone.progress }}>
             Skip
           </Animated.Text>
         </View>

@@ -136,15 +136,15 @@ export function KeybindingsSection() {
     <View style={{ gap: space.section }}>
       <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, paddingHorizontal: space.gutter }}>
         {host.state
-          ? "The connected Mac's keybindings.json. The Mac and this iPad's keyboard both use it; a key marked * runs only under a condition."
+          ? "The connected computer's keybindings.json. Your computer and this iPad's keyboard both use it; a key marked * runs only under a condition."
           : session.client
-            ? "This Mac's Milagre keeps no keybindings yet, so the iPad uses the defaults. Update Milagre on the Mac to change them."
+            ? "This computer's Milagre keeps no keybindings yet, so the iPad uses the defaults. Update Milagre on your computer to change them."
             : "Connect a computer to change its keybindings."}
       </Text>
       {host.error ? <ErrorNotice message={host.error} retry={() => void store?.read()} retryTitle="Try again" /> : null}
       {host.state?.issues.length ? <ErrorNotice message={`keybindings.json has problems: ${host.state.issues.join(" ")}`} /> : null}
       <Group title="On this iPad">{KEYBINDING_COMMANDS.filter((command) => command.mobile).map(row)}</Group>
-      <Group title="On the Mac" footer={host.state ? host.state.path : undefined}>
+      <Group title="On your computer" footer={host.state ? host.state.path : undefined}>
         {KEYBINDING_COMMANDS.filter((command) => !command.mobile).map(row)}
       </Group>
       {editable ? (
@@ -154,7 +154,7 @@ export function KeybindingsSection() {
             destructive
             chevron={false}
             onPress={() =>
-              confirmSheet("Reset all keybindings?", "Every key goes back to its default, on the Mac too.", [
+              confirmSheet("Reset all keybindings?", "Every key goes back to its default, on your computer too.", [
                 { text: "Reset all", style: "destructive", onPress: () => void store?.resetAll().catch(fail) },
                 { text: "Cancel", style: "cancel" },
               ])

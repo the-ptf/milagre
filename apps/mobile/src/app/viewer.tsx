@@ -315,7 +315,7 @@ export default function Viewer() {
           style={[{ position: "absolute", bottom: insets.bottom + 16, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 6 }, chrome]}
         >
           {images.map((_, i) => (
-            <View key={i} style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.onMedia, opacity: i === page ? 1 : 0.35 }} />
+            <View key={i} style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: i === page ? colors.onMedia : colors.onMediaTint }} />
           ))}
         </Animated.View>
       )}

@@ -7,6 +7,7 @@ import { useMediaState } from "./media-source";
 import { PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { radius, type } from "./design-tokens";
+import { pressStyle } from "./primitives/press-style";
 import type { ViewerImage } from "./viewer-store";
 
 type Entry = ViewerImage & { id: string; status: ChatStep["status"] };
@@ -46,7 +47,7 @@ function Tile({
         backgroundColor: colors.canvas,
         alignItems: "center",
         justifyContent: "center",
-        opacity: pressed ? 0.6 : 1,
+        ...pressStyle({ pressed }),
       })}
     >
       {source && !unavailable ? (

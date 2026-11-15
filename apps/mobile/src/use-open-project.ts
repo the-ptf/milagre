@@ -9,7 +9,7 @@ import { useSession } from "./session";
  */
 /** A missing folder reads as one, not as the Mac's ENOENT. */
 function openFailure(message: string) {
-  return /ENOENT|no such file or directory/i.test(message) ? "Couldn't find that folder on your Mac. Check the path and try again." : message;
+  return /ENOENT|no such file or directory/i.test(message) ? "Couldn't find that folder on your computer. Check the path and try again." : message;
 }
 
 export function useOpenProject(params: { projectPath?: string; hostId?: string; id?: string }) {

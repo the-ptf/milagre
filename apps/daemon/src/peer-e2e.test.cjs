@@ -41,7 +41,7 @@ test("a desktop pairs through the relay in the pairing window and drives this Ma
   const desktop = mac.dial(connectDesktop, { name: "studio" });
   assert.ok((await desktop.hello()).channel);
   const key = b64url(desktop.key.publicKey);
-  // Settings › Devices lists it under Computers.
+  // Settings › Phone & sharing lists it under Computers.
   assert.deepEqual(
     (await mac.client.call("devices:list")).map((device) => [device.key, device.kind, device.name, device.route]),
     [[key, "computer", "studio", "relay"]],
@@ -187,7 +187,7 @@ test("a phone removed while the pairing window is open stays out until a later w
   );
   await mac.client.call("devices:remove", [key]);
   assert.equal((await within(phone.closed, "the phone socket to close")).code, 1000);
-  // Settings › Devices still shows the QR, so the window is open: the phone redials at once and is refused.
+  // Settings › Phone & sharing still shows the QR, so the window is open: the phone redials at once and is refused.
   assert.deepEqual((await mac.dial(connectPhone, { key: phone.key }).hello()).error, { t: "error", code: "unknown-phone" });
   mac.clock.now += 1000;
   await mac.client.call("phone:open-pairing");

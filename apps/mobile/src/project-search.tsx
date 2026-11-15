@@ -60,7 +60,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
                 query,
                 items: [],
                 error: /not available from mobile/i.test((e as Error).message)
-                  ? "Update Milagre on your Mac to search its Projects. You can still type a full path."
+                  ? "Update Milagre on your computer to search its Projects. You can still type a full path."
                   : (e as Error).message,
               });
           });

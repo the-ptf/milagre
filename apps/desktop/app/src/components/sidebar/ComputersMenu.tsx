@@ -78,8 +78,8 @@ function HostRow({
 /**
  * Filters › Computers (spec "Computer status", design sidebar-c-sections v6): This Mac and each paired computer with its
  * status dot and route, a check that keeps its Projects in the sidebar or leaves them out (and quiet: no notice, badge or
- * inbox row here), a gear per computer that opens its settings (This Mac's: Settings › Devices), and Add computer.
- * Offered only while Settings › Devices › Other computers is on.
+ * inbox row here), a gear per computer that opens its settings (This Mac's: Settings › Phone & sharing), and Add computer.
+ * Offered only while Settings › Phone & sharing › Other computers is on.
  */
 export function ComputersMenu({
   now,

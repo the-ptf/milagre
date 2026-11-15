@@ -137,8 +137,8 @@ export function UsageLimitCard({
         </View>
       </View>
       {resumeLabel && !switched && (
-        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          {pending && <Text style={{ color: colors.ink2, fontSize: 13 }}>{resumeLabel}</Text>}
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          {pending && <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{resumeLabel}</Text>}
           {interactive && resumeSupported && resumeAvailable && !resumeBlocked && (
             <PillButton title={pending ? "Cancel" : resumeLabel} disabled={!!switching} onPress={() => void changeResume()} />
           )}

@@ -29,7 +29,7 @@ const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs")
 const PUSH_METHODS = Object.freeze(["push:register", "push:unregister", "push:focus"]);
 const LIVE_ACTIVITY_METHODS = Object.freeze(["live-activity:state", "live-activity:open", "live-activity:answer", "live-activity:forget"]);
 const PHONE_METHODS = Object.freeze(["phone:status", "phone:set-enabled", "phone:reset", "phone:open-pairing", "phone:set-lan"]);
-// Paired phones and computers, listed and removed from this Mac's own window only (Settings > Devices), the computers
+// Paired phones and computers, listed and removed from this Mac's own window only (Settings > Phone & sharing), the computers
 // waiting for its Allow, the phone pairings no window has announced yet (taken by whichever window asks first, then
 // confirmed once shown; a connection that closes first gives back what it took), and which devices the owner has seen.
 const DEVICE_METHODS = Object.freeze([

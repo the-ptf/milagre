@@ -79,6 +79,7 @@ export function ProviderLogo({
             <>
               <Defs>
                 <Mask id={`${id}-arch`} maskUnits="userSpaceOnUse" x="0" y="1" width="24" height="23">
+                  {/* oxlint-disable-next-line milagre-design/no-raw-color -- SVG mask: white is "show", the same in every theme */}
                   <Path d={ANTIGRAVITY_LOGO.d} fill="#fff" />
                 </Mask>
                 {ANTIGRAVITY_LOGO.blobs.map((blob) => (

@@ -23,7 +23,7 @@ The demo currently defaults to bridge 8787 and Metro 8790. Check availability be
 
 The demo starts Metro with its disposable connection settings. Retain that terminal session. Do not start a second Metro with missing environment settings. Startup output or connection files can contain pairing credentials: consume them privately and keep them out of replies, screenshots and commits.
 
-For real-provider testing and every PR screenshot, use a separate temporary Project and profile through the host workflow in [phone development](../../../docs/mobile-local.md). Do not use its desktop-profile sharing instructions for an isolated test. Never copy real provider credentials into fixtures or edit a live host's storage to seed state.
+For real-provider testing and every PR screenshot, use a separate temporary Project and profile through the host workflow in [phone development](../../../docs/mobile-local.md), or [verify-milagre](../verify-milagre/SKILL.md), which starts a desktop dev copy, a phone host on that copy's own daemon, Metro and a slim simulator in one run and pairs the phone without printing the token. Do not use its desktop-profile sharing instructions for an isolated test. Never copy real provider credentials into fixtures or edit a live host's storage to seed state.
 
 ## Pair, exercise and retain evidence
 

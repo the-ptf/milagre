@@ -21,7 +21,7 @@ import {
   TreePreview,
 } from "./chat-display-choices";
 import { CheckRow, ListRow, Toggle, showActions, useStyles } from "./ui";
-import { radius } from "./design-tokens";
+import { radius, space } from "./design-tokens";
 
 // What a Chat row can show under its title; the computer is always on the phone's rows.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
@@ -34,7 +34,7 @@ export function ChatDisplaySection() {
   const [chatList, setChatList] = useChatList();
   const rowShow = useChatRowShow();
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: space.md }}>
       <FollowUpSetting />
       <Text style={styles.section}>{CHAT_LIST_TITLE}</Text>
       <ChoiceCards<ChatList>
@@ -52,7 +52,7 @@ export function ChatDisplaySection() {
           },
         ]}
       />
-      <Text style={[styles.section, { marginTop: 14 }]}>Rows show</Text>
+      <Text style={[styles.section, { marginTop: space.xl }]}>Rows show</Text>
       <View style={[styles.card, { gap: 4 }]}>
         <SampleChatRow show={rowShow} />
         <View style={[styles.separator, { marginVertical: 8 }]} />
@@ -65,7 +65,7 @@ export function ChatDisplaySection() {
           />
         ))}
       </View>
-      <Text style={[styles.section, { marginTop: 14 }]}>Reasoning</Text>
+      <Text style={[styles.section, { marginTop: space.xl }]}>Reasoning</Text>
       <ChoiceCards<"folded" | "expanded">
         label="Reasoning"
         value={expandReasoning ? "expanded" : "folded"}
@@ -75,7 +75,7 @@ export function ChatDisplaySection() {
           { value: "expanded", title: "Expanded", description: "Thinking shows open above each answer.", preview: <ExpandedReasoningPreview /> },
         ]}
       />
-      <Text style={[styles.section, { marginTop: 14 }]}>Tool calls</Text>
+      <Text style={[styles.section, { marginTop: space.xl }]}>Tool calls</Text>
       <ChoiceCards<ToolCallDisplay>
         label="Tool calls"
         value={toolCallDisplay}
@@ -97,7 +97,7 @@ function SnoozeFor() {
   const [minutes, setMinutes] = useSnoozeMinutes();
   return (
     <>
-      <Text style={[styles.section, { marginTop: 14 }]}>Snooze</Text>
+      <Text style={[styles.section, { marginTop: space.xl }]}>Snooze</Text>
       <Findable title="Snooze for">
         {/* One choice of five: a checkmark list, as iOS Settings picks one value. */}
         <View accessibilityRole="radiogroup" accessibilityLabel="Snooze for" style={[styles.card, { paddingVertical: 0, gap: 0 }]}>

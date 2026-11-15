@@ -5,7 +5,9 @@ import { bridgeForKey } from "./computer-bridge.ts";
 /*
  * SNOOZE, AT ONCE
  * Snoozing a Chat (or waking it) moves its row before its host has saved it, as Done does (done-pending.ts). The row keeps
- * the asked-for place until the host's rows agree, the patch fails, or a minute passes without an answer.
+ * the asked-for place until the host's rows agree, the patch fails, or a minute passes without an answer. Once the host
+ * has answered, its rows win within a few seconds even when they never agree: a question can wake a Chat right after
+ * its Snooze is saved, before this sidebar ever drew it snoozed (statechart, #1039).
  */
 
 // Chat key (`<scope>#<id>`) to the wake time the row shows meanwhile: a time while snoozed, null once woken.
@@ -17,8 +19,10 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 const PENDING_MS = 60_000;
+// How long a mark outlives its host's answer: time for that host's rows to arrive, from another computer too.
+const ANSWERED_MS = 5_000;
 
-function set(chatKey: string, until: number | null | undefined) {
+function set(chatKey: string, until: number | null | undefined, ms = PENDING_MS) {
   const next = new Map(pending);
   clearTimeout(timers.get(chatKey));
   timers.delete(chatKey);
@@ -27,24 +31,37 @@ function set(chatKey: string, until: number | null | undefined) {
     next.set(chatKey, until);
     timers.set(
       chatKey,
-      setTimeout(() => set(chatKey, undefined), PENDING_MS),
+      setTimeout(() => set(chatKey, undefined), ms),
     );
   }
   pending = next;
   for (const listener of listeners) listener();
 }
 
+// Chat key to the latest Snooze or Wake asked of it: only that one's answer moves its mark. Wake is always null and
+// Tomorrow a fixed time, so an older patch can carry the same value as the one the row shows.
+const latest = new Map<string, number>();
+let asked = 0;
+
 /** Snoozes a Chat on its computer until `until` (ms), or wakes it (null); the row moves at once. */
-export function snoozeChat(scopeKey: string, sessionId: number, until: number | null): Promise<void> {
+export async function snoozeChat(scopeKey: string, sessionId: number, until: number | null): Promise<void> {
   const chatKey = `${scopeKey}#${sessionId}`;
+  const ask = ++asked;
+  latest.set(chatKey, ask);
   set(chatKey, until);
-  return bridgeForKey(scopeKey)
-    .patchChat(scopeKey, sessionId, { snoozed_until: until ?? false })
-    .catch((error: unknown) => {
-      // Unless a later Snooze or Wake of it took the row since.
-      if (pending.get(chatKey) === until) set(chatKey, undefined);
-      throw error;
-    });
+  // Unless a later Snooze or Wake of it, a Done or a sent message took the row since.
+  const ours = () => latest.get(chatKey) === ask && pending.get(chatKey) === until;
+  try {
+    await bridgeForKey(scopeKey).patchChat(scopeKey, sessionId, { snoozed_until: until ?? false });
+  } catch (error) {
+    if (ours()) set(chatKey, undefined);
+    throw error;
+  } finally {
+    if (latest.get(chatKey) === ask) {
+      if (pending.get(chatKey) === until) set(chatKey, until, ANSWERED_MS);
+      latest.delete(chatKey);
+    }
+  }
 }
 
 /** Forgets a Chat's pending Snooze or Wake: Done or a sent message clears its snooze on the host anyway. */

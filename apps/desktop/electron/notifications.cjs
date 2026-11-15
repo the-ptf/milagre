@@ -192,13 +192,13 @@ class AttentionNotifier {
 
   // A device paired with this Mac for the first time: a phone, or ("computer") another Mac that can now drive this one.
   // Shown even while Milagre has focus: it is about who can reach the agents, and the pairing window opens just by
-  // looking at Settings → Devices. Clicking it opens that page.
+  // looking at Settings → Phone & sharing. Clicking it opens that page.
   notifyDevicePaired(kind = "phone") {
     if (kind !== "computer") return this.notifyPhonesPaired([{ name: null }]);
     return this.showPaired({
       title: "New computer paired",
       subtitle: "",
-      body: `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Devices.`,
+      body: `Another computer can now drive your agents on ${thisComputer}. If it wasn't you, remove it in Settings → Phone & sharing.`,
     });
   }
 
@@ -213,7 +213,8 @@ class AttentionNotifier {
     if (!list.length) return false;
     const name = list.length === 1 ? capped(list[0]?.name, 60) : "";
     const who = list.length === 1 ? name || "A phone" : `${list.length} phones`;
-    const removeIt = list.length === 1 ? "If it wasn't you, remove it in Settings → Devices." : "If one wasn't you, remove it in Settings → Devices.";
+    const removeIt =
+      list.length === 1 ? "If it wasn't you, remove it in Settings → Phone & sharing." : "If one wasn't you, remove it in Settings → Phone & sharing.";
     return this.showPaired({
       title: list.length === 1 ? "New phone paired" : `${list.length} new phones paired`,
       subtitle: "",

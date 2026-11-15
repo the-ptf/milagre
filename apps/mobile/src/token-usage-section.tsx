@@ -36,14 +36,19 @@ import { ErrorNotice } from "./primitives/error-notice";
 import { useSession } from "./session";
 import { Findable } from "./settings-find";
 import { useTheme } from "./theme";
-import { PullDown, useStyles } from "./ui";
-import { radius, type } from "./design-tokens";
+import { PullDown, pressStyle, useStyles } from "./ui";
+import { lineHeight, radius, space, type } from "./design-tokens";
 
 // While a scan runs, the screen reads again this often; the host's token-usage signal also reads at once.
 const REFRESHING_POLL_MS = 2500;
 const FIRST_CHATS = 3;
 const GAP = 4;
 const LEVEL_MIX = [0.2, 0.38, 0.56, 0.76, 1];
+/** A calendar day outside the picked range keeps 35% of its shade, mixed into the card. */
+const OUTSIDE_RANGE = 0.35;
+/** A Chat row's provider dot; the rows and "Show more" line their text up past it. */
+const CHAT_DOT = 6;
+const CHAT_TEXT_INSET = space.xxl + CHAT_DOT + space.md;
 
 /** The connected computer's report for a range or picked days, read again when its host signals new numbers. */
 function useTokenUsage(client: Client | null, range: TokenUsageRange, days: TokenUsageDays | null) {
@@ -113,9 +118,10 @@ function Calendar({ report, metric, onPick }: { report: TokenUsageReport; metric
   const covered = useMemo(() => coveredDays(report), [report]);
   const summary = calendarSummary(report.calendar, metric);
   const shades = useMemo(() => [colors.hover2, ...LEVEL_MIX.map((share) => mix(colors.surface, colors.accent, share))], [colors]);
+  const faded = useMemo(() => shades.map((shade) => mix(colors.surface, shade, OUTSIDE_RANGE)), [shades, colors]);
   const cell = weeks.length ? Math.floor((width - GAP * (weeks.length - 1)) / weeks.length) : 0;
   return (
-    <View style={[styles.card, { gap: 10 }]}>
+    <View style={[styles.card, { gap: space.lg }]}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
         <Text style={{ color: colors.ink, fontSize: type.subheadline, fontWeight: "600" }}>Past 90 days</Text>
         <Text style={{ color: colors.ink2, fontSize: type.footnote, fontWeight: "500", fontVariant: ["tabular-nums"] }}>
@@ -140,8 +146,7 @@ function Calendar({ report, metric, onPick }: { report: TokenUsageReport; metric
                       height: cell,
                       borderRadius: radius.chip,
                       borderCurve: "continuous",
-                      backgroundColor: shades[levels.get(day.key) ?? 0],
-                      opacity: covered.has(day.key) ? 1 : 0.35,
+                      backgroundColor: (covered.has(day.key) ? shades : faded)[levels.get(day.key) ?? 0],
                     }}
                   />
                 ) : (
@@ -189,7 +194,7 @@ function ProjectRows({
         accessibilityState={{ expanded: open }}
         accessibilityLabel={`${name}, ${formatMetric(metric, value)}`}
         onPress={onToggle}
-        style={({ pressed }) => ({ paddingHorizontal: 16, paddingVertical: 14, gap: 8, opacity: pressed ? 0.6 : 1 })}
+        style={({ pressed }) => [{ paddingHorizontal: space.xl, paddingVertical: space.lg, gap: space.md }, pressStyle({ pressed, kind: "row" })]}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text
@@ -216,8 +221,8 @@ function ProjectRows({
               <>
                 <View
                   style={{
-                    width: 6,
-                    height: 6,
+                    width: CHAT_DOT,
+                    height: CHAT_DOT,
                     borderRadius: radius.full,
                     backgroundColor: chat.providers[0] ? TOKEN_USAGE_PROVIDER_COLORS[chat.providers[0]] : colors.ink4,
                   }}
@@ -235,13 +240,20 @@ function ProjectRows({
                 </Text>
               </>
             );
-            const row = { flexDirection: "row" as const, alignItems: "center" as const, gap: 10, minHeight: 56, paddingLeft: 22, paddingRight: 16 };
+            const row = {
+              flexDirection: "row" as const,
+              alignItems: "center" as const,
+              gap: space.md,
+              minHeight: 56,
+              paddingLeft: space.xxl,
+              paddingRight: space.xl,
+            };
             return canOpen ? (
               <Pressable
                 key={chat.sessionId}
                 accessibilityRole="button"
                 onPress={() => onOpenChat(project.path, chat.sessionId!)}
-                style={({ pressed }) => [row, { opacity: pressed ? 0.6 : 1 }]}
+                style={({ pressed }) => [row, pressStyle({ pressed, kind: "row" })]}
               >
                 {body}
               </Pressable>
@@ -256,7 +268,7 @@ function ProjectRows({
         <Pressable
           accessibilityRole="button"
           onPress={() => setAll(true)}
-          style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingLeft: 38, opacity: pressed ? 0.6 : 1 })}
+          style={({ pressed }) => [{ minHeight: 44, justifyContent: "center", paddingLeft: CHAT_TEXT_INSET }, pressStyle({ pressed })]}
         >
           <Text style={{ color: colors.accentInk, fontSize: type.subheadline, fontWeight: "500" }}>
             Show {hidden} more {project.milagre ? (hidden === 1 ? "Chat" : "Chats") : hidden === 1 ? "folder" : "folders"}
@@ -345,7 +357,7 @@ export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
       </View>
       {error ? <ErrorNotice message={error} /> : null}
       {!report && !error ? (
-        <View style={[styles.row, { gap: 10 }]}>
+        <View style={[styles.row, { gap: space.md }]}>
           <SpinnerRing size={18} />
           <Text style={styles.muted}>Loading usage…</Text>
         </View>
@@ -387,7 +399,7 @@ export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
             <Text selectable style={{ color: colors.ink, fontSize: type.largeTitle, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
               {formatMetric(metric, whole)}
             </Text>
-            <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: 20 }}>
+            <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
               {metric === "cost" ? `${formatTokenCount(tokenTotal(report.totals))} tokens` : formatUsd(report.totals.costUsd)} ·{" "}
               {formatTokenCount(report.totals.requests)} requests
               {tokenTotal(report.totals) > 0
@@ -457,7 +469,7 @@ export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
                 {report.models.map((model, index) => (
                   <View key={`${model.provider}:${model.model}`}>
                     {index > 0 ? <View style={[styles.separator, { marginLeft: 16 }]} /> : null}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 56, paddingHorizontal: 16 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, paddingHorizontal: space.xl }}>
                       <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: TOKEN_USAGE_PROVIDER_COLORS[model.provider] }} />
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout }}>
@@ -483,7 +495,7 @@ export function TokenUsageSection({ navigation }: { navigation?: ReactNode }) {
               </View>
             </>
           ) : null}
-          <Text style={[styles.caption, { lineHeight: 17 }]}>
+          <Text style={styles.caption}>
             {
               "Read from the Claude Code and Codex transcripts on this computer, including sessions run outside Milagre. Costs are estimates at API prices from LiteLLM's model list, not your plan's bill. Kiro and Antigravity aren't counted."
             }

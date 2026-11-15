@@ -34,7 +34,7 @@ const RECONNECT_WAIT_MS = 15_000;
 const LAN_WAIT_MS = 500;
 // Problems worth a line under a computer while it keeps retrying; the rest read as Reconnecting… or Offline.
 const SHOWN = new Set(["full", "outdated", "kind", "bad-hello", "busy"]);
-const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other computer.";
+const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Phone & sharing on the other computer.";
 const TUNNEL_LINK = "This link reaches its computer through a Cloudflare tunnel, which computers can't use yet.";
 
 // A refusal retrying can't fix. A keychain that can't open this Mac's keys (an Error with code "keys", not a PeerError) is
@@ -151,7 +151,7 @@ async function stop(entry) {
 
 /**
  * The other Macs this desktop drives (spec "This Mac (Electron main) › Computers"). Each saved computer, while
- * `setEnabled(true)` (Settings › Devices › Other computers), gets one runtime (daemon-runtime.cjs) whose connections
+ * `setEnabled(true)` (Settings › Phone & sharing › Other computers), gets one runtime (daemon-runtime.cjs) whose connections
  * are paired-desktop channels (peer-client.cjs) on the route the shared supervisor picks: a LAN address the computer
  * gave (peer:routes) when it answers, the relay otherwise; checked on every connect, every 60 s and when this Mac's
  * network changes. A refusal retrying can't fix (removed, reset, denied) stops it until it is paired again.

@@ -54,9 +54,9 @@ import { useFlowDraft } from "../flow-draft";
 import { modelsFor } from "../turn-options";
 import { PlaceholderField } from "../placeholder-field";
 import { confirm } from "../confirm-store";
-import { FlowButton } from "../flow-ui";
 import { Icon, type IconData } from "../icons";
-import { CircleButton, ErrorNotice, Field, PageScroll, PullDown, Toggle, useStyles } from "../ui";
+import { lineHeight, radius, space, type } from "../design-tokens";
+import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 const DEFAULT = "__default";
@@ -148,7 +148,7 @@ export default function FlowStepSheet() {
           {problems.map((problem) => (
             <View key={problem.message} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start", paddingHorizontal: 4 }}>
               <Icon icon={Alert02Icon} tone="redInk" size={16} />
-              <Text accessibilityRole="alert" style={{ flex: 1, color: colors.redInk, fontSize: 13, lineHeight: 18 }}>
+              <Text accessibilityRole="alert" style={{ flex: 1, color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                 {problem.message}
               </Text>
             </View>
@@ -176,61 +176,48 @@ export default function FlowStepSheet() {
           ) : (
             <CommentFields step={step} fields={fields} placeholders={placeholders} onChange={change} />
           )}
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-            <FlowButton
+          <View style={{ flexDirection: "row", gap: space.md, marginTop: space.lg }}>
+            <PillButton
               title="Move up"
-              kind="secondary"
+              variant="tinted"
               icon={ArrowUp02Icon}
               disabled={first}
               onPress={() => draft.edit(moveStep(draft.steps, step.id, -1))}
               style={{ flex: 1 }}
             />
-            <FlowButton
+            <PillButton
               title="Move down"
-              kind="secondary"
+              variant="tinted"
               icon={ArrowDown02Icon}
               disabled={last}
               onPress={() => draft.edit(moveStep(draft.steps, step.id, 1))}
               style={{ flex: 1 }}
             />
           </View>
-          <FlowButton title="Delete step" kind="danger" icon={Delete02Icon} onPress={() => void remove()} />
-          <Text style={[styles.caption, { paddingHorizontal: 4, fontSize: 13, lineHeight: 18 }]}>
-            Changes save to the draft as you type. Runs use them once you publish.
-          </Text>
+          <PillButton title="Delete step" variant="tinted" destructive icon={Delete02Icon} onPress={() => void remove()} />
+          <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>Changes save to the draft as you type. Runs use them once you publish.</Text>
         </View>
       </PageScroll>
     </View>
   );
 }
 
-const fieldTypeName = (type: FlowField["type"]) => FIELD_TYPES.find((item) => item.id === type)?.title.toLowerCase() ?? type;
+const fieldTypeName = (kind: FlowField["type"]) => FIELD_TYPES.find((item) => item.id === kind)?.title.toLowerCase() ?? kind;
 
 /** The sheet's sticky header: Close on the leading edge, the step type in the middle. */
 function Header({ title }: { title: string }) {
+  const styles = useStyles();
   const { colors } = useTheme();
   return (
     <View style={{ backgroundColor: colors.page }}>
-      <View style={{ flexDirection: "row", alignItems: "center", minHeight: 60, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 }}>
-        <Text
-          accessibilityRole="header"
-          pointerEvents="none"
-          numberOfLines={1}
-          style={{
-            position: "absolute",
-            left: 72,
-            right: 72,
-            top: 14,
-            bottom: 6,
-            textAlign: "center",
-            lineHeight: 40,
-            color: colors.ink,
-            fontSize: 17,
-            fontWeight: "600",
-          }}
-        >
-          {title}
-        </Text>
+      <View
+        style={{ flexDirection: "row", alignItems: "center", minHeight: 60, paddingHorizontal: space.gutter, paddingTop: space.xl, paddingBottom: space.xs }}
+      >
+        <View pointerEvents="none" style={{ position: "absolute", left: 72, right: 72, top: space.xl, bottom: space.xs, justifyContent: "center" }}>
+          <Text accessibilityRole="header" numberOfLines={1} style={[styles.sheetTitle, { textAlign: "center" }]}>
+            {title}
+          </Text>
+        </View>
         <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
       </View>
     </View>
@@ -272,15 +259,15 @@ function Row({ icon, label, value, children }: { icon: IconData; label: string; 
     <View
       accessible={!children}
       accessibilityLabel={children ? undefined : `${label}: ${value ?? ""}`}
-      style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: Platform.OS === "ios" ? 12 : 10 }}
+      style={{ flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: 48, paddingVertical: Platform.OS === "ios" ? space.lg : space.md }}
     >
       <Icon icon={icon} tone="ink" size={20} />
-      <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>{label}</Text>
+      <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>{label}</Text>
       {children ? (
         <View style={{ flex: 1, alignItems: "flex-end" }}>{children}</View>
       ) : (
         <>
-          <Text numberOfLines={1} style={{ flex: 1, textAlign: "right", color: colors.ink2, fontSize: 15 }}>
+          <Text numberOfLines={1} style={{ flex: 1, textAlign: "right", color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
             {value}
           </Text>
           <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
@@ -315,7 +302,7 @@ function NumberField({ label, value, onChange, min, max }: { label: string; valu
           onChange(number);
         }
       }}
-      style={{ backgroundColor: "transparent", color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 80, fontSize: 15 }}
+      style={{ backgroundColor: "transparent", color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 80, fontSize: type.subheadline }}
     />
   );
 }
@@ -335,7 +322,7 @@ function InsertField({ fields, onInsert }: { fields: FlowReadable[]; onInsert: (
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}>
         <Icon icon={Add01Icon} tone="accentInk" size={12} />
-        <Text style={{ color: colors.accentInk, fontSize: 13, fontWeight: "500" }}>Insert field</Text>
+        <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}>Insert field</Text>
       </View>
     </PullDown>
   );
@@ -391,7 +378,7 @@ function AgentFields({
           sections={[
             {
               items: [
-                { id: DEFAULT, title: "Default", subtitle: "The Mac's default model", checked: !step.model },
+                { id: DEFAULT, title: "Default", subtitle: "Your computer's default model", checked: !step.model },
                 ...models.map((item) => ({
                   id: `${item.provider}:${item.id}`,
                   title: item.name,
@@ -489,7 +476,7 @@ function AgentFields({
       {step.output.map((field, index) => {
         const readers = usedBy(steps, `${step.id}.${field.name}`);
         return (
-          <View key={index} style={[styles.card, { gap: 10, padding: 14 }]}>
+          <View key={index} style={styles.card}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <View style={{ flex: 1 }}>
                 <Field
@@ -504,9 +491,9 @@ function AgentFields({
                 label="Type"
                 title="Type"
                 sections={[{ items: FIELD_TYPES.map((item) => ({ id: item.id, title: item.title, checked: item.id === field.type })) }]}
-                onSelect={(type) => {
-                  const next: FlowField = { ...field, type: type as FlowField["type"] };
-                  if (type === "choice") next.choices = field.choices?.length ? field.choices : ["", ""];
+                onSelect={(picked) => {
+                  const next: FlowField = { ...field, type: picked as FlowField["type"] };
+                  if (picked === "choice") next.choices = field.choices?.length ? field.choices : ["", ""];
                   else delete next.choices;
                   setField(index, next);
                 }}
@@ -518,11 +505,13 @@ function AgentFields({
                     gap: 4,
                     height: 44,
                     paddingHorizontal: 12,
-                    borderRadius: 10,
+                    borderRadius: radius.control,
                     backgroundColor: colors.field,
                   }}
                 >
-                  <Text style={{ color: colors.ink, fontSize: 15 }}>{FIELD_TYPES.find((item) => item.id === field.type)?.title ?? field.type}</Text>
+                  <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
+                    {FIELD_TYPES.find((item) => item.id === field.type)?.title ?? field.type}
+                  </Text>
                   <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
                 </View>
               </PullDown>
@@ -537,18 +526,22 @@ function AgentFields({
               />
             ) : null}
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={[styles.caption, { flex: 1, fontSize: 13 }]}>
-                {readers ? `Read by ${readers} ${readers === 1 ? "step" : "steps"}` : "No step reads it yet"}
-              </Text>
-              <FlowButton title="Remove" kind="quiet" compact onPress={() => set({ output: step.output.filter((_, at) => at !== index) })} />
+              <Text style={[styles.footnote, { flex: 1 }]}>{readers ? `Read by ${readers} ${readers === 1 ? "step" : "steps"}` : "No step reads it yet"}</Text>
+              <PillButton
+                title="Remove"
+                variant="plain"
+                destructive
+                size="small"
+                onPress={() => set({ output: step.output.filter((_, at) => at !== index) })}
+              />
             </View>
           </View>
         );
       })}
       {step.output.length < FLOW_LIMITS.fields ? (
-        <FlowButton
+        <PillButton
           title="Add field"
-          kind="secondary"
+          variant="tinted"
           icon={Add01Icon}
           onPress={() => set({ output: [...step.output, { name: newFieldName(), type: "text" }] })}
         />
@@ -616,12 +609,19 @@ function IfFields({ step, fields, onChange }: { step: FlowIfStep; fields: FlowRe
               placeholder="large"
               value={step.value ?? ""}
               onChangeText={(value) => set({ value })}
-              style={{ backgroundColor: "transparent", color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 140, fontSize: 15 }}
+              style={{
+                backgroundColor: "transparent",
+                color: colors.ink2,
+                textAlign: "right",
+                paddingHorizontal: 0,
+                minWidth: 140,
+                fontSize: type.subheadline,
+              }}
             />
           </Row>
         )}
       </Card>
-      <Text style={[styles.caption, { paddingHorizontal: 4, fontSize: 13, lineHeight: 18 }]}>
+      <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>
         Yes runs when the test holds, Otherwise when it does not. Separate values with commas to match any of them. Add steps to each path in the Steps list.
       </Text>
     </>
@@ -661,7 +661,7 @@ function AskFields({
           />
         </Row>
       </Card>
-      <Text style={[styles.caption, { paddingHorizontal: 4, fontSize: 13, lineHeight: 18 }]}>
+      <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>
         {`You can answer on any device. Rejected, or no answer within ${step.expiresInHours} h, ends the Run.`}
       </Text>
     </>
@@ -709,7 +709,14 @@ function WaitFields({ step, onChange }: { step: FlowWaitStep; onChange: (next: F
               placeholder="In Review"
               value={until.state}
               onChangeText={(state) => onChange({ ...step, until: { kind: "linear-state", state } })}
-              style={{ backgroundColor: "transparent", color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 140, fontSize: 15 }}
+              style={{
+                backgroundColor: "transparent",
+                color: colors.ink2,
+                textAlign: "right",
+                paddingHorizontal: 0,
+                minWidth: 140,
+                fontSize: type.subheadline,
+              }}
             />
           </Row>
         ) : null}
@@ -725,7 +732,7 @@ function WaitFields({ step, onChange }: { step: FlowWaitStep; onChange: (next: F
           </Row>
         )}
       </Card>
-      <Text style={[styles.caption, { paddingHorizontal: 4, fontSize: 13, lineHeight: 18 }]}>
+      <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>
         {until.kind === "time"
           ? `The Run goes on after ${durationText(until.minutes)}.`
           : until.kind === "linear-state"
@@ -780,7 +787,7 @@ function PullRequestFields({
         <Toggle title="Open as a draft" selected={step.draft} onPress={() => set({ draft: !step.draft })} />
         <Toggle title="Ask me first" selected={step.askFirst} onPress={() => set({ askFirst: !step.askFirst })} />
       </View>
-      <Text style={[styles.caption, { paddingHorizontal: 4, fontSize: 13, lineHeight: 18 }]}>
+      <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>
         Pushes the branch for this Run and opens the pull request once. It keeps a receipt, so a restart or a retry never opens a second one.
       </Text>
     </>
@@ -804,7 +811,7 @@ function CommentFields({
     <>
       <Label text="Comment" trailing={<InsertField fields={fields} onInsert={(ref) => set({ body: append(step.body, ref) })} />} />
       <PlaceholderField value={step.body} onChangeText={(body) => set({ body })} placeholders={placeholders} placeholder="What to post on the issue" />
-      <Text style={[styles.caption, { paddingHorizontal: 4, fontSize: 13, lineHeight: 18 }]}>Posts on the Linear issue for this Run, once per Run.</Text>
+      <Text style={[styles.footnote, { paddingHorizontal: space.xs }]}>Posts on the Linear issue for this Run, once per Run.</Text>
     </>
   );
 }

@@ -26,9 +26,9 @@ import { canMergeNow, checksProgress, mergeStatus, type MergeMethod, type PullRe
 import type { Client } from "./client";
 import { Icon, type IconData, type Tone } from "./icons";
 import { PrMarkdown } from "./pr-markdown";
-import { ErrorNotice, PageScroll, PillButton, PullDown, Segmented, tap, useStyles } from "./ui";
+import { ErrorNotice, PageScroll, PillButton, PullDown, Segmented, pressStyle, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
-import { radius, type } from "./design-tokens";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { usePrDetail, writePr } from "./pr-store";
 import { prChoiceKey, prefillChat, type PrChoice } from "./pr-chat";
 import { isOldMacError } from "./file-mentions";
@@ -96,9 +96,11 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
       <View style={{ flex: 1 }}>
         {close && <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>{close}</View>}
         {oldMac ? (
-          <View style={{ padding: 20, gap: 14 }}>
-            <Text style={[styles.label, { fontSize: 16 }]}>Update Milagre on this Mac to review PR #{number} here.</Text>
-            <Text style={styles.muted}>{"This Mac's Milagre is older than the PR panel."}</Text>
+          <View style={{ padding: 20, gap: space.lg }}>
+            <Text style={[styles.label, { fontSize: type.callout, lineHeight: lineHeight.callout }]}>
+              Update Milagre on this computer to review PR #{number} here.
+            </Text>
+            <Text style={styles.muted}>{"This computer's Milagre is older than the PR panel."}</Text>
             {branchPr?.number === number && branchPr.url && (
               <View style={{ flexDirection: "row" }}>
                 <PillButton title="Open on GitHub" icon={LinkSquare02Icon} secondary onPress={() => void Linking.openURL(branchPr.url).catch(() => {})} />
@@ -159,7 +161,11 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
       onPress={() => merge()}
     />
   ) : pr.autoMerge ? (
-    <View accessible accessibilityLabel="Merges when ready" style={{ flexDirection: "row", alignItems: "center", gap: 5, height: 36, paddingHorizontal: 4 }}>
+    <View
+      accessible
+      accessibilityLabel="Merges when ready"
+      style={{ flexDirection: "row", alignItems: "center", gap: space.xs, height: 36, paddingHorizontal: 4 }}
+    >
       <Icon icon={GitMergeIcon} tone="ink2" size={16} />
       <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.footnote }}>
         Merges when ready
@@ -263,7 +269,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             accessibilityRole="link"
             accessibilityLabel={`${repoOf(pr.url)} #${pr.number}, open on GitHub`}
             onPress={openGitHub}
-            style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.6 : 1 })}
+            style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs, ...pressStyle({ pressed }) })}
           >
             <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: type.subheadline }}>
               {repoOf(pr.url)}
@@ -276,14 +282,14 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
           {close}
         </View>
         {project && (
-          <View accessible accessibilityLabel={`Project ${project.name}`} style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+          <View accessible accessibilityLabel={`Project ${project.name}`} style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
             <ProjectIcon client={client} path={project.path} size={20} />
             <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: type.subheadline, fontWeight: "600" }}>
               {project.name}
             </Text>
           </View>
         )}
-        <Text selectable accessibilityRole="header" style={{ color: colors.ink, fontSize: 20, fontWeight: "600", lineHeight: 26 }}>
+        <Text selectable accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title3, fontWeight: "600", lineHeight: lineHeight.title3 }}>
           {pr.title}
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -303,15 +309,18 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
               void Clipboard.setStringAsync(pr.headRefName);
               setNotice(`Copied ${pr.headRefName}.`);
             }}
-            style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.6 : 1 })}
+            style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs, ...pressStyle({ pressed }) })}
           >
-            <Text style={{ color: colors.ink2, fontSize: 12, fontFamily: fonts.mono }}>{pr.baseRefName}</Text>
+            <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }}>{pr.baseRefName}</Text>
             <Icon icon={ArrowLeft01Icon} tone="ink3" size={12} />
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink3, fontSize: 12, fontFamily: fonts.mono }}>
+            <Text
+              numberOfLines={1}
+              style={{ flexShrink: 1, color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }}
+            >
               {middleTruncate(pr.headRefName, 28)}
             </Text>
           </Pressable>
-          <Text style={{ color: colors.ink2, fontSize: 13 }}>
+          <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
             {pr.changedFiles} {pr.changedFiles === 1 ? "file" : "files"} <Text style={{ fontFamily: fonts.mono, color: colors.add }}>+{pr.additions}</Text>{" "}
             <Text style={{ fontFamily: fonts.mono, color: colors.remove }}>−{pr.deletions}</Text>
           </Text>
@@ -332,7 +341,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
               tap();
               onChanges?.();
             }}
-            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
+            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, ...pressStyle({ pressed }) })}
           >
             <Icon icon={CloudUploadIcon} tone="orange" size={12} />
             <Text style={{ color: colors.orangeInk, fontSize: type.subheadline }}>{localLine}</Text>
@@ -409,10 +418,12 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
                     tap();
                     setNewestFirst((value) => !value);
                   }}
-                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 4, ...pressStyle({ pressed }) })}
                 >
                   <Icon icon={ArrowUpDownIcon} tone="ink3" size={12} />
-                  <Text style={{ color: colors.ink3, fontSize: 13 }}>{newestFirst ? "Newest first" : "Oldest first"}</Text>
+                  <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+                    {newestFirst ? "Newest first" : "Oldest first"}
+                  </Text>
                 </Pressable>
               }
             >
@@ -475,6 +486,7 @@ function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> 
     { key: "passed", count: progress.passed, color: colors.greenInk, opacity: 1 },
     { key: "skipped", count: progress.skipped, color: colors.lineStrong, opacity: 1 },
     { key: "failed", count: progress.failed, color: colors.redInk, opacity: 1 },
+    // oxlint-disable-next-line milagre-design/opacity-token -- a dimmed segment of the CI progress bar marks "still running"; not a press or disabled state
     { key: "running", count: progress.running, color: colors.orangeInk, opacity: 0.4 },
   ].filter((part) => part.count > 0);
   return (
@@ -502,16 +514,16 @@ function LabelChip({ name, color }: { name: string; color: string }) {
   return (
     <View
       style={{
-        paddingHorizontal: 7,
+        paddingHorizontal: space.md,
         height: 22,
-        borderRadius: 6,
+        borderRadius: radius.chip,
         justifyContent: "center",
         backgroundColor: `#${color}33`,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: `#${color}99`,
       }}
     >
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 12 }}>
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
         {name}
       </Text>
     </View>
@@ -546,14 +558,14 @@ function PropertyRow({
         minHeight: 48,
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        opacity: pressed ? 0.55 : 1,
+        gap: space.md,
+        paddingHorizontal: space.xl,
+        paddingVertical: space.md,
+        ...pressStyle({ pressed }),
       })}
     >
       <Icon icon={icon} tone="ink3" size={18} />
-      <Text style={{ width: 78, color: colors.ink2, fontSize: 15 }}>{title}</Text>
+      <Text style={{ width: 78, color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{title}</Text>
       <View style={{ flex: 1 }}>{children}</View>
       {onPress && <Icon icon={add} tone="ink3" size={16} />}
     </Pressable>
@@ -595,11 +607,11 @@ function Section({
             gap: 6,
             paddingVertical: 8,
             paddingHorizontal: 4,
-            opacity: pressed ? 0.6 : 1,
+            ...pressStyle({ pressed }),
           })}
         >
           <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
-          <Text style={{ color: colors.ink2, fontSize: 15, fontWeight: "600" }}>{title}</Text>
+          <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>{title}</Text>
           {!!value && (
             <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink3, fontSize: type.subheadline }}>
               {value}
@@ -654,7 +666,7 @@ function ActionButton({
         backgroundColor: green ? colors.greenInk : danger ? colors.redTint : colors.surface,
         borderWidth: green ? 0 : StyleSheet.hairlineWidth,
         borderColor: colors.lineStrong,
-        opacity: pressed ? 0.6 : 1,
+        ...pressStyle({ pressed }),
       })}
     >
       {busy ? <ActivityIndicator size="small" color={ink} /> : icon ? <Icon icon={icon} color={ink} size={16} strokeWidth={2} /> : null}
@@ -696,7 +708,7 @@ function RoundButton({ label, icon, onPress }: { label: string; icon: IconData; 
         tap();
         onPress();
       }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      style={({ pressed }) => pressStyle({ pressed })}
     >
       {body}
     </Pressable>

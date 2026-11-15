@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ArrowDown01Icon, ArrowRight01Icon, CornerDownRightIcon } from "@hugeicons/core-free-icons";
 import type { SubchatKind } from "@milagre/shared/subchat-states";
-import { radius, type } from "./design-tokens";
+import { radius, space, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { Markdown } from "./markdown";
 import type { MediaValue } from "./viewer-store";
@@ -70,8 +70,8 @@ export function SubchatMarker({
             borderColor: colors.line,
             borderRadius: radius.card,
             borderCurve: "continuous",
-            paddingVertical: 10,
-            paddingHorizontal: 14,
+            paddingVertical: 8,
+            paddingHorizontal: space.lg,
           }}
         >
           <Markdown text={body} media={media} basePath={basePath} />

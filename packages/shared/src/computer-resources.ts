@@ -1,4 +1,4 @@
-// A computer's memory and disk as the desktop's Settings › Devices, a paired desktop's Computer page and the phone's
+// A computer's memory and disk as the desktop's Settings › Phone & sharing, a paired desktop's Computer page and the phone's
 // computer page show them. The host measures (core computer-resources.cjs); this turns bytes into the same rows,
 // tooltips and breakdowns everywhere.
 

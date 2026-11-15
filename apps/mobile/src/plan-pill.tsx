@@ -314,7 +314,7 @@ export function PillPanel({
             borderWidth: 1,
             borderColor: colors.lineStrong,
             borderCurve: "continuous",
-            boxShadow: "0 8px 32px #0000002e",
+            boxShadow: colors.shadowOverlay,
           },
           surfaceStyle,
           fillStyle,
@@ -382,7 +382,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
     >
       {tasks && <PlanTree plan={plan} />}
       {plan.phases.length > 0 && (
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 12 }}>
           {tasks && (
             <View style={{ flexDirection: "row", paddingHorizontal: 4 }}>
               <SectionLabel flush>Phase graph</SectionLabel>

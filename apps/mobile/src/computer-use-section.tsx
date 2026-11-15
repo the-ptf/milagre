@@ -8,11 +8,11 @@ import { Group, Row } from "./settings-list";
 import { useTheme } from "./theme";
 import { ErrorNotice, Toggle, useStyles } from "./ui";
 
-const message = (error: unknown) => (error instanceof Error ? error.message : "Could not reach this Mac.");
+const message = (error: unknown) => (error instanceof Error ? error.message : "Could not reach this computer.");
 
 /**
- * Settings › This Mac › Computer use, as on desktop: agents operate apps on the connected Mac. Grant opens System
- * Settings there, where the user (or someone at the Mac) turns the permission on.
+ * Settings › This computer › Computer use, as on desktop: agents operate apps on the connected computer (macOS only). Grant
+ * opens System Settings there, where the user (or someone at the computer) turns the permission on.
  */
 export function ComputerUseSection() {
   const styles = useStyles();
@@ -57,8 +57,8 @@ export function ComputerUseSection() {
       (cause) => setError(message(cause)),
     );
   };
-  if (!client) return <Text style={styles.muted}>Connect to a Mac to set up computer use.</Text>;
-  if (loadError) return <ErrorNotice message={`This Mac can't run computer use yet. Update Milagre on it. (${loadError})`} />;
+  if (!client) return <Text style={styles.muted}>Connect to a computer to set up computer use.</Text>;
+  if (loadError) return <ErrorNotice message={`This computer can't run computer use yet. Update Milagre on it. (${loadError})`} />;
   if (!status) return <Text style={styles.muted}>Loading...</Text>;
   const permission = (title: string, state: ComputerUsePermission) => (
     <Row
@@ -82,8 +82,8 @@ export function ComputerUseSection() {
         />
         <Text style={styles.caption}>
           {status.supported
-            ? "Agents can see and operate apps on the Mac. They ask before each new app, and never move the pointer or take focus."
-            : "Not available on this Mac."}
+            ? "Agents can see and operate apps on your computer. They ask before each new app, and never move the pointer or take focus."
+            : "Not available on this computer."}
         </Text>
       </View>
       {status.enabled && status.supported && (
@@ -96,15 +96,16 @@ export function ComputerUseSection() {
             onPress={() => void save({ cursor: !status.cursor })}
           />
           <Text style={styles.caption}>
-            Draw Milagre&apos;s cursor and the current step on the Mac&apos;s screen while an agent acts. The pointer never moves. Not drawing yet on macOS 27
-            with agent-desktop 1.0.2.
+            Draw Milagre&apos;s cursor and the current step on your computer&apos;s screen while an agent acts. The pointer never moves. Not drawing yet on
+            macOS 27 with agent-desktop 1.0.2.
           </Text>
         </View>
       )}
       {status.enabled && status.supported && status.permissions && (
         <Group
+          // oxlint-disable-next-line milagre-design/copy-computer -- macOS-only: Accessibility and Screen Recording are macOS privacy permissions
           title="Permissions on the Mac"
-          footer={guided ? "System Settings is open on the Mac. Turn Milagre on there, then come back." : "Grant opens System Settings on the Mac."}
+          footer={guided ? "System Settings is open on your computer. Turn Milagre on there, then come back." : "Grant opens System Settings on your computer."}
         >
           {permission("Accessibility", status.permissions.accessibility)}
           {permission("Screen Recording", status.permissions.screenRecording)}

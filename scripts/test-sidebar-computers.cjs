@@ -1,8 +1,8 @@
 // Run with npm test -- --only test-sidebar-computers. The footer's computers popover in the real App against a stand-in for
 // main: the laptop button opens a popover of This Mac and each computer with its route line, a gear with its tooltip
-// opens that computer's settings (This Mac's opens Settings › Devices), unchecking a computer leaves its Projects out of
+// opens that computer's settings (This Mac's opens Settings › Phone & sharing), unchecking a computer leaves its Projects out of
 // the sidebar and Filters › Projects (kept across a restart), Filters › Projects lists Projects under their computer, Add computer opens its
-// dialog from the popover and from Settings › Devices, and nothing about computers shows while Settings › Devices ›
+// dialog from the popover and from Settings › Phone & sharing, and nothing about computers shows while Settings › Phone & sharing ›
 // Other computers is off. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -142,7 +142,7 @@ window.milagre = new Proxy({
       if (daemonSettings) window.setDaemonEnabled(enabled);
     },
     invoke: async (id, method) => (method === "daemon:status" ? { version: "0.121.0" } : method === "project:recent" ? [] : null),
-    preview: async () => { throw new Error("That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac."); },
+    preview: async () => { throw new Error("That isn't a Milagre pairing link. Copy it from Settings › Phone & sharing on the other computer."); },
   },
 }, { get(target, key) { return key in target ? target[key] : String(key).startsWith("on") ? () => () => {} : async () => null; } });
 // settings.ts read localStorage when it was imported above, so the saved settings go through its own setter.
@@ -247,7 +247,7 @@ async function browserChecks() {
     await waitFor(
       `document.querySelector('dialog[data-settings-modal] h1')?.textContent === 'victor-mbp' && !!document.querySelector('[data-this-mac-settings]')`,
     );
-    // Settings › Devices adds a computer too, not only the laptop button.
+    // Settings › Phone & sharing adds a computer too, not only the laptop button.
     await evaluate(`document.querySelector('[data-settings-add-computer]').click()`);
     await waitFor(`!!document.querySelector('dialog[data-add-computer]')?.open`);
     await screenshot("devices-add-computer");

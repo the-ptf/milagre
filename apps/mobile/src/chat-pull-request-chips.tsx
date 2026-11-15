@@ -38,7 +38,7 @@ export function ChatPullRequestChips({
   };
   const openPr = (pr: PullRequest) => (onOpenPullRequest ? onOpenPullRequest(pr) : open(pr.url));
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", columnGap: 8, paddingLeft: 42, paddingRight: 4 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", columnGap: 8, paddingLeft: 40, paddingRight: 4 }}>
       {linearIssue && (
         <Pressable
           accessibilityRole="link"

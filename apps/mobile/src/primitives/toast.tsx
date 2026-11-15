@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, type IconData } from "../icons";
 import { radius, type } from "../design-tokens";
+import { pressStyle } from "./press-style";
 import { useTheme } from "../theme";
 
 /**
@@ -39,7 +40,7 @@ export function ToastPill({
         borderRadius: radius.full,
         borderCurve: "continuous",
         backgroundColor: colors.ink,
-        boxShadow: "0 8px 28px #00000017",
+        boxShadow: colors.shadowOverlay,
       }}
     >
       {icon && badge ? (
@@ -60,11 +61,11 @@ export function ToastPill({
           style={({ pressed }) => ({
             minWidth: 56,
             minHeight: 44,
-            marginVertical: -10,
+            marginVertical: -12,
             paddingHorizontal: 8,
             alignItems: "center",
             justifyContent: "center",
-            opacity: pressed ? 0.6 : 1,
+            ...pressStyle({ pressed }),
           })}
         >
           <Text style={{ color: colors.onInk, fontSize: type.subheadline, fontWeight: "600" }}>{action.label}</Text>

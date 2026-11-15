@@ -3,6 +3,7 @@ import Svg, { Circle } from "react-native-svg";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import type { ContextUsage } from "@milagre/shared/model";
 import { contextSummary } from "@milagre/shared/usage";
+import { pressStyle } from "./primitives/press-style";
 import { useTheme } from "./theme";
 import { Icon } from "./icons";
 
@@ -25,7 +26,7 @@ export function ContextRing({
       accessibilityLabel={`Context: ${percent}% used (${tokens})`}
       onPress={onPress}
       hitSlop={5}
-      style={({ pressed }) => ({ width: 34, height: 34, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.6 : 1 })}
+      style={({ pressed }) => ({ width: 34, height: 34, alignItems: "center", justifyContent: "center", ...pressStyle({ pressed }) })}
     >
       {showSize ? (
         <Svg width={20} height={20} viewBox="0 0 20 20" style={{ transform: [{ rotate: "-90deg" }] }}>
