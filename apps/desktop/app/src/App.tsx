@@ -121,7 +121,6 @@ import { getSettings, toggleTheme, useApplyTheme, useSettings } from "./lib/sett
 import { useChatPins } from "./lib/chat-pins";
 import { sessionsWithPins } from "@milagre/shared/chat-pins";
 import { EditorLinks, Notice } from "./components/editor-links";
-// Notice above is editor-links' toast; this is the dismissable notice card.
 import { clearNoticeOnNavigate } from "./lib/notice";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
@@ -170,12 +169,10 @@ import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { SidebarRecent } from "./components/sidebar/ChatRow";
 import { openStorage } from "./lib/storage-open";
 
-// Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
 const CanvasView = lazyView(() => import("./components/CanvasView").then((module) => module.CanvasView));
 const RoutinesPage = lazyView(() => import("./components/routines/RoutinesPage").then((module) => module.RoutinesPage));
 const LAZY_VIEWS = [DiffView, GitActionsDialog, SettingsNav, CommandPalette, MediaLightbox, PermissionCard, QuestionCard];
 
-// The chat with the most recent message, or none so the app opens on a new chat. Archived chats don't count.
 function latestSessionId(state: CoordinatorState) {
   const sessions = Object.values(state.sessions).filter((session) => !session.archived);
   if (sessions.every((session) => session.summary)) {
@@ -192,9 +189,7 @@ function latestSessionId(state: CoordinatorState) {
   );
 }
 
-// How long a scope's model lists and CLI status, and its branches, count as current: a switch back within it reads none again.
 const BRANCHES_FRESH_MS = 60_000;
-/** A PR's state in a word, for the Details panel's Links. */
 function prStateWord(pr: { state?: string; isDraft?: boolean } | undefined) {
   if (pr?.state === "MERGED") return "Merged";
   if (pr?.state === "CLOSED") return "Closed";
@@ -203,13 +198,8 @@ function prStateWord(pr: { state?: string; isDraft?: boolean } | undefined) {
 
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_BRANCHES: string[] = [];
-// Each Project's branches as last read, and when: opening it again shows them at once, and reads them again (git on its
-// computer) in the background only once they are older than BRANCHES_FRESH_MS.
 const branchLists = new Map<string, { at: number; branches: string[] }>();
 
-/** Starts reading Chat `sessionId`'s page now, unless `state` (the scope's, as held) comes from a host that doesn't keep
- * messages by Chat. A scope not held yet (another computer's Project never opened here) reads too: every current host
- * keeps them by Chat, and waiting for its open first is what left such a Chat on its loading state. */
 function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorState | LinkState | null | undefined) {
   if (!state || isLean(state)) prefetchChatMessages(scope, sessionId);
 }
@@ -222,24 +212,15 @@ function App() {
   const projectsSeen = useRef(new Map<string, Pick<OpenProject, "path" | "name">>());
   const projectNavigation = useRef(0);
   projectRef.current = project;
-  // The latest state of every project the main process has sent this window; it's their only writer
-  // (see docs/host.md). The ref leads, so callbacks read a state that arrived since the last render.
   const [selectedLink, setSelectedLink] = useState<OpenLink | null>(null);
-  // The Link shown last stays mounted behind the Project (an <Activity>), so going back to it is a style change.
   const [lastLink, setLastLink] = useState<OpenLink | null>(null);
-  // Counts the requests to show a Link's Chat, so asking for the same Chat again shows it again.
   const [linkOpenNonce, setLinkOpenNonce] = useState(0);
-  // Each Link as the host last opened it, so opening it again shows at once while the host answers.
   const linksSeen = useRef(new Map<string, OpenLink>());
   const selectedLinkRef = useRef(selectedLink);
   selectedLinkRef.current = selectedLink;
-  // The Chat a Link opens on: a number for that Chat, null for a new one, undefined for the one it showed last.
   const [linkInitialSession, setLinkInitialSession] = useState<number | null | undefined>();
-  // Text typed in a Project's new Chat before its heading's dropdown moved it to a Link: the Link's new Chat starts with it.
   const [linkNewChatText, setLinkNewChatText] = useState("");
-  // `true` creates a Link; a Link edits that one.
   const [linkDialogOpen, setLinkDialogOpen] = useState<boolean | NamedProjectLink>(false);
-  // The Link whose deletion is being confirmed.
   const [deletingLink, setDeletingLink] = useState<NamedProjectLink | null>(null);
   // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const scopeDrafts = useMemo(createScopeDrafts, []);
@@ -249,28 +230,22 @@ function App() {
   const [states, setStates] = useState<Record<string, CoordinatorState>>({});
   const statesRef = useRef(states);
   const state = project ? (states[project.path] ?? null) : null;
-  /** The open project's latest state. */
   const openState = () => (projectRef.current ? statesRef.current[projectRef.current.path] : undefined);
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<number | null>(null);
   const [selectedSessionId, setSelectedSessionState] = useState<number | null>(null);
   const selectedSessionRef = useRef<number | null>(null);
   selectedSessionRef.current = selectedSessionId;
-  // The draft lives outside React state: a keystroke re-renders the prompt (DraftPromptComposer), not the whole app.
   // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const draftStore = useMemo(createDraftStore, []);
   const setDraft = draftStore.set;
-  // Each Chat, and each project's new-chat screen, keeps its own draft. The store switches with the selection, before
-  // the render, so a draft written right after picking a Chat lands in that Chat.
   function setSelectedSessionId(next: SetStateAction<number | null>) {
     const value = typeof next === "function" ? next(selectedSessionRef.current) : next;
     selectedSessionRef.current = value;
     draftStore.select(draftKey(projectRef.current?.path ?? "", value));
     setSelectedSessionState(value);
   }
-  // Catches a project change that did not go through the setter above.
   useLayoutEffect(() => draftStore.select(draftKey(project?.path ?? "", selectedSessionId)), [project?.path, selectedSessionId]);
   const accountScope = selectedLink ? `milagre-link:${selectedLink.link.id}` : project?.path;
-  // A Chats home's account is shared by every Chat without a Project on its computer; the usage card says so.
   const accountScopeIsHome = !selectedLink && isChatsHomeProject(project);
   const currentChatKey = draftKey(accountScope ?? "", selectedSessionId);
   const composerPrefs = useComposerPreferences(currentChatKey);
@@ -283,39 +258,27 @@ function App() {
   const [view, setView] = useState<"chat" | "canvas" | "routines">("chat");
   const viewRef = useRef(view);
   viewRef.current = view;
-  // "Open Chat" on a card: the Chat view, in that Chat.
   const openChatKey = (key: string) => {
     setView("chat");
     openChatByKey(key);
   };
-  // The Routine whose page the Routines view shows, or null for the list.
   const [routineId, setRoutineId] = useState<string | null>(null);
-  // The Run Chat open beside its Routine's page ("<path>#<id>"), or null.
   const [runPane, setRunPane] = useState<string | null>(null);
-  // The Chat a Run row is opening beside its Routine's page, by chat key: opening it (in its own Project, or after switching
-  // to another) keeps the Routines view instead of showing the Chat alone. Cleared once that opening settles.
   const holdRoutinesView = useRef<string | null>(null);
-  // The window's Chat before a Run Chat took the Chat pane: closing the pane, or leaving the Routines view on it, goes back.
   const runPaneReturn = useRef<RunPaneReturn | null>(null);
   const runPaneRef = useRef<string | null>(null);
   runPaneRef.current = runPane;
   const [pickedIsolation, setIsolation] = useState<Isolation>(() => loadChatPreferences(localStorage, "").isolation);
-  // A Project outside Git has one Worktree, the folder itself: its Chats always work there. A Chat without a Project
-  // always gets its own Worktree of the Chats home, a new empty folder.
   const noGit = project?.git === false;
   const isolation: Isolation = isChatsHomeProject(project) ? "worktree" : noGit ? "local" : pickedIsolation;
   const surfaces = projectSurfaces(project);
-  // Git controls stay wherever they are today, a plain folder included (the places that need a repository check `noGit`
-  // themselves); only a Chat without a Project, whose repository is internal, loses them.
   const showGit = !isChatsHomeProject(project) && (surfaces.git || noGit);
-  // The open Project's branches, from the last read of them (branchLists); a read that changes them renders again.
   const [, setBranchesRead] = useState(0);
   const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [baseOverride, setBaseOverride] = useState<string | null>(null);
   const [projectGit, setProjectGit] = useState<{ path: string; base: string } | null>(null);
   const [newChatError, setNewChatError] = useState<string | null>(null);
-  // A short message about something that happened off to the side (a worktree that wouldn't go).
   const [quitError, setQuitError] = useState<string | null>(null);
   useEffect(() => window.milagre.onQuitFailed?.(setQuitError), []);
   const [notice, setNotice] = useState<string | null>(null);
@@ -363,12 +326,10 @@ function App() {
     setGitDialog,
     settingsProject,
   } = dialogs;
-  // A send may finish after the user opens another Chat. Its feedback and completion belong to the view that sent it.
   const chatView = useRef(0);
   const nextChatView = useRef(0);
   const [, setChatView] = useState(0);
   function advanceChatView() {
-    // A confirmation like "Chat archived" belongs to the screen it was said on.
     clearNoticeOnNavigate();
     chatView.current = ++nextChatView.current;
     setChatView(chatView.current);
@@ -389,7 +350,6 @@ function App() {
   const [hostConnection, setHostConnection] = useState<RuntimeConnection>({ connected: true });
   const [restartingHost, setRestartingHost] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
-  // The Project onboarding opened: its first, empty Chat offers starter tasks.
   const [firstChat, setFirstChat] = useState<string | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const update = useAppUpdates();
@@ -424,9 +384,7 @@ function App() {
   useEffect(() => {
     void loadInitialProject();
   }, []);
-  // The computer whose Project or Link is open was removed, or Other computers turned off: this Mac's Project comes back.
   const { computers: pairedComputers } = useComputers();
-  // The Mac that was last told which chat is on screen (see the effect that sends it).
   const openChatComputer = useRef<string>(LOCAL_COMPUTER);
   const knownComputers = pairedComputers.map((computer) => computer.id).join("\n");
   useEffect(() => {
@@ -435,21 +393,15 @@ function App() {
     const computerId = computerOfKey(open);
     if (knownComputers.split("\n").includes(computerId)) return;
     forgetBridge(computerId);
-    // Its bridge must not be recreated to tell it nothing is open: this Mac's Project is about to open.
     if (openChatComputer.current === computerId) openChatComputer.current = LOCAL_COMPUTER;
     void loadInitialProject();
   }, [knownComputers]);
-  // The open Project's computer, when it is another Mac: read-only while it is away, with the banner then.
   const openComputer = project && isRemoteKey(project.path) ? pairedComputers.find((computer) => computer.id === computerOfKey(project.path)) : undefined;
   const readOnly = Boolean(project && isRemoteKey(project.path) && isReadOnly(openComputer));
-  // A dropped socket or a LAN/relay switch reads Connecting or Reconnecting for a moment. That isn't read-only: the draft
-  // stays writable, a send waits for the computer (computers.cjs invoke), and the placeholder says it is reconnecting.
   const reconnecting = Boolean(openComputer && computerTone(openComputer) === "connecting");
   const away = Boolean(openComputer && isDimmed(openComputer));
   const bannerNow = useDisplayNow(60_000, away);
   const awayBanner = openComputer && away ? offlineBanner(openComputer, bannerNow) : null;
-  // A Link deleted on another device (or the phone) leaves the sidebar, and the window showing it leaves it as a local
-  // delete does. One this window is deleting leaves when link:delete answers, with the Worktrees it kept.
   const linkGone = useEvent((id: string) => {
     if (linkDeletesInFlight.has(id)) return false;
     const open = selectedLinkRef.current?.link.id === id ? selectedLinkRef.current.link : null;
@@ -484,7 +436,6 @@ function App() {
       for (const next of snapshot.projects) receiveState(next.path, next.state);
       for (const next of snapshot.links ?? []) setLinkStates((previous) => ({ ...previous, [next.linkId]: next.state }));
     });
-    // A computer's runtime sends a snapshot after each reconnect, with its open Projects' and Links' states (keys name it).
     const remoteSnapshotOff = window.milagre.onComputerEvent?.((event) => {
       if (event.channel !== "runtime:snapshot" || !event.payload) return;
       for (const next of event.payload.projects ?? []) receiveState(next.path, next.state);
@@ -498,7 +449,6 @@ function App() {
     };
   }, []);
 
-  // Every read of a Project's branches goes through here: the open Project's list renders again only when it changed.
   const rememberBranches = (path: string, next: string[]) => {
     const kept = branchLists.get(path)?.branches;
     const same = kept?.length === next.length && next.every((branch, index) => branch === kept[index]);
@@ -511,7 +461,6 @@ function App() {
     const hit = branchLists.get(path);
     if (hit && Date.now() - hit.at < BRANCHES_FRESH_MS) return;
     let cancelled = false;
-    // Another computer's busy host (429) answers a later try; meanwhile a new Worktree starts from the checkout's branch.
     void retrySend(() => bridgeForKey(path).listBranches(path), {
       retryable: (error) => !cancelled && retryKind(error) !== null,
       budget: READ_RETRY_BUDGET,
@@ -528,7 +477,6 @@ function App() {
   const worktrees = useMemo(() => (state ? sortedWorktrees(state) : []), [state]);
   const firstWorktree = worktrees[0];
   const selectedSession = state && selectedSessionId !== null ? state.sessions[selectedSessionId] : undefined;
-  // Messages waiting on this Mac for the open Chat (or its New Chat), in the composer's tray while its computer is away.
   const offlineTray = useOfflineTray(project?.path, selectedSession?.id ?? null, readOnly);
   const subagents = useMemo(
     () => selectedSession?.subagents?.filter((agent) => agent.id !== selectedSession.native_session_id),
@@ -536,14 +484,12 @@ function App() {
     [selectedSession?.subagents, selectedSession?.native_session_id],
   );
   const selectedWorktree = worktrees.find((worktree) => worktree.id === (selectedSession?.worktree_id ?? selectedWorktreeId)) ?? firstWorktree;
-  // Assigning a new Chat its persisted id keeps attachments for the next message; navigating away clears them.
   const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, project?.path, !!project && queueForComputer(project.path));
   useEffect(() => {
     if (!restoringSend) return;
     imageDraft.restore(restoringSend.message.images ?? [], restoringSend.message.files ?? []);
     setRestoringSend(null);
   }, [restoringSend]);
-  // A host that keeps messages by Chat (chat-pages-v1) sends states without them: the open Chat reads its own.
   const lean = isLean(state);
   const chatWindow = useChatMessages(lean ? project?.path : null, selectedSession && selectedSession.id > 0 ? selectedSession.id : null);
   const messages = useMemo(
@@ -565,7 +511,6 @@ function App() {
     if (!state) return state;
     return withSendPreviews(state, project?.path, pendingSends, failedSends);
   }, [state, pendingSends, failedSends, project?.path]);
-  // The renderer's preview never enters project state. The main process still owns the persisted transcript.
   const loadedMessages = useMemo(
     () =>
       pendingHere && pendingSend
@@ -578,15 +523,12 @@ function App() {
     // oxlint-disable-next-line react/preserve-manual-memoization -- the callback reads state!.messages (non-null assertion) and the list names state?.messages, the same value; the compiler infers state itself from the assertion
     [pendingHere, pendingSend, pendingCanonicalId, state?.messages, messages, lean, canonicalWindow.messages],
   );
-  // The saved Chat's summary may reach us before its page. Preserve the visible input through that read.
   const transcriptKey = `${project?.path}|${chatView.current}`;
   const [transcript, setTranscript] = useState({ key: transcriptKey, messages: loadedMessages });
   const transcriptLoading = pendingHere && pendingCanonicalId !== null ? canonicalWindow.loading : chatWindow.loading;
   const displayedMessages = lean && transcriptLoading && !loadedMessages.length && transcript.key === transcriptKey ? transcript.messages : loadedMessages;
   if (transcript.key !== transcriptKey || transcript.messages !== displayedMessages) setTranscript({ key: transcriptKey, messages: displayedMessages });
-  // A saved Chat with nothing to show yet because its page is still on its way: not a new Chat.
   const messagesLoading = lean && transcriptLoading && !displayedMessages.length && Boolean(selectedSession && selectedSession.id > 0);
-  // How many messages the open Chat has: its summary's count while its window is still loading from the host.
   const chatCount = lean ? (selectedSession?.summary?.count ?? messages.length) : messages.length;
   preferredProviderRef.current = chatCount > 0 ? selectedSession?.provider : undefined;
 
@@ -614,14 +556,12 @@ function App() {
   const changesAvailable = view === "chat" && showGit && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
   changesAvailableRef.current = changesAvailable;
-  // The open Chat's Terminals; a draft has none until it is sent.
   const terminalChatId = view === "chat" && project && selectedSession && !selectedSession.archived ? chatKey(project.path, selectedSession.id) : null;
   const terminalOpen = useChatTerminals(terminalChatId).open;
   const terminalChatRef = useRef(terminalChatId);
   terminalChatRef.current = terminalChatId;
   useTerminalSync(terminalChatId);
   const run = project && selectedSession ? agentRuns.runs[chatKey(project.path, selectedSession.id)] : undefined;
-  // A Chat another Chat started (MCP, Delegation) has no pick of its own: show the mode its turn runs in, not the default.
   const permissionMode = composerPrefs.pickedPermissionMode ?? run?.permissionMode ?? composerPrefs.permissionMode;
   const waitingStepIds = useMemo(() => run?.approvals.flatMap((request) => (request.stepId ? [request.stepId] : [])), [run?.approvals]);
   const agentPorts = useAgentPorts();
@@ -654,7 +594,6 @@ function App() {
     [],
   );
 
-  // Visiting an old chat can change its displayed model, but never the preference for new chats.
   useEffect(() => {
     if (selectedSessionId !== null) return;
     setSelectedModel(resolveModel(models, defaultModelId, providerForId(defaultModelId)));
@@ -664,7 +603,6 @@ function App() {
   const configuredBase = projectGit?.path === project?.path ? projectGit?.base : undefined;
   const effectiveBaseBranch =
     baseOverride ?? (configuredBase || (baseBranch && branches.includes(baseBranch) ? baseBranch : (selectedWorktree?.name ?? branches[0] ?? "")));
-  // A new selection is explicit; saved selections from earlier Chats never defeat a Project default.
   useEffect(() => {
     if (!project || selectedLink || selectedSessionId !== null) return;
     let live = true;
@@ -691,17 +629,13 @@ function App() {
   const runningCount = Object.keys(agentRuns.runs).length;
   const previousRunningCount = useRef(runningCount);
 
-  // A turn just ended: plan usage has moved, so re-read it.
   useEffect(() => {
     if (runningCount < previousRunningCount.current) void usage.refresh();
     previousRunningCount.current = runningCount;
   }, [runningCount, usage.refresh]);
   const pendingApproval = run?.approvals[0];
-  // Approvals come first; a question shows once none is waiting.
   const pendingQuestion = pendingApproval ? undefined : run?.questions[0];
-  // Its answers were sent: the card goes at once, as on the phone, instead of waiting for the agent's word back.
   const questionSent = Boolean(pendingQuestion && sentReply(run, pendingQuestion.requestId));
-  // The approval shows on its tool row in the transcript; its card waits above the composer only while no row takes it.
   const stepApproval = useStepApprovalScope(
     pendingApproval,
     (run?.approvals.length ?? 1) - 1,
@@ -710,7 +644,6 @@ function App() {
   );
   const approvalCard = stepApproval.inline ? undefined : pendingApproval;
 
-  // A running turn takes the new mode at once instead of at its next message.
   function changePermissionMode(mode: PermissionMode) {
     composerPrefs.setPermissionMode(mode);
     if (project && selectedSession)
@@ -725,11 +658,9 @@ function App() {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return;
     }
-    // The run keeps the answer; if it doesn't reach the agent, the card goes back to pending.
     void agentRuns.respond(chatKey(project.path, selectedSession.id), pendingApproval.requestId, decision).catch(() => {});
   }
 
-  /** Sends the answers to the open question, or dismisses it (null). */
   function answerQuestion(answers: QuestionAnswers | null, images?: QuestionImages) {
     if (!project || !selectedSession || !pendingQuestion) return;
     if (readOnly) {
@@ -741,12 +672,9 @@ function App() {
       .catch((error) => setNotice(ipcErrorMessage(error)));
   }
 
-  // The model a chat's picker shows, by chat key: as for the open Project chat.
   const modelForChatKey = (chat: string, provider: ModelProvider | undefined, own: ChatMessage[]) =>
     modelForOpenChat(chatModels.current[chat], provider, own, models, resolveModel(models, defaultModelId, providerForId(defaultModelId)));
 
-  // The picker follows the open chat: the model picked there, else the one it last ran, on the agent it's bound to.
-  // A Link keeps the Project open behind it; its own chat sets the picker then (LinkWorkspace).
   useEffect(() => {
     if (!project || !selectedSession || selectedLink) return;
     const own = messages.filter((message) => message.session_id === selectedSession.id);
@@ -765,7 +693,6 @@ function App() {
     if (!("worktrees" in next)) return;
     const previous = statesRef.current[projectPath];
     const reconciled = reconcileState(previous, next);
-    // The same state again (an open's reply the window already holds) renders nothing.
     if (reconciled === previous) return;
     statesRef.current = { ...statesRef.current, [projectPath]: reconciled };
     setStates(statesRef.current);
@@ -775,13 +702,9 @@ function App() {
 
   useEffect(() => stateEvents.onProjectState(({ path, state: next }) => receiveState(path, next)), []);
 
-  // Approvals never time out, so mark chats that wait on one (the open chat too: its card may be scrolled away).
-  // The sets are rebuilt on every streamed batch; keeping the old one while its members hold keeps the sidebar rows still.
   const waiting = useStableSet(useMemo(() => chatsWaitingForUser(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
   const asking = useStableSet(useMemo(() => chatsAskingUser(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
   const running = useStableSet(useMemo(() => chatsRunning(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
-  // Chats whose turn ended with background agents still at work (chat-activity.mjs), with their count. Joined, so a
-  // streamed batch that changes nothing keeps the map.
   const backgroundKey = useMemo(
     () => [...chatsInBackground(agentRuns.runs, project?.path ?? "", state?.sessions)].map(([id, count]) => `${id}:${count}`).join(","),
     [agentRuns.runs, project?.path, state?.sessions],
@@ -795,8 +718,6 @@ function App() {
     () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
     [linkedWork, project, selectedSession],
   );
-  // Other Chats that wait on an approval or question, except in Projects (or on computers) hidden from the sidebar. Joined, so a
-  // streamed batch that changes nothing keeps the arrays.
   const hiddenProjects = useHiddenProjects();
   const hiddenComputers = useHiddenComputers();
   const attentionKey = chatsNeedingAttention(
@@ -816,18 +737,10 @@ function App() {
     [recentProjects],
   );
   const delegated = useStableSet(useMemo(() => delegatedChats(linkedWork, project?.path ?? ""), [linkedWork, project?.path]));
-  // Every Project's state the window holds: the sidebar's reads of the ones not open, kept live, then this window's own on top.
-  // The grid tiles its active Chats from them, and the Routines dot reads hidden Run Chats from them.
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
-  // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
-  // Settings › Routines can turn these nudges off on this Mac: no dots, so no Mark as read either.
   const unreadRunRoutineIds = useStableSet(useMemo(() => (routineNudges ? unreadRunRoutines(gridStates) : NO_ROUTINES), [routineNudges, gridStates]));
-  // The hidden Run Chats nobody opened: their Runs show a dot on their Routine's page.
   const unreadRunChatKeys = useStableSet(useMemo(() => unreadRunChats(gridStates), [gridStates]));
-  // Whether a Run's row opens its Chat: one still there, archived or not, or one in a Project the window holds no state for,
-  // which opening loads by path (openCanvasChat). A Run whose Chat left with its Worktree opens nothing.
   const canOpenRun = useCallback((key: string) => canOpenRunChat(gridStates, key), [gridStates]);
-  // A Routine row's Mark as read: each of its unread hidden Run Chats is marked read in its own Project.
   const markRoutineRead = useEvent((id: string) => {
     for (const key of unreadRunChatsOf(gridStates, id)) {
       const path = projectOfKey(key);
@@ -835,7 +748,6 @@ function App() {
     }
   });
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
-  // A Run's Chat beside its Routine's page: the window's Chat pane, moved next to the Runs, once that Chat is the open one.
   const runPaneOpen = view === "routines" && routineId !== null && runPane !== null && runPane === focusedChatKey;
   const {
     layout,
@@ -867,21 +779,15 @@ function App() {
     openLinkedChat: (key) => openLinkedChat(key),
     openAlone: (key) => openAlone(key),
   });
-  // What a keybinding's `when` can ask about the window.
   setKeyContext({ chatView: view === "chat", linkOpen: Boolean(selectedLink), gridShown: gridOn });
-  // The Subchat bookmark (SubchatBookmark) shows over the one Chat on screen when it has a listed ancestor: not in a split or
-  // grid, under the diff, in a Link or away from the Chat view.
   const familySessionsRef = useRef<typeof familySessions>(undefined);
   const familySessions = focusedChatKey && !selectedLink ? (gridStates[projectOfKey(focusedChatKey)] as CoordinatorState | undefined)?.sessions : undefined;
   familySessionsRef.current = familySessions;
   const bookmarkShown = view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && !runPaneOpen;
-  // One open Chat alone, no Terminal drawer under it: its transcript runs to the window's bottom edge.
   const chatToEdge = bookmarkShown && Boolean(selectedSession && selectedSession.id > 0) && !terminalOpen;
   const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
-  // The canvas button at the far right, in the Chat view and on the canvas itself.
   const canvasButtonShown = view === "chat" || view === "canvas";
   const trailingCorner = canvasButtonShown ? 1 : 0;
-  // The buttons in the window's top right corner a bar along <main>'s top keeps clear of (CORNER_PITCH each).
   const cornerButtons = sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" || view === "canvas" ? 1 : 0);
   const dismissTile = useEvent(
     (key: string) =>
@@ -892,7 +798,6 @@ function App() {
       ),
   );
   const delegatedKeys = useMemo(() => new Set(linkedWork.delegations.flatMap((item) => (item.to_chat ? [item.to_chat] : []))), [linkedWork]);
-  // Chats carry a summary of their messages; only an older host's state, without one, is grouped message by message.
   const messagesBySession = useMemo(() => {
     const grouped = new Map<number, ChatMessage[]>();
     if (!Object.values(sidebarState?.sessions ?? {}).some((session) => !session.summary)) return grouped;
@@ -905,7 +810,6 @@ function App() {
   }, [sidebarState?.messages, sidebarState?.sessions]);
   // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const readPullRequestRefs = useMemo(pullRequestRefsCache, []);
-  // The open Chat's PRs, the same list its sidebar row shows, so the composer's action and the row agree.
   const selectedPullRequests =
     showGit && project && selectedSession && selectedWorktree
       ? chatPullRequests(
@@ -921,30 +825,24 @@ function App() {
   useEffect(() => {
     if (prChatKey) setRowPr(firstRowPr ? { chat: prChatKey, number: firstRowPr } : null);
   }, [prChatKey, firstRowPr]);
-  // Unresolved review threads on the Chat's open PR: the composer's Review pill.
   const prOpenThreads = prReview.pr?.state === "OPEN" && prReview.pr.number === prNumber ? openThreads(prReview.pr).length : 0;
-  // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
   const pullRequestActionRequest = pullRequestBlockerAction
     ? pullRequestActionContext({ action: pullRequestBlockerAction.blocker, pr: pullRequestBlockerAction.pr.number, url: pullRequestBlockerAction.pr.url })
     : null;
   const previousChats = useRef<SidebarRecent[]>([]);
-  // Chats with an archive under way, by chat key: their rows are gone from the sidebar from the tap on.
   const [archivingChats, setArchivingChats] = useState<ReadonlySet<string>>(() => new Set());
   const chats = useMemo(() => {
     const state = sidebarState;
     if (!state) return [];
-    // Pinned the way this Mac pinned them: pins never cross computers.
     const sessions = project ? sessionsWithPins(state.sessions, project.path, chatPins) : state.sessions;
     const withMessages = Object.values(sessions)
       .filter((session) => !session.archived && !(project && archivingChats.has(chatKey(project.path, session.id))))
       .map((session) => ({ session, sessionMessages: messagesBySession.get(session.id) ?? NO_MESSAGES }))
-      // A hidden Run Chat shows only while its run waits on an approval or a question.
       .filter(({ session, sessionMessages }) => isChatListed(session, sessionMessages, waiting.has(session.id) || asking.has(session.id)));
     const rows = orderChats(withMessages, chatOrder).map(({ session, sessionMessages }) => {
       const worktree = state.worktrees[session.worktree_id];
       const failed = failedSends.find((send) => send.projectPath === project?.path && session.id === send.session.id);
       const pending = pendingSends.some((send) => send.projectPath === project?.path && session.id === (pendingChatSessionId(state, send) ?? send.session.id));
-      // The commit dialog's notes aren't replies: they don't hide a failed turn (see summarizeChat).
       const summary = chatSummary(session, sessionMessages);
       return {
         id: String(session.id),
@@ -967,12 +865,9 @@ function App() {
         unread: Boolean(session.unread),
         details: {
           branch: showGit ? worktree?.name : undefined,
-          // A Chat without a Project names no folder: its Worktree is the Chats home's, internal to Milagre.
           path: showGit ? worktree?.path : undefined,
           diff: showGit ? worktree?.diff : undefined,
           linearIssue: showGit && worktree ? linearIssues[worktree.path] : undefined,
-          // The stored link (Worktree.linearIssue) and whether "Link issue…" applies: the chat's own Worktree,
-          // not the main checkout, and not one another chat shares.
           linearKey: showGit && linear.active ? (worktree?.linearIssue ?? undefined) : undefined,
           linkable: showGit && linear.active && !!worktree && worktree.path !== project?.path && !worktreeShared(state, session.id),
           pullRequests:
@@ -990,7 +885,6 @@ function App() {
         },
       };
     });
-    // Rows that came out the same stay the same objects, so only a changed chat's row renders.
     return (previousChats.current = reuseRows<SidebarRecent>(previousChats.current, rows));
   }, [
     sidebarState,
@@ -1025,8 +919,6 @@ function App() {
     refreshLinearIssues,
     handlers: { openGitDialog, archiveChat, markChatDone, reportMilagreBug },
   });
-  // Done on the open Chat leaves it for a new Chat in the same Project, as archiving it does: the work there is
-  // finished, and the next thing starts fresh. The row keeps moving to the Done section meanwhile.
   function markChatDone(sessionId: number, path: string | undefined) {
     if (!selectedLinkRef.current && selectedSessionRef.current === sessionId) startNewChat();
     patchChat(sessionId, { done: true, unread: false }, path);
@@ -1061,7 +953,6 @@ function App() {
   }
 
   function openChat(sessionId: number) {
-    // The Chat's page read goes out before this click renders anything (see prefetchChatMessages).
     const shownProject = projectRef.current;
     if (shownProject) prefetchLeanChat(shownProject.path, sessionId, openState());
     const failed = failedSends.find((send) => send.projectPath === projectRef.current?.path && send.session.id === sessionId);
@@ -1107,11 +998,7 @@ function App() {
     if (!keepsRoutinesView(holdRoutinesView.current, projectRef.current?.path, sessionId)) setView("chat");
   }
 
-  // The main process reads the chat on screen (on opening it, and when the window regains focus over it),
-  // and leaves a chat unread when its turn ends anywhere else, or while no window has focus. The Mac that had the
-  // chat on screen before hears there is none when the next one is on another Mac.
   useEffect(() => {
-    // A Link on screen is no Project's chat: whichever Mac had one open hears there is none now.
     if (selectedLink) {
       void bridgeFor(openChatComputer.current)
         .setOpenChat(null)
@@ -1131,12 +1018,6 @@ function App() {
       .catch(() => {});
   }, [selectedSessionId, view, runPaneOpen, project?.path, selectedLink?.link.id]);
 
-  // Archiving hides the chat for good; a turn still running in it is stopped first. The steps and their order
-  // live in lib/archive-flow.ts, which is passed what it touches.
-  // Another Project's chat (a row of the all-Projects sidebar) archives the same way, from the copy its group shows.
-  // As on the phone, the row goes and the window leaves the chat at once; the host's work goes on behind, and a chat
-  // whose archive fails (or whose worktree stays) comes back with a notice.
-  // The permanent steps wait out the sidebar toast's Undo (deleteUndoWindow); an Undo brings the Chat back as a kept one does.
   function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath: string | undefined) {
     if (!projectPath) return Promise.resolve();
     const open = projectPath === project?.path;
@@ -1154,15 +1035,11 @@ function App() {
         undoWindow: () => deleteUndoWindow(key),
         hide: () => bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false }),
         destroy: () => bridgeForKey(projectPath).deleteChat(projectPath, sessionId),
-        // The worktree stays (or the deletion was undone), so the chat comes back with it; it is reopened only if it was
-        // open and nothing else has been since.
         restore: async () => {
           await bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: false });
           if (wasOpen && selectedSessionRef.current === null) openChat(sessionId);
         },
         remove: (worktree, options) => bridgeForKey(options.projectPath).removeWorktree(worktree.path, options),
-        // The main process has dropped the worktree and its chats; a removal that drops the open chat or the picked
-        // worktree moves the selection on.
         applyRemoval: (removed) => {
           if (removed.sessionIds.includes(selectedSessionRef.current ?? -1) || removed.worktreeId === selectedWorktree?.id) advanceChatView();
           setSelectedSessionId((current) => (current !== null && removed.sessionIds.includes(current) ? null : current));
@@ -1179,7 +1056,6 @@ function App() {
       mode,
       plan,
     )
-      // A call that timed out may still have landed: only a conversation that is still saved needs an error.
       .catch((error) => {
         if (archiveState(projectPath)?.sessions[sessionId]) setNotice(`Could not delete Chat: ${ipcErrorMessage(error)}`);
       })
@@ -1193,8 +1069,6 @@ function App() {
     return Promise.resolve();
   }
 
-  // A Link Chat archives from its Link's sidebar; its row is gone from this window's sidebars too until the host answers,
-  // and comes back if the archive fails. The Link shows the error; a window that left it for a Project shows the notice.
   const trackLinkArchive = useEvent((key: string, work: Promise<unknown>) => {
     setArchivingChats((current) => new Set(current).add(key));
     void work
@@ -1210,7 +1084,6 @@ function App() {
       );
   });
 
-  // "Commit and open PR…" opens the chat, with the dialog over it.
   async function openGitDialog(sessionId: number, path: string | undefined): Promise<void> {
     if (path && (path !== projectRef.current?.path || selectedLinkRef.current)) {
       await openCanvasChat(path, sessionId);
@@ -1221,7 +1094,6 @@ function App() {
     const session = currentState?.sessions[sessionId];
     const worktree = session ? currentState.worktrees[session.worktree_id] : undefined;
     if (!currentState || !session || !worktree) return;
-    // The dialog reads the Chat's recent turns (its test commands, what was asked); a lean state has them on the host.
     const sessionMessages =
       isLean(currentState) && project
         ? (
@@ -1241,8 +1113,6 @@ function App() {
     });
   }
 
-  // What the dialog did goes on record as a short line in the chat; the main process holds it back while the
-  // chat's turn runs, so it lands after the reply instead of inside it.
   function recordGitNote(sessionId: number, body: string) {
     const current = projectRef.current;
     if (current)
@@ -1251,7 +1121,6 @@ function App() {
         .catch(() => {});
   }
 
-  // The daemon keeps the Mac awake while Milagre runs, if the setting says so.
   useEffect(() => {
     void window.milagre.setKeepAwake(keepAwake).catch(() => {});
   }, [keepAwake]);
@@ -1279,12 +1148,10 @@ function App() {
       .catch(() => {});
   }, [selectedLink?.link.id, project?.path, view, runPaneOpen, selectedSessionId, unreadChatIds.join("\n"), notifyOnCompletion, showDockBadge, hiddenProjects]);
 
-  // The main process notifies about a chat that waits on the user while Milagre is in the background.
   useEffect(() => {
     void window.milagre.setNotifyWhenWaiting(notifyWhenWaiting).catch(() => {});
   }, [notifyWhenWaiting]);
 
-  // A chat's notification goes silent and this window plays the chosen chime instead.
   useEffect(() => {
     void window.milagre.setNotificationChime?.(notificationChime).catch(() => {});
   }, [notificationChime]);
@@ -1293,7 +1160,6 @@ function App() {
     void window.milagre.setNotificationSchedule?.(notificationSchedule).catch(() => {});
   }, [notificationSchedule]);
 
-  // A turn that ends in the open project while Milagre is in the background gets a completion alert.
   useEffect(
     () =>
       onAnyAgentEvent(({ chatId, event }) => {
@@ -1313,7 +1179,6 @@ function App() {
         if (link && chatInProject(scopeKey({ kind: "link", linkId: link.link.id }), chatId)) {
           const latest = linkStatesRef.current[link.link.id] ?? link.state;
           const session = latest.sessions[sessionIdFromKey(chatId)];
-          // A snoozed Chat's finished turn stays quiet; a failed one wakes it (snooze.mjs).
           if (session && !session.archived && ((event.type === "turn-completed" && !isSnoozed(session)) || event.type === "turn-failed"))
             void window.milagre
               .notifyCompletion({
@@ -1331,7 +1196,6 @@ function App() {
         if (!current || !latest || !chatInProject(current.path, chatId)) return;
         const session = latest.sessions[sessionIdFromKey(chatId)];
         if (!session || session.archived) return;
-        // A snoozed Chat's finished turn stays quiet; a failed one wakes it (snooze.mjs).
         if ((event.type === "turn-completed" && !isSnoozed(session)) || event.type === "turn-failed") {
           void window.milagre
             .notifyCompletion({
@@ -1347,7 +1211,6 @@ function App() {
     [],
   );
 
-  // A new worktree's branch is renamed a few seconds in, once its chat's name is picked; its Mac saves the new name.
   useEffect(() => {
     const renamed = (rename: WorktreeRename) => {
       if (projectRef.current?.path === rename.projectPath)
@@ -1357,7 +1220,6 @@ function App() {
             (next) => rememberBranches(rename.projectPath, next),
             () => {},
           );
-      // A Project not on screen reads its branches again when it is opened.
       else branchLists.delete(rename.projectPath);
     };
     const offLocal = window.milagre.onWorktreeRenamed(renamed);
@@ -1371,10 +1233,8 @@ function App() {
   }, []);
 
   const pendingNotificationChat = useRef<string | null>(null);
-  // Opens a chat by its key, in another project too: a notification's, or the one the attention button points at.
   const openChatByKey = useEvent((chatId: string) => {
     const owner = projectOfKey(chatId);
-    // Another Project's Chat: its page read goes out before the switch (the open Project's goes through openChat).
     if (!isLinkScopeKey(owner) && owner !== projectRef.current?.path)
       prefetchLeanChat(owner, sessionIdFromKey(chatId), statesRef.current[owner] ?? cachedProjectCopy(owner)?.state);
     if (isLinkScopeKey(owner)) {
@@ -1396,7 +1256,6 @@ function App() {
   });
   useEffect(() => window.milagre.onOpenChat(openChatByKey), []);
 
-  // Clicking the "phone paired" notification opens Settings › Phone & sharing, where it can be removed.
   useEffect(
     () =>
       window.milagre.onOpenPhoneSettings(() => {
@@ -1411,14 +1270,10 @@ function App() {
     const latest = openState();
     if (latest && projectRef.current) restoreProjectChoices(latest, projectRef.current.path);
     setSelectedSessionId(null);
-    // The Changes panel is one for every Chat: a new Chat starts without it, rather than have it come back once its first
-    // message makes the Chat.
     changes.hide();
-    // The new-chat screen keeps its own draft; only text handed in replaces it.
     if (draftText) setDraft(draftText);
     setNewChatError(null);
     setView("chat");
-    // The composer may only mount on this render (coming from settings), so focus after it lands.
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }
 
@@ -1432,11 +1287,6 @@ function App() {
     if (sessionId !== null) setSelectedWorktreeId(nextState.sessions[sessionId]?.worktree_id ?? null);
   }
 
-  // Switching projects leaves the other project's turns running; their marks come back with it.
-  // `keepView` leaves the view as it is: a Run Chat opening beside its Routine's page, or the Chat it replaced coming back.
-  // `forgetChat` doesn't remember the Chat on screen for the Project being left (a Run Chat the pane had).
-  // `sessionId` is the Chat to open there, picked in the same render as the Project, so the one it remembered is never
-  // put on screen (which would mark it read) on the way.
   function adoptProject(
     nextProject: OpenProject & StateStamp,
     { keepView = false, forgetChat = false, sessionId }: { keepView?: boolean; forgetChat?: boolean; sessionId?: number } = {},
@@ -1456,15 +1306,12 @@ function App() {
     receiveState(nextProject.path, nextProject.state);
     keepOpenedState(nextProject);
     projectRef.current = nextProject;
-    // The project's remembered worktree and base branch come back with it; nothing about the old project's chats
-    // carries over, the commit dialog included (it names a chat by id, and every project has a chat 2).
     flushSync(() => {
       setProject(nextProject);
       selectInitialChat(nextProject.state, nextProject.path);
       const remembered = scopeDrafts.read({ kind: "project", projectPath: nextProject.path });
       const target = sessionId !== undefined && nextProject.state.sessions[sessionId] ? sessionId : remembered.sessionId;
       if (target !== null && nextProject.state.sessions[target]) setSelectedSessionId(target);
-      // A Project's heading, a notification, a Run pane's return: no openChat on the way, and a Chat switch all the same.
       if (selectedSessionRef.current !== null) markChatSwitch(chatKey(nextProject.path, selectedSessionRef.current));
       setGitDialog(null);
       if (!keepView) setView("chat");
@@ -1473,19 +1320,10 @@ function App() {
     if (restored) setNotice(restored);
   }
 
-  /**
-   * An open's reply reached the window: the host's next patch applies to its state (a host that numbers states), and the
-   * sidebars take the window's state as their read, so leaving the Project doesn't read it again.
-   */
   function keepOpenedState(reply: OpenProject & StateStamp) {
     seedHeldState(reply.path, reply);
     seedScopeState(reply.path, statesRef.current[reply.path]);
   }
-  /**
-   * The Project or Link on screen is being left: its group in the sidebars shows its chats from this window's latest
-   * state. A Link's comes from the sidebars' own copy when they hold one: link events reach it at once, and the window's
-   * linkStates only on its next render.
-   */
   function handOverShownScope() {
     const link = selectedLinkRef.current;
     if (link) {
@@ -1494,10 +1332,7 @@ function App() {
     } else if (projectRef.current) seedScopeState(projectRef.current.path, statesRef.current[projectRef.current.path]);
   }
 
-  // A Project's revalidated open, once the window shows it: its state (unless events brought a newer one while the open was
-  // on its way, `adopted` being the state then) and its name. The same name keeps the same object, so nothing re-renders.
   function refreshOpenProject(next: OpenProject & StateStamp, adopted: CoordinatorState | undefined) {
-    // Revalidation updates the list without resetting a Chat or draft picked while it was in flight.
     projectsSeen.current.set(next.path, { path: next.path, name: next.name });
     if (statesRef.current[next.path] === adopted) {
       receiveState(next.path, next.state);
@@ -1509,13 +1344,6 @@ function App() {
     if (restored) setNotice(restored);
   }
 
-  /**
-   * Opens Project `projectPath` for this window. This Mac's Projects switch here (project:switch: the host shows it and
-   * moves it to the top of its recent list). Another computer's Project is only read there (project:read), which loads
-   * it on that host without reordering its recent list or changing the Project it shows. When this window holds the
-   * host's numbered state of it (kept current by its patches), the read leaves the state out and the window keeps that
-   * (a host from before the option sends the state anyway); a copy without a number is read whole.
-   */
   function requestProject(projectPath: string): Promise<OpenProject & StateStamp> {
     return isRemoteKey(projectPath) ? readRemoteProject(projectPath) : bridgeForKey(projectPath).switchProject(projectPath);
   }
@@ -1525,23 +1353,18 @@ function App() {
     if (held && "worktrees" in held) {
       const reply: ProjectRead = await bridge.readProject(projectPath, { state: false });
       if (reply.state?.sessions) return reply as OpenProject & StateStamp;
-      // Checked against the host's number: a copy that missed a change is read again.
       confirmHeldState(projectPath, reply);
-      // Without the reply's number: it names the host's state, which the copy below follows.
       const { version: _version, epoch: _epoch, ...header } = reply;
       return { ...header, state: (numberedState(projectPath) as CoordinatorState | undefined) ?? held };
     }
-    // With its options, so the host can tell a window opening the Project from a sidebar listing it.
     return bridge.readProject(projectPath, { state: true });
   }
 
-  // Opens a project in place of the one shown; a cancelled dialog, or the project already open, changes nothing.
   async function replaceProject(load: () => Promise<(OpenProject & StateStamp) | null>, path?: string, adopt: Parameters<typeof adoptProject>[1] = {}) {
     const navigation = ++projectNavigation.current;
     const cached = path ? projectsSeen.current.get(path) : undefined;
     const cachedState = path ? statesRef.current[path] : undefined;
     const instant = cached && cachedState ? { ...cached, state: cachedState } : path ? cachedProjectCopy(path) : undefined;
-    // The open goes out before the last copy renders, so a busy host starts on it at once.
     let request: Promise<(OpenProject & StateStamp) | null>;
     try {
       request = load();
@@ -1555,7 +1378,6 @@ function App() {
       const next = await request;
       if (navigation !== projectNavigation.current || !next) return;
       if (next.path !== projectRef.current?.path || selectedLinkRef.current) adoptProject(next, adopt);
-      // Host events may have supplied a newer state while this request was pending.
       else refreshOpenProject(next, path ? adopted : statesRef.current[next.path]);
     } catch (error) {
       if (navigation !== projectNavigation.current) return;
@@ -1564,7 +1386,6 @@ function App() {
     }
   }
 
-  // Add project asks how first (open a folder or clone a repository), and which computer too when there are others.
   const openProject = () => Promise.resolve(setAddProjectOpen(true));
   const switchProject = (projectPath: string, adopt: Parameters<typeof adoptProject>[1] = {}) =>
     replaceProject(() => requestProject(projectPath), projectPath, adopt);
@@ -1582,7 +1403,6 @@ function App() {
     setProject(null);
     setSelectedSessionId(null);
     setSelectedWorktreeId(null);
-    // An established window keeps its Project/Link picker, even when no local Project remains.
     setOnboarding(false);
     setView("chat");
     void window.milagre
@@ -1602,7 +1422,6 @@ function App() {
     const scope = `milagre-link:${id}`;
     const known = linksSeen.current.get(id) ?? knownLink(id);
     const held = linkStatesRef.current[id] ?? cachedScopeState(scope) ?? scopeStates[scope];
-    // The Chat's page read, then the Link's open, go out before anything renders.
     if (typeof sessionId === "number") {
       prefetchLeanChat(scope, sessionId, held);
       beginChatSwitch(chatKey(scope, sessionId));
@@ -1617,7 +1436,6 @@ function App() {
     const sourceView = chatView.current;
     const adopt = (next: OpenLink) => {
       handOverShownScope();
-      // A picker handoff commits only after the destination opens. Read now so late edits and quotes move too.
       setLinkNewChatText(draftFrom ? draftStore.take(draftFrom) : "");
       if (!selectedLinkRef.current && projectRef.current)
         scopeDrafts.save({ kind: "project", projectPath: projectRef.current.path }, { text: draftStore.get(), sessionId: selectedSessionRef.current });
@@ -1630,8 +1448,6 @@ function App() {
       if (!keepView) setView("chat");
       setNewChatError(null);
     };
-    // The Link shows at once from what this window holds (the host's last open, or the sidebar's read); the host's
-    // open then refreshes it in place. Opening on the host recovers its Chats and can take a while when the Mac is busy.
     const instant = !draftFrom && known && held && !("worktrees" in held) ? { link: known.link, projects: known.projects, state: held } : null;
     if (instant) adopt(instant);
     try {
@@ -1642,7 +1458,6 @@ function App() {
         (sourceView !== chatView.current || selectedLinkRef.current || draftFrom !== draftKey(projectRef.current?.path ?? "", selectedSessionRef.current))
       )
         return;
-      // Its state's number goes to state-events (the host's next patch applies to it); the window keeps the Link alone.
       const { version: _version, epoch: _epoch, ...next } = reply;
       linksSeen.current.set(id, next);
       seedHeldState(scope, reply);
@@ -1651,7 +1466,6 @@ function App() {
         adopt(next);
         return;
       }
-      // What didn't change keeps its objects, so a reply that changes nothing re-renders nothing.
       setLinkStates((previous) => {
         const reconciled = reconcileState(previous[id], next.state);
         return reconciled === previous[id] ? previous : { ...previous, [id]: reconciled };
@@ -1665,18 +1479,14 @@ function App() {
       setSelectedLink(refresh);
       setLastLink(refresh);
     } catch (error) {
-      // Deleted elsewhere: the copy shown from what this window held goes, and so does its sidebar row.
       if (navigation === projectNavigation.current) linkMissing(id, error);
     }
   }
-  // Another computer's Project opened from a copy that lacks the Chat being opened lists none of its Chats ("No chats
-  // yet"). Nothing on screen says which copy that was, so it goes to daemon.log.
   function noteMissingChat(projectPath: string, sessionId: number, source: string, state: CoordinatorState | undefined) {
     if (!isRemoteKey(projectPath) || !state?.sessions || state.sessions[sessionId]) return;
     noteComputer(projectPath, `${projectPath} opened Chat ${sessionId} from ${source}, which lacks it (${Object.keys(state.sessions).length} Chats)`);
   }
   async function openCanvasChat(projectPath: string, sessionId: number, adopt: Parameters<typeof adoptProject>[1] = {}) {
-    // A Link's Chat, or one of the open Project's: selectLink and openChat read its page and measure the switch first.
     if (isLinkScopeKey(projectPath)) {
       await selectLink(projectPath.slice("milagre-link:".length), sessionId, adopt);
       return;
@@ -1685,9 +1495,6 @@ function App() {
       openChat(sessionId);
       return;
     }
-    // The Chat's page read goes out first, then the Project's open, before anything renders: on a busy Mac the reads the
-    // switch's render starts would otherwise go ahead of them. This Mac's Project opens from the canvas; another
-    // computer's is only read there (requestProject).
     const cachedState = statesRef.current[projectPath];
     prefetchLeanChat(projectPath, sessionId, cachedState ?? cachedProjectCopy(projectPath)?.state);
     beginChatSwitch(chatKey(projectPath, sessionId));
@@ -1699,7 +1506,6 @@ function App() {
     }
     noteScopeOpening(projectPath, request);
     const navigation = ++projectNavigation.current;
-    // The last copy shows at once; the main process's answer then refreshes it in place, so the switch never waits.
     const seen = projectsSeen.current.get(projectPath);
     const instant = cachedState && seen ? { ...seen, state: cachedState } : cachedProjectCopy(projectPath);
     if (instant) {
@@ -1711,7 +1517,6 @@ function App() {
     try {
       const next = await request;
       if (navigation !== projectNavigation.current) return;
-      // A host read carries its state's number; the offline copy and the numbered copy kept here don't.
       noteMissingChat(projectPath, sessionId, "version" in next ? `the host's read (state ${next.version})` : "a copy without a number", next.state);
       if (!instant || next.path !== projectRef.current?.path || selectedLinkRef.current) {
         adoptProject(next, { ...adopt, sessionId });
@@ -1724,9 +1529,6 @@ function App() {
     }
   }
 
-  // Where a message goes: an open chat keeps its session, a new local chat (session null) gets one
-  // from the main process, and a new chat in "New worktree" isolation gets its own worktree first.
-  // A chat started from a Linear issue always gets its own worktree, whatever the isolation picker says.
   async function resolveSendTarget(body: string, issue?: IssueRef, view = chatView.current) {
     if (!state || !project || !selectedWorktree) return null;
     if (!issue && preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path) return preparedTarget.current;
@@ -1734,7 +1536,6 @@ function App() {
     if (isolation === "local" && !issue) return { sessionId: null, worktreeId: selectedWorktree.id };
     setBaseBranch(effectiveBaseBranch);
     saveChatPreferences(localStorage, project.path, { baseBranch: effectiveBaseBranch });
-    // A worktree:create has no id the host could match a resend by: it is tried again only while the host is unreachable.
     const created = await retrySend(
       () =>
         bridgeForKey(project.path).createWorktree({
@@ -1776,11 +1577,9 @@ function App() {
     sendsInFlight.current.add(sendKey);
     const stillHere = () => projectRef.current?.path === project.path && chatView.current === view;
     setNewChatError(null);
-    // The picker decides the provider: a chat on another one hands off to it.
     const model = selectedModel;
     const firstMessage = chatCount === 0;
     const submittedDraft = draftStore.get();
-    // Load the saved queue before deciding whether this Chat already has a pending message after restart.
     if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
     if (queueForComputer(project.path) || hasQueuedChat(project.path, selectedSession?.id ?? null)) {
       try {
@@ -1838,7 +1637,6 @@ function App() {
         sendsInFlight.current.delete(sendKey);
       }
     }
-    // A chat bound for a worktree that doesn't exist yet shows no worktree (and none of its PRs) until it does.
     const prepared = preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path ? preparedTarget.current : null;
     const previewWorktreeId = prepared?.worktreeId ?? (selectedSession || (isolation === "local" && !issue) ? selectedWorktree.id : NO_WORKTREE);
     const resendKey = `${project.path}#${selectedSession?.id ?? `new${view}`}`;
@@ -1871,7 +1669,6 @@ function App() {
       setDraft("");
       imageDraft.clear();
     }
-    // Capture the user's choices before setup runs in the background.
     const options = {
       delivery,
       provider: model.provider,
@@ -1895,8 +1692,6 @@ function App() {
       if (firstMessage && stillHere()) preparedTarget.current = { ...target, view, projectPath: project.path };
       dispatchPending({ type: "target", clientMessageId: preview.message.clientMessageId, sessionId: target.sessionId, worktreeId: target.worktreeId });
       const sendTarget = target;
-      // The main process saves the message, then starts the Chat's turn, even if the user has navigated away. A busy or
-      // restarting host gets it again until it takes it; the host recognises a resend by its clientMessageId.
       const { sessionId } = await retrySend(
         () =>
           agentRuns.send({
@@ -1907,11 +1702,9 @@ function App() {
             body,
             images: uploadedImages,
             files: uploadedFiles,
-            // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
             prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, uploadedFiles),
             ...options,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-            // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
             ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
           }),
         { retryable: (error) => retryKind(error) !== null },
@@ -1921,7 +1714,6 @@ function App() {
       failedSendIds.current.forget(resendKey);
       dispatchPending({ type: "sent", clientMessageId: preview.message.clientMessageId, sessionId, worktreeId: target.worktreeId });
       if (stillHere()) {
-        // Text typed while a new chat was being created belongs to that chat, not to the next new one.
         const carried = draftStore.get();
         setDraft("");
         setSelectedSessionId(sessionId);
@@ -1930,7 +1722,6 @@ function App() {
       }
       return true;
     } catch (error) {
-      // The host may have saved the message and lost only its answer: a resend of this text carries the same id.
       failedSendIds.current.remember(resendKey, preview.message.clientMessageId!, body, resendParts);
       const message = `${uploading ? "Could not upload attachments" : target ? "Could not send the message" : "Could not create the worktree"}: ${ipcErrorMessage(error)}`;
       if (stillHere()) {
@@ -1964,13 +1755,11 @@ function App() {
     }
   }
 
-  // Every comment that still matches the diff goes out as one message, like any send (a running turn is steered).
   async function sendDiffComments() {
     const sent = diffComments.sendable;
     if (sent.length === 0) return;
     const base =
       changes.mode === "pr" && prReview.pr ? `PR #${prReview.pr.number}` : changes.list.state === "ready" && changes.list.isRepo ? changes.list.base : null;
-    // Back to the chat first, so the message shows up as it lands.
     changes.closeDiff();
     if (
       await executeSend(formatCommentsMessage(sent, { mode: changes.mode === "uncommitted" ? "uncommitted" : "committed", base }), permissionMode, [], [], true)
@@ -1978,12 +1767,10 @@ function App() {
       diffComments.removeMany(sent.map((comment) => comment.id));
   }
 
-  // "Fix in Chat" on a PR's thread: back to the Chat, and the ask goes out like any send.
   const sendPrToChat = useEvent((text: string) => {
     changes.closeDiff();
     void executeSend(text, permissionMode, [], [], true);
   });
-  // A sidebar row's PR chip: the Chat's own PR opens in its panel; any other PR (or another computer's) on GitHub.
   const openRowPullRequest = useEvent((item: { id: string; details?: { path?: string } }, pr: { number: number }) => {
     const path = item.details?.path;
     const session = state?.sessions[Number(item.id)];
@@ -1995,20 +1782,16 @@ function App() {
     return true;
   });
 
-  // The new chat starts at once from an issue: its first message is the issue, then whatever the user typed.
   function startFromIssue(issue: LinearIssue) {
     void executeSend(issueFirstMessage(issue, draftStore.get()), permissionMode, imageDraft.images, imageDraft.files, false, undefined, issue);
   }
 
-  // "Report a Milagre bug": the Chat's composer asks its agent, which writes it up with milagre report_milagre_bug; Milagre
-  // redacts it and shows the user the exact text before anything is posted (issue #938).
   function reportMilagreBug(sessionId: number) {
     if (selectedSessionRef.current !== sessionId) openChat(sessionId);
     setDraft(withReportPrompt(draftStore.get()));
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }
 
-  // Compact now on the context card: Claude's /compact as a divider in the chat, with no handoff and no draft touched.
   async function compactContext() {
     if (!project || !selectedSession || !selectedWorktree || readOnly) return;
     const model = selectedModel;
@@ -2041,8 +1824,6 @@ function App() {
     await executeSend(body, permissionMode, imageDraft.images, imageDraft.files, false, undefined, undefined, delivery);
   }
 
-  // Keep finished message cards out of the typing render path. Recommendations still use
-  // the current model and permission mode when clicked.
   const recommendationRef = useRef<(option: string) => void>(() => {});
   recommendationRef.current = (option) => {
     void executeSend(option, permissionMode);
@@ -2052,7 +1833,6 @@ function App() {
   function escapeOpenChat(event: KeyboardEvent) {
     if (!run || !project || !selectedSession) return;
     event.preventDefault();
-    // Escape denies the open approval or dismisses the open question; once that's sent, Escape stops the turn.
     const approval = run.approvals[0];
     const question = approval ? undefined : run.questions[0];
     if (approval && !run.answered[approval.requestId]) answerApproval("deny");
@@ -2103,19 +1883,14 @@ function App() {
       deps: [run, project?.path, selectedSession?.id, view, routineId, runPaneOpen],
     },
   );
-  // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
   const setJumpChats = useJumpToChat({ enabled: () => !selectedLinkRef.current && view === "chat", openChat });
 
-  // The sidebar is memo()'d: these keep one identity across renders (each runs the latest closure) so a streamed
-  // batch or another pane's state change doesn't re-render it.
   const pickChat = useEvent((id: string) => openChat(Number(id)));
-  // Another Project's rows in the all-Projects sidebar archive through the same steps, against that Project.
   const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
   const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => archiveChat(Number(id), mode, plan, scopeKey));
   const startNewChatFromSidebar = useEvent(() => startNewChatOnThisMac());
   const openProjectFromSidebar = useEvent(() => void openProject());
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
-  // "+" on another Project's header switches to it (from its last copy, so at once) and starts a chat there.
   const newChatInScope = useEvent((key: string) => {
     if (isLinkScopeKey(key)) {
       void selectLink(key.slice("milagre-link:".length));
@@ -2123,9 +1898,6 @@ function App() {
     }
     startNewChatIn(key);
   });
-  // The new-chat heading's dropdown picked a Link: a new Chat opens there (never the Link's last one, which its sidebar
-  // header returns to), and what was typed goes along with it, leaving the Project's new Chat empty (as a move to another
-  // Project does).
   const newChatInLink = useEvent(async (id: string) => {
     if (movingDraft.current) return;
     const draftFrom = draftKey(projectRef.current?.path ?? "", selectedSessionRef.current);
@@ -2136,13 +1908,11 @@ function App() {
       movingDraft.current = false;
     }
   });
-  // A new Chat in a Project, switched to first (a Link on screen closes). `draftText` replaces what waits there.
   function startNewChatIn(key: string, draftText = "") {
     if (!selectedLinkRef.current && projectRef.current?.path === key) {
       startNewChat(draftText);
       return;
     }
-    // A new chat left unsent there comes back with its draft; a draft for one of its chats stays with that chat.
     const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
     const start = () => startNewChat(draftText || (remembered.sessionId === null ? remembered.text : ""));
     const switched = switchProject(key);
@@ -2152,11 +1922,6 @@ function App() {
         if (!selectedLinkRef.current && projectRef.current?.path === key) start();
       });
   }
-  // New chat (⌘N, the sidebar's +, the command palette, a Link's) always opens the same screen on this Mac: the open
-  // Project when it is this Mac's, else the one opened here last. Another computer's Project or a Link gets a new Chat
-  // from its own header's +, or the heading's Project dropdown. A Chat without a Project on screen goes to that last
-  // real Project instead (only No project in the heading's dropdown starts one), and stays in the Chats home only when
-  // this Mac has no real Project.
   const startNewChatOnThisMac = useEvent(async (draftText: string = "") => {
     const current = projectRef.current?.path;
     const currentKind = projectRef.current?.kind;
@@ -2167,22 +1932,15 @@ function App() {
     const recent = await window.milagre.listRecentProjects().catch((): RecentProject[] => []);
     const home = newChatProject({ currentPath: current, currentKind, recent });
     if (home) startNewChatIn(home, draftText);
-    // This Mac has no real Project: the new Chat stays where it is, the Chats home included.
     else if (!selectedLinkRef.current) startNewChat(draftText);
   });
-  // A new Chat on this Mac whose draft points its agent at a triage playbook; the user writes what went wrong after it.
   const startTriage = useEvent(async () => {
     const { prompt } = await window.milagre.prepareTriage(`Milagre desktop ${await window.milagre.getAppVersion()} on ${navigator.platform}`);
     await startNewChatOnThisMac(prompt);
   });
-  // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far. No project
-  // (or the computer chip on its draft) moves it to that computer's Chats home, made first when it isn't there yet;
-  // making it doesn't open it anywhere, the switch below does.
   const moveNewChat = useEvent(async (key: string, home?: Pick<ChatsHome, "exists">) => {
     const from = projectRef.current?.path;
     if (selectedLinkRef.current || !from || from === key) return;
-    // The prompt keeps the keys while the draft moves (ChatComposer focuses it on the pick): what is typed here until the
-    // new Chat opens there goes along with it, and Enter waits for it to arrive instead of sending here.
     const typedKey = draftKey(from, selectedSessionRef.current);
     movingDraft.current = true;
     try {
@@ -2196,7 +1954,6 @@ function App() {
       try {
         await bridgeForKey(key).ensureChatsHome();
       } catch (error) {
-        // The draft stays where it was typed.
         if (!selectedLinkRef.current && projectRef.current?.path === from)
           setNewChatError(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
         return;
@@ -2205,8 +1962,6 @@ function App() {
     }
     const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
     const start = () => {
-      // Keep the text visible while the computer loads, as on mobile. Only take it when the destination is ready;
-      // edits made during the wait come with it, and a failed switch leaves the original draft untouched.
       const carried = draftStore.take(typedKey);
       if (carried) scopeDrafts.save({ kind: "project", projectPath: from }, { text: "", sessionId: null });
       startNewChat(carried || (remembered.sessionId === null ? remembered.text : ""));
@@ -2219,7 +1974,6 @@ function App() {
       if (arrived()) start();
     }
   }
-  // The sidebar Chats group's +: a new Chat without a Project on this Mac, in its Chats home, made first when missing.
   const newChatWithoutProject = useEvent(async () => {
     const bridge = bridgeFor(LOCAL_COMPUTER);
     try {
@@ -2231,21 +1985,15 @@ function App() {
   });
   const sidebarRunKeys = runKeys(agentRuns.runs);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
-  // One identity each, so memo(SidebarNav) skips the renders a streaming reply or a run change makes here.
   const switchLinkFromSidebar = useEvent((id: string) => void selectLink(id));
   const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
   const deleteLinkFromSidebar = useEvent((id: string) => void deleteLink(id));
-  // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
-  // at once instead of waiting on the host, or on another computer's network.
   const hoverChat = useEvent((scopeKey: string, id: string) => {
     const state = isLinkScopeKey(scopeKey)
       ? (linkStatesRef.current[scopeKey.slice("milagre-link:".length)] ?? cachedScopeState(scopeKey))
       : (statesRef.current[scopeKey] ?? scopeStates[scopeKey] ?? cachedScopeState(scopeKey) ?? cachedProjectCopy(scopeKey)?.state);
     prefetchLeanChat(scopeKey, Number(id), state);
   });
-  // "Link and ask A…" from the sidebar's Link popover: a plain user message to chat A on its own model, as its composer
-  // would pick it, and the permission mode new turns get. A's agent decides whether to make a Delegation. Then A opens,
-  // so the message and the reply are in view.
   const askLinkedChat = useEvent(async (scopeKey: string, id: string, message: { body: string; prompt: string }) => {
     const sessionId = Number(id);
     const state = statesRef.current[scopeKey] ?? (await bridgeForKey(scopeKey).readProject(scopeKey)).state;
@@ -2280,18 +2028,15 @@ function App() {
     setRoutineId(null);
     setView("routines");
   });
-  // Token usage is a section of Settings.
   const openUsage = useEvent(() => {
     changes.closeDiff();
     setSettingsSection("usage");
     setSettingsOpen(true);
   });
-  // A Chat named on the Usage page, on the computer whose transcripts it reads.
   const openUsageChat = useEvent((computerId: string, projectPath: string, sessionId: number) => {
     setView("chat");
     void openCanvasChat(qualifyKey(computerId, projectPath), sessionId);
   });
-  // A Routine's own page, with its Runs: from its row, or from a Chat's Routine chip.
   const openRoutine = useEvent((id: string | null) => {
     changes.closeDiff();
     setRoutineId(id);
@@ -2302,13 +2047,8 @@ function App() {
     setSettingsSection("project");
     setSettingsOpen(true);
   });
-  // Saved message cards also receive this callback: keep their memoization during sends and streamed updates.
   const openLinkedChat = useEvent((key: string) => void openCanvasChat(projectOfKey(key), sessionIdFromKey(key)));
-  // The one way a route opens a Chat that belongs to a family (the Subchats pill, a transcript's line, the bookmark, a tile's
-  // menu): alone, full width. The sidebar unfolds its family and selects its row once it is open (useUnfoldActiveFamily).
-  // A Chat on screen in a split is only focused; any other ends the split (the split rule above).
   const openAlone = useEvent((key: string) => openLinkedChat(key));
-  // The suggestion card's Send answer and Dismiss, for the transcripts on screen (SubchatMessages).
   const { answerQuestion: answerSubchatQuestion, dismissSuggestion } = agentRuns;
   const subchatActions = useMemo<SubchatActions>(
     () => ({
@@ -2318,9 +2058,6 @@ function App() {
     [answerSubchatQuestion, dismissSuggestion],
   );
   useEffect(() => provideSubchatActions(subchatActions), [subchatActions]);
-  // A Run's row on its Routine's page opens the Run's Chat beside the Runs, in the window's own Chat pane.
-  // It remembers the Chat the window had, which closing the pane brings back (a Run Chat in another Project switches the
-  // window's Project, and the Routines view stays).
   const openRunChat = useEvent((key: string) => {
     runPaneReturn.current ??= project
       ? { projectPath: project.path, linkId: selectedLink?.link.id ?? null, sessionId: selectedSessionId, worktreeId: selectedWorktreeId }
@@ -2331,13 +2068,10 @@ function App() {
       if (holdRoutinesView.current === key) holdRoutinesView.current = null;
     });
   });
-  // Closes the Run Chat pane and, while the window still shows that Run Chat, brings back the Chat it replaced, so the Chat
-  // view never opens on a hidden Run Chat. A Chat picked meanwhile (the sidebar, a notification) stays.
   const closeRunPane = useEvent(() => {
     const saved = runPaneReturn.current;
     const paneKey = runPaneRef.current;
     runPaneReturn.current = null;
-    // A Run Chat still opening (its Project loading) is called off, so it can't land in the Chat view afterwards.
     if (holdRoutinesView.current !== null) projectNavigation.current += 1;
     holdRoutinesView.current = null;
     setRunPane(null);
@@ -2354,7 +2088,6 @@ function App() {
     } else if (back.sessionId !== null) void openCanvasChat(back.projectPath, back.sessionId, { keepView: true, forgetChat: true });
     else void switchProject(back.projectPath, { keepView: true, forgetChat: true });
   });
-  // The pane belongs to the Routine page it opened on: another page, or another view, closes it.
   useEffect(() => {
     closeRunPane();
   }, [routineId, view]);
@@ -2378,8 +2111,6 @@ function App() {
     [worktrees],
   );
 
-  // The splash fades out over the app the moment the app is ready, while the panes slide in, even when its logo is still
-  // drawing: launch waits for nothing but the app. main.tsx draws it; each tree here says whether it may go.
   const { phase: splash } = useSplash();
   const [appEntered, setAppEntered] = useState(false);
   const splashOverlay = (leaving: boolean) => (splash === "gone" ? null : <AppSplash key="startup-splash" leaving={leaving} />);
@@ -2416,7 +2147,6 @@ function App() {
     if (!link) throw new Error("Link no longer exists");
     return link;
   }
-  // A Link that is gone from its computer's list leaves the sidebar too (and the window, when it shows it).
   function linkMissing(id: string, error: unknown) {
     const message = ipcErrorMessage(error);
     if (!(isLinkGone(message) && linkGone(id))) setNotice(message);
@@ -2435,21 +2165,17 @@ function App() {
       linkMissing(id, error);
     }
   }
-  // This window deleted the Link: the Worktrees it kept are named.
   function linkDeleted(link: NamedProjectLink, result: NamedLinkDeleted) {
     setDeletingLink(null);
     const kept = deletedLinkText(link.name, result.kept);
     if (kept) setNotice(kept);
     leaveDeletedLink(link.id);
   }
-  // A deleted Link, here or on another device, leaves the chooser; the window showing it goes to the last opened
-  // Project, as a removed Project's does. Returns whether this window was showing it.
   function leaveDeletedLink(id: string) {
     window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
     setLastLink((current) => (current?.link.id === id ? null : current));
     if (selectedLinkRef.current?.link.id !== id) return false;
     const navigation = ++projectNavigation.current;
-    // Both of link:delete's link:state events can land before the next render: the second finds nothing to leave.
     selectedLinkRef.current = null;
     setSelectedLink(null);
     setView("chat");
@@ -2463,7 +2189,6 @@ function App() {
       .catch(() => {});
     return true;
   }
-  // An edited Link that is open reloads in place, so its header and member Projects follow.
   async function linkEdited(link: NamedProjectLink) {
     window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
     if (selectedLinkRef.current?.link.id !== link.id) return;
@@ -2573,7 +2298,6 @@ function App() {
         onUpdateCli: handleUpdateCli,
         updatingCli,
         capability: selectedCapability,
-        // Options are now managed internally by LinkWorkspace via useComposerPreferences
       }}
       onSwitchProject={(path) => void switchProject(path)}
       onSwitchLink={(id) => void selectLink(id)}
@@ -2603,7 +2327,6 @@ function App() {
       {appDialogs}
     </>
   );
-  // A Link with no Project to stand behind it (none open yet) is the whole window.
   if (selectedLink && (loading || !project || !state))
     return (
       <>
@@ -2657,7 +2380,6 @@ function App() {
     return <>{splashOverlay(false)}</>;
   }
 
-  // Only the open palette reads the list, so it is built then and not on every render.
   const paletteCommands = (current: OpenProject) =>
     buildCommands({
       current,
@@ -2710,9 +2432,6 @@ function App() {
       },
     });
 
-  // The Link on screen and the Project behind it (or the other way round) both stay mounted: the hidden one keeps
-  // its DOM and state out of the document, with its effects and listeners off, so switching between them is one
-  // insertion.
   const projectBridge = bridgeForKey(project.path);
   const approvalProps: ChatApprovalProps = {
     chatId: chatKey(project.path, selectedSession?.id ?? 0),
@@ -2746,7 +2465,6 @@ function App() {
           />
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <PanelToggles
-            // The grid and Subchats buttons sit at the corner's far right; the panel buttons come before them.
             right={12 + trailingCorner * CORNER_PITCH}
             changes={
               changesAvailable
@@ -2832,8 +2550,6 @@ function App() {
             <main
               data-workspace-main
               data-chat-to-edge={chatToEdge || undefined}
-              // One open Chat alone runs its transcript to the window's bottom edge, under the composer: <main> drops its
-              // bottom padding and the composer dock keeps those 12px (--chat-edge-pad) so the composer stays put.
               className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 ${chatToEdge ? "[--chat-edge-fade:24px] [--chat-edge-pad:12px]" : "pb-3"}`}
             >
               <DiffBar
@@ -2847,13 +2563,11 @@ function App() {
               <AnimatePresence initial={false} onExitComplete={diffPresence.onExitComplete}>
                 {changes.diffOpen && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} review={prDiffReview} />}
               </AnimatePresence>
-              {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles show theirs in their headers. */}
               {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && (
                 <RoutineChip chatKey={focusedChatKey} run={selectedSession?.routine} place="strip" onOpen={openRoutine} />
               )}
               {bookmarkShown && !bookmarkedParent && selectedSession && focusedChatKey && (
                 <ChatIdentity
-                  // The whole first line, not the sidebar's 60-character label: the strip truncates it where the corner starts.
                   title={fullChatTitle(selectedSession, messagesBySession.get(selectedSession.id) ?? NO_MESSAGES)}
                   project={surfaces.settings ? surfaces.name : undefined}
                   corner={cornerButtons * CORNER_PITCH}
@@ -2882,8 +2596,6 @@ function App() {
                   onBack={() => setView("chat")}
                 />
               )}
-              {/* A Run's Chat opens beside its Routine's page: the two sit side by side, the Chat pane in a card of its own.
-                  The wrappers stay mounted (display: contents otherwise), so neither side remounts as the pane opens. */}
               <div
                 data-routine-split={runPaneOpen || undefined}
                 className={runPaneOpen ? "flex min-h-0 flex-1 gap-3 pt-[var(--window-chrome-height)]" : "contents"}
@@ -2907,12 +2619,10 @@ function App() {
                     />
                   )}
                 </div>
-                {/* Fades back in when the diff has gone: a display:none element restarts its animation when shown. */}
                 <div
                   data-chat-pane
                   data-run-chat-pane={runPaneOpen || undefined}
                   className={`min-h-0 flex-1 flex-col overflow-hidden ${(view === "chat" && !diffPresence.occupied) || runPaneOpen ? "flex" : "hidden"} ${runPaneOpen ? "min-w-0 rounded-window border border-line bg-surface [&_.chat-column]:pt-4" : ""}`}
-                  // In the pane the Chat sits under its own header, not under the window's title bar.
                   style={
                     runPaneOpen
                       ? ({ animation: "fade-in var(--duration-base) var(--ease-enter)", "--window-chrome-height": "0px" } as CSSProperties)
@@ -2947,7 +2657,6 @@ function App() {
                       root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}
                       files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
                     >
-                      {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
                       <ChatComposer
                         store={draftStore}
                         stepApproval={stepApproval.value}
@@ -2966,7 +2675,6 @@ function App() {
                         projectPath={selectedWorktree?.path ?? project.path}
                         messageScope={project.path}
                         earlier={earlierMessages}
-                        // A draft becoming its saved Chat shows that Chat's window, not the selected one's.
                         trimHistory={lean && !(pendingHere && pendingCanonicalId !== null) ? chatWindow.trim : undefined}
                         onSend={(delivery) => void sendMessage(delivery)}
                         onCompact={
@@ -3157,7 +2865,6 @@ function App() {
               source={selectedWorktree ? { bridge: bridgeForKey(prChatKey).pr, cwd: selectedWorktree.path } : undefined}
               actions={prPanelActions}
             />
-            {/* The open Chat's Details (Environment, Lineage, Background tasks, Links), from its corner toggle. */}
             <DetailsPanelHost
               chatKey={
                 view === "chat" && !selectedLink && project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null
@@ -3203,7 +2910,6 @@ function App() {
               chat={gitDialog.chat}
               turnRunning={Boolean(agentRuns.runs[chatKey(project.path, gitDialog.sessionId)])}
               onClose={() => setGitDialog(null)}
-              // The dialog's chat is the open one; a message sent while its turn runs steers it.
               onSendToAgent={(text) => {
                 if (selectedSession?.id === gitDialog.sessionId) void executeSend(text, permissionMode, []);
                 else {
@@ -3232,20 +2938,17 @@ function App() {
         shown={selectedLink ? "link" : "project"}
         slots={[...(linkWorkspace ? [{ key: "link", element: linkWorkspace }] : []), { key: "project", element: projectWorkspace }]}
       />
-      {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
       {selectedLink && linkDialogs}
       {settingsModal}
     </RunTextContext.Provider>
   );
 }
 
-/** A Linear issue a new chat starts from: its key and the workspace it was picked in. */
 type IssueRef = Pick<LinearIssue, "key" | "workspace">;
 export default function AppWithUpdates() {
   return (
     <UpdateShell>
       <App />
-      {/* Beside the app, so it asks whatever screen is open, Settings and Links included. */}
       <ComputerAllowPrompt />
     </UpdateShell>
   );
