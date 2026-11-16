@@ -1,7 +1,6 @@
 const os = require("node:os");
 const path = require("node:path");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
-const { patchSession } = require("@milagre/shared/project-edits");
 const { createOrchestratorStore } = require("../orchestrator/store.cjs");
 const { createOrchestrator } = require("../orchestrator/service.cjs");
 const { createAutopilot } = require("../orchestrator/autopilot.cjs");
@@ -44,15 +43,14 @@ function routerModels({ agentCli, clientVersion }) {
   };
 }
 
+function withTaskChat(state, sessionId, orchestrator) {
+  const session = state.sessions[sessionId];
+  if (!session) return state;
+  return { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, orchestrator: { ...session.orchestrator, ...orchestrator } } } };
+}
+
 function markTaskChat(updateProject, projectPath, sessionId, orchestrator) {
-  return updateProject(
-    projectPath,
-    (state) => {
-      const session = state.sessions[sessionId];
-      return session ? patchSession(state, sessionId, { orchestrator: { ...session.orchestrator, ...orchestrator } }) : state;
-    },
-    { chats: [] },
-  );
+  return updateProject(projectPath, (state) => withTaskChat(state, sessionId, orchestrator), { chats: [] });
 }
 
 function taskAccountsFor({ states, accounts, routing, agentCli }) {
@@ -159,4 +157,4 @@ function registerOrchestrator(
   return { taskAccounts: taskAccountsFor({ states, accounts, routing, agentCli }), autopilot };
 }
 
-module.exports = { registerOrchestrator };
+module.exports = { registerOrchestrator, withTaskChat };
