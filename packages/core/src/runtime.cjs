@@ -1622,6 +1622,7 @@ function createRuntime(options) {
   shutdown.stop(() => {
     closing = true;
   });
+  // Before the command drain: a poll that lands after it writes to a closed store (#1021).
   shutdown.stop(() => pullRequests.close());
   shutdown.stop(() => {
     for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");
