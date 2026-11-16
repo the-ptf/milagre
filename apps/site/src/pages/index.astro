@@ -11,7 +11,7 @@ import DawnClouds from "../components/dawn/Clouds.astro";
 import DawnTrail from "../components/dawn/Trail.astro";
 import "../styles/dawn.css";
 
-import { DOWNLOAD_ARM64, IPHONE_BETA_URL, REPO_URL } from "../links";
+import { DOWNLOAD_ARM64, DOWNLOAD_IOS, REPO_URL } from "../links";
 
 // Search result: 50-60 characters of title, 150-160 of description, with the facts up front.
 const title = "Milagre: Claude Code and Codex agents on your Mac and phone";
@@ -48,7 +48,7 @@ const schema = [
     applicationCategory: "DeveloperApplication",
     operatingSystem: "macOS, Linux, iOS, Android",
     downloadUrl: new URL(DOWNLOAD_ARM64, site).href,
-    installUrl: IPHONE_BETA_URL,
+    installUrl: DOWNLOAD_IOS,
     screenshot: `${site}og.png`,
     image: `${site}app-icon-512.png`,
     license: "https://opensource.org/license/mit",

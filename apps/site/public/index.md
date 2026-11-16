@@ -26,7 +26,7 @@ Run Milagre on a server or a spare Mac without the desktop app (`npx milagre ser
 
 The same Chats follow you to iPhone and Android: answer a question, approve a command or send the next prompt from your phone. Your computer runs the agents, so it needs to stay awake, online and running Milagre.
 
-- iPhone beta (TestFlight): https://testflight.apple.com/join/K9ExV7bV
+- iOS (App Store): https://apps.apple.com/app/milagre/id6818804252
 - Android beta (APK): https://milagre.cloud/download/android
 
 ## Questions
@@ -37,7 +37,7 @@ The same Chats follow you to iPhone and Android: answer a question, approve a co
 
 **Where does my work live?** On your computer. Milagre stores Chat history and Project files there, and your agents send context to their model providers using your own account.
 
-**Which computers does it run on?** macOS on Apple silicon and Intel, and Linux as an AppImage, .deb or .rpm. Windows is in beta. On a server, run it without the desktop app: `npx milagre serve` needs Node.js 24. The phone app is in beta for iPhone and Android.
+**Which computers does it run on?** macOS on Apple silicon and Intel, and Linux as an AppImage, .deb or .rpm. Windows is in beta. On a server, run it without the desktop app: `npx milagre serve` needs Node.js 24. The phone app is on the App Store for iPhone and in beta for Android.
 
 **Do I need the phone app?** No. Everything works on desktop. Pair the phone when you want to follow your agents and reply away from your desk.
 

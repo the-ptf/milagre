@@ -26,7 +26,7 @@ Milagre is a free, open-source desktop app that runs Claude Code, Codex, Kiro an
 | macOS         | [DMG](https://github.com/the-ptf/milagre/releases/latest) or `brew install --cask the-ptf/tap/milagre` |
 | Linux         | AppImage, DEB or RPM from the [latest release](https://github.com/the-ptf/milagre/releases/latest)     |
 | Windows       | Unsigned installer on the [beta releases](https://github.com/the-ptf/milagre/releases)                 |
-| iPhone        | [TestFlight](https://testflight.apple.com/join/K9ExV7bV)                                               |
+| iPhone        | [App Store](https://apps.apple.com/app/milagre/id6818804252)                                           |
 | Android       | [APK](https://milagre.dev/download/android)                                                            |
 | Server, no UI | `npx milagre serve` ([CLI docs](https://milagre.dev/docs/cli))                                         |
 
