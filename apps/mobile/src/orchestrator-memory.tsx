@@ -4,16 +4,15 @@ import { MEMORY_GROUPS, type MemoryGroup, type OrchestratorMemoryNote } from "@m
 import { space } from "./design-tokens";
 import { CheckRow, Group, IconButton } from "./ui";
 
-export const MEMORY_GROUP_LABEL: Record<MemoryGroup, string> = {
+const MEMORY_GROUP_LABEL: Record<MemoryGroup, string> = {
   work: "How you work",
   projects: "Your Projects",
   tools: "Your tools",
   other: "Other notes",
 };
 
-export const toggleNote = (notes: readonly OrchestratorMemoryNote[], id: string) =>
-  notes.map((note) => (note.id === id ? { ...note, enabled: !note.enabled } : note));
-export const dropNote = (notes: readonly OrchestratorMemoryNote[], id: string) => notes.filter((note) => note.id !== id);
+const toggleNote = (notes: readonly OrchestratorMemoryNote[], id: string) => notes.map((note) => (note.id === id ? { ...note, enabled: !note.enabled } : note));
+const dropNote = (notes: readonly OrchestratorMemoryNote[], id: string) => notes.filter((note) => note.id !== id);
 
 /** What the Orchestrator knows about you, grouped, each note kept while checked; `deletable` adds a delete button. */
 export function MemoryNotes({

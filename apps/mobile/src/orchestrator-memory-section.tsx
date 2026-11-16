@@ -15,7 +15,7 @@ export function memorySummary(memory: OrchestratorMemory) {
   return `${memory.notes.length} ${memory.notes.length === 1 ? "note" : "notes"}${found.length ? `, read from ${found.join(", ")}` : ""}`;
 }
 
-export function MemorySection({
+function MemorySection({
   memory,
   busy,
   onNotes,
@@ -48,7 +48,7 @@ export function MemorySection({
   );
 }
 
-export async function forgetEverything(onForget: () => void) {
+async function forgetEverything(onForget: () => void) {
   if (await confirm("Forget everything?", "The Orchestrator drops every note and what it learned from your corrections.", "Forget")) onForget();
 }
 

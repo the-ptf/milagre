@@ -15,7 +15,7 @@ export const BOARD_TABS: { id: BoardColumn; label: string }[] = [
 
 export type TaskChat = { chat: AgentSession; run?: AgentRun; messages?: ChatMessage[] };
 export type PullRequestState = "open" | "merged" | "closed" | null;
-export type BoardKind = "deciding" | "needs-project" | "failed" | "chat" | "loading" | "remote";
+type BoardKind = "deciding" | "needs-project" | "failed" | "chat" | "loading" | "remote";
 
 export type BoardItem = {
   task: OrchestratorTask;

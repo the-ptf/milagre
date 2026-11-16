@@ -46,7 +46,7 @@ function useSteps(still: boolean) {
   return { step: shown.step, t, go };
 }
 
-export const sourceCount = ({ count, unit }: { count: number; unit?: "notes" | "rules" }) =>
+const sourceCount = ({ count, unit }: { count: number; unit?: "notes" | "rules" }) =>
   `${count} ${unit === "rules" ? (count === 1 ? "rule" : "rules") : count === 1 ? "note" : "notes"}`;
 
 function SourcePills({ snapshot, reading }: { snapshot: OrchestratorSnapshot; reading: boolean }) {

@@ -14,7 +14,7 @@ const nativeAppState: AppStateLike = {
 };
 
 const stores = new WeakMap<object, OrchestratorStore>();
-export function orchestratorStore(client: OrchestratorClient): OrchestratorStore {
+function orchestratorStore(client: OrchestratorClient): OrchestratorStore {
   let store = stores.get(client);
   if (!store) {
     store = createOrchestratorStore(client, nativeAppState);
