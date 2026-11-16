@@ -158,7 +158,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 417]
+        "complexity": ["error", 414]
       }
     },
     {
@@ -319,7 +319,7 @@
     {
       "files": ["apps/desktop/app/src/components/ChatGrid.tsx"],
       "rules": {
-        "complexity": ["error", 54]
+        "complexity": ["error", 53]
       }
     },
     {

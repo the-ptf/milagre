@@ -67,7 +67,7 @@ export const CORNER_PITCH = 40;
 
 const LEADING = new Set<PanelName>(["details", "terminal"]);
 
-export const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) =>
+const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) =>
   BUTTONS.filter(({ name }) => shown[name]).length + Number(changes) + Number(pullRequest);
 
 /** The title bar's trailing buttons: the panel toggles, which a split's Panels menu replaces, and the Canvas button, hidden while split. */
