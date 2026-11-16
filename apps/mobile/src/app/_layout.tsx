@@ -91,8 +91,15 @@ export default function Layout() {
                                 : fullStackSheet
                             }
                           />
-                          <Stack.Screen name="update-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
-                          <Stack.Screen name="update-notes" options={{ ...sheet, sheetAllowedDetents: [0.75, 1] }} />
+                          <Stack.Screen
+                            name="update-sheet"
+                            options={{
+                              presentation: "fullScreenModal",
+                              animation: "fade",
+                              headerShown: false,
+                              contentStyle: { backgroundColor: palette.page },
+                            }}
+                          />
                           <Stack.Screen name="confirm-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="prompt-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           {/* Native search needs the header visible at presentation: enabling it later remounts the sheet. */}

@@ -26,8 +26,6 @@ export function notificationTarget(value: unknown, hosts: SavedHost[]): Notifica
 // The routes app/_layout.tsx presents as a sheet or a transparent modal: the Chat they open over stays on screen behind
 // them. A full-screen modal or a pushed page hides it.
 export const SHEETS_OVER_CHAT = new Set([
-  "update-sheet",
-  "update-notes",
   "confirm-sheet",
   "prompt-sheet",
   "choice-sheet",

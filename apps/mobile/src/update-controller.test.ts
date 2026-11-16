@@ -7,7 +7,7 @@ const idle: NativeUpdateState = { isStartupProcedureRunning: false, isChecking: 
 test("ready updates keep polling, skip the same ID, and replace stale native pending state with the latest download", async () => {
   let id = "first",
     downloads = 0;
-  const manifest = () => ({ id, extra: { expoClient: { extra: { releaseNotes: `Notes for ${id}` } } } });
+  const manifest = () => ({ id });
   const download = deferred<{ isNew: boolean; isRollBackToEmbedded: boolean; manifest: unknown }>();
   const controller = createUpdateController({
     enabled: true,
@@ -33,7 +33,6 @@ test("ready updates keep polling, skip the same ID, and replace stale native pen
   controller.syncNative(native);
   assert.equal(downloads, 1);
   assert.equal(controller.get().updateId, "second");
-  assert.equal(controller.get().releaseNotes, "Notes for second");
   assert.equal(controller.get().status, "ready");
 });
 
