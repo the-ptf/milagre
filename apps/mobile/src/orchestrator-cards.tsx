@@ -14,7 +14,8 @@ import { pressStyle, Tag, useStyles } from "./ui";
 
 export type Projects = readonly { path: string; name?: string }[];
 const REEL_ROW = lineHeight.footnote;
-const REEL_MS = 700;
+const REEL_MS = 900;
+const REEL_ROWS = 14;
 const LAND_PAUSE_MS = 180;
 
 export function TaskMark({ item }: { item: BoardItem }) {
@@ -118,7 +119,10 @@ function Reel({ slot, state, onLanded }: { slot: Slot; state: "wait" | "active" 
   const { colors } = useTheme();
   const reduced = useReducedMotion();
   const scale = useMotionScale();
-  const strip = useMemo(() => reelStrip(slot.options, slot.picked).map((value, position) => ({ value, position })), [slot.options, slot.picked]);
+  const strip = useMemo(
+    () => reelStrip(slot.options, slot.picked, Object.is, REEL_ROWS).map((value, position) => ({ value, position })),
+    [slot.options, slot.picked],
+  );
   const offset = useSharedValue(0);
   const end = -REEL_ROW * (strip.length - 1);
   useEffect(() => {
@@ -131,8 +135,8 @@ function Reel({ slot, state, onLanded }: { slot: Slot; state: "wait" | "active" 
     offset.set(0);
     offset.set(
       withSequence(
-        withTiming(end - 3, scaledTiming({ duration: REEL_MS * 0.85, easing: Easing.bezier(0.2, 0.75, 0.25, 1) }, scale)),
-        withTiming(end, scaledTiming({ duration: REEL_MS * 0.15, easing: Easing.out(Easing.quad) }, scale), (finished) => {
+        withTiming(end - 4, scaledTiming({ duration: REEL_MS * 0.82, easing: Easing.bezier(0.16, 1, 0.3, 1) }, scale)),
+        withTiming(end, scaledTiming({ duration: REEL_MS * 0.18, easing: Easing.out(Easing.quad) }, scale), (finished) => {
           if (finished) runOnJS(onLanded)();
         }),
       ),
@@ -173,7 +177,7 @@ function Cycling({ options }: { options: string[] }) {
   const [index, setIndex] = useState(0);
   useEffect(() => {
     if (reduced || options.length < 2) return;
-    const timer = setInterval(() => setIndex((current) => (current + 1) % options.length), 140);
+    const timer = setInterval(() => setIndex((current) => (current + 1) % options.length), 60);
     return () => clearInterval(timer);
   }, [reduced, options.length]);
   return (

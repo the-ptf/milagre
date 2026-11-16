@@ -193,15 +193,12 @@ export function FirstRunTour({ memory, settings, project }: { memory: Orchestrat
   const motion = useMotionScale();
   const scale = useReducedMotion() ? 0 : motion || 1;
   const [t, setT] = useState(0);
-  const [reading, setReading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(false);
   const [imported] = useState(() => memory.importedAt != null && memory.notes.length > 0 && !isMemoryImporting(memory));
+  const [reading, setReading] = useState(!imported);
   useEffect(() => {
-    if (imported) {
-      setReading(false);
-      return;
-    }
+    if (imported) return;
     void importMemory()
       .catch((cause: Error) => setError(`Couldn't read your agents' notes: ${cause.message}`))
       .finally(() => setReading(false));
@@ -257,6 +254,12 @@ export function FirstRunTour({ memory, settings, project }: { memory: Orchestrat
             <Bubbles t={t} />
           </div>
         </div>
+      )}
+      {t >= SUMMARY_AT && reading && (
+        <span className="flex items-center gap-2 pt-4 text-13 text-ink-2">
+          <SpinnerRing size={14} />
+          Still reading what your agents already know…
+        </span>
       )}
       <Button variant="quiet" size={28} className="no-drag mt-4" onClick={() => setSkipped(true)}>
         Skip tour

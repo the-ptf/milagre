@@ -320,6 +320,12 @@ export function OrchestratorTour({ snapshot, store }: { snapshot: OrchestratorSn
               <Story t={t} snapshot={snapshot} />
             )}
           </View>
+          {t >= AT.end && reading ? (
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm }}>
+              <SpinnerRing size={12} />
+              <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>Still reading what your agents already know…</Text>
+            </View>
+          ) : null}
         </View>
       )}
     </View>
