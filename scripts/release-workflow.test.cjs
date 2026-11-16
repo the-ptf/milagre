@@ -34,7 +34,9 @@ function fixture(t) {
   fs.mkdirSync(path.join(root, "release/mac-arm64/Milagre.app"), { recursive: true });
   fs.mkdirSync(path.join(root, "bin"));
   fs.mkdirSync(path.join(root, "scripts"));
-  for (const script of ["with-apple-credentials.cjs", "notarize-dmg.cjs"]) fs.copyFileSync(path.join(__dirname, script), path.join(root, "scripts", script));
+  fs.mkdirSync(path.join(root, ".release-tools/scripts"), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "with-apple-credentials.cjs"), path.join(root, "scripts/with-apple-credentials.cjs"));
+  fs.copyFileSync(path.join(__dirname, "notarize-dmg.cjs"), path.join(root, ".release-tools/scripts/notarize-dmg.cjs"));
   fs.writeFileSync(path.join(root, "release/Milagre-arm64.dmg"), "");
   const mock = `#!/bin/bash
 printf '%s %s %s %s\\n' "$(basename "$0")" "$1" "$2" "$3" >> "$CALL_LOG"
@@ -147,6 +149,10 @@ test("each architecture builds in parallel and notarizes once, as a disk image",
   assert.match(build.run, /--config\.mac\.notarize=false/, "electron-builder's app submission would double the Apple wait");
   assert.equal(job.steps.find((step) => step.name === "Exercise signed macOS app").if, "matrix.arch == 'arm64'");
   assert.deepEqual(buildWorkflow.jobs["merge-feed"].needs, "package-macos");
+  const tools = job.steps.find((step) => step.name === "Check out this workflow's release scripts");
+  assert.equal(tools.with.ref, undefined, "a stable rebuilds an older commit whose scripts may predate this workflow");
+  for (const name of ["Notarize and staple the disk image and app", "Refresh feed after DMG notarization"])
+    assert.match(job.steps.find((step) => step.name === name).run, /node \.release-tools\/scripts\//, name);
 });
 
 test("merges cut no release; CI only rewrites the Next beta draft once main passes the required checks", () => {
