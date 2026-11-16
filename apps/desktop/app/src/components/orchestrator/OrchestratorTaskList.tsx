@@ -33,6 +33,7 @@ export function OrchestratorTaskList({
         reset={panel.reset}
         onResize={panel.onResize}
         onCommit={panel.onCommit}
+        className="!right-[-18px]"
       />
       <OrchestratorBox size="compact" placeholder="Ask for something else…" />
       <ScrollArea className="min-h-0 flex-1 pb-3">
