@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { AppState, View, Text } from "react-native";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { AppState, Image, View, Text } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useNavigationContainerRef } from "expo-router";
 import * as Updates from "expo-updates";
 import type { NavigationState, PartialState } from "expo-router/react-navigation";
@@ -8,7 +8,7 @@ import { createUpdateController, watchUpdates, type UpdateState } from "./update
 import { lineHeight, radius, type } from "./design-tokens";
 import { SpinnerRing } from "./icons";
 import { useTheme } from "./theme";
-import { CircleButton, PillButton, useAnnounce } from "./ui";
+import { PillButton, useAnnounce } from "./ui";
 
 const AppUpdates = createContext<{ state: UpdateState; check: (force?: boolean) => Promise<void>; install: () => Promise<void>; dismiss: () => void } | null>(
   null,
@@ -143,21 +143,9 @@ export function UpdateSettingsBadge() {
   );
 }
 
-export function UpdateSheet({
-  state,
-  onUpdate,
-  onRetry,
-  onDismiss,
-  onNotes,
-}: {
-  state: UpdateState;
-  onUpdate: () => void;
-  onRetry: () => void;
-  onDismiss: () => void;
-  onNotes: () => void;
-}) {
+export function UpdateSheet({ state, onUpdate, onRetry, onDismiss }: { state: UpdateState; onUpdate: () => void; onRetry: () => void; onDismiss: () => void }) {
   const { colors } = useTheme();
-  const actionable = state.status === "ready" || state.status === "error";
+  const insets = useSafeAreaInsets();
   const busy = state.status === "checking" || state.status === "downloading" || state.status === "restarting";
   const title =
     state.status === "checking"
@@ -165,47 +153,68 @@ export function UpdateSheet({
       : state.status === "downloading"
         ? "Downloading update"
         : state.status === "restarting"
-          ? "Applying update"
+          ? "Updating Milagre"
           : state.status === "up-to-date"
-            ? "Up to date"
+            ? "Milagre is up to date"
             : state.status === "check-error"
               ? "Could not check for updates"
-              : "Update available";
+              : "Update Milagre";
   const description =
     state.status === "ready"
-      ? "A new version of Milagre is ready. Update now to restart the app and apply it."
+      ? "A newer version is ready. Update for the latest fixes, or keep going on this one."
       : state.status === "restarting"
         ? "Milagre is restarting with the new version."
         : state.status === "up-to-date"
-          ? "You have the latest version of Milagre."
+          ? "You have the latest version."
           : busy
             ? "You can keep using Milagre while the update downloads."
             : "";
-  // Status changes and errors, not the title the sheet opens with (VoiceOver reads that as the sheet appears).
+  const retry = state.status === "error" || state.status === "check-error";
+  // Status changes and errors, not the title the screen opens with (VoiceOver reads that as the screen appears).
   useAnnounce(state.error ? `${title}. ${state.error}` : title);
   return (
-    <View style={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 32, gap: 24 }}>
-      <View style={{ gap: 8 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          {busy && <SpinnerRing size={20} tone="ink2" />}
-          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
-            {title}
+    <View style={{ flex: 1, paddingTop: insets.top + 48, paddingBottom: insets.bottom + 16, paddingHorizontal: 24 }}>
+      <View style={{ alignItems: "center", gap: 8 }}>
+        <Text
+          accessibilityRole="header"
+          style={{ color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600", textAlign: "center" }}
+        >
+          {title}
+        </Text>
+        {description ? (
+          <Text style={{ maxWidth: 320, color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center" }}>
+            {description}
           </Text>
-          {state.status !== "restarting" && <CircleButton label="Dismiss update" icon={Cancel01Icon} onPress={onDismiss} />}
-        </View>
-        {description ? <Text style={{ color: colors.ink2, fontSize: type.callout, lineHeight: lineHeight.callout }}>{description}</Text> : null}
+        ) : null}
         {state.error ? (
-          <Text selectable accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
+          <Text
+            selectable
+            accessibilityRole="alert"
+            style={{ maxWidth: 320, color: colors.redInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center" }}
+          >
             {state.error}
           </Text>
         ) : null}
       </View>
-      <View style={{ gap: 12 }}>
-        {(actionable || state.status === "downloading") && <PillButton title="What's new" secondary onPress={onNotes} />}
-        {actionable || state.status === "check-error" ? (
-          <PillButton title={state.error ? "Try again" : "Update now"} onPress={state.status === "ready" ? onUpdate : onRetry} />
-        ) : null}
-        {state.status === "up-to-date" && <PillButton title="Done" secondary onPress={onDismiss} />}
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 24 }}>
+        <Image source={require("../assets/splash-mark-dark.png")} accessibilityIgnoresInvertColors style={{ width: 112, height: 112, tintColor: colors.ink }} />
+        {busy && <SpinnerRing size={20} tone="ink2" />}
+      </View>
+      <View style={{ flexDirection: "row", justifyContent: "center", gap: 12 }}>
+        {state.status === "up-to-date" ? (
+          <PillButton title="Done" onPress={onDismiss} style={{ flex: 1, maxWidth: 240 }} />
+        ) : state.status === "restarting" ? null : (
+          <>
+            <PillButton title="Not now" secondary onPress={onDismiss} />
+            {state.status === "ready" || retry ? (
+              <PillButton
+                title={state.error ? "Try again" : "Update"}
+                onPress={state.status === "ready" ? onUpdate : onRetry}
+                style={{ flex: 1, maxWidth: 240 }}
+              />
+            ) : null}
+          </>
+        )}
       </View>
     </View>
   );
