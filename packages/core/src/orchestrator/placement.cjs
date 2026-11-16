@@ -71,7 +71,28 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
     return store.task(taskId);
   }
 
-  return { placeElsewhere, capacity, startHere };
+  async function computers() {
+    const remote = ports.remote;
+    if (!remote?.enabled?.()) return [];
+    return Promise.all(
+      remote.list().map(async (computer) => {
+        const ask = (method, args) => ports.withTimeout(remote.invoke(computer.id, method, args), 4000).catch(() => null);
+        const capacity = await ask("orchestrator:capacity", []);
+        const memory = capacity || computer.online === false ? null : (await ask("computer:resources:read", [{}]))?.memory;
+        return {
+          id: computer.id,
+          name: computer.name,
+          online: Boolean(capacity) || computer.online === true,
+          cpu: capacity?.cpu ?? null,
+          memoryFree: capacity?.memoryFree ?? (memory?.total ? memory.available / memory.total : null),
+          agents: capacity?.agents ?? null,
+          takesTasks: Boolean(capacity),
+        };
+      }),
+    );
+  }
+
+  return { placeElsewhere, capacity, startHere, computers };
 }
 
 module.exports = { createPlacement };

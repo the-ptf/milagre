@@ -8,7 +8,7 @@ export const ORCHESTRATOR_MASCOT = Object.freeze({
 export const MASCOT_COLORS = Object.freeze(["#ffffff", "#3e9afd", "#3cbb72", "#f68f3c", "#ad46ff", "#ee5c61"]);
 
 export const AUTOPILOT_MODES = Object.freeze(["answer", "ask", "off"]);
-export const COMPUTER_PREFERENCES = Object.freeze(["prefer", "normal", "less", "manual"]);
+export const COMPUTER_PREFERENCES = Object.freeze(["prefer", "normal", "less", "manual", "never"]);
 export const VETO_SECONDS = Object.freeze([0, 30, 120, 600]);
 export const BOARD_COLUMNS = Object.freeze(["running", "needs", "review", "done"]);
 export const MEMORY_GROUPS = Object.freeze(["work", "projects", "tools", "other"]);
@@ -396,7 +396,7 @@ export function pickAccount({ mode, accounts, projectAccountId }) {
   return { accountId: pick.id, reason: Number.isFinite(pick.usedPercent) ? `Least used today (${Math.round(pick.usedPercent)}%)` : "Least used today" };
 }
 
-const PREFERENCE_WEIGHT = { prefer: 1.25, normal: 1, less: 0.6, manual: 0 };
+const PREFERENCE_WEIGHT = { prefer: 1.25, normal: 1, less: 0.6, manual: 0, never: 0 };
 
 /** Picks the computer with the most room among those that have the Project; `null` when only this one qualifies. */
 export function pickComputer({ candidates, preferences }) {

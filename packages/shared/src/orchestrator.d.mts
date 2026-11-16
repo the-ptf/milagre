@@ -1,5 +1,5 @@
 export type AutopilotMode = "answer" | "ask" | "off";
-export type ComputerPreference = "prefer" | "normal" | "less" | "manual";
+export type ComputerPreference = "prefer" | "normal" | "less" | "manual" | "never";
 export type BoardColumn = "running" | "needs" | "review" | "done";
 export type MemoryGroup = "work" | "projects" | "tools" | "other";
 export type OrchestratorProvider = "claude" | "codex" | "antigravity" | "kiro";
@@ -99,6 +99,7 @@ export interface OrchestratorComputer {
   cpu: number | null;
   memoryFree: number | null;
   agents: number | null;
+  takesTasks: boolean;
 }
 
 export interface OrchestratorSnapshot {

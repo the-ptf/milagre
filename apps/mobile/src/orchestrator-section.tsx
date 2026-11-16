@@ -201,23 +201,27 @@ export function OrchestratorSection({
             />
             <Text style={styles.caption}>{autopilot?.hint}</Text>
           </View>
-          <View style={dimmed(settings.autopilot !== "off")}>
-            <MenuRow
-              title="Time to veto"
-              subtitle="When it isn't sure, it waits this long before answering so you can step in"
-              value={vetoLabel(settings.vetoSeconds)}
-              sections={[
-                { items: VETO_SECONDS.map((seconds) => ({ id: String(seconds), title: vetoLabel(seconds), checked: settings.vetoSeconds === seconds })) },
-              ]}
-              onSelect={(id) => save({ vetoSeconds: Number(id) })}
-            />
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: space.lg }}>
-            <Icon icon={ShieldUserIcon} tone="orange" size={16} />
-            <Text style={[styles.caption, { flex: 1, color: colors.ink2 }]}>
-              Always asks you before merging, pushing to main, deleting, deploying, paying or messaging someone.
-            </Text>
-          </View>
+          {settings.autopilot !== "off" ? (
+            <>
+              <View>
+                <MenuRow
+                  title="Time to veto"
+                  subtitle="When it isn't sure, it waits this long before answering so you can step in"
+                  value={vetoLabel(settings.vetoSeconds)}
+                  sections={[
+                    { items: VETO_SECONDS.map((seconds) => ({ id: String(seconds), title: vetoLabel(seconds), checked: settings.vetoSeconds === seconds })) },
+                  ]}
+                  onSelect={(id) => save({ vetoSeconds: Number(id) })}
+                />
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: space.lg }}>
+                <Icon icon={ShieldUserIcon} tone="orange" size={16} />
+                <Text style={[styles.caption, { flex: 1, color: colors.ink2 }]}>
+                  Always asks you before merging, pushing to main, deleting, deploying, paying or messaging someone.
+                </Text>
+              </View>
+            </>
+          ) : null}
         </Group>
       </View>
     </View>

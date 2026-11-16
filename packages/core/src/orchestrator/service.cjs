@@ -202,23 +202,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
         return { path: project.path, name: project.name, included: own?.included !== false, hints: own?.hints ?? null, defaultHints: hints.get(project.path) };
       });
     },
-    async computers() {
-      const remote = ports.remote;
-      if (!remote?.enabled?.()) return [];
-      return Promise.all(
-        remote.list().map(async (computer) => {
-          const capacity = await ports.withTimeout(remote.invoke(computer.id, "orchestrator:capacity", []), 4000).catch(() => null);
-          return {
-            id: computer.id,
-            name: computer.name,
-            online: Boolean(capacity),
-            cpu: capacity?.cpu ?? null,
-            memoryFree: capacity?.memoryFree ?? null,
-            agents: capacity?.agents ?? null,
-          };
-        }),
-      );
-    },
+    computers: () => placement.computers(),
     saveSettings(patch) {
       if (typeof patch !== "object" || patch === null || Array.isArray(patch)) throw new Error("Orchestrator settings must be an object");
       store.update((current) => ({ ...current, settings: normalizeOrchestratorSettings({ ...current.settings, ...patch }) }));

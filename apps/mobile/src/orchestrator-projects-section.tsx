@@ -22,17 +22,15 @@ type Save = (patch: Partial<OrchestratorSettings>) => void;
 
 const PROJECTS_HEIGHT = 360;
 
-const PREFERENCE_LABEL: Record<ComputerPreference, string> = { prefer: "Prefer", normal: "Normal", less: "Less often", manual: "Manual only" };
+const PREFERENCE_LABEL: Record<ComputerPreference, string> = { prefer: "Prefer", normal: "Normal", less: "Less often", manual: "Manual only", never: "Never" };
 const percent = (value: number | null) => (value === null ? null : `${Math.round(value * 100)}%`);
 
 export function computerLoad(computer: OrchestratorComputer) {
   if (!computer.online) return "Offline";
   const cpu = percent(computer.cpu);
   const memory = percent(computer.memoryFree);
-  return (
-    [cpu && `${cpu} CPU in use`, memory && `${memory} memory free`, computer.agents ? `${computer.agents} running` : null].filter(Boolean).join(" · ") ||
-    "Online"
-  );
+  const load = [cpu && `${cpu} CPU in use`, memory && `${memory} memory free`, computer.agents ? `${computer.agents} running` : null].filter(Boolean);
+  return [...load, computer.takesTasks ? null : "Update Milagre there to send it tasks"].filter(Boolean).join(" · ") || "Online";
 }
 
 export function ComputersPreferences({

@@ -27,7 +27,7 @@ import { OrchestratorMemoryRow, OrchestratorMemorySettings } from "./Orchestrato
 import { OrchestratorProjectsSettings } from "./OrchestratorProjectsSettings";
 import { OrchestratorRolesSettings } from "./OrchestratorRolesSettings";
 
-const PREFERENCE_TITLES: Record<ComputerPreference, string> = { prefer: "Prefer", normal: "Normal", less: "Less often", manual: "Manual only" };
+const PREFERENCE_TITLES: Record<ComputerPreference, string> = { prefer: "Prefer", normal: "Normal", less: "Less often", manual: "Manual only", never: "Never" };
 const VETO_TITLES: Record<number, string> = { 0: "None", 30: "30 seconds", 120: "2 minutes", 600: "10 minutes" };
 function useSave() {
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +66,9 @@ function computerLine(computer: OrchestratorComputer) {
   if (!computer.online) return "Offline";
   const parts = [
     computer.cpu === null ? null : `${Math.round(computer.cpu * 100)}% CPU`,
-    computer.memoryFree === null ? null : `${Math.round(computer.memoryFree / 1024 ** 3)} GB free`,
+    computer.memoryFree === null ? null : `${Math.round(computer.memoryFree * 100)}% memory free`,
     computer.agents === null ? null : `${computer.agents} ${computer.agents === 1 ? "agent" : "agents"} running`,
+    computer.takesTasks ? null : "Update Milagre there to send it tasks",
   ];
   return parts.filter(Boolean).join(" · ") || "Online";
 }
@@ -232,22 +233,25 @@ function OrchestratorForm({
               onChange={(autopilot) => save({ autopilot })}
             />
           </Row>
-          <Row label="Time to veto" description="When it isn't sure, it waits this long before answering so you can step in">
-            <Select
-              label="Time to veto"
-              width={180}
-              disabled={settings.autopilot === "off"}
-              value={String(settings.vetoSeconds)}
-              options={VETO_SECONDS.map((seconds) => ({ value: String(seconds), label: VETO_TITLES[seconds] ?? `${seconds} seconds` }))}
-              onChange={(value) => save({ vetoSeconds: Number(value) })}
-            />
-          </Row>
-          <div className="flex items-center gap-2.5 px-4 py-3">
-            <span className="flex text-orange">
-              <Icon icon={ShieldAlertIcon} size={16} />
-            </span>
-            <span className="text-12 text-ink-2">Always asks you before merging, pushing to main, deleting, deploying, paying or messaging someone.</span>
-          </div>
+          {settings.autopilot !== "off" && (
+            <>
+              <Row label="Time to veto" description="When it isn't sure, it waits this long before answering so you can step in">
+                <Select
+                  label="Time to veto"
+                  width={180}
+                  value={String(settings.vetoSeconds)}
+                  options={VETO_SECONDS.map((seconds) => ({ value: String(seconds), label: VETO_TITLES[seconds] ?? `${seconds} seconds` }))}
+                  onChange={(value) => save({ vetoSeconds: Number(value) })}
+                />
+              </Row>
+              <div className="flex items-center gap-2.5 px-4 py-3">
+                <span className="flex text-orange">
+                  <Icon icon={ShieldAlertIcon} size={16} />
+                </span>
+                <span className="text-12 text-ink-2">Always asks you before merging, pushing to main, deleting, deploying, paying or messaging someone.</span>
+              </div>
+            </>
+          )}
         </Group>
         <OrchestratorMemoryRow onOpen={onOpenMemory} />
         <OrchestratorProjectsSettings settings={settings} save={save} />

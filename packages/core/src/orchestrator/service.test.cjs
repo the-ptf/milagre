@@ -193,3 +193,21 @@ test("with a single Project it starts there instead of asking", async (t) => {
   assert.equal(store.task(task.id).projectPath, "/p/happiergym");
   assert.equal(calls.sent.length, 1);
 });
+
+test("a paired computer on an older Milagre shows online with its memory, but can't take tasks", async (t) => {
+  const remote = {
+    enabled: () => true,
+    list: () => [
+      { id: "old", name: "Old Mac", online: true },
+      { id: "away", name: "Away", online: false },
+    ],
+    invoke: async (id, method) => {
+      if (method === "computer:resources:read") return { memory: { total: 100, available: 25 } };
+      throw new Error(`unknown command ${method}`);
+    },
+  };
+  const { orchestrator } = setup(t, { remote });
+  const [old, away] = await orchestrator.computers();
+  assert.deepEqual(old, { id: "old", name: "Old Mac", online: true, cpu: null, memoryFree: 0.25, agents: null, takesTasks: false });
+  assert.equal(away.online, false);
+});
