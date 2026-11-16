@@ -133,6 +133,15 @@ const subscribeNav = (notify: () => void) => {
   return () => navListeners.delete(notify);
 };
 
+let followed: string | null = null;
+
+/** Opens the task's Chat once it has one again, as after Re-route starts it over. */
+export function followTask(taskId: string | null) {
+  followed = taskId;
+}
+
+export const followedTask = () => followed;
+
 export function requestTaskOpen(key: string | null) {
   pendingOpen = key;
   navChanged();

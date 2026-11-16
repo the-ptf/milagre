@@ -5,7 +5,7 @@ import { ResizeHandle } from "../primitives/ResizeHandle";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SectionLabel } from "../primitives/SectionLabel";
 import { COLUMNS } from "./OrchestratorBoard";
-import { OrchestratorBox } from "./OrchestratorBox";
+import { PebbleBox } from "./PebbleBox";
 import { ProjectIcon, StatusMark, type CardEnv } from "./TaskCards";
 
 export function OrchestratorTaskList({
@@ -35,7 +35,7 @@ export function OrchestratorTaskList({
         onCommit={panel.onCommit}
         className="!right-[-18px]"
       />
-      <OrchestratorBox size="compact" placeholder="Ask for something else…" />
+      <PebbleBox mascotSize={24} placeholder="Ask for something else…" />
       <ScrollArea className="min-h-0 flex-1 pb-3">
         {COLUMNS.map(({ id, name }) => {
           const list = cards.filter((card) => card.column === id);

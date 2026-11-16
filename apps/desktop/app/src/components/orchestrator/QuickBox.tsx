@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { gazeToward } from "../../lib/orchestrator-board";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
-import { Mascot, type Look } from "./Mascot";
-import { OrchestratorBox } from "./OrchestratorBox";
+import { PebbleBox } from "./PebbleBox";
 
-export function QuickBox({ color, name, onClose }: { color: string; name: string; onClose: () => void }) {
+export function QuickBox({ name, onClose }: { color?: string; name: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
-  const [look, setLook] = useState<Look>(null);
-  const mascot = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const node = dialog.current;
     if (node && !node.open) node.showModal();
@@ -31,19 +27,7 @@ export function QuickBox({ color, name, onClose }: { color: string; name: string
       }}
     >
       <div style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards" }}>
-        <OrchestratorBox
-          size="compact"
-          placeholder="What do you need?"
-          autoFocus
-          leading={
-            <span ref={mascot} className="flex">
-              <Mascot size={32} color={color} look={look} followPointer />
-            </span>
-          }
-          onCaret={(caret) => setLook(caret && mascot.current ? gazeToward(mascot.current.getBoundingClientRect(), caret) : null)}
-          onSent={onClose}
-          onEscape={onClose}
-        />
+        <PebbleBox placeholder="What do you need?" autoFocus onSent={onClose} onEscape={onClose} />
         <div className="mt-2 flex justify-center gap-4 text-11 text-ink-2">
           <span className="flex items-center gap-1">
             <ShortcutKeys shortcut="Enter" /> send

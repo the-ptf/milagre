@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { KanbanIcon } from "@hugeicons/core-free-icons";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
-import { requestTaskOpen, saveOrchestratorSettings, useOrchestratorNav } from "../../lib/orchestrator-store";
+import { followTask, followedTask, requestTaskOpen, saveOrchestratorSettings, useOrchestratorNav } from "../../lib/orchestrator-store";
 import { gazeToward } from "../../lib/orchestrator-board";
 import { useOrchestratorBoard } from "../../lib/use-orchestrator-board";
 import { useMotionScale } from "../../lib/ease";
@@ -37,6 +37,13 @@ export function OrchestratorPage({
   const empty = cards.length === 0 && !flight;
   const collapsed = settings.boardHidden || empty;
   const clearance = useControlsClearance<HTMLDivElement>(true);
+
+  const followedKey = cards.find((card) => card.task.id === followedTask() && card.key)?.key ?? null;
+  useEffect(() => {
+    if (!followedKey) return;
+    followTask(null);
+    requestTaskOpen(followedKey);
+  }, [followedKey]);
 
   useEffect(() => {
     if (!pendingOpen) return;

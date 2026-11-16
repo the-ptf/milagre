@@ -5,7 +5,7 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import { routeReason, taskScope, taskSession } from "../../lib/orchestrator-board";
 import { useScopeStates } from "../../lib/sidebar-scopes";
 import { useOrchestratorNames } from "../../lib/orchestrator-names";
-import { rerouteTask, showTaskInSidebar, useOrchestrator } from "../../lib/orchestrator-store";
+import { followTask, rerouteTask, showTaskInSidebar, useOrchestrator } from "../../lib/orchestrator-store";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { MenuLabel, MenuRow, MenuSeparator, Popover } from "../primitives/Popover";
@@ -19,6 +19,7 @@ function Reroute({ task, onClose }: { task: OrchestratorTask; onClose: () => voi
   const [open, setOpen] = useState(false);
   const go = (change: { projectPath?: string; role?: string }) => {
     setOpen(false);
+    followTask(task.id);
     onClose();
     void rerouteTask(task.id, change);
   };
