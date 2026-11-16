@@ -5,7 +5,9 @@ const { patchSession } = require("@milagre/shared/project-edits");
 const { createOrchestratorStore } = require("../orchestrator/store.cjs");
 const { createOrchestrator } = require("../orchestrator/service.cjs");
 const { createAutopilot } = require("../orchestrator/autopilot.cjs");
+const { createMemorySync } = require("../orchestrator/memory-sync.cjs");
 const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
+const { claudeModel, codexModel } = require("../git-text.cjs");
 
 const QUESTION_SCHEMA = {
   type: "object",
@@ -29,7 +31,6 @@ const MEMORY_SCHEMA = {
   required: ["notes"],
   additionalProperties: false,
 };
-const { claudeModel, codexModel } = require("../git-text.cjs");
 
 function routerModels({ agentCli, clientVersion }) {
   const getCommand = (provider) => async () => {
@@ -69,7 +70,16 @@ function registerOrchestrator(
   { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
   { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion, remote, git },
 ) {
-  const store = createOrchestratorStore({ file: path.join(dataDir, "orchestrator.json"), emit });
+  let memorySync = null;
+  const store = createOrchestratorStore({
+    file: path.join(dataDir, "orchestrator.json"),
+    emit: (channel, value) => {
+      emit(channel, value);
+      memorySync?.changed();
+    },
+  });
+  memorySync = createMemorySync({ store, remote, schedule: (run, ms) => setTimeout(run, ms).unref() });
+  setTimeout(() => void memorySync.pushNow().catch(() => {}), 15_000).unref();
   const routerCall = routerModels({ agentCli, clientVersion: version });
   const orchestrator = createOrchestrator({
     store,
@@ -133,6 +143,7 @@ function registerOrchestrator(
   commands.handle("orchestrator:start-here", (_event, request) => orchestrator.startHere(request ?? {}));
   commands.handle("orchestrator:memory:save", (_event, notes) => orchestrator.saveMemoryNotes(notes));
   commands.handle("orchestrator:memory:forget", () => orchestrator.forgetMemory());
+  commands.handle("orchestrator:memory:merge", (_event, memory) => memorySync.merge(memory));
   const autopilot = createAutopilot({
     store,
     ports: {

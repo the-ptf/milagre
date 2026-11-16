@@ -66,6 +66,7 @@ module.exports = {
   // Another computer's daemon delegating to this Mac's Projects (spec 2026-10-23).
   "delegation:targets": [],
   "orchestrator:capacity": [],
+  "orchestrator:memory:merge": [p("memory", any)],
   "orchestrator:start-here": request({ prompt: s, title: s, origin: s, role: s, reason: nullable(s) }, ["prompt", "title", "origin", "role"]),
   "delegation:prepare": request({ worktree: s, chat: s, mode: s, newWorktree: b }, ["worktree", "chat"]),
   "delegation:receive": request({ id: s, worktree: s, chat: s, message: s, mode: s, newWorktree: b, from: object({ label: s, computer: s }, []) }, [
