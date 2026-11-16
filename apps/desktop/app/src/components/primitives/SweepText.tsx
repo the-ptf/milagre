@@ -1,4 +1,5 @@
 import type { HTMLAttributes } from "react";
+import { lockToBeat } from "../../lib/beat";
 
 /**
  * A running step's title: the muted text with a brighter band sweeping across it. The band is a bright copy of the text
@@ -11,7 +12,7 @@ export function SweepText({ running, className = "", children, ...props }: HTMLA
     <span {...props} className={`relative ${className}`}>
       {children}
       {running && (
-        <span aria-hidden inert className="sweep-band pointer-events-none absolute inset-y-0 select-none">
+        <span ref={lockToBeat} data-beat aria-hidden inert className="sweep-band pointer-events-none absolute inset-y-0 select-none">
           <span className="sweep-band-counter block">
             <span className="sweep-band-copy block">{children}</span>
           </span>

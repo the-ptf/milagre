@@ -1284,7 +1284,7 @@ a {
  * transform alone, which the compositor runs: the old background-position sweep with background-clip: text repainted
  * the title on the main thread every display frame, about 28% of a core for the app while a tool ran against 9% with
  * it paused (scripts/perf: `tool`). The tile, ramps and speed are the old band's (--ink peaking 160px into a 320px
- * tile of --ink-3, 1.2s a tile), so a title of any width sweeps at the same pace; steps(36) holds it to 30fps. The
+ * tile of --ink-3, 1.2s a tile), so a title of any width sweeps at the same pace; steps(30) holds it to 25 fps, on the 40 ms beat the spinner and the running logo share (lib/beat.ts). The
  * keyframes spell out 320px: a var() there could keep Chromium from handing them to the compositor. */
 .sweep-band {
   --sweep-tile: 320px;
@@ -1296,12 +1296,12 @@ a {
   mask-size: var(--sweep-tile) 100%;
   -webkit-mask-repeat: repeat-x;
   mask-repeat: repeat-x;
-  animation: sweep-band 1.2s steps(36) infinite;
+  animation: sweep-band 1.2s steps(30) infinite;
 }
 
 .sweep-band-counter {
   width: 100%;
-  animation: sweep-band-counter 1.2s steps(36) infinite;
+  animation: sweep-band-counter 1.2s steps(30) infinite;
 }
 
 /* Truncates exactly like the title under it, so the ellipsis and every glyph land on the originals. */

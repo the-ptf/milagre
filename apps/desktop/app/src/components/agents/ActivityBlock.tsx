@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { activityDuration, stepDisplayTitle } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "../../lib/display-clock";
 import { ActivitySources, StepIcon } from "./ActivitySource";
@@ -10,6 +10,7 @@ import { activityBoundary, earlierStepsLabel } from "../../lib/activity-window";
 import { useSettings } from "../../lib/settings";
 import { useStepTitleSweep } from "../../lib/step-sweep";
 import { SweepText } from "../primitives/SweepText";
+import { lockToBeat } from "../../lib/beat";
 import { CODE_CHIP, Markdown } from "../markdown/Markdown";
 import { HOVER_FILL, StepRow } from "./StepRow";
 import { InlineApproval, useStepApproval, useStepApprovalId, WaitingForApproval } from "./step-approval";
@@ -60,6 +61,9 @@ export function ActivityBlock({
   // Null until first opened; mounted rows and their output state survive later collapses.
   const [boundary, setBoundary] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (open) lockToBeat(body.current);
+  }, [open]);
   const hidden = boundary === null ? 0 : activityBoundary(entries, waitingStepIds, streaming, boundary);
   // An earlier step can resume or need approval. Reveal it permanently, without evicting rows.
   if (boundary !== null && hidden < boundary) setBoundary(hidden);
