@@ -174,6 +174,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
         ];
       const chatInput = { ...projectInput, chatId: z.string().min(1).max(8192) };
       return [
+        ...require("./chat-branch-tools.cjs").createChatBranchTools({ host, chatInput, read, act, mutate }),
         read(
           "chat_list",
           "List Chats and current progress in an allowed Project.",

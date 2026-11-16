@@ -1,3 +1,4 @@
+const { hold } = require("./runtime/tracked-work.cjs");
 const { chatMentionsContext } = require("./chat-mentions.cjs");
 const { computerMentionsContext } = require("./computer-mentions.cjs");
 const { createLinkStore } = require("./link-store.cjs");
@@ -104,6 +105,7 @@ function createRuntime(options) {
   let needsUserCount = 0;
   const NEEDS_USER_CHATS = 500;
   let closing = false;
+  let btw;
   let advisors;
   let advisorDelivery;
   const chatsHome = createChatsHome({ root: options.chatsHome ?? path.join(require("node:os").homedir(), ".milagre", "chats") });
@@ -111,14 +113,6 @@ function createRuntime(options) {
   const chatsHomeEntries = async () => ((await chatsHome.exists()) ? [{ path: chatsHome.path, name: projectName(chatsHome.path), kind: "chats" }] : []);
   function track(work, set = active) {
     return hold(Promise.resolve().then(work), set);
-  }
-  function hold(task, set) {
-    set.add(task);
-    task.then(
-      () => set.delete(task),
-      () => set.delete(task),
-    );
-    return task;
   }
   function accept(work) {
     if (closing) return Promise.reject(new Error("Milagre runtime is closing"));
@@ -1073,6 +1067,7 @@ function createRuntime(options) {
     pageComments,
     advisorDelivery: () => advisorDelivery,
     advisors: () => advisors,
+    btw: () => btw,
     bugReports: () => bugReports,
     canvasChatModes: () => canvasChatModes,
     chatSecrets: () => chatSecrets,
@@ -1361,6 +1356,7 @@ function createRuntime(options) {
     simulatorToolDefinitions,
     isClosing: () => closing,
   });
+  btw = require("./runtime/btw-wiring.cjs").createBtwWiring({ commands, existingChat, scopeStates, chats, agents, routing, linked, turnDefaults, emit });
   const { advisorStore } = advisorServices;
   ({ advisorDelivery, advisors } = advisorServices);
   const linkWorkspaces = createLinkWorkspaces({
@@ -1613,6 +1609,7 @@ function createRuntime(options) {
   shutdown.close(() => routinesStopped);
   shutdown.close(() => limitResumeStopped);
   shutdown.close(() => localMcp.close());
+  shutdown.close(() => btw.close());
   shutdown.close(() => advisorServices.close());
   shutdown.close(() => toolServices.close());
   shutdown.close(() => linear.dispose());

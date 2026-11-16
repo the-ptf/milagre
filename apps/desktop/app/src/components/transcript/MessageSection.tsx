@@ -1,3 +1,4 @@
+import { TranscriptDivider } from "../primitives/TranscriptDivider";
 import { quoteKeys, splitQuotes } from "@milagre/shared/prompt-parts";
 import { SentQuote } from "../QuoteChips";
 import { providerForId } from "../../lib/models";
@@ -18,7 +19,7 @@ import { parseDesignFeedback } from "@milagre/shared/artifact";
 import type { LimitResume, ImageAttachment } from "../../model";
 import { reportMarker } from "@milagre/shared/subchat-states";
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Undo02Icon } from "@hugeicons/core-free-icons";
+import { GitForkIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import type { RoutineRunContext } from "@milagre/shared/model";
 import type { AgentCliStatus, ChatMessage as AppChatMessage, ChatStep, ModelOption, ModelProvider } from "../../model";
 import { Attachments } from "../Attachments";
@@ -193,6 +194,7 @@ function ReplyContent({
   waitingStepIds,
   credits,
   copyable = true,
+  onFork,
 }: {
   body: string;
   copyable?: boolean;
@@ -202,6 +204,7 @@ function ReplyContent({
   asking?: boolean;
   waitingStepIds: string[];
   credits?: number;
+  onFork?: () => void;
 }) {
   const { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer, answerAt } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
@@ -233,11 +236,24 @@ function ReplyContent({
         </div>
       )}
       {after.length > 0 && <ActivityBlock entries={after} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />}
-      {copyable && answer.trim() && (
+      {copyable && (answer.trim() || onFork) && (
         <div className="h-7" data-message-copy-footer>
           {!streaming && (
-            <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-              <CopyButton text={answer} />
+            <div className="flex w-fit items-center gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+              {answer.trim() && <CopyButton text={answer} />}
+              {onFork && (
+                <Tooltip label="Fork Chat from here">
+                  <button
+                    type="button"
+                    data-fork-message
+                    aria-label="Fork Chat from here"
+                    onClick={onFork}
+                    className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+                  >
+                    <Icon icon={GitForkIcon} size={14} />
+                  </button>
+                </Tooltip>
+              )}
             </div>
           )}
         </div>
@@ -261,6 +277,7 @@ type MessageSectionProps = {
   undoLatest?: boolean;
   undoDisabled?: boolean;
   onUndo?: (checkpointId: string) => void;
+  onFork?: (messageId: number) => void;
   highlighted?: boolean;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
   onRecommendationSelect: (option: string) => void;
@@ -281,8 +298,19 @@ type MessageSectionProps = {
 
 function messageDivider(
   message: AppChatMessage,
-  { models, merged, onCheckpointPreview }: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview">,
+  { models, merged, onCheckpointPreview, onOpenChat }: Pick<MessageSectionProps, "models" | "merged" | "onCheckpointPreview" | "onOpenChat">,
 ): ReactNode {
+  if (typeof message.context === "object" && message.context?.kind === "chat-fork") {
+    const context = message.context;
+    const label = `Forked from ${context.title}`;
+    return (
+      <TranscriptDivider icon={GitForkIcon} label={label}>
+        <button type="button" onClick={() => onOpenChat?.(context.from)} className="text-ink-3 hover:text-ink">
+          {label}
+        </button>
+      </TranscriptDivider>
+    );
+  }
   if (isHandoff(message)) return <HandoffDivider context={message.context} models={models} />;
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
@@ -368,6 +396,7 @@ function BubbleActions({
   undoLatest,
   undoDisabled,
   onUndo,
+  onFork,
 }: {
   message: AppChatMessage;
   copyUser: boolean;
@@ -375,6 +404,7 @@ function BubbleActions({
   undoLatest: boolean;
   undoDisabled: boolean;
   onUndo?: (checkpointId: string) => void;
+  onFork?: (messageId: number) => void;
 }) {
   return (
     <div className="absolute top-[3px] right-full mr-1.5 flex opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
@@ -396,6 +426,19 @@ function BubbleActions({
           </button>
         </Tooltip>
       )}
+      {onFork && message.id > 0 && (
+        <Tooltip label="Fork Chat from here" align="end">
+          <button
+            type="button"
+            data-fork-message={message.id}
+            aria-label="Fork Chat from here"
+            onClick={() => onFork(message.id)}
+            className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+          >
+            <Icon icon={GitForkIcon} size={14} />
+          </button>
+        </Tooltip>
+      )}
       {copyUser && <CopyButton text={message.body} />}
     </div>
   );
@@ -410,6 +453,7 @@ function MessageBody({
   asking,
   waitingStepIds,
   onRecommendationSelect,
+  onFork,
 }: {
   message: AppChatMessage;
   isUser: boolean;
@@ -419,6 +463,7 @@ function MessageBody({
   asking: boolean;
   waitingStepIds: string[];
   onRecommendationSelect: (option: string) => void;
+  onFork?: () => void;
 }) {
   const { advisor, prAction, issue, feedback, pageFeedback, answered } = cards;
   const recommendation = !isUser && !streaming ? parseRecommendation(message.body) : null;
@@ -457,8 +502,21 @@ function MessageBody({
           <RecommendationCard question={recommendation.question} options={recommendation.options} onSelect={(option) => onRecommendationSelect(option.label)} />
         </div>
         <div className="h-7" data-message-copy-footer>
-          <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+          <div className="flex w-fit items-center gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
             <CopyButton text={message.body} />
+            {onFork && (
+              <Tooltip label="Fork Chat from here">
+                <button
+                  type="button"
+                  data-fork-message={message.id}
+                  aria-label="Fork Chat from here"
+                  onClick={onFork}
+                  className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+                >
+                  <Icon icon={GitForkIcon} size={14} />
+                </button>
+              </Tooltip>
+            )}
           </div>
         </div>
       </>
@@ -473,6 +531,7 @@ function MessageBody({
         asking={asking}
         waitingStepIds={waitingStepIds}
         credits={message.credits}
+        onFork={onFork}
       />
     </StepDetailsMessage>
   );
@@ -555,11 +614,12 @@ export const MessageSection = memo(function MessageSection({
   undoLatest = false,
   undoDisabled = false,
   onUndo,
+  onFork,
   highlighted = false,
   onCheckpointPreview,
 }: MessageSectionProps) {
   const mentions = usePromptMentions(message, isUser);
-  const divider = messageDivider(message, { models, merged, onCheckpointPreview });
+  const divider = messageDivider(message, { models, merged, onCheckpointPreview, onOpenChat });
   if (divider) return divider;
   const linked = linkedContext(message);
   const linkedArticle = linkedLineArticle(message, isUser, linked, { exchange, onOpenChat });
@@ -567,6 +627,7 @@ export const MessageSection = memo(function MessageSection({
   const cards = userCards(message, isUser, linked);
   const { advisor, bubble, pageFeedback } = cards;
   const copyUser = (bubble || (isUser && linked)) && !advisor && Boolean(message.body.trim()) && !onlyImageMentions(message.body, message.images?.length ?? 0);
+  const forkThis = forkAction(onFork, message.id, streaming);
   return (
     <article
       id={`message-${message.id}`}
@@ -575,7 +636,7 @@ export const MessageSection = memo(function MessageSection({
       data-provider={!isUser && message.model ? providerForId(message.model) : undefined}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble ? (copyUser && undoId && onUndo ? "items-end pl-18" : "items-end pl-12") : cards.card ? "items-end pl-12" : ""}`}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble ? bubbleGutter(copyUser, undoId, onUndo, forkThis) : cards.card ? "items-end pl-12" : ""}`}
       style={animate ? { animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" } : undefined}
     >
       {linked && (
@@ -589,8 +650,16 @@ export const MessageSection = memo(function MessageSection({
         </div>
       )}
       <div className={bodyClass(cards, isUser, highlighted)}>
-        {bubble && (copyUser || (undoId && onUndo)) && (
-          <BubbleActions message={message} copyUser={Boolean(copyUser)} undoId={undoId} undoLatest={undoLatest} undoDisabled={undoDisabled} onUndo={onUndo} />
+        {bubble && bubbleActionsAvailable(copyUser, undoId, onUndo, forkThis) && (
+          <BubbleActions
+            message={message}
+            copyUser={Boolean(copyUser)}
+            undoId={undoId}
+            undoLatest={undoLatest}
+            undoDisabled={undoDisabled}
+            onUndo={onUndo}
+            onFork={onFork}
+          />
         )}
         <Attachments
           images={
@@ -611,6 +680,7 @@ export const MessageSection = memo(function MessageSection({
           asking={asking}
           waitingStepIds={waitingStepIds}
           onRecommendationSelect={onRecommendationSelect}
+          onFork={forkThis}
         />
         <ReplyFooter
           message={message}
@@ -629,3 +699,15 @@ export const MessageSection = memo(function MessageSection({
     </article>
   );
 });
+
+function forkAction(onFork: MessageSectionProps["onFork"], id: number, streaming: boolean) {
+  return onFork && !streaming && id > 0 ? () => onFork(id) : undefined;
+}
+function bubbleActionsAvailable(copy: unknown, undoId: unknown, undo: unknown, fork: unknown) {
+  return Boolean(copy || (undoId && undo) || fork);
+}
+
+function bubbleGutter(copy: unknown, undoId: unknown, undo: unknown, fork: unknown) {
+  const count = Number(Boolean(copy)) + Number(Boolean(undoId && undo)) + Number(Boolean(fork));
+  return count >= 3 ? "items-end pl-24" : count >= 2 ? "items-end pl-18" : "items-end pl-12";
+}

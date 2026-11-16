@@ -77,6 +77,7 @@ export type SidebarRecent = {
 
 export type ChatRowActions = {
   onRename?: (id: string, title: string) => void;
+  onFork?: (id: string) => void;
   onMarkUnread?: (id: string, unread: boolean) => void;
   onReload?: (id: string) => void;
   onReportBug?: (id: string) => void;

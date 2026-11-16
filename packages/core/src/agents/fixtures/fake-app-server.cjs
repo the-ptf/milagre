@@ -38,6 +38,17 @@ const askQuestion = (id, threadId, turnId) =>
     params: { threadId, turnId, itemId: "call-1", questions: QUESTIONS, isBlocking: false, autoResolutionMs: null },
   });
 
+function startThread(id, method, params) {
+  if (method === "thread/fork" && params.ephemeral && !params.excludeTurns)
+    return send({ id, error: { code: -32602, message: "ephemeral paginated thread/fork requires `excludeTurns: true`" } });
+  if (scenario === "hang-thread") return undefined;
+  if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
+    return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
+  if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
+  threadStarts += 1;
+  return send({ id, result: { thread: { id: `thread-${threadStarts}` }, model: params.model } });
+}
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   received.push(message);
@@ -118,13 +129,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       });
     case "fake/received":
       return send({ id, result: { received, threadStarts } });
+    case "thread/fork":
     case "thread/start":
-      if (scenario === "hang-thread") return undefined;
-      if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
-        return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
-      if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
-      threadStarts += 1;
-      return send({ id, result: { thread: { id: `thread-${threadStarts}` }, model: params.model } });
+      return startThread(id, method, params);
     case "thread/resume":
       if (scenario === "hang-thread") return undefined;
       if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))

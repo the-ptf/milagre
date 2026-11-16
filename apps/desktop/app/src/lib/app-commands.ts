@@ -1,3 +1,5 @@
+import { requestSideQuestion } from "./chat-branch-events";
+import { bridgeForKey } from "./computer-bridge";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { UI_COPY } from "@milagre/shared/model-copy";
 import type { SettingsSection } from "../components/Settings";
@@ -242,6 +244,25 @@ function currentChatCommands(ctx: AppCommandContext, session: AgentSession): Com
       group: UI_COPY.currentChat,
       icon: "unread",
       run: () => actions.setUnread(sessionId, !session.unread),
+    },
+    {
+      id: "btw",
+      label: "Ask a side question",
+      group: UI_COPY.currentChat,
+      icon: "message",
+      keywords: "btw ephemeral side question",
+      run: () => requestSideQuestion(`${ctx.current.path}#${sessionId}`),
+    },
+    {
+      id: "fork",
+      label: UI_COPY.forkChat,
+      group: UI_COPY.currentChat,
+      icon: "git",
+      keywords: "branch duplicate clone copy conversation",
+      run: async () => {
+        const result = await bridgeForKey(ctx.current.path).forkChat(ctx.current.path, sessionId);
+        actions.openChat(result.sessionId);
+      },
     },
     {
       id: "reload",

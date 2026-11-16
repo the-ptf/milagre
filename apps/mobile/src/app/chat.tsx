@@ -32,6 +32,9 @@ import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { compactButtonState } from "@milagre/shared/chat-display";
 import { useCompactButtonDisplay, useNewChatStats, useShowContextSize } from "../chat-display-setting";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
+import { BtwDock, messageForkAction } from "../chat-branch-actions";
+import { CHAT_COMMANDS, STORAGE_COMMANDS, NO_CHECKPOINTS, composerCommandHandler, readComposerDraft } from "../chat-commands";
+import { useBtw } from "../use-btw";
 import { associatedPullRequest, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
@@ -157,7 +160,6 @@ import { SubchatBookmarkHost } from "../subchat-bookmark";
 import { BESIDE_PARENT } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
-import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 import { promptText } from "../text-prompt";
 import { useVisibleRunChatKeys } from "../visible-run-chats";
 import {
@@ -185,14 +187,6 @@ function issueChoices(issues: LinearIssue[]) {
   return issues.map((issue) => ({ id: issueChoiceId(issue), title: `${issue.key} ${issue.title}`, subtitle: issue.state.name }));
 }
 let lastLinearWorkspace: string | undefined;
-const UNDO_COMMANDS = [{ name: "undo", description: "Undo a task's file changes" }];
-const STORAGE_COMMANDS = [{ name: STORAGE_COMMAND, description: STORAGE_COMMAND_HINT }];
-const CHAT_COMMANDS = [...UNDO_COMMANDS, ...STORAGE_COMMANDS];
-const NO_CHECKPOINTS: CheckpointApi = {
-  list: async () => [],
-  preview: () => Promise.reject(new Error("Connect to the computer to undo changes")),
-  restore: () => Promise.reject(new Error("Connect to the computer to undo changes")),
-};
 
 type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
 
@@ -851,6 +845,7 @@ function ChatPane({
   );
   const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
   const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
+  const btw = useBtw(session.client, portsChat, !!session.error);
   const loopbackKey = [...loopbackOnlyPorts(ports)].sort((a, b) => a - b).join(",");
   const reachable = useMemo(
     () => ({ host: reachableHost, loopbackOnly: new Set(loopbackKey ? loopbackKey.split(",").map(Number) : []) as ReadonlySet<number> }),
@@ -903,10 +898,19 @@ function ChatPane({
   const offline = !!session.error || allComputers.viewOf?.(client.url)?.state === "offline";
   const chat = params.id ? project.state.sessions[Number(params.id)] : null;
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
-  const heldDraft = () => {
-    const held = composer.readDrafts();
-    return { draft: held.drafts[chatId] || "", quotes: held.quotes[chatId] || NO_QUOTES, attachments: held.attachments[chatId] || [] };
-  };
+  const forkFromMessage = messageForkAction({ client, projectPath: project.path, chat, offline, action, refresh: session.refresh, open: openOtherChat });
+  const command = composerCommandHandler({
+    chatId,
+    setDrafts: composer.setDrafts,
+    setUndoIntent,
+    undo,
+    chat,
+    offline,
+    hosts: session.hosts,
+    targetHost,
+    ask: btw.ask,
+  });
+  const heldDraft = () => readComposerDraft(composer.readDrafts(), chatId, NO_QUOTES);
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
   const phase =
@@ -1310,20 +1314,7 @@ function ChatPane({
     const dropSentQuotes = () => {
       if (sentQuotes.length) composer.setQuotes((held) => ({ ...held, [chatId]: (held[chatId] || []).filter((quote) => !sentQuoteIds.has(quote.id)) }));
     };
-    if (chat && !chat.readOnlyReason && withAttachments && typed.trim() === "/undo" && !sentQuotes.length) {
-      composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
-      setUndoIntent("Undo");
-      void undo.open();
-      return false;
-    }
-    if (withAttachments && typed.trim() === `/${STORAGE_COMMAND}` && !sentQuotes.length) {
-      const saved = session.hosts.find((item) => item.id === targetHost || item.address === targetHost);
-      if (saved) {
-        composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
-        router.push({ pathname: "/computer-cleanup", params: { id: saved.id } });
-        return false;
-      }
-    }
+    if (command(typed, withAttachments && !sentQuotes.length, sendOptions(model, preferences))) return false;
     const issueKey = issue?.key;
     const steered = Boolean(run) && messageDelivery !== "queue" && canSteer;
     if (!body && !(withAttachments && attachments.length)) return false;
@@ -1927,6 +1918,7 @@ function ChatPane({
     ) : null;
   const dock = (
     <ChatComposerDock
+      btw={<BtwDock btw={btw} chatId={chatId} setQuotes={composer.setQuotes} focus={() => setComposerFocusRequest((value) => value + 1)} />}
       column={column}
       padding={dockPadding}
       onRoom={attachPanelRooms}
@@ -2269,6 +2261,7 @@ function ChatPane({
                                   {issueRunDivider(message, merged)}
                                   <ChatRow
                                     message={message}
+                                    onFork={forkFromMessage}
                                     chats={message.role === "user" ? replyChats : undefined}
                                     media={media}
                                     basePath={worktree?.path || project.path}

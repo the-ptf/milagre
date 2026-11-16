@@ -25,6 +25,8 @@ type ChatRowHandlers = {
   archiveChat: (sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath: Path) => Promise<void>;
   markChatDone: (sessionId: number, path: Path) => void;
   reportMilagreBug: (sessionId: number) => void;
+  openCanvasChat: (projectPath: string, sessionId: number) => Promise<void>;
+  openChat: (sessionId: number) => void;
 };
 
 export type ChatRowContext = {
@@ -111,6 +113,15 @@ function rowActions(ctx: ChatRowContext) {
     };
     await reportChatAction(reloaded(), "Could not reload chat", setNotice);
   }
+  async function forkChat(sessionId: number, path: Path, messageId?: number) {
+    if (!path) return;
+    const forked = async () => {
+      const result = await bridgeForKey(path).forkChat(path, sessionId, messageId !== undefined ? { messageId } : {});
+      if (path === ctx.projectRef.current?.path) ctx.handlers.openChat(result.sessionId);
+      else await ctx.handlers.openCanvasChat(path, result.sessionId);
+    };
+    await reportChatAction(forked(), "Could not fork chat", setNotice);
+  }
   async function detachChat(sessionId: number, path: Path) {
     if (!path) return;
     const detached = async () => showNotice(await bridgeForKey(path).detachChat(path, sessionId));
@@ -129,6 +140,7 @@ function rowActions(ctx: ChatRowContext) {
     linkChatIssue,
     unlinkChatIssue,
     reloadChat,
+    forkChat,
     detachChat,
   };
 }
@@ -139,6 +151,7 @@ function scopeRowActions(latest: RefObject<RowActions>, path: string, gitless: b
   return {
     onRename: (id, title) => latest.current.patchChat(Number(id), { title }, path),
     onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }, path),
+    onFork: (id) => void latest.current.forkChat(Number(id), path),
     onReload: (id) => void latest.current.reloadChat(Number(id), path),
     onSnooze: (id, until) => latest.current.snoozeChatHere(Number(id), until, path),
     onWake: (id) => latest.current.snoozeChatHere(Number(id), null, path),
@@ -162,6 +175,7 @@ function openRowActions(latest: RefObject<RowActions>, here: () => Path, remoteP
   return {
     onRename: (id, title) => latest.current.patchChat(Number(id), { title }, here()),
     onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }, here()),
+    onFork: (id) => void latest.current.forkChat(Number(id), here()),
     onReload: (id) => void latest.current.reloadChat(Number(id), here()),
     onReportBug: (id) => latest.current.reportMilagreBug(Number(id)),
     onPin: (id, order) => latest.current.pinChatHere(Number(id), order ?? null, here()),
