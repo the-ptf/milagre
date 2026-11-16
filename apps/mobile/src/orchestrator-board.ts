@@ -54,7 +54,9 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
     }),
     kind: "chat",
     mark: autopilot ? null : mark,
-    detail: autopilot ? `Answering for you in a moment: ${autopilot.summary}` : (limit ?? state.detail),
+    detail: autopilot
+      ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
+      : (limit ?? state.detail),
   };
 }
 

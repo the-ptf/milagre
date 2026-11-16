@@ -196,8 +196,8 @@ function Consent({ name, color, onRead, onSkip }: { name: string; color: string;
       <Mascot size={72} color={color} mood="idle" followPointer />
       <h1 className="text-22 font-semibold text-ink">Can I read what your agents already know about you?</h1>
       <p className="max-w-[480px] text-13 text-ink-2">
-        {name} reads the instructions and memories of Claude Code, Codex, Antigravity and Kiro on this computer. You choose which notes to keep. Kept notes stay
-        in Milagre on your computers, and the router model reads them when it picks where a task goes.
+        {name} reads the instructions and memories of Claude Code, Codex, Antigravity and Kiro on this computer. You choose which notes to keep. Kept notes are
+        saved in Milagre on your computers and sent to the router model you picked in Settings each time it routes a task.
       </p>
       <div className="flex gap-2">
         <Button variant="secondary" onClick={onSkip}>
@@ -257,7 +257,7 @@ export function FirstRunTour({ memory, settings, project }: { memory: Orchestrat
         >
           <Mascot size={96} color={color} mood="happy" followPointer />
           <h1 className="text-26 font-semibold text-ink">{name === "Orchestrator" ? "Hi, I'm your Orchestrator." : `Hi, I'm ${name}, your Orchestrator.`}</h1>
-          <p className="max-w-[440px] text-15 text-ink-2">One box for every Project. Here is how it works, in two short steps.</p>
+          <p className="max-w-[440px] text-15 text-ink-2">One box for every Project. Here is how it works.</p>
         </div>
       ) : (
         <div

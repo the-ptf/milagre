@@ -292,7 +292,7 @@ function Consent({ snapshot, onRead, onSkip }: { snapshot: OrchestratorSnapshot;
           {"Can I read what your agents already know about you?"}
         </Text>
         <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center" }}>
-          {`${snapshot.settings.name} reads the instructions and memories of Claude Code, Codex, Antigravity and Kiro on your computer. You choose which notes to keep. Kept notes stay in Milagre on your computers, and the router model reads them when it picks where a task goes.`}
+          {`${snapshot.settings.name} reads the instructions and memories of Claude Code, Codex, Antigravity and Kiro on your computer. You choose which notes to keep. Kept notes are saved in Milagre on your computers and sent to the router model you picked in Settings each time it routes a task.`}
         </Text>
       </View>
       <View style={{ gap: space.md }}>
@@ -343,7 +343,7 @@ export function OrchestratorTour({ snapshot, store }: { snapshot: OrchestratorSn
                 {name === "Orchestrator" ? "Hi, I'm your Orchestrator." : `Hi, I'm ${name}, your Orchestrator.`}
               </Text>
               <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center" }}>
-                One box for every Project. Here is how it works, in two short steps.
+                One box for every Project. Here is how it works.
               </Text>
             </Animated.View>
           ) : (

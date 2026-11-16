@@ -170,6 +170,7 @@ function OrchestratorForm({
           <SettingCheckbox label="Turn on the Orchestrator" checked={settings.enabled} onChange={(enabled) => save({ enabled })} />
         </Row>
       </Group>
+      {!settings.enabled && <p className="px-1 pt-3 text-12 text-ink-3">Turn the Orchestrator on to change the settings below.</p>}
       <div data-orchestrator-options inert={!settings.enabled} className={`transition-opacity duration-base ${settings.enabled ? "" : "opacity-40"}`}>
         <Group title="Mascot and shortcut">
           <Row label="Name" description="What the sidebar row and the page call it, up to 40 characters">
@@ -203,7 +204,7 @@ function OrchestratorForm({
           </Row>
         </Group>
         <Group title="Routing">
-          <Row label="Router model" description="Reads your prompt, your kept notes and the Project hints, on your own account">
+          <Row label="Router model" description="Sends your prompt, your kept notes and the Project hints to this model's provider, on your account">
             <Select
               label="Router model"
               width={280}

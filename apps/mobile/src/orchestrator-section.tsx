@@ -160,6 +160,7 @@ export function OrchestratorSection({
           One box for every Project. It picks the Project, the role, the model and the account, then runs the work as a Subchat. Turning it off keeps your
           tasks.
         </Text>
+        {on ? null : <Text style={styles.caption}>Turn it on to change the settings below.</Text>}
       </View>
       <View pointerEvents={on ? "auto" : "none"} style={[{ gap: space.section }, dimmed(on)]}>
         <Group title="Name" inset={0}>
@@ -171,7 +172,7 @@ export function OrchestratorSection({
         <Group title="Routing" inset={0}>
           <MenuRow
             title="Router model"
-            subtitle="Reads your prompt, your kept notes and the Project hints, on your own account"
+            subtitle="Sends your prompt, your kept notes and the Project hints to this model's provider, on your account"
             value={modelName(settings.router.provider, settings.router.model, models)}
             sections={routerSections(settings, models)}
             onSelect={(id) => {

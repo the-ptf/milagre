@@ -119,7 +119,9 @@ export function ChatCard({ card, env, onOpen }: { card: TaskCard; env: CardEnv; 
     >
       <CardTitle lead={<StatusMark card={card} />} title={task.title} images={task.images} />
       {card.column === "needs" && <span className="self-start rounded-chip bg-orange-tint px-2 py-0.5 text-12 text-orange-ink">{card.detail}</span>}
-      {card.column === "running" && card.detail && <span className={`${META} ${failed(card) ? "text-red-ink" : "text-ink-2"}`}>{card.detail}</span>}
+      {card.column === "running" && card.detail && (
+        <span className={`line-clamp-2 min-w-0 text-12 break-words ${failed(card) ? "text-red-ink" : "text-ink-2"}`}>{card.detail}</span>
+      )}
       <div className={META}>
         <ProjectLabel path={task.projectPath} name={env.projectName(task.projectPath)} />
         <span className="text-ink-3">·</span>
@@ -242,7 +244,7 @@ export function DecidingCard({ card, env, hidden, onSettled }: { card: TaskCard;
       </span>
       <span className={`${META} justify-between`}>
         <SweepText running className="text-ink-3">
-          {merged ? "Starting the Chat…" : "Picking the Project, model and account…"}
+          {merged ? "Starting the Chat…" : "Picking where it runs…"}
         </SweepText>
         <span className="text-11">now</span>
       </span>

@@ -328,7 +328,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     page: "orchestrator-settings",
     title: "Router model",
     group: "Routing",
-    description: "Reads your prompt, your kept notes and the Project hints, on your own account",
+    description: "Sends your prompt, your kept notes and the Project hints to this model's provider, on your account",
   },
   { page: "orchestrator-settings", title: "When no Project fits", group: "Routing", keywords: "ask me best guess" },
   { page: "orchestrator-settings", title: "Account", group: "Routing", keywords: "least used today project's account limit" },

@@ -121,6 +121,11 @@ test("the sidebar counts a task as running only while it routes or its turn runs
   assert.equal(cards.find((card) => card.task.id === "t3")?.state, "failed");
 });
 
+test("a task whose turn ended with a reply moves to Done even before its summary has an outcome", () => {
+  const states = { "/p/app": { sessions: { 1: { id: 1, summary: { count: 2 } } } } };
+  assert.equal(boardCards([task("t1")], states as never, {}, NOW)[0]!.column, "done");
+});
+
 test("a task at its usage limit waits in Needs you and says until when", () => {
   const limited = task("t1", { limit: { provider: "claude", resetsAt: new Date(NOW + 3_600_000).toISOString() } });
   const [card] = boardCards([limited], { "/p/app": { sessions: { 1: { id: 1, summary: { lastOutcome: "failed" } } } } }, {}, NOW);
@@ -209,6 +214,6 @@ test("a request autopilot is about to answer keeps the card running", () => {
   });
   const card = boardCards([waiting], states, runs, NOW)[0]!;
   assert.equal(card.column, "running");
-  assert.equal(card.detail, "Answering for you in a moment: allowed Use Read?");
+  assert.equal(card.detail, "Answering for you in 30 s unless you answer first: allowed Use Read?");
   assert.equal(boardCards([waiting], states, runs, NOW + 31_000)[0]!.column, "needs");
 });

@@ -55,7 +55,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     done: Boolean(session?.done_at || session?.archived),
     needsYou: (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || Boolean(limit),
     pullRequest: session?.summary?.pullRequests?.length ? "open" : null,
-    finished: !run && Boolean(session?.summary?.lastOutcome) && session?.summary?.lastOutcome !== "failed",
+    finished: !run && (state.kind === "stopped" || (state.kind === "done" && (Boolean(session?.summary?.lastOutcome) || (session?.summary?.count ?? 0) > 1))),
   });
   return {
     task,
@@ -65,7 +65,9 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     session,
     run,
     state: autopilot ? "working" : state.kind,
-    detail: autopilot ? `Answering for you in a moment: ${autopilot.summary}` : (limit ?? state.detail),
+    detail: autopilot
+      ? `Answering for you in ${Math.max(1, Math.ceil(((autopilot.until ?? now) - now) / 1000))} s unless you answer first: ${autopilot.summary}`
+      : (limit ?? state.detail),
     inSidebar: session ? !session.orchestrator?.hidden : false,
   };
 }
