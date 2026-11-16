@@ -129,7 +129,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
         .memory.notes.filter((note) => note.enabled)
         .map((note) => note.text);
       const route = await routeTask({ prompt: task.prompt, projects, roles: config.roles, notes, call: ports.routerCall(config.router) });
-      if (!route.projectPath && !(config.whenUnsure === "guess" && projects.length === 1)) {
+      if (!route.projectPath && projects.length !== 1 && config.whenUnsure === "ask") {
         store.updateTask(taskId, () => ({ state: "needs-project", title: route.title, role: route.role, reason: { ...task.reason, project: route.reason } }));
         return store.task(taskId);
       }

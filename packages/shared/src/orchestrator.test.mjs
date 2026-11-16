@@ -63,6 +63,7 @@ test("board columns follow done, needs you and the pull request", () => {
   assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "open" }), "review");
   assert.equal(boardColumn({ done: false, needsYou: false, pullRequest: "merged" }), "done");
   assert.equal(boardColumn({ done: true, needsYou: true }), "done");
+  assert.equal(boardColumn({ done: false, needsYou: false, finished: true }), "review", "a finished turn waits for the owner to review it");
 });
 
 test("irreversible actions are recognized from commands, tools and questions", () => {

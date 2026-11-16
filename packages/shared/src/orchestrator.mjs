@@ -290,10 +290,10 @@ export function roleById(roles, id) {
 }
 
 /** Which board column a task's Chat belongs in. */
-export function boardColumn({ done, needsYou, pullRequest }) {
+export function boardColumn({ done, needsYou, pullRequest, finished = false }) {
   if (done || pullRequest === "merged" || pullRequest === "closed") return "done";
   if (needsYou) return "needs";
-  if (pullRequest === "open") return "review";
+  if (pullRequest === "open" || finished) return "review";
   return "running";
 }
 

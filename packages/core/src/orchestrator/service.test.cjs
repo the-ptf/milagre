@@ -179,3 +179,16 @@ test("a task goes to the paired computer with the most room when its Project is 
   await orchestrator.undo(task.id);
   assert.deepEqual(invoked.at(-1), ["studio-id", "orchestrator:task:undo", ["remote-task"]]);
 });
+
+test("with a single Project it starts there instead of asking", async (t) => {
+  const { orchestrator, store, calls } = setup(t, {
+    reply: { project: null, role: "build", title: "Explain notes", reason: "Nothing matched", confidence: 0.2 },
+  });
+  const only = PROJECTS.splice(1);
+  t.after(() => PROJECTS.push(...only));
+  const task = await orchestrator.send("explain what notes.txt in this repo is for");
+  await settled(orchestrator, task.id);
+  assert.equal(store.task(task.id).state, "started");
+  assert.equal(store.task(task.id).projectPath, "/p/happiergym");
+  assert.equal(calls.sent.length, 1);
+});

@@ -53,6 +53,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     done: Boolean(session?.done_at || session?.archived),
     needsYou: state.kind === "needs-you",
     pullRequest: session?.summary?.pullRequests?.length ? "open" : null,
+    finished: !run && Boolean(session?.summary?.lastOutcome) && session?.summary?.lastOutcome !== "failed",
   });
   return { task, key, column, kind: "chat", session, run, state: state.kind, detail: state.detail, inSidebar: session ? !session.orchestrator?.hidden : false };
 }

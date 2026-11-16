@@ -134,7 +134,7 @@ export function keywordRoute(
 ): { projectPath: string; score: number; hit: string | null } | null;
 export function activeRoles(roles: readonly OrchestratorRole[]): OrchestratorRole[];
 export function roleById(roles: readonly OrchestratorRole[], id: string): OrchestratorRole | null;
-export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: "open" | "merged" | "closed" | null }): BoardColumn;
+export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: "open" | "merged" | "closed" | null; finished?: boolean }): BoardColumn;
 export function isIrreversible(input?: { tool?: string; command?: string; text?: string }): boolean;
 export function trustScore(entry: { answered: number; corrected: number } | undefined): number;
 export function autopilotDecision(input: {

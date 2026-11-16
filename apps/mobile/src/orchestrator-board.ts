@@ -44,7 +44,12 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
   return {
     ...base,
     inSidebar: chat.chat.orchestrator?.hidden === false,
-    column: boardColumn({ done, needsYou: NEEDS_YOU.has(mark), pullRequest }),
+    column: boardColumn({
+      done,
+      needsYou: NEEDS_YOU.has(mark),
+      pullRequest,
+      finished: !chat.run && Boolean(chat.chat.summary?.lastOutcome) && chat.chat.summary?.lastOutcome !== "failed",
+    }),
     kind: "chat",
     mark,
     detail: state.detail,

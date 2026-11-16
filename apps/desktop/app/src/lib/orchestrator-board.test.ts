@@ -63,6 +63,7 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
         2: { id: 2, orchestrator: { taskId: "t2", hidden: false } },
         3: { id: 3, summary: { pullRequests: ["https://github.com/o/r/pull/9"] } },
         4: { id: 4, done_at: NOW - 10, summary: { pullRequests: ["https://github.com/o/r/pull/9"] } },
+        5: { id: 5, summary: { lastOutcome: "completed" } },
       },
     },
   };
@@ -71,7 +72,7 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
     "/p/app#2": run({ approvals: [{ requestId: "a", title: "npm audit --json" }] }),
   } as unknown as AgentRuns;
   const cards = boardCards(
-    ["t1", "t2", "t3", "t4"].map((id, index) => task(id, { createdAt: NOW - index })),
+    ["t1", "t2", "t3", "t4", "t5"].map((id, index) => task(id, { createdAt: NOW - index })),
     states,
     runs,
     NOW,
@@ -83,13 +84,14 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
       ["t2", "needs", "needs-you"],
       ["t3", "review", "done"],
       ["t4", "done", "done"],
+      ["t5", "review", "done"],
     ],
   );
   assert.equal(cards[0]!.detail, "Building for the simulator");
   assert.equal(cards[1]!.detail, "Asks to run: npm audit --json");
   assert.deepEqual(
     cards.map((card) => card.inSidebar),
-    [false, true, true, true],
+    [false, true, true, true, true],
   );
   assert.deepEqual(boardCounts(cards), { running: 1, needs: 1 });
 });
