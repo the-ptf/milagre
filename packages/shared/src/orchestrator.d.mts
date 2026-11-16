@@ -38,6 +38,8 @@ export interface OrchestratorAnswer {
   kind: string;
   summary: string;
   decision: "answered" | "vetoed" | "asked";
+  requestId?: string;
+  until?: number;
   undone?: boolean;
 }
 
@@ -60,6 +62,7 @@ export interface OrchestratorTask {
   state: "routing" | "started" | "needs-project" | "failed";
   error: string | null;
   createdAt: number;
+  permissionMode: "ask" | "auto" | "full";
   answered: OrchestratorAnswer[];
 }
 
@@ -136,6 +139,11 @@ export function activeRoles(roles: readonly OrchestratorRole[]): OrchestratorRol
 export function roleById(roles: readonly OrchestratorRole[], id: string): OrchestratorRole | null;
 export function boardColumn(input: { done: boolean; needsYou: boolean; pullRequest?: "open" | "merged" | "closed" | null; finished?: boolean }): BoardColumn;
 export function isIrreversible(input?: { tool?: string; command?: string; text?: string }): boolean;
+export function autopilotPending(
+  task: OrchestratorTask | null | undefined,
+  run: { approvals?: readonly { requestId: string }[]; questions?: readonly { requestId: string }[]; answered?: Record<string, unknown> } | null | undefined,
+  now?: number,
+): OrchestratorAnswer | null;
 export function trustScore(entry: { answered: number; corrected: number } | undefined): number;
 export function autopilotDecision(input: {
   mode: AutopilotMode;

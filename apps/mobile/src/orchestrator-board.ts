@@ -1,4 +1,4 @@
-import { boardColumn, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { autopilotPending, boardColumn, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentModels, AgentSession, ChatMessage, ModelProvider } from "@milagre/shared/model";
 import { MODEL_CATALOG } from "@milagre/shared/model-options";
@@ -41,18 +41,19 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
   const mark = chatMark(chat.chat, chat.run, chat.messages ?? []);
   const state = subchatState({ key: `${task.projectPath}#${task.sessionId}`, title: task.title, session: chat.chat, run: chat.run ?? null }, now);
   const done = !!chat.chat.done_at || !!chat.chat.archived;
+  const autopilot = NEEDS_YOU.has(mark) ? autopilotPending(task, chat.run, now) : null;
   return {
     ...base,
     inSidebar: chat.chat.orchestrator?.hidden === false,
     column: boardColumn({
       done,
-      needsYou: NEEDS_YOU.has(mark),
+      needsYou: NEEDS_YOU.has(mark) && !autopilot,
       pullRequest,
       finished: state.kind === "done" || state.kind === "stopped",
     }),
     kind: "chat",
-    mark,
-    detail: state.detail,
+    mark: autopilot ? null : mark,
+    detail: autopilot ? `Answering for you in a moment: ${autopilot.summary}` : state.detail,
   };
 }
 

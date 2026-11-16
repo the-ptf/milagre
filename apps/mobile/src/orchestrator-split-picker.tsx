@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Text, View, type LayoutRectangle } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming, type SharedValue } from "react-native-reanimated";
-import { lineHeight, radius, space, type } from "./design-tokens";
+import { duration, lineHeight, radius, space, type } from "./design-tokens";
 import { Mascot } from "./mascot";
 import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
@@ -119,7 +119,7 @@ export function SplitPicker({
         mini.y.set(origin.y);
         mini.shown.set(1);
       });
-      main.set(withTiming(0, { duration: 140 * scale }));
+      main.set(withTiming(0, { duration: duration.fast * scale }));
       await wait(120);
       minis.forEach((mini, index) => hop(mini, { x: origin.x + (index - 1) * 14, y: origin.y - 6 }));
       await wait(260);

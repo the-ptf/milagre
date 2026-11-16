@@ -83,7 +83,7 @@ function hostSettingsBridge(invoke, listen) {
     readOrchestratorProjects: () => invoke("orchestrator:projects"),
     readOrchestratorComputers: () => invoke("orchestrator:computers"),
     saveOrchestratorSettings: (patch) => invoke("orchestrator:settings:save", patch),
-    sendToOrchestrator: (prompt) => invoke("orchestrator:send", prompt),
+    sendToOrchestrator: (prompt, options) => invoke("orchestrator:send", prompt, options),
     pickOrchestratorProject: (taskId, projectPath) => invoke("orchestrator:task:project", taskId, projectPath),
     showOrchestratorTaskInSidebar: (taskId, shown) => invoke("orchestrator:task:sidebar", taskId, shown),
     undoOrchestratorTask: (taskId) => invoke("orchestrator:task:undo", taskId),

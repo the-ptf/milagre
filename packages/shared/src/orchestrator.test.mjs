@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ORCHESTRATOR_DEFAULTS,
   autopilotDecision,
+  autopilotPending,
   isMemoryImporting,
   boardColumn,
   isIrreversible,
@@ -143,4 +144,15 @@ test("a memory read counts as running until it finishes or five minutes pass", (
   assert.equal(isMemoryImporting({ importStartedAt: now - 1000, importedAt: null }, now), true);
   assert.equal(isMemoryImporting({ importStartedAt: now - 1000, importedAt: now - 500 }, now), false);
   assert.equal(isMemoryImporting({ importStartedAt: now - 6 * 60_000, importedAt: now - 9 * 60_000 }, now), false, "a read cut off by a restart ends");
+});
+
+test("an answer waiting out its veto window keeps the request off the owner's plate until it runs", () => {
+  const now = 1_800_000_000_000;
+  const task = { answered: [{ requestId: "r1", decision: "vetoed", summary: "allowed ls", until: now + 20_000 }] };
+  const run = { approvals: [{ requestId: "r1" }], questions: [], answered: {} };
+  assert.equal(autopilotPending(task, run, now)?.summary, "allowed ls");
+  assert.equal(autopilotPending(task, run, now + 30_000), null, "past the window it is the owner's again");
+  assert.equal(autopilotPending(task, { ...run, answered: { r1: "allow" } }, now), null);
+  assert.equal(autopilotPending({ answered: [...task.answered, { requestId: "r1", decision: "answered" }] }, run, now), null);
+  assert.equal(autopilotPending(task, { approvals: [{ requestId: "r2" }] }, now), null);
 });

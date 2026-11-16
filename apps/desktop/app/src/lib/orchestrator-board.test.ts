@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
-import { boardCards, boardCounts, caretLook, cardsIn, routeReason, sinceLabel, taskChatKey, taskForChat, taskProjectPaths } from "./orchestrator-board.ts";
+import {
+  boardCards,
+  boardCounts,
+  caretPoint,
+  cardsIn,
+  gazeToward,
+  routeReason,
+  sinceLabel,
+  taskChatKey,
+  taskForChat,
+  taskProjectPaths,
+} from "./orchestrator-board.ts";
 
 const NOW = 1_800_000_000_000;
 
@@ -26,6 +37,7 @@ function task(id: string, patch: Partial<OrchestratorTask> = {}): OrchestratorTa
     state: "started",
     error: null,
     createdAt: NOW,
+    permissionMode: "auto",
     answered: [],
     ...patch,
   };
@@ -153,11 +165,19 @@ test("ages read as now, minutes, hours and days", () => {
   );
 });
 
-test("the mascot looks along the line toward the caret and lower with each line", () => {
-  assert.deepEqual(caretLook("", 8, 400), { x: -0.15, y: 0.75 });
-  assert.deepEqual(caretLook("x".repeat(50), 8, 400), { x: 1.05, y: 0.75 });
-  assert.equal(caretLook("a\nb\nc", 8, 400).y, 0.99);
-  assert.equal(caretLook("a\nb\nc\nd\ne", 8, 400).y, 1);
+test("the caret's place on screen follows its column and line", () => {
+  const field = { left: 100, top: 50, width: 400, padLeft: 4, padTop: 6, lineHeight: 20 };
+  assert.deepEqual(caretPoint("", 8, field), { x: 104, y: 66 });
+  assert.deepEqual(caretPoint("abcde", 8, field), { x: 144, y: 66 });
+  assert.deepEqual(caretPoint("a\nb\ncd", 8, field), { x: 120, y: 106 });
+  assert.equal(caretPoint("x".repeat(500), 8, field).x, 504, "a long line stays inside the field");
+});
+
+test("the mascot looks straight at a point at full strength", () => {
+  const bot = { left: 0, top: 0, width: 40, height: 40 };
+  assert.deepEqual(gazeToward(bot, { x: 220, y: 20 }), { x: 1, y: 0 });
+  assert.deepEqual(gazeToward(bot, { x: 20, y: 120 }), { x: 0, y: 1 });
+  assert.deepEqual(gazeToward(bot, { x: 20, y: 20 }), { x: 0, y: 0 });
 });
 
 test("the route's reason reads as sentences and names where it runs", () => {
@@ -170,4 +190,16 @@ test("the route's reason reads as sentences and names where it runs", () => {
     routeReason({ reason: { ...reason, role: null }, computer: "Studio" }, "this computer"),
     "Matched “gym” in its hints. Least used today, 22%. Runs on Studio.",
   );
+});
+
+test("a request autopilot is about to answer keeps the card running", () => {
+  const states = { "/p/app": { sessions: { 1: { id: 1 } } } };
+  const runs = { "/p/app#1": run({ approvals: [{ requestId: "a", title: "Use Read?" }] }) } as unknown as AgentRuns;
+  const waiting = task("t1", {
+    answered: [{ at: NOW, kind: "approval:read", requestId: "a", decision: "vetoed", summary: "allowed Use Read?", until: NOW + 30_000 }],
+  });
+  const card = boardCards([waiting], states, runs, NOW)[0]!;
+  assert.equal(card.column, "running");
+  assert.equal(card.detail, "Answering for you in a moment: allowed Use Read?");
+  assert.equal(boardCards([waiting], states, runs, NOW + 31_000)[0]!.column, "needs");
 });

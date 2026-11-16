@@ -133,7 +133,7 @@ function registerOrchestrator(
   commands.handle("orchestrator:projects", () => orchestrator.projects());
   commands.handle("orchestrator:computers", () => orchestrator.computers());
   commands.handle("orchestrator:settings:save", (_event, patch) => orchestrator.saveSettings(patch));
-  commands.handle("orchestrator:send", (_event, prompt) => orchestrator.send(prompt));
+  commands.handle("orchestrator:send", (_event, prompt, options) => orchestrator.send(prompt, options ?? {}));
   commands.handle("orchestrator:task:project", (_event, taskId, projectPath) => orchestrator.pickProject(String(taskId), String(projectPath)));
   commands.handle("orchestrator:task:sidebar", (_event, taskId, shown) => orchestrator.showInSidebar(String(taskId), shown === true));
   commands.handle("orchestrator:task:undo", (_event, taskId) => orchestrator.undo(String(taskId)));

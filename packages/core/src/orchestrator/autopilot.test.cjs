@@ -72,6 +72,9 @@ test("a middling call waits for the veto window, and the owner stepping in cance
   await settle();
   assert.equal(timers.length, 1);
   assert.equal(timers[0].ms, 30_000);
+  const waiting = store.task("task").answered.at(-1);
+  assert.equal(waiting.requestId, "r4");
+  assert.ok(waiting.until > waiting.at, "the card can tell the owner an answer is coming");
   pilot.observe(CHAT, { type: "permission-resolved", requestId: "r4", decision: "deny" });
   assert.equal(timers[0].cancelled, true);
   assert.equal(calls.permissions.length, 0);
@@ -95,4 +98,11 @@ test("answers a question with listed options only, and stays out when off", asyn
   invented.pilot.observe(CHAT, { type: "question-request", requestId: "q3", questions: [question] });
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(invented.calls.answers.length, 0);
+});
+
+test("reading a file counts as a read even when the provider calls it another tool", async (t) => {
+  const { pilot, calls } = setup(t);
+  pilot.observe(CHAT, { type: "permission-request", requestId: "r9", kind: "other", tool: "Read", title: "Use Read?" });
+  await settle();
+  assert.deepEqual(calls.permissions, [{ chatId: CHAT, requestId: "r9", decision: "allow" }]);
 });

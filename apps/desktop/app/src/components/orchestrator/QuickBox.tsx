@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { gazeToward } from "../../lib/orchestrator-board";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
-import { Mascot } from "./Mascot";
+import { Mascot, type Look } from "./Mascot";
 import { OrchestratorBox } from "./OrchestratorBox";
 
 export function QuickBox({ color, onClose }: { color: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
+  const [look, setLook] = useState<Look>(null);
+  const mascot = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const node = dialog.current;
     if (node && !node.open) node.showModal();
@@ -32,7 +35,12 @@ export function QuickBox({ color, onClose }: { color: string; onClose: () => voi
           size="compact"
           placeholder="What do you need?"
           autoFocus
-          leading={<Mascot size={32} color={color} followPointer />}
+          leading={
+            <span ref={mascot} className="flex">
+              <Mascot size={32} color={color} look={look} followPointer />
+            </span>
+          }
+          onCaret={(caret) => setLook(caret && mascot.current ? gazeToward(mascot.current.getBoundingClientRect(), caret) : null)}
           onSent={onClose}
           onEscape={onClose}
         />

@@ -12,6 +12,7 @@ import { CarriedNote, StartedToast } from "./orchestrator-overlays";
 import { OrchestratorPrompt } from "./orchestrator-prompt";
 import { OrchestratorTour } from "./orchestrator-tour";
 import { useSession } from "./session";
+import { readPermission } from "./hosts-native";
 import { useTheme } from "./theme";
 import { EmptyState, ErrorNotice, HeaderButton, PageScroll, pressStyle, useStyles } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
@@ -123,8 +124,8 @@ export function OrchestratorView() {
     setMood("thinking");
     setTab("running");
     setCarry({ id: Date.now(), text: prompt, from: frames.current.prompt + frames.current.box, to: frames.current.board });
-    store
-      .send(prompt)
+    void readPermission()
+      .then((permissionMode) => store.send(prompt, permissionMode ? { permissionMode } : {}))
       .catch((failure: Error) => {
         setMood("idle");
         setSendError(failure.message || "Couldn't send that. Try again.");

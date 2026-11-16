@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { ArrowUp02Icon } from "@hugeicons/core-free-icons";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
-import { caretLook } from "../../lib/orchestrator-board";
+import { caretPoint, type ScreenPoint } from "../../lib/orchestrator-board";
 import { sendOrchestratorTask } from "../../lib/orchestrator-store";
 import { IconButton } from "../primitives/Button";
 import { InlineError } from "../primitives/InlineError";
-import type { Look } from "./Mascot";
 
 const MAX_HEIGHT = 160;
 
@@ -23,7 +22,7 @@ export function OrchestratorBox({
   autoFocus = false,
   leading,
   onSent,
-  onLook,
+  onCaret,
   onEscape,
   hidden = false,
   focusSignal = 0,
@@ -34,7 +33,7 @@ export function OrchestratorBox({
   autoFocus?: boolean;
   leading?: ReactNode;
   onSent?: (task: OrchestratorTask, from: DOMRect) => void;
-  onLook?: (look: Look) => void;
+  onCaret?: (caret: ScreenPoint | null) => void;
   onEscape?: () => void;
   hidden?: boolean;
   focusSignal?: number;
@@ -59,8 +58,19 @@ export function OrchestratorBox({
 
   const look = () => {
     const node = field.current;
-    if (!node || !onLook) return;
-    onLook(caretLook(node.value.slice(0, node.selectionStart ?? node.value.length), charWidth(node), node.clientWidth));
+    if (!node || !onCaret) return;
+    const rect = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    onCaret(
+      caretPoint(node.value.slice(0, node.selectionStart ?? node.value.length), charWidth(node), {
+        left: rect.left,
+        top: rect.top - node.scrollTop,
+        width: node.clientWidth,
+        padLeft: parseFloat(style.paddingLeft) || 0,
+        padTop: parseFloat(style.paddingTop) || 0,
+        lineHeight: parseFloat(style.lineHeight) || 20,
+      }),
+    );
   };
 
   async function send() {
@@ -72,7 +82,7 @@ export function OrchestratorBox({
     try {
       const task = await sendOrchestratorTask(text.trim());
       setText("");
-      onLook?.(null);
+      onCaret?.(null);
       node.blur();
       onSent?.(task, from);
     } catch (cause) {
@@ -101,7 +111,7 @@ export function OrchestratorBox({
             onKeyUp={look}
             onClick={look}
             onFocus={look}
-            onBlur={() => !text && onLook?.(null)}
+            onBlur={() => !text && onCaret?.(null)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();

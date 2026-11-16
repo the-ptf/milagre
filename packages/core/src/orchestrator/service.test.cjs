@@ -63,10 +63,11 @@ test("a sent prompt starts a hidden task Chat in the routed Project on the least
   const { orchestrator, store, calls } = setup(t, {
     reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
   });
-  const task = await orchestrator.send("the rest timer in my gym app skips when locked");
+  const task = await orchestrator.send("the rest timer in my gym app skips when locked", { permissionMode: "full" });
   await settled(orchestrator, task.id);
   const saved = store.task(task.id);
   assert.equal(saved.state, "started");
+  assert.equal(calls.sent[0].permissionMode, "full", "the task Chat starts in the sender's default permission mode");
   assert.equal(saved.projectPath, "/p/happiergym");
   assert.equal(saved.sessionId, 7);
   assert.equal(saved.accountId, "personal");

@@ -10,14 +10,16 @@ const QUESTION_SYSTEM = [
   "Pick only listed options. Use what you know about the owner. When a choice depends on taste, money, people or anything you can't undo, set confidence below 0.3.",
 ].join(" ");
 
+const READ_TOOLS = new Set(["Read", "Glob", "Grep", "LS", "NotebookRead"]);
+
 function permissionKind(event) {
-  return `approval:${event.kind ?? "other"}`;
+  return `approval:${READ_TOOLS.has(event.tool) ? "read" : (event.kind ?? "other")}`;
 }
 
 function permissionConfidence(event) {
   if (event.kind === "edit") return 0.85;
   if (event.kind === "command") return 0.75;
-  if (event.kind === "read" || event.kind === "access") return 0.9;
+  if (event.kind === "read" || event.kind === "access" || READ_TOOLS.has(event.tool)) return 0.9;
   return 0.45;
 }
 
@@ -95,15 +97,16 @@ function createAutopilot({ store, ports, now = () => Date.now(), schedule = setT
       if (!accepted) return;
       planned.delete(key);
       learn(plan.kind, "answered");
-      remember(task.id, { kind: plan.kind, summary: plan.summary, decision: "answered" });
+      remember(task.id, { kind: plan.kind, summary: plan.summary, decision: "answered", requestId: event.requestId });
       ports.note(chatId, `The Orchestrator answered for you: ${plan.summary}.`);
     };
     if (plan.decision === "answer") return run();
+    const wait = store.read().settings.vetoSeconds * 1000;
     pending.set(
       key,
-      schedule(() => void run(), store.read().settings.vetoSeconds * 1000),
+      schedule(() => void run(), wait),
     );
-    remember(task.id, { kind: plan.kind, summary: plan.summary, decision: "vetoed" });
+    remember(task.id, { kind: plan.kind, summary: plan.summary, decision: "vetoed", requestId: event.requestId, until: now() + wait });
   }
 
   async function consider(chatId, event) {

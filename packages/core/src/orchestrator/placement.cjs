@@ -24,7 +24,7 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
     }
     const task = store.task(taskId);
     const started = await remote.invoke(pick.id, "orchestrator:start-here", [
-      { prompt: task.prompt, title: route.title, origin, role: route.role, reason: route.reason ?? null },
+      { prompt: task.prompt, title: route.title, origin, role: route.role, reason: route.reason ?? null, permissionMode: task.permissionMode },
     ]);
     const computerReason = `${pick.name} has the most room (${Math.round((1 - (pick.cpu ?? 0)) * 100)}% CPU free)`;
     store.updateTask(taskId, () => ({
@@ -59,12 +59,12 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
       projects: projects.map((project, index) => ({ path: project.path, name: project.name, origin: origins[index] })).filter((entry) => entry.origin),
     };
   }
-  async function startHere({ prompt, title, origin, role, reason }) {
+  async function startHere({ prompt, title, origin, role, reason, permissionMode }) {
     const projects = await projectList();
     const origins = await Promise.all(projects.map((project) => ports.originOf(project.path).catch(() => null)));
     const project = projects.find((_, index) => origins[index] === origin);
     if (!project) throw new Error("That Project isn't on this computer.");
-    const taskId = addTask(String(prompt));
+    const taskId = addTask(String(prompt), permissionMode);
     void start(taskId, { projectPath: project.path, role, title, reason }).catch((error) =>
       store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) })),
     );

@@ -186,6 +186,7 @@ export function normalizeOrchestratorTask(raw) {
     state: oneOf(raw.state, ["routing", "started", "needs-project", "failed"], "routing"),
     error: text(raw.error, 300),
     createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : 0,
+    permissionMode: oneOf(raw.permissionMode, ["ask", "auto", "full"], "auto"),
     answered: Array.isArray(raw.answered) ? raw.answered.filter(isObject).slice(-50) : [],
   };
 }
@@ -343,6 +344,19 @@ export function autopilotDecision({ mode, irreversible, confidence, trust }) {
   if (score >= 0.7) return "answer";
   if (score >= 0.45) return "veto";
   return "ask";
+}
+
+/** The autopilot answer waiting out its veto window for a request the task's run still has open, if any. */
+export function autopilotPending(task, run, now = Date.now()) {
+  const waiting = new Set([...(run?.approvals ?? []), ...(run?.questions ?? [])].map((request) => request.requestId).filter((id) => !run?.answered?.[id]));
+  const entries = task?.answered ?? [];
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    if (!waiting.has(entry.requestId)) continue;
+    if (entry.decision !== "vetoed") return null;
+    return typeof entry.until === "number" && entry.until > now ? entry : null;
+  }
+  return null;
 }
 
 export function recordTrust(trust, kind, outcome) {

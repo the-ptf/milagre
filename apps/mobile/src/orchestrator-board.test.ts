@@ -24,6 +24,7 @@ const task = (patch: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
   state: "started",
   error: null,
   createdAt: 1000,
+  permissionMode: "auto",
   answered: [],
   ...patch,
 });

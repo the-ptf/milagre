@@ -8,6 +8,7 @@ import {
   type OrchestratorSnapshot,
   type OrchestratorTask,
 } from "@milagre/shared/orchestrator";
+import { getSettings } from "./settings";
 
 const EMPTY: OrchestratorSnapshot = { settings: { ...ORCHESTRATOR_DEFAULTS }, tasks: [], memory: normalizeOrchestratorMemory(null) };
 
@@ -61,7 +62,7 @@ export async function saveOrchestratorSettings(patch: Partial<OrchestratorSettin
 }
 
 export async function sendOrchestratorTask(prompt: string) {
-  const task = await window.milagre.sendToOrchestrator(prompt);
+  const task = await window.milagre.sendToOrchestrator(prompt, { permissionMode: getSettings().defaultPermissionMode });
   sentHere.add(task.id);
   withTask(task);
   return task;

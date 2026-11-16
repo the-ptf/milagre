@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { KanbanIcon } from "@hugeicons/core-free-icons";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
 import { requestTaskOpen, saveOrchestratorSettings, useOrchestratorNav } from "../../lib/orchestrator-store";
+import { gazeToward } from "../../lib/orchestrator-board";
 import { useOrchestratorBoard } from "../../lib/use-orchestrator-board";
 import { useMotionScale } from "../../lib/ease";
 import { IconButton } from "../primitives/Button";
@@ -109,7 +110,13 @@ export function OrchestratorPage({
           <h2 className="text-22 font-semibold tracking-[-0.02em] text-ink">What should we work on?</h2>
         </div>
         <div className="w-full max-w-[720px]">
-          <OrchestratorBox size="large" onSent={sent} onLook={setTypingLook} focusSignal={boxFocus} autoFocus />
+          <OrchestratorBox
+            size="large"
+            onSent={sent}
+            onCaret={(caret) => setTypingLook(caret && home.current ? gazeToward(home.current.getBoundingClientRect(), caret) : null)}
+            focusSignal={boxFocus}
+            autoFocus
+          />
         </div>
       </div>
       {!collapsed && <OrchestratorBoard cards={cards} env={env} hiddenTask={flight && !flight.landed ? flight.id : null} onOpen={onOpenTask} />}

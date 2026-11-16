@@ -53,8 +53,8 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       });
   }
 
-  function addTask(prompt) {
-    const task = { id: randomUUID(), prompt, title: titleFromPrompt(prompt), state: "routing", createdAt: now(), answered: [] };
+  function addTask(prompt, permissionMode) {
+    const task = { id: randomUUID(), prompt, title: titleFromPrompt(prompt), state: "routing", permissionMode, createdAt: now(), answered: [] };
     store.update((current) => ({ ...current, tasks: [...current.tasks, task] }));
     return task.id;
   }
@@ -108,7 +108,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       provider: role.provider,
       model: role.model,
       ...(role.effort ? { effort: role.effort } : {}),
-      permissionMode: "auto",
+      permissionMode: task.permissionMode,
       body: task.prompt,
       prompt: withRole(task.prompt, role),
       images: [],
@@ -224,10 +224,10 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       store.update((current) => ({ ...current, settings: normalizeOrchestratorSettings({ ...current.settings, ...patch }) }));
       return store.read().settings;
     },
-    async send(prompt) {
+    async send(prompt, options = {}) {
       if (typeof prompt !== "string" || !prompt.trim()) throw new Error("Type what you need first.");
       if (!settings().enabled) throw new Error("Turn the Orchestrator on in Settings › Church first.");
-      const taskId = addTask(prompt.trim());
+      const taskId = addTask(prompt.trim(), options?.permissionMode);
       void routeAndStart(taskId);
       return store.task(taskId);
     },

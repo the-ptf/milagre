@@ -169,6 +169,7 @@ function useDemoTask(t: number): OrchestratorTask {
       state: routing ? "routing" : "started",
       error: null,
       createdAt: 0,
+      permissionMode: "auto",
       answered: [],
     }),
     [routing, project],

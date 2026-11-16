@@ -1,7 +1,7 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
-import { boardColumn, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { autopilotPending, boardColumn, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { subchatState, type SubchatKind } from "@milagre/shared/subchat-states";
 import type { AgentSession } from "../model";
 
@@ -49,13 +49,24 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   const session = taskSession(task, states);
   const run = key ? runs[key] : undefined;
   const state = subchatState({ key: key ?? task.id, title: task.title, session: session ?? {}, run }, now);
+  const autopilot = state.kind === "needs-you" ? autopilotPending(task, run, now) : null;
   const column = boardColumn({
     done: Boolean(session?.done_at || session?.archived),
-    needsYou: state.kind === "needs-you",
+    needsYou: state.kind === "needs-you" && !autopilot,
     pullRequest: session?.summary?.pullRequests?.length ? "open" : null,
     finished: !run && Boolean(session?.summary?.lastOutcome) && session?.summary?.lastOutcome !== "failed",
   });
-  return { task, key, column, kind: "chat", session, run, state: state.kind, detail: state.detail, inSidebar: session ? !session.orchestrator?.hidden : false };
+  return {
+    task,
+    key,
+    column,
+    kind: "chat",
+    session,
+    run,
+    state: autopilot ? "working" : state.kind,
+    detail: autopilot ? `Answering for you in a moment: ${autopilot.summary}` : state.detail,
+    inSidebar: session ? !session.orchestrator?.hidden : false,
+  };
 }
 
 export function boardCards(tasks: readonly OrchestratorTask[], states: SessionStates, runs: AgentRuns, now: number): TaskCard[] {
@@ -87,11 +98,25 @@ export function sinceLabel(at: number, now: number): string {
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
-export function caretLook(before: string, charWidth: number, boxWidth: number): { x: number; y: number } {
+export type ScreenPoint = { x: number; y: number };
+export type CaretField = { left: number; top: number; width: number; padLeft: number; padTop: number; lineHeight: number };
+
+/** Where the caret sits on screen, from the text before it; soft wraps are ignored and the column stays inside the field. */
+export function caretPoint(before: string, charWidth: number, field: CaretField): ScreenPoint {
   const lines = before.split("\n");
   const column = lines.at(-1)?.length ?? 0;
-  const fraction = boxWidth > 0 ? Math.min(1, (column * charWidth) / boxWidth) : 0;
-  return { x: -0.15 + 1.2 * fraction, y: Math.min(1, 0.75 + (lines.length - 1) * 0.12) };
+  return {
+    x: field.left + field.padLeft + Math.min(field.width, column * charWidth),
+    y: field.top + field.padTop + (lines.length - 0.5) * field.lineHeight,
+  };
+}
+
+/** A full-strength look from the middle of `from` toward a point on screen. */
+export function gazeToward(from: { left: number; top: number; width: number; height: number }, point: ScreenPoint): { x: number; y: number } {
+  const dx = point.x - (from.left + from.width / 2);
+  const dy = point.y - (from.top + from.height / 2);
+  const reach = Math.hypot(dx, dy);
+  return reach < 1 ? { x: 0, y: 0 } : { x: dx / reach, y: dy / reach };
 }
 
 export function routeReason(task: Pick<OrchestratorTask, "reason" | "computer">, here: string): string {
