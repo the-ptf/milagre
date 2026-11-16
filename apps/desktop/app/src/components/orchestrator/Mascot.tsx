@@ -14,6 +14,7 @@ export function Mascot({
   mood = "idle",
   look = null,
   followPointer = false,
+  still = false,
   label = "",
   className = "",
   style,
@@ -24,6 +25,7 @@ export function Mascot({
   mood?: MascotMood;
   look?: Look;
   followPointer?: boolean;
+  still?: boolean;
   label?: string;
   className?: string;
   style?: CSSProperties;
@@ -34,7 +36,7 @@ export function Mascot({
   const lookKey = look ? `${Math.round(look.x * 20)},${Math.round(look.y * 20)}` : "";
   useEffect(() => {
     if (!host.current) return;
-    avatar.current = mountAvatar(host.current, { definition: ORCHESTRATOR_MASCOT, color, mood, lookAt: look, followPointer, label, reducedMotion });
+    avatar.current = mountAvatar(host.current, { definition: ORCHESTRATOR_MASCOT, color, mood, lookAt: look, followPointer, label, reducedMotion, still });
     return () => {
       avatar.current?.destroy();
       avatar.current = null;

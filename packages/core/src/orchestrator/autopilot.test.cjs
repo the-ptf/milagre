@@ -54,7 +54,7 @@ test("allows a reversible edit in a task Chat at once and notes it on the card",
   await settle();
   assert.deepEqual(calls.permissions, [{ chatId: CHAT, requestId: "r1", decision: "allow" }]);
   assert.equal(store.task("task").answered.at(-1).decision, "answered");
-  assert.match(calls.notes[0], /answered for you/);
+  assert.match(calls.notes[0], /Edit RestTimer/);
 });
 
 test("never answers an irreversible command, and leaves other Chats alone", async (t) => {

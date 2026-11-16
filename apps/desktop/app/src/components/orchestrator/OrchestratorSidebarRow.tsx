@@ -9,10 +9,13 @@ import { Mascot } from "./Mascot";
 import { QuickBox } from "./QuickBox";
 import { StartedToast } from "./StartedToast";
 
+const AWAY = { x: 1, y: -0.35 };
+
 export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; onShow: () => void }) {
   const { orchestrator, counts, names } = useOrchestratorBoard();
   const { settings } = orchestrator;
   const [quick, setQuick] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const shortcut = useShortcutLabel("orchestrator.open");
   useEffect(() => {
     if (!settings.enabled) return;
@@ -42,9 +45,11 @@ export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; on
             requestTaskOpen(null);
             onShow();
           }}
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => setHovered(false)}
           className={`flex h-8 w-full items-center gap-2 rounded-control px-2 text-left transition-colors active:bg-hover-2 ${active ? "bg-hover-2" : "hover:bg-hover"}`}
         >
-          <Mascot size={20} color={settings.mascotColor} />
+          <Mascot size={20} color={settings.mascotColor} look={hovered ? null : AWAY} followPointer={hovered} />
           <span className="sidebar-copy min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] font-semibold text-ink in-data-[sidebar-collapsed=true]:hidden">
             Orchestrator
           </span>

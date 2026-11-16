@@ -530,6 +530,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Orchestrator's pinned row reads its own host store; Chat-list tests render none.
       if (base === "orchestrator-row" && !(id in modules)) return { OrchestratorRow: () => null };
       if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
+      if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
+      if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -3915,7 +3917,7 @@ function chatHost({
         ),
     },
     "../questions": { Approval: "Approval", Questions: "Questions" },
-    "../chat-reply": { ChatReply: "ChatReply" },
+    "../chat-reply": { ChatReply: "ChatReply", ChatRow: "ChatReply" },
     "../design-outbox": require("../apps/mobile/src/design-outbox.ts"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "../ui": ui,

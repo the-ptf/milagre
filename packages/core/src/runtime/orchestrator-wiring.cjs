@@ -151,7 +151,8 @@ function registerOrchestrator(
       sessionOf: (chatId) => states.states.get(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)],
       respondPermission,
       answerQuestion,
-      note: (chatId, body) => void chats.addNote(chatId, { body }),
+      note: (chatId, summary) =>
+        void chats.addNote(chatId, { body: `The Orchestrator answered for you: ${summary}.`, context: { kind: "orchestrator-answer", summary } }),
       questionCall: (router) => routerCall(router, QUESTION_SCHEMA),
     },
   });

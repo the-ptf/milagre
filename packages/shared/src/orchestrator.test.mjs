@@ -74,6 +74,17 @@ test("irreversible actions are recognized from commands, tools and questions", (
   assert.equal(isIrreversible({ command: "git push origin feature/rest-timer" }), false);
   assert.equal(isIrreversible({ command: "gh pr merge 212 --squash" }), true);
   assert.equal(isIrreversible({ command: "npm test" }), false);
+  assert.equal(
+    isIrreversible({ command: `/tmp/hgq.sh "delete from public.nutrition_access where user_id in ('a')"` }),
+    true,
+    "a database delete always waits for the owner",
+  );
+  assert.equal(isIrreversible({ command: "psql -c 'UPDATE profiles SET plan = 1'" }), true);
+  assert.equal(isIrreversible({ command: "supabase db push" }), true);
+  assert.equal(isIrreversible({ command: "curl -X DELETE https://api.example.com/users/1" }), true);
+  assert.equal(isIrreversible({ command: "security find-generic-password -s x -w" }), true, "reading a stored secret waits too");
+  assert.equal(isIrreversible({ command: "grep -rn 'delete' src" }), false);
+  assert.equal(isIrreversible({ command: "curl -s https://example.com" }), false);
   assert.equal(isIrreversible({ command: "rm -rf build" }), true);
   assert.equal(isIrreversible({ tool: "mcp__slack__send_message" }), true);
   assert.equal(isIrreversible({ text: "Should I deploy this to production?" }), true);

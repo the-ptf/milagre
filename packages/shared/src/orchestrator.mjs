@@ -315,6 +315,11 @@ const IRREVERSIBLE = [
   /\bwrangler\s+(deploy|publish|delete)\b/,
   /\b(kubectl|terraform)\s+(apply|delete|destroy)\b/,
   /\bdrop\s+(table|database|schema)\b/i,
+  /\b(delete\s+from|truncate(\s+table)?\s+["\w]|alter\s+table|insert\s+into|update\s+["\w.]+\s+set)\b/i,
+  /\bsupabase\s+(db\s+(push|reset)|migration\s+(up|repair))\b/,
+  /\bcurl\b[^\n]*(-X\s*|--request\s+)(DELETE|POST|PUT|PATCH)\b/,
+  /\bgh\s+api\b[^\n]*(-X\s*|--method\s+)(DELETE|POST|PUT|PATCH)\b/,
+  /\bsecurity\s+(find-(generic|internet)-password|dump-keychain)\b/,
   /\bstripe\b[^\n]*\b(charges|payouts|refunds)\b/,
 ];
 
@@ -357,6 +362,11 @@ export function autopilotPending(task, run, now = Date.now()) {
     return typeof entry.until === "number" && entry.until > now ? entry : null;
   }
   return null;
+}
+
+/** A note autopilot left in a task Chat after answering for the owner. */
+export function isOrchestratorAnswer(message) {
+  return message?.context?.kind === "orchestrator-answer" && typeof message.context.summary === "string";
 }
 
 export function recordTrust(trust, kind, outcome) {

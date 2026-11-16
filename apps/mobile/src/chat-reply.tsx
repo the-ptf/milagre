@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "./display-clock";
@@ -23,6 +23,8 @@ import { Markdown } from "./markdown";
 import { MessageActions, messageActionProps, selectableMessageText } from "./message-actions";
 import { SentQuote } from "./quote-chips";
 import { Icon } from "./icons";
+import { isOrchestratorAnswer } from "@milagre/shared/orchestrator";
+import { OrchestratorAnswerLine } from "./orchestrator-answer-line";
 import { ActivityTitle } from "./activity-item";
 import { ToolRow } from "./tool-row";
 import { ArtifactCards, DesignFeedbackCard } from "./artifact";
@@ -556,4 +558,10 @@ export const ChatReply = memo(function ChatReply({
       {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
   );
+});
+
+/** A Chat's reply row: the reply, or the one-line Pebble note autopilot leaves when it answers for the owner. */
+export const ChatRow = memo(function ChatRow(props: ComponentProps<typeof ChatReply>) {
+  const { message } = props;
+  return message && isOrchestratorAnswer(message) ? <OrchestratorAnswerLine summary={message.context.summary} /> : <ChatReply {...props} />;
 });

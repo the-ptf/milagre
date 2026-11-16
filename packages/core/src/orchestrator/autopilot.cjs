@@ -98,7 +98,7 @@ function createAutopilot({ store, ports, now = () => Date.now(), schedule = setT
       planned.delete(key);
       learn(plan.kind, "answered");
       remember(task.id, { kind: plan.kind, summary: plan.summary, decision: "answered", requestId: event.requestId });
-      ports.note(chatId, `The Orchestrator answered for you: ${plan.summary}.`);
+      ports.note(chatId, plan.summary);
     };
     if (plan.decision === "answer") return run();
     const wait = store.read().settings.vetoSeconds * 1000;
