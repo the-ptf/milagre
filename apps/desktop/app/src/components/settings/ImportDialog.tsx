@@ -64,10 +64,7 @@ export function ImportDialog({
     setError("");
     try {
       const result = await bridge.runImport(selection);
-      const skipped = result.skipped.length
-        ? ` ${result.skipped.length} skipped: ${result.skipped.map((item) => `${item.title} (${item.message})`).join(", ")}.`
-        : "";
-      showToast(`${importSummary(result)}${skipped}`);
+      showToast(importSummary(result));
       onImported?.(result.projects[0]?.path ?? null);
       onClose();
     } catch (failure) {

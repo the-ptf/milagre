@@ -19,7 +19,7 @@ export type ImportThread = {
   updatedAt?: number;
   imported: boolean;
   /** Why it can't come over: Milagre doesn't run its agent, or it never started a conversation. */
-  unsupported?: "unsupported" | "no-session";
+  unsupported?: "unsupported" | "no-session" | "no-transcript";
 };
 
 export type ImportProject = {
@@ -59,6 +59,7 @@ export const IMPORT_NONE = "Milagre didn't find T3 Code, Paseo or Orca data on t
 export const UNSUPPORTED_LABEL: Record<NonNullable<ImportThread["unsupported"]>, string> = {
   unsupported: "Milagre doesn't run this agent",
   "no-session": "Never started",
+  "no-transcript": "Its conversation isn't on this computer",
 };
 
 export const projectKey = (source: ImportSource, project: Pick<ImportProject, "path">) => `${source}:${project.path}`;
@@ -79,10 +80,28 @@ export function defaultSelection(scan: ImportScan): ImportRequest {
   return { projects, threads };
 }
 
+const STAYED_BEHIND: Record<string, string> = {
+  "already-imported": "already in Milagre",
+  "no-transcript": "their conversation isn't on this computer",
+  "no-worktree": "their folder is gone",
+  unsupported: "Milagre doesn't run their agent",
+  "no-session": "they never started",
+  "no-project": "their Project folder is gone",
+};
+
+const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** The toast after an import: what came in, by Project name when there is one, then what stayed behind and why. */
 export function importSummary(result: ImportResult) {
-  const projects = new Set(result.projects.map((project) => project.path)).size;
-  const parts = [`${projects} ${projects === 1 ? "Project" : "Projects"}`, `${result.chats} ${result.chats === 1 ? "Chat" : "Chats"}`];
-  return `Imported ${parts.join(" and ")}.`;
+  const names = [...new Map(result.projects.map((project) => [project.path, project.name])).values()];
+  const what = names.length === 1 ? names[0] : count(names.length, "Project");
+  const lead = result.chats ? `Imported ${count(result.chats, "Chat")} into ${what}.` : names.length ? `Imported ${what}.` : "Nothing new to import.";
+  const reasons = new Map<string, number>();
+  for (const item of result.skipped) reasons.set(item.reason, (reasons.get(item.reason) ?? 0) + 1);
+  const behind = [...reasons].map(
+    ([reason, n]) => `${count(n, reason === "no-project" ? "Project" : "Chat")} stayed behind: ${STAYED_BEHIND[reason] ?? reason}.`,
+  );
+  return [lead, ...behind].join(" ");
 }
 
 export const foundSources = (scan: ImportScan | null | undefined) => (scan?.sources ?? []).filter((source) => source.found && source.projects.length);

@@ -290,10 +290,36 @@ function findFile(folder, matches, depth) {
   return null;
 }
 
+function collect(folder, match, ids, depth) {
+  let entries;
+  try {
+    entries = fs.readdirSync(folder, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isFile()) {
+      const id = match(entry.name);
+      if (id) ids.add(id);
+    } else if (entry.isDirectory() && depth > 0) collect(path.join(folder, entry.name), match, ids, depth - 1);
+  }
+}
+
+/** Every Claude session id and Codex thread id with a transcript on this computer, read once per scan. */
+function transcriptIndex({ env = process.env, home } = {}) {
+  const claude = new Set();
+  const codex = new Set();
+  for (const root of claudeHomes(env, home)) collect(path.join(root, "projects"), (name) => /^([\w-]+)\.jsonl$/.exec(name)?.[1], claude, 1);
+  for (const root of codexHomes(env, home))
+    for (const base of ["sessions", "archived_sessions"])
+      collect(path.join(root, base), (name) => /-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$/.exec(name)?.[1], codex, 4);
+  return { has: (provider, id) => (provider === "claude" ? claude : provider === "codex" ? codex : new Set()).has(id) };
+}
+
 async function readTranscript(provider, nativeId, options) {
   const file = provider === "claude" ? findClaudeTranscript(nativeId, options) : provider === "codex" ? findCodexTranscript(nativeId, options) : null;
   if (!file) return { file: null, messages: [] };
   return { file, messages: provider === "claude" ? await claudeTranscript(file) : await codexTranscript(file) };
 }
 
-module.exports = { claudeTranscript, codexTranscript, findClaudeTranscript, findCodexTranscript, readTranscript };
+module.exports = { claudeTranscript, codexTranscript, findClaudeTranscript, findCodexTranscript, readTranscript, transcriptIndex };

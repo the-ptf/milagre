@@ -108,6 +108,7 @@ function t3Database(file, project, worktree) {
   thread("t-claude", "Fix login", "claudeAgent", CLAUDE_ID, { branch: "main", worktreePath: null, modelSelection: { model: "claude-opus-5-5" } });
   thread("t-codex", "Dark mode", "codex", CODEX_ID, { branch: "dark", worktreePath: worktree }, "2026-11-04T00:00:00Z");
   thread("t-cursor", "Cursor work", "cursor", "cursor-1", { worktreePath: null });
+  thread("t-lost", "Lost work", "claudeAgent", "99999999-0000-4000-8000-000000000000", { worktreePath: null });
   thread("t-sub", "Subagent", "claudeAgent", "sub-1", { lineage: { relationshipToParent: "subagent" } });
   thread("t-deleted", "Deleted", "claudeAgent", "del-1", {}, null, "2026-11-05T00:00:00Z");
   db.close();
@@ -172,7 +173,7 @@ test("scans T3 Code, Paseo and Orca data in a home folder", (t) => {
     [project],
   );
   const threads = Object.fromEntries(sources.t3code.projects[0].threads.map((thread) => [thread.id, thread]));
-  assert.deepEqual(Object.keys(threads).sort(), ["t3code:t-claude", "t3code:t-codex", "t3code:t-cursor"]);
+  assert.deepEqual(Object.keys(threads).sort(), ["t3code:t-claude", "t3code:t-codex", "t3code:t-cursor", "t3code:t-lost"]);
   assert.equal(threads["t3code:t-claude"].provider, "claude");
   assert.equal(threads["t3code:t-claude"].nativeId, CLAUDE_ID);
   assert.equal(threads["t3code:t-codex"].cwd, worktree);
@@ -326,7 +327,11 @@ test("imports a T3 Code Project and its threads into Milagre", async (t) => {
   const t3 = scanned.sources.find((source) => source.id === "t3code");
   assert.equal(t3.projects[0].exists, true);
   assert.equal(t3.projects[0].registered, false);
-  assert.equal(t3.projects[0].threads.find((thread) => thread.id === "t3code:t-cursor").unsupported, "unsupported");
+  const scannedThread = (id) => t3.projects[0].threads.find((thread) => thread.id === id);
+  assert.equal(scannedThread("t3code:t-cursor").unsupported, "unsupported");
+  assert.equal(scannedThread("t3code:t-lost").unsupported, "no-transcript");
+  assert.equal(scannedThread("t3code:t-claude").unsupported, undefined);
+  assert.equal(scannedThread("t3code:t-codex").unsupported, undefined);
 
   const result = await runtime.invoke("import:run", [{ projects: [`t3code:${project}`], threads: ["t3code:t-claude", "t3code:t-codex", "t3code:t-cursor"] }]);
   assert.equal(result.chats, 2);

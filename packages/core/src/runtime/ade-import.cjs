@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const { scanSources } = require("../ade-import/sources.cjs");
-const { readTranscript } = require("../ade-import/transcripts.cjs");
+const { readTranscript, transcriptIndex } = require("../ade-import/transcripts.cjs");
 const { addImportedChats, importedIds, worktreeFor } = require("../ade-import/import.cjs");
 
 const SKIP_REASONS = {
@@ -14,6 +14,8 @@ const SKIP_REASONS = {
 };
 
 const supported = (thread) => Boolean(thread.provider && thread.nativeId);
+const unsupportedReason = (thread, transcripts) =>
+  !thread.provider ? "unsupported" : !thread.nativeId ? "no-session" : transcripts.has(thread.provider, thread.nativeId) ? null : "no-transcript";
 
 function registerAdeImport({ commands, openProject, editProject, known, projectStateReadOnly, options = {} }) {
   const scanOptions = options.adeImport ?? {};
@@ -30,6 +32,7 @@ function registerAdeImport({ commands, openProject, editProject, known, projectS
 
   commands.handle("import:scan", async () => {
     const registered = new Set((await known().list()).map((project) => project.path));
+    const transcripts = transcriptIndex({ env: process.env, home: os.homedir(), ...scanOptions });
     const sources = [];
     for (const source of scan()) {
       const projects = [];
@@ -39,11 +42,11 @@ function registerAdeImport({ commands, openProject, editProject, known, projectS
           ...project,
           exists: fs.existsSync(project.path),
           registered: registered.has(project.path),
-          threads: project.threads.map((thread) => ({
-            ...thread,
-            imported: ids.has(thread.id) || Boolean(thread.nativeId && ids.has(`native:${thread.nativeId}`)),
-            ...(supported(thread) ? {} : { unsupported: thread.provider ? "no-session" : "unsupported" }),
-          })),
+          threads: project.threads.map((thread) => {
+            const imported = ids.has(thread.id) || Boolean(thread.nativeId && ids.has(`native:${thread.nativeId}`));
+            const unsupported = imported ? null : unsupportedReason(thread, transcripts);
+            return { ...thread, imported, ...(unsupported ? { unsupported } : {}) };
+          }),
         });
       }
       sources.push({ ...source, projects });

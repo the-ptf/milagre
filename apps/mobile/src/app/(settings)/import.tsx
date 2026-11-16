@@ -62,9 +62,8 @@ export default function ImportScreen() {
     setBusy(true);
     try {
       const result = await client.call<ImportResult>("import:run", [selection]);
-      const skipped = result.skipped.length ? ` ${result.skipped.length} skipped.` : "";
       toasts.current += 1;
-      setToast({ key: toasts.current, text: `${importSummary(result)}${skipped}` });
+      setToast({ key: toasts.current, text: importSummary(result) });
       await load();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
