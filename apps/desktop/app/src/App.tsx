@@ -205,6 +205,8 @@ function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorSt
 const NO_REFS: string[] = [];
 const NO_ROUTINES = new Set<string>();
 
+const chatPanelsHidden = (view: string, taskOpen: boolean) => view === "orchestrator" && !taskOpen;
+
 function App() {
   const [project, setProject] = useState<OpenProject | null>(null);
   const projectRef = useRef<OpenProject | null>(null);
@@ -2450,6 +2452,7 @@ function App() {
           />
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <PanelToggles
+            hidden={chatPanelsHidden(view, runPaneOpen)}
             right={12 + trailingCorner * CORNER_PITCH}
             changes={
               changesAvailable
