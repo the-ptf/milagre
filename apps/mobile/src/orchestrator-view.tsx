@@ -166,44 +166,46 @@ export function OrchestratorView() {
               />
             </View>
             {sendError ? <ErrorNotice message={sendError} /> : null}
-            <View
-              style={{ gap: space.lg }}
-              onLayout={(event) => {
-                frames.current.board = event.nativeEvent.layout.y + 80;
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
-                <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600" }}>
-                  Tasks
-                </Text>
-                <LinkButton
-                  label={settings.boardHidden ? "Show board" : "Hide board"}
-                  onPress={() => void store?.saveSettings({ boardHidden: !settings.boardHidden }).catch(() => {})}
-                />
-              </View>
-              {settings.boardHidden ? (
-                <Text style={styles.footnote}>
-                  {counts.running} running · {counts.needs} need you · {counts.review} in review
-                </Text>
-              ) : (
-                <>
-                  <BoardTabs tab={tab} counts={counts} onTab={setTab} />
-                  <BoardList
-                    tab={tab}
-                    items={items}
-                    landing={landing}
-                    projects={projects}
-                    roles={settings.roles}
-                    models={session.models}
-                    color={color}
-                    now={now}
-                    accountOf={(task) => accountName(accounts, task)}
-                    onLanded={landed}
-                    onOpen={(item) => router.push({ pathname: "/orchestrator-task", params: { id: item.task.id } })}
+            {tasks.length > 0 || sending || carry ? (
+              <View
+                style={{ gap: space.lg }}
+                onLayout={(event) => {
+                  frames.current.board = event.nativeEvent.layout.y + 80;
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
+                  <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600" }}>
+                    Tasks
+                  </Text>
+                  <LinkButton
+                    label={settings.boardHidden ? "Show board" : "Hide board"}
+                    onPress={() => void store?.saveSettings({ boardHidden: !settings.boardHidden }).catch(() => {})}
                   />
-                </>
-              )}
-            </View>
+                </View>
+                {settings.boardHidden ? (
+                  <Text style={styles.footnote}>
+                    {counts.running} running · {counts.needs} need you · {counts.review} in review
+                  </Text>
+                ) : (
+                  <>
+                    <BoardTabs tab={tab} counts={counts} onTab={setTab} />
+                    <BoardList
+                      tab={tab}
+                      items={items}
+                      landing={landing}
+                      projects={projects}
+                      roles={settings.roles}
+                      models={session.models}
+                      color={color}
+                      now={now}
+                      accountOf={(task) => accountName(accounts, task)}
+                      onLanded={landed}
+                      onOpen={(item) => router.push({ pathname: "/orchestrator-task", params: { id: item.task.id } })}
+                    />
+                  </>
+                )}
+              </View>
+            ) : null}
           </>
         )}
         {carry ? <CarriedNote key={carry.id} text={carry.text} from={carry.from} to={carry.to} color={color} onDone={() => setCarry(null)} /> : null}

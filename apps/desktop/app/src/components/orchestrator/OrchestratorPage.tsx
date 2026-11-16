@@ -32,7 +32,8 @@ export function OrchestratorPage({
   const [typingLook, setTypingLook] = useState<Look>(null);
   const [flight, setFlight] = useState<(Flight & { landed: boolean }) | null>(null);
   const [mood, setMood] = useState<MascotMood>("idle");
-  const collapsed = settings.boardHidden;
+  const empty = cards.length === 0 && !flight;
+  const collapsed = settings.boardHidden || empty;
 
   useEffect(() => {
     if (!pendingOpen) return;
@@ -88,15 +89,17 @@ export function OrchestratorPage({
           {names.projects.length} {names.projects.length === 1 ? "Project" : "Projects"}
         </span>
         <span className="flex-1" />
-        <IconButton
-          size={32}
-          label={collapsed ? "Show the board" : "Hide the board"}
-          icon={KanbanIcon}
-          side="bottom"
-          aria-pressed={!collapsed}
-          className="no-drag z-[60]"
-          onClick={() => void saveOrchestratorSettings({ boardHidden: !collapsed })}
-        />
+        {!empty && (
+          <IconButton
+            size={32}
+            label={collapsed ? "Show the board" : "Hide the board"}
+            icon={KanbanIcon}
+            side="bottom"
+            aria-pressed={!collapsed}
+            className="no-drag z-[60]"
+            onClick={() => void saveOrchestratorSettings({ boardHidden: !collapsed })}
+          />
+        )}
       </div>
       <div className={`flex flex-col items-center gap-3.5 px-6 ${collapsed ? "flex-1 justify-center pb-24" : "pt-5 pb-4"}`}>
         <div className="flex w-full max-w-[720px] items-center gap-3">
