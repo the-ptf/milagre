@@ -4,6 +4,7 @@ import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL } from "@milagre/shared/device-notes";
 import { LINEAR_HINT, LINEAR_MOVE_TO_STARTED_HINT, LINEAR_MOVE_TO_STARTED_TITLE, LINEAR_TITLE } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
+import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
 import { searchSettings, type SettingsSearchEntry, type SettingsSearchHit } from "@milagre/shared/settings-search";
 import { DESIGN_SECTIONS, DESIGN_SYSTEM_GROUPS } from "./design-system-catalogue.ts";
@@ -356,6 +357,13 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     group: "Main branch",
     description: MAIN_SYNC_HINT,
     keywords: "git pull fast-forward main branch remote",
+  },
+  {
+    page: "worktrees",
+    title: IMPORT_TITLE,
+    group: "Add Project",
+    description: IMPORT_INTRO,
+    keywords: "import migrate t3 code paseo orca threads chats projects move switch",
   },
 
   {

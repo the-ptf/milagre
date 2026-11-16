@@ -149,6 +149,8 @@ const PATHS = Object.freeze({
   "computer:resources:read": none,
   "storage:worktrees": denied,
   "storage:remove-worktree": denied,
+  "import:scan": denied,
+  "import:run": denied,
   "app-update:auto:save": denied,
   "app-update:state": none,
   "app-update:check": denied,

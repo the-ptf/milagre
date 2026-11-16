@@ -638,7 +638,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 403,
+            "max": 393,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1300,7 +1300,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 519,
+            "max": 517,
             "skipBlankLines": true,
             "skipComments": true
           }

@@ -1,5 +1,6 @@
 import type { BranchPolicy, BranchPolicySettings } from "@milagre/shared/branch-policy";
 import type { IdleWorktrees, RemoveWorktree } from "@milagre/shared/storage";
+import type { ImportRequest, ImportResult, ImportScan } from "@milagre/shared/ade-import";
 import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
@@ -418,6 +419,8 @@ export type MilagreBridge = {
   readComputerResources: (options?: { fresh?: boolean }) => Promise<ComputerResources>;
   /** Clean up worktrees: the worktrees Milagre made there that no Chat has used for 30 days or more, oldest first. */
   readIdleWorktrees: () => Promise<IdleWorktrees>;
+  scanImports: () => Promise<ImportScan>;
+  runImport: (request: ImportRequest) => Promise<ImportResult>;
   /**
    * Removes one of them with its Chats, checked again against `seen`; `force` discards unsaved work. Rejects when a Chat
    * on it runs or it changed since it was seen.

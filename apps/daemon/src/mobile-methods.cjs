@@ -47,6 +47,8 @@ const METHODS = new Set([
   "computer:resources:read",
   "storage:worktrees",
   "storage:remove-worktree",
+  "import:scan",
+  "import:run",
   "keybindings:read",
   "keybindings:set-command",
   "keybindings:reset-command",

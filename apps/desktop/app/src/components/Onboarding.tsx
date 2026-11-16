@@ -28,6 +28,7 @@ import { InlineError } from "./primitives/InlineError";
 import { SectionLabel } from "./primitives/SectionLabel";
 import { Skeleton } from "./primitives/Skeleton";
 import { useOpenFolder } from "./ImportFolderDialog";
+import { OnboardingImport } from "./OnboardingImport";
 import { bridgeFor } from "../lib/computer-bridge";
 
 const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
@@ -402,6 +403,7 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
         </form>
       )}
       <InlineError className="-mt-2">{error}</InlineError>
+      <OnboardingImport disabled={busy} onOpened={onOpened} />
       {(folders === null || folders.length > 0) && (
         <section className="grid min-w-0 grid-cols-1 gap-2" aria-labelledby="onboarding-recent">
           <div className="flex items-center justify-between">
