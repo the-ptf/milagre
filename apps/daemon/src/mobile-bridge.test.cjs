@@ -1670,6 +1670,15 @@ test("Routines changes reach every phone as a routines signal, Settings included
   assert.equal(settingsPhone.messages.filter((type) => type === "routines").length, 1);
 });
 
+test("Orchestrator changes reach every live phone as an orchestrator signal", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  const auth = { authorization: `Bearer ${token}` };
+  const projectPhone = await openLive(bridge, project, auth);
+  const settingsPhone = await openLive(bridge, "", auth);
+  assert.equal((await rpc("orchestrator:settings:save", [{ enabled: true }])).status, 200);
+  await until(() => projectPhone.messages.includes("orchestrator") && settingsPhone.messages.includes("orchestrator"));
+});
+
 test("a Link made or removed on the computer tells live phones to read the Links again", async (t) => {
   const { project, bridge, rpc, token } = await fixture(t);
   const commit = (folder) =>

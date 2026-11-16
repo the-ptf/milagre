@@ -47,6 +47,8 @@ import { AccountSwitchDivider } from "../AccountSwitchDivider";
 import { ChatReloadDivider } from "../ChatReloadDivider";
 import { BabysitStoppedDivider } from "../BabysitStoppedDivider";
 import { isBabysitStopped } from "@milagre/shared/babysit";
+import { isOrchestratorAnswer } from "@milagre/shared/orchestrator";
+import { OrchestratorAnswerLine } from "../orchestrator/OrchestratorAnswerLine";
 import { isChatReload } from "@milagre/shared/chat-reload";
 import { isRoutineRun } from "@milagre/shared/routines";
 import { RoutineRunDivider } from "../RoutineRunDivider";
@@ -323,6 +325,7 @@ function messageDivider(
     );
   if (isChatReload(message)) return <ChatReloadDivider />;
   if (isBabysitStopped(message)) return <BabysitStoppedDivider context={message.context} />;
+  if (isOrchestratorAnswer(message)) return <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />;
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   return null;

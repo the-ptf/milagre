@@ -1,10 +1,21 @@
-const { chatMentionTokens } = require("@milagre/shared/prompt-parts");
+const { chatMentionTokens, mentionsOrchestrator } = require("@milagre/shared/prompt-parts");
 const { chatMentionChoices } = require("@milagre/shared/prompt-mentions");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 
+const ORCHESTRATOR_NOTE = [
+  "<orchestrator_mention>",
+  "The user called the Orchestrator with @Orchestrator. Hand what they asked it to do to the milagre orchestrator_send tool as one self-contained prompt, with whatever it needs from this Chat (paths, decisions, links), then say in one line where it went. Don't do that work yourself here.",
+  "</orchestrator_mention>",
+].join("\n");
+
 async function chatMentionsContext(request, readState) {
+  const chats = await mentionedChats(request, readState);
+  return mentionsOrchestrator(request.prompt ?? "") ? [chats, ORCHESTRATOR_NOTE].filter(Boolean).join("\n\n") : chats;
+}
+
+async function mentionedChats(request, readState) {
   const projectPath = projectOfKey(request.chatId);
   if (isLinkScopeKey(projectPath)) return "";
   const ids = new Set(chatMentionTokens(request.prompt).map((token) => token.id));

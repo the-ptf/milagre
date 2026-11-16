@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const { orchestratorTools } = require("./orchestrator/mcp.cjs");
 const projectInput = { projectPath: z.string().min(1).max(8192) };
 const requestId = z.string().min(1).max(128);
 const permissionMode = z.enum(["ask", "auto", "full"]);
@@ -90,6 +91,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             { ...projectInput, provider: z.enum(["claude", "codex", "antigravity", "kiro"]), accountId: z.string().min(1).max(128).nullable() },
             (args) => host.setProjectAccount(args, assertActive),
           ),
+          ...orchestratorTools({ read, act, host, assertActive }),
           read(
             "project_list",
             "List Projects in Milagre (with inScope for this Chat, or only the Projects granted to an outside connection).",

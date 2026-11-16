@@ -24,6 +24,20 @@ test("activeChatKeys: running, delegated and unread Chats, never a Named Link's 
 
 const hiddenRun = { routineId: "r1", runId: "u1", hidden: true };
 
+test("activeChatKeys: an Orchestrator task Chat kept off the sidebar stays out of the grid until it's moved there", () => {
+  const states = {
+    "/a": {
+      sessions: {
+        1: { id: 1, unread: true, orchestrator: { taskId: "t1", hidden: true } },
+        2: { id: 2, orchestrator: { taskId: "t2", hidden: true } },
+        3: { id: 3, unread: true, orchestrator: { taskId: "t3", hidden: false } },
+      },
+    } as unknown as CoordinatorState,
+  };
+  const runs = { "/a#2": { approvals: [{}], questions: [] } } as unknown as AgentRuns;
+  assert.deepEqual(activeChatKeys(runs, NO_WORK, states), ["/a#3"]);
+});
+
 test("activeChatKeys: a hidden Run Chat stays out of the grid, running, delegated or unread, until its run waits on the user", () => {
   const states = {
     "/a": {

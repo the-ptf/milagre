@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   chatMentionTokens,
+  mentionsOrchestrator,
   computerMentionTokens,
   formatComputerMention,
   formatChatMention,
@@ -240,4 +241,13 @@ test("a quote chip keeps its passage and source, and an empty passage makes none
     quoteKeys(["a", "b", "a"]).map((quote) => quote.key),
     ["1:a", "1:b", "2:a"],
   );
+});
+
+test("@Orchestrator is a call to the Orchestrator, never a file chip", () => {
+  assert.equal(mentionsOrchestrator("@Orchestrator fix the timer"), true);
+  assert.equal(mentionsOrchestrator("hey @orchestrator, take this"), true);
+  assert.equal(mentionsOrchestrator("email@orchestrator.dev"), false);
+  assert.equal(mentionsOrchestrator("`@orchestrator`"), false);
+  const parts = promptParts("@Orchestrator go", { skills: [], files: () => true });
+  assert.ok(!parts.some((part) => "path" in part && part.path === "Orchestrator"));
 });

@@ -1,5 +1,7 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 
+export type AppView = "chat" | "canvas" | "routines" | "orchestrator";
+
 export type RunPaneReturn = { projectPath: string; linkId: string | null; sessionId: number | null; worktreeId: number | null };
 
 export type RunPaneRestore =
@@ -37,7 +39,7 @@ export function chatOnScreen({
   if (!projectPath || sessionId === null) return null;
   const key = chatKey(projectPath, sessionId);
   if (view === "chat") return key;
-  return view === "routines" && runPane === key ? key : null;
+  return (view === "routines" || view === "orchestrator") && runPane === key ? key : null;
 }
 
 export function readsOnPick({ onScreen, picked, unread }: { onScreen: string | null; picked: string; unread: boolean }): boolean {

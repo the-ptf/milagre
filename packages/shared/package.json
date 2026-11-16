@@ -213,6 +213,10 @@
       "types": "./src/babysit.d.mts",
       "default": "./src/babysit.mjs"
     },
+    "./orchestrator": {
+      "types": "./src/orchestrator.d.mts",
+      "default": "./src/orchestrator.mjs"
+    },
     "./done": {
       "types": "./src/done.d.mts",
       "default": "./src/done.mjs"

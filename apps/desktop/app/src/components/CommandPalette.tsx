@@ -21,6 +21,7 @@ import {
   Search01Icon,
   Settings01Icon,
   HardDriveIcon,
+  KanbanIcon,
 } from "@hugeicons/core-free-icons";
 import { filterCommands, type Command } from "../lib/commands";
 import { recentCommandIds, recentCommands, rememberCommand, rememberedId } from "../lib/recent-commands";
@@ -60,6 +61,7 @@ const icons = {
   link: Link04Icon,
   pullRequest: GitPullRequestIcon,
   folderAdd: FolderAddIcon,
+  orchestrator: KanbanIcon,
 };
 
 function CommandKeys({ command, hints }: { command: KeybindingCommandId; hints: boolean }) {

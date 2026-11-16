@@ -22,6 +22,7 @@ import { QuoteChips } from "./QuoteChips";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
 import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
+import { isOrchestratorRow, ORCHESTRATOR_MENTION, orchestratorMentionRows } from "../lib/orchestrator-mention";
 import { formatChatMention, formatComputerMention, formatFileMention, promptParts, type ComposerQuote } from "@milagre/shared/prompt-parts";
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
@@ -298,6 +299,7 @@ export function PromptComposer({
   const rows: MenuRow[] =
     menu === "at"
       ? [
+          ...orchestratorMentionRows(menu === "at", tokenQuery),
           ...fileSearch.files
             .slice(0, chatMatches.length || computerMatches.length ? 3 : undefined)
             .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
@@ -486,28 +488,18 @@ export function PromptComposer({
 
   const [previewId, setPreviewId] = useState<string | null>(null);
 
-  function handleRemoveImage(id: string) {
-    const index = imageDraft.images.findIndex((image) => image.id === id);
-    imageDraft.remove(id);
-    if (index >= 0) {
-      const next = shiftImageMentions(draftLatest.current, index + 1);
-      if (next !== draftLatest.current) onDraftChange(next);
-    }
-  }
-
-  function handleRemoveFile(path: string) {
-    const index = imageDraft.images.findIndex((image) => image.path === path);
-    imageDraft.removeFile(path);
-    if (index >= 0) {
-      const next = shiftImageMentions(draftLatest.current, index + 1);
-      if (next !== draftLatest.current) onDraftChange(next);
-    }
+  function removeAttachment(field: "id" | "path", value: string) {
+    const index = imageDraft.images.findIndex((image) => image[field] === value);
+    if (field === "id") imageDraft.remove(value);
+    else imageDraft.removeFile(value);
+    const next = index < 0 ? draftLatest.current : shiftImageMentions(draftLatest.current, index + 1);
+    if (next !== draftLatest.current) onDraftChange(next);
   }
 
   function pick(row: MenuRow) {
     if (menu === "at") {
-      if (token && (row.chatId !== undefined || row.computer)) {
-        const mention = row.computer ? formatComputerMention(row.computer) : formatChatMention(row.chatId!);
+      if (token && (row.chatId !== undefined || row.computer || isOrchestratorRow(row))) {
+        const mention = isOrchestratorRow(row) ? ORCHESTRATOR_MENTION : row.computer ? formatComputerMention(row.computer) : formatChatMention(row.chatId!);
         onDraftChange(insertPromptToken(draft, token, mention));
         inputRef.current?.setSelection(token.start + mention.length + 1);
       } else if (token && row.path) {
@@ -774,8 +766,8 @@ export function PromptComposer({
             order={imageDraft.order}
             previewId={previewId}
             onPreview={setPreviewId}
-            removeImage={handleRemoveImage}
-            removeFile={handleRemoveFile}
+            removeImage={(id) => removeAttachment("id", id)}
+            removeFile={(path) => removeAttachment("path", path)}
             uploads={imageDraft.uploads}
             cancelUpload={imageDraft.cancelUpload}
           />

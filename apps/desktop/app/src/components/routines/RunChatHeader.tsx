@@ -2,11 +2,28 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { runChatMeta } from "@milagre/shared/routines";
 import { IconButton } from "../primitives/Button";
 import { useRoutines } from "../../lib/routines";
+import { taskForChat } from "../../lib/orchestrator-board";
+import { useOrchestrator } from "../../lib/orchestrator-store";
+import { OrchestratorTaskHeader } from "../orchestrator/OrchestratorTaskHeader";
 
 export const RUN_CHAT_REPLY_NOTE = "Replying keeps this Chat: it joins your sidebar and stays in this Routine's Runs.";
 
-export function RunChatHeader({ chatKey, title, branch, onClose }: { chatKey: string; title: string; branch?: string; onClose: () => void }) {
+export function RunChatHeader({
+  chatKey,
+  title,
+  branch,
+  onClose,
+  running = false,
+}: {
+  chatKey: string;
+  title: string;
+  branch?: string;
+  onClose: () => void;
+  running?: boolean;
+}) {
   const { routines } = useRoutines();
+  const task = taskForChat(useOrchestrator().tasks, chatKey);
+  if (task) return <OrchestratorTaskHeader task={task} chatKey={chatKey} running={running} onClose={onClose} />;
   const run = routines.flatMap((routine) => routine.runs).find((entry) => entry.chatId === chatKey);
   return (
     <header data-run-chat-header={chatKey} className="flex shrink-0 items-center gap-3 border-b border-line py-2 pr-2 pl-4">

@@ -48,6 +48,16 @@ function chatLiveSignal(channel, payload) {
   if (payload.state || payload.stateTooLarge || typeof payload.version === "number") return ["project", LIVE_DELAY.runs];
   return [payload.event?.type === "subagent-update" ? "project" : "runs"];
 }
+const SIGNALS = { "designs:enabled-changed": "designs", "keybindings:changed": "keybindings", "routines:changed": "routines" };
+const OWNER_SIGNALS = {
+  "accounts:changed": "accounts",
+  "usage:changed": "usage",
+  "token-usage:changed": "token-usage",
+  "mcp:changed": "mcp",
+  "local-mcp:changed": "mcp",
+  "canvas:links-changed": "links",
+  "orchestrator:changed": "orchestrator",
+};
 
 async function startMobileBridge({
   dataDir,
@@ -227,6 +237,7 @@ async function startMobileBridge({
       if (entry.kinds.has("keybindings")) types.push("keybindings");
       if (entry.kinds.has("links")) types.push("links");
       if (entry.kinds.has("routines")) types.push("routines");
+      if (entry.kinds.has("orchestrator")) types.push("orchestrator");
       if (entry.kinds.has("pulls")) types.push("pulls");
       if (entry.kinds.has("btw")) types.push("btw");
       if (entry.kinds.has("project")) types.push("project");
@@ -272,15 +283,9 @@ async function startMobileBridge({
     hostRuns.changed();
     followState(channel, payload);
     for (const entry of live) {
-      if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
-      if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
-      if (channel === "token-usage:changed" && !confine) signal(entry, "token-usage", 0);
-      if ((channel === "mcp:changed" || channel === "local-mcp:changed") && !confine) signal(entry, "mcp", 0);
-      if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
-      if (channel === "keybindings:changed") signal(entry, "keybindings", 0);
-      if (channel === "routines:changed") signal(entry, "routines", 0);
+      const immediate = SIGNALS[channel] ?? (confine ? undefined : OWNER_SIGNALS[channel]);
+      if (immediate) signal(entry, immediate, 0);
       if (channel === "pull-requests:changed") signal(entry, "pulls", LIVE_DELAY.project);
-      if (channel === "canvas:links-changed" && !confine) signal(entry, "links", 0);
       if (
         (channel === "project:state" && payload?.path === entry.projectPath) ||
         (channel === "link:state" && isLinkScopeKey(entry.projectPath) && payload?.linkId === scopeFromKey(entry.projectPath).linkId)

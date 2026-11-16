@@ -487,6 +487,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // A new Chat's glance cards (PRs, plan usage, today) read the host on their own; Chat tests render none.
       if (base === "new-chat-glance" && !(id in modules)) return { NewChatGlance: () => null };
+      // A QA persona's avatar is an Open Bot Avatar SVG string drawn by react-native-svg; tests read the persona from its props.
+      if (base === "persona-avatar" && !(id in modules)) return { PersonaAvatar: "PersonaAvatar" };
       // Church's New Chat stats switch: the shared label and hint, and off unless a test sets it.
       if (id === "@milagre/shared/new-chat-glance" && !(id in modules)) return require("../packages/shared/src/new-chat-glance.ts");
       if (file === "experimental-section.tsx" && base === "chat-display-setting" && !(id in modules)) return { useNewChatStats: () => [false, () => {}] };
@@ -530,6 +532,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           visibleRunChats: () => [],
           watchVisibleRunChats: () => () => {},
         };
+      // The Orchestrator's pinned row reads its own host store; Chat-list tests render none.
+      if (base === "orchestrator-row" && !(id in modules)) return { OrchestratorRow: () => null };
+      if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
+      if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
+      if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
+      if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -3915,7 +3923,7 @@ function chatHost({
         ),
     },
     "../questions": { Approval: "Approval", Questions: "Questions" },
-    "../chat-reply": { ChatReply: "ChatReply" },
+    "../chat-reply": { ChatReply: "ChatReply", ChatRow: "ChatReply" },
     "../design-outbox": require("../apps/mobile/src/design-outbox.ts"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
     "../ui": ui,

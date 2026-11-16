@@ -7,6 +7,7 @@ export type KeybindingCommandId =
   | "sidebar.toggle"
   | "canvas.open"
   | "usage.open"
+  | "orchestrator.open"
   | "grid.toggle"
   | "grid.focusPrevious"
   | "grid.focusNext"

@@ -70,17 +70,19 @@ export function ModelPicker({
   capability: ModelCapability;
   effort?: EffortLevel;
   onEffortChange: (effort: EffortLevel) => void;
-  fastMode: boolean;
-  onFastModeChange: (on: boolean) => void;
-  ultracode: boolean;
-  onUltracodeChange: (on: boolean) => void;
-  permissionMode: PermissionMode;
-  onPermissionModeChange: (mode: PermissionMode) => void;
+  fastMode?: boolean;
+  onFastModeChange?: (on: boolean) => void;
+  ultracode?: boolean;
+  onUltracodeChange?: (on: boolean) => void;
+  permissionMode?: PermissionMode;
+  onPermissionModeChange?: (mode: PermissionMode) => void;
 }) {
   const levels = capability.efforts;
   const lowest = levels[0];
   const highest = levels.at(-1);
-  const hasSettings = levels.length > 0 || capability.fastMode || capability.ultracode;
+  const showFast = capability.fastMode && Boolean(onFastModeChange);
+  const showUltracode = capability.ultracode && Boolean(onUltracodeChange);
+  const hasSettings = levels.length > 0 || showFast || showUltracode;
   const index = Math.max(0, levels.indexOf(effort ?? ""));
   const current = levels[index];
   const mixed = new Set(models.map((model) => model.provider)).size > 1;
@@ -210,26 +212,26 @@ export function ModelPicker({
                 </p>
               </div>
             )}
-            {(capability.fastMode || capability.ultracode) && (
+            {(showFast || showUltracode) && (
               <div className="flex flex-col gap-1.5">
-                {capability.fastMode && (
+                {showFast && onFastModeChange && (
                   <SettingRow
                     icon={FlashIcon}
                     label="Fast mode"
                     title="Fast"
                     detail="Quicker replies, higher usage"
-                    on={fastMode}
+                    on={fastMode ?? false}
                     onChange={onFastModeChange}
                   />
                 )}
-                {capability.ultracode && (
+                {showUltracode && onUltracodeChange && (
                   <SettingRow
                     icon={UserMultipleIcon}
                     label="Ultracode"
                     title="Ultracode"
                     tone="purple"
                     detail="Parallel agents for big work"
-                    on={ultracode}
+                    on={ultracode ?? false}
                     onChange={onUltracodeChange}
                   />
                 )}
@@ -238,34 +240,36 @@ export function ModelPicker({
           </div>
         )}
       </div>
-      <div data-permission-footer className="flex shrink-0 items-center justify-end border-t border-line py-1 pr-2.5 pl-2">
-        <Select
-          label="Agent permissions"
-          variant="text"
-          compact
-          align="end"
-          side="above"
-          width={220}
-          value={permissionMode}
-          triggerClassName={permissionMode === "full" ? "text-orange-ink" : undefined}
-          options={PERMISSION_MODES.map((mode) => ({
-            value: mode.id,
-            label: mode.name,
-            icon: (
-              <span className={`flex shrink-0 ${mode.id === "full" ? "text-orange-ink" : "text-ink-2"}`}>
-                <Icon icon={PERMISSION_ICONS[permissionPresentation(mode.id).icon]} size={16} />
-              </span>
-            ),
-            display: (
-              <span className="flex items-center gap-1.5">
-                <Icon icon={PERMISSION_ICONS[permissionPresentation(mode.id).icon]} size={14} />
-                {mode.name}
-              </span>
-            ),
-          }))}
-          onChange={onPermissionModeChange}
-        />
-      </div>
+      {permissionMode && onPermissionModeChange && (
+        <div data-permission-footer className="flex shrink-0 items-center justify-end border-t border-line py-1 pr-2.5 pl-2">
+          <Select
+            label="Agent permissions"
+            variant="text"
+            compact
+            align="end"
+            side="above"
+            width={220}
+            value={permissionMode}
+            triggerClassName={permissionMode === "full" ? "text-orange-ink" : undefined}
+            options={PERMISSION_MODES.map((mode) => ({
+              value: mode.id,
+              label: mode.name,
+              icon: (
+                <span className={`flex shrink-0 ${mode.id === "full" ? "text-orange-ink" : "text-ink-2"}`}>
+                  <Icon icon={PERMISSION_ICONS[permissionPresentation(mode.id).icon]} size={16} />
+                </span>
+              ),
+              display: (
+                <span className="flex items-center gap-1.5">
+                  <Icon icon={PERMISSION_ICONS[permissionPresentation(mode.id).icon]} size={14} />
+                  {mode.name}
+                </span>
+              ),
+            }))}
+            onChange={onPermissionModeChange}
+          />
+        </div>
+      )}
     </div>
   );
 }
