@@ -313,7 +313,7 @@
             "skipComments": true
           }
         ],
-        "complexity": ["error", 149]
+        "complexity": ["error", 148]
       }
     },
     {
