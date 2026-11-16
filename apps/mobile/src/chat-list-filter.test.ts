@@ -36,3 +36,10 @@ test("the Archived filter shows an archived hidden Run Chat, so a swept one can 
   assert.equal(shownChat(swept, undefined, 0, { archived: true }), false);
   assert.equal(shownChat(chat({ archived: true }), undefined, 1, { archived: true }), true);
 });
+
+test("an Orchestrator task's Chat stays on the board, running or waiting, until it moves to the sidebar", () => {
+  const task = (hidden: boolean, extra: Partial<AgentSession> = {}) => chat({ orchestrator: { taskId: "t1", hidden }, ...extra });
+  assert.equal(shownChat(task(true), run(), 1), false);
+  assert.equal(shownChat(task(true), run({ approvals: [{ requestId: "a1" }] as AgentRun["approvals"] }), 1), false);
+  assert.equal(shownChat(task(false), run(), 1), true);
+});
