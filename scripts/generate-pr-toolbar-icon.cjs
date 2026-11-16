@@ -1,5 +1,3 @@
-// UIKit toolbar images need raster assets. Keep the same PR drawing as desktop and Android.
-// Run: node scripts/generate-pr-toolbar-icon.cjs
 const fs = require("node:fs");
 const path = require("node:path");
 const { initWasm, Resvg } = require("@resvg/resvg-wasm");

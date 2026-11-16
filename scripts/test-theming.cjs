@@ -1,6 +1,4 @@
 // Settings > Appearance in Electron: the theme picker and mode control recolor the page, striped body and code.
-// The terminal is exercised for real: a session from lib/terminal-sessions.ts follows a fake daemon that never answers,
-// and its xterm options.theme must change with the theme. The window behind the page takes the theme's page color.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -115,7 +113,6 @@ async function browserChecks() {
     assert.notEqual(blueDark, "#17181a", "Milagre Blue dark is not Gray dark");
     assert.equal(await evaluate(`document.querySelectorAll('#milagre-theme').length`), 1, "one theme stylesheet is reused");
     await screenshot("gray-light");
-    // Custom theme editor in Appearance
     const custom = `document.querySelector('[role="checkbox"][aria-label="Custom theme"]')`;
     await waitFor(`!!${custom}`);
     await evaluate(`${custom}.click()`);
@@ -138,7 +135,6 @@ async function browserChecks() {
     await waitFor(`document.body.innerText.includes("Could not read the clipboard.")`);
     assert.ok(!(await evaluate(`document.body.innerText.includes("That isn't a Milagre theme")`)), "a failed clipboard read is not a bad theme");
     await evaluate(`delete navigator.clipboard.readText`);
-    // Dragging the color picker: many ticks in one frame make one settings write, and the swatch follows the last tick.
     await evaluate(`(() => {
       window.__writes = 0;
       const set = Storage.prototype.setItem;

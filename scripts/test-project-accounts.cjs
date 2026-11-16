@@ -71,7 +71,6 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[aria-label="Claude account"]').click()`);
     await evaluate(`([...document.querySelectorAll('[role=option]')].find(b=>b.textContent.includes('Use computer default'))).click()`);
     await waitFor(`window.calls.some(c=>c.key==='milagre-link:ab' && c.id===null)`);
-    // Project settings shows the same rows, fixed to that Project.
     await win.loadURL(process.argv[2] + "?section=project");
     await waitFor(`document.querySelector('[data-project-accounts-group]') && ${trigger("Codex")}?.includes('Default')`);
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Project or Link"]')`), false);

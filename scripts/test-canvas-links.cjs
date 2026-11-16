@@ -81,7 +81,6 @@ async function browserChecks() {
   const screenshot = (name) => {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return Promise.resolve();
     fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
-    // A hidden window paints on demand; give the latest frame a moment to land before capturing it.
     return delay(400)
       .then(() => window.webContents.capturePage())
       .then((image) => fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `${name}.png`), image.toPNG()));
@@ -95,17 +94,14 @@ async function browserChecks() {
     await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__node-project").length === 2');
     await waitFor('document.querySelectorAll("[data-canvas-chat]").length === 4');
-    // Only what the sidebar lists: archived chats, empty starters and Projects left with neither stay off.
     for (const gone of ["Archived", "finished-work", "Starter", "Empty", "Old work"])
       assert.equal(await evaluate(`document.querySelector("[data-canvas]").textContent.includes(${JSON.stringify(gone)})`), false, gone);
-    // Titles and live states lead; the branch follows.
     const card = (path) => `document.querySelector('[data-canvas-worktree="${path}"]')`;
     assert.equal(await evaluate(`${card("/a")}.dataset.attention`), "waiting");
     assert.match(await evaluate(`${card("/a")}.textContent`), /Build UI.*Waiting for you.*main/);
     assert.match(await evaluate(`${card("/a-filters")}.textContent`), /Sidebar filters.*Idle · 25m ago.*Review filters.*Asking you.*sidebar-filters/);
     assert.match(await evaluate(`${card("/b-feature")}.textContent`), /Add API.*Running/);
     assert.equal(await evaluate(`${card("/b-feature")}.querySelectorAll("svg").length > 1`), true, "the card shows its provider logo");
-    // React Flow's own controls and attribution are gone; the canvas has its own zoom.
     assert.equal(await evaluate('Boolean(document.querySelector(".react-flow__attribution, .react-flow__controls"))'), false);
     assert.equal(await evaluate('Boolean(document.querySelector("[data-canvas-zoom]"))'), true);
     await screenshot("canvas");
@@ -115,7 +111,6 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.__openedChat"), { path: "/b", id: 2 });
     await evaluate("document.querySelector('[data-canvas-new-chat=\"/a\"]').click()");
     assert.equal(await evaluate("window.__newChat"), "/a");
-    // The filter dims cards with nothing to show, and counts what each keeps.
     assert.match(await evaluate("document.querySelector('[data-canvas-filter=\"needs-you\"]').textContent"), /Needs you\s*2/);
     await evaluate("document.querySelector('[data-canvas-filter=\"needs-you\"]').click()");
     await waitFor(`${card("/b-feature")}.classList.contains("opacity-35")`);
@@ -141,7 +136,6 @@ async function browserChecks() {
     await waitFor('[...document.querySelectorAll("[data-canvas] button")].some(button => button.textContent === "Remove Link")');
     await evaluate('[...document.querySelectorAll("[data-canvas] button")].find(button => button.textContent === "Remove Link").click()');
     await waitFor('JSON.parse(localStorage.getItem("canvas-test-links") || "[]").length === 0');
-    // The same gesture creates it again; a reload reads the saved Link through the stubbed bridge.
     await window.reload();
     await waitFor("!!window.__connectionChanged");
     await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
@@ -164,7 +158,6 @@ async function browserChecks() {
     await waitFor("!!window.__connectionChanged");
     await evaluate("window.__canvasOffline = false; window.__connectionChanged({ connected: true })");
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 1');
-    // A Link changed outside the canvas (the sidebar, the phone) reaches it without waiting for its next read.
     await evaluate("window.__linksChanged([])");
     await waitFor('document.querySelectorAll(".react-flow__edge").length === 0');
     await evaluate('window.__linksChanged(JSON.parse(localStorage.getItem("canvas-test-links") || "[]"))');

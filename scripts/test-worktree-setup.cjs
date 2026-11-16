@@ -1,6 +1,4 @@
 // Run with npm test -- --only worktree-setup. Exercises the real App with an isolated project and mocked Electron IPC:
-// the Setup command field in Settings, repository setup review, and setup progress in a new Worktree's Chat.
-// Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -154,9 +152,7 @@ async function browserChecks() {
   try {
     await openRenderer(window, process.argv[2], `!!document.querySelector('[aria-label="New chat"]')`);
 
-    // Settings › Worktrees: the field saves what is typed, and a repo file takes it over.
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
-    // Every recent Project is listed; the open one is picked.
     const settingsProject = (name) =>
       `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find(el => el.querySelector('[data-settings-nav-label]')?.textContent.trim() === ${JSON.stringify(name)})`;
     await waitFor(`!!(${settingsProject("blog")})`);
@@ -185,7 +181,6 @@ async function browserChecks() {
     await screenshot("settings-invalid-file");
     console.log("PASS: a repo file locks the field, and an invalid one shows a note");
 
-    // Another Project's settings, and its icon: the chosen image is scaled down and saved for that Project.
     await evaluate(`(${settingsProject("blog")}).click()`);
     await waitFor(`document.querySelector('dialog[data-settings-modal] h1')?.textContent === "blog" && !!document.querySelector('[data-project-icon-input]')`);
     await evaluate(`(async () => {
@@ -216,7 +211,6 @@ async function browserChecks() {
     await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
     await waitFor(`!document.querySelector('dialog[data-settings-modal]')`);
 
-    // Repository setup uses the same approval controls on desktop and phone, with explicit trust scope.
     await sendInNewWorktree("Add a checkout page");
     await waitFor(`window.calls.turns.length === 1`);
     const chatId = await evaluate(`window.calls.turns[0].chatId`);
@@ -254,7 +248,6 @@ async function browserChecks() {
     await emit(chatId, { type: "step-output", id: "setup-1", text: "npm warn deprecated inflight@1.0.6\n" });
     await waitFor(`document.querySelector('[data-slot="step"][data-status="running"]')?.textContent.includes('Running setup')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-slot="step"][data-status="running"]').closest('[data-slot="activity"]')`), false);
-    // The reply fades in; let it settle so the shot shows the row as it reads.
     await delay(900);
     await screenshot("setup-running");
     console.log("PASS: the setup shows as a running row of its own at the start of the reply");
@@ -291,7 +284,6 @@ async function browserChecks() {
     await screenshot("setup-failed");
     console.log("PASS: a failed setup ends as a failed step with its output");
 
-    // A setup that worked, then a reply with thinking and a command: the setup stays its own row above "Thought for ...".
     await sendInNewWorktree("Add a cart badge");
     await waitFor(`window.calls.turns.length === 2`);
     const second = await evaluate(`window.calls.turns[1].chatId`);

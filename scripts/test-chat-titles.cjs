@@ -118,7 +118,6 @@ async function captureTransition(win, evaluate) {
   const manifest = path.join(temporary, "frames.txt");
   await fs.writeFile(manifest, concat + `\nfile '${frames.at(-1).name}'\n`);
   // The GIF is for people reading the screenshots; without ffmpeg (the CI runner image lacks it, and installing it
-  // took that shard 35 s) the before and after frames are kept and the GIF is skipped.
   try {
     execFileSync("ffmpeg", [
       "-y",

@@ -1,4 +1,3 @@
-// Opt-in: node scripts/live-design-workflow.cjs --live [--model ID] [--effort low] [--output /tmp/results.json]
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");

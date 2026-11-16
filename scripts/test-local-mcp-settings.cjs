@@ -51,14 +51,12 @@ async function browserChecks() {
   try {
     await win.loadURL(process.argv[2]);
     // Radix selects arrow-key destinations on focus. Chromium's focus emulation delivers
-    // those focus events while the native window stays hidden and never steals focus.
     win.webContents.debugger.attach("1.3");
     await win.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
     await waitFor(`document.hasFocus()`);
     assert.equal(win.isVisible(), false);
     assert.equal(win.isFocused(), false);
     await waitFor(`document.querySelectorAll('[data-local-mcp] [role=checkbox]').length===8`);
-    // The Milagre MCP sits on MCP servers, under the servers each provider uses; Published pages moved to Phone & sharing.
     assert.equal(await evaluate(`document.querySelector('h1').textContent`), "MCP servers");
     assert.equal(await evaluate(`!!document.querySelector('[data-slot=published-pages-setting]')`), false);
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
@@ -67,7 +65,7 @@ async function browserChecks() {
     const shot = async (name) => {
       if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
       await waitFor(`!document.querySelector('[aria-busy=true]')`);
-      await delay(350); // capture settled transitions, including a theme change
+      await delay(350);
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await win.webContents.capturePage()).toPNG());
     };

@@ -1,7 +1,3 @@
-// Browser check: the side panels' left edges drag their width like the sidebar's right edge: the git changes panel
-// (ChangesPanelSlot) and a docked panel (DockSlide, as the simulator and the designs use it). Clamps, keeps the chat
-// usable, persists, resets, keyboard. And a panel that opens or closes because another Chat came on screen does it at
-// once, where one opened or closed by hand springs.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -85,7 +81,6 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   await app.whenReady();
   // The switch checks below read a panel's width on every frame. A window never shown keeps drawing on macOS only: under
-  // Xvfb its compositor is starved, a spring's first frame comes after its end and it reads as landing at once.
   const window = new BrowserWindow({ width: 1600, height: 600, show: process.platform !== "darwin", webPreferences: { backgroundThrottling: false } });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   const mouse = (type, x, y, clickCount = 1) =>
@@ -103,7 +98,6 @@ async function browserChecks() {
       `(() => { const r = document.querySelector('[aria-label="${label}"]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
     );
   // A drag past a clamp stays inside the window: Linux drops pointer events outside it, so the drag would stop wherever
-  // the last delivered move happened to land.
   const drag = async (label, wanted) => {
     const { x, y } = await handle(label);
     const inner = await evaluate("innerWidth");
@@ -122,8 +116,6 @@ async function browserChecks() {
     require("node:fs").writeFileSync(path.join(require("node:os").tmpdir(), `milagre-panel-resize-${name}.png`), image.toPNG());
   };
   const chat = () => width("[data-workspace-main]");
-  // A panel clips its overflow while it springs open, which cuts off the outer half of its edge handle: drags wait for it
-  // to settle. Slower machines (CI) are still sliding after a fixed delay.
   const settled = async (selector) => {
     const read = () =>
       evaluate(
@@ -172,11 +164,9 @@ async function browserChecks() {
     await settled("[data-slot=dock]");
     assert.equal(await width("[data-slot=dock]"), 400, "the dock opens at its default width");
     assert.equal(await evaluate('(document.querySelector("[data-dock-layer]") ?? document.body).style.getPropertyValue("--simulator-dock")'), "412px");
-    // Not on <html>: the simulator and browser viewers watch its style for theme changes.
     assert.equal(await evaluate('document.documentElement.style.getPropertyValue("--simulator-dock")'), "", "the room stays off <html>");
     const rendersBefore = await evaluate("window.contentRenders");
     await drag(simulator, -80);
-    // Once for the saved width on release, never per move.
     assert.ok((await evaluate("window.contentRenders")) - rendersBefore <= 1, "dragging doesn't render the dock's content again");
     assert.equal(await width("[data-slot=dock]"), 480, "dragging the dock's left edge widens it");
     assert.equal(
@@ -186,7 +176,6 @@ async function browserChecks() {
     );
     assert.equal(await evaluate('localStorage.getItem("milagre.panelWidth.simulator")'), "480");
     await screenshot("dock-wide");
-    // Dragged far left, it stops where the chat would get narrower than 420px.
     const room = (await chat()) - 420;
     await drag(simulator, -1000);
     assert.equal(await width("[data-slot=dock]"), Math.min(800, 480 + room), "stops where the chat keeps its 420px");
@@ -198,8 +187,6 @@ async function browserChecks() {
     await settled("[data-changes-slot]");
     assert.equal(await width("[data-changes-panel]"), 336, "the changes panel's width survives a reload");
 
-    // A panel that opens or closes because another Chat came on screen is there (or gone) at once: springing, it would
-    // change the chat's width on every frame of the switch. By hand it springs.
     const frames = (selector, run) => evaluate(`window.framesOf(${JSON.stringify(selector)}, () => { ${run} })`);
     const shown = (seen) => seen.filter((value) => value > 0);
     const lands = (seen, full, message) => assert.ok(shown(seen).length > 0 && shown(seen).every((value) => value === full), `${message}: ${seen.join(" ")}`);
@@ -210,7 +197,6 @@ async function browserChecks() {
       );
     const leaves = (seen, full, message) => assert.ok(seen.at(-1) <= 0 && seen.every((value) => value <= 0 || value === full), `${message}: ${seen.join(" ")}`);
     const dockWidth = Number(await evaluate('localStorage.getItem("milagre.panelWidth.simulator")'));
-    // The Browser panel's way: made anew for its Chat with the dock already in its presence, however the Chat came.
     lands(await frames("[data-slot=chat-dock]", "window.showChat(1, true)"), dockWidth, "a dock open as its Chat comes on screen lands at its width");
     assert.equal(
       await evaluate('(document.querySelector("[data-dock-layer]") ?? document.body).style.getPropertyValue("--simulator-dock")'),
@@ -221,7 +207,6 @@ async function browserChecks() {
     springs(await frames("[data-slot=chat-dock]", "window.showChat(1, true)"), dockWidth, "opened by hand in the same Chat, it springs");
     lands(await frames("[data-slot=chat-dock]", "window.showChat(2, true)"), dockWidth, "the next Chat's dock lands too");
     await evaluate("window.showChat(0, false)");
-    // The Designs' and the Changes panel's way: they outlive the Chat, so the switch under way tells them.
     lands(await frames("[data-slot=dock]", 'window.chatSwitch.begin("/p#2"); window.openDock()'), dockWidth, "a dock opened by a Chat switch lands");
     leaves(await frames("[data-slot=dock]", 'window.chatSwitch.begin("/p#2"); window.setDock(false)'), dockWidth, "and one closed by it goes at once");
     const changesWidth = await width("[data-changes-slot]");
@@ -231,7 +216,6 @@ async function browserChecks() {
       "the changes panel closes at once in a switch",
     );
     lands(await frames("[data-changes-slot]", 'window.chatSwitch.begin("/p#2"); window.setChanges(true)'), changesWidth, "and opens at once in one");
-    // The switch ends a moment after its transcript is on screen; a Project switch (no ask) starts one all the same.
     await evaluate('window.chatSwitch.commit("/p#2")');
     await delay(500);
     springs(await frames("[data-changes-slot]", "window.setChanges(false)"), changesWidth, "closed by hand, the changes panel springs");

@@ -1,4 +1,3 @@
-// electron-builder runs afterPack before signing. Include the binary for the target, not the build machine.
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { installCloudflared, artifactFor } = require("../apps/daemon/src/cloudflared.cjs");
@@ -13,7 +12,6 @@ module.exports = async function packageCloudflared(context, options = {}) {
   await fs.mkdir(bin, { recursive: true, mode: 0o755 });
   const binary = path.join(bin, platform === "win32" ? "cloudflared.exe" : "cloudflared");
   await installCloudflared({ target: binary, artifact: options.artifact ?? artifactFor(platform, arch), download: options.download });
-  // Installed apps may be owned by an administrator; every app user must be able to run its bundled binary.
   await fs.chmod(binary, 0o755);
   await fs.copyFile(path.join(__dirname, "../licenses/cloudflared-LICENSE.txt"), path.join(bin, "cloudflared-LICENSE.txt"));
 };

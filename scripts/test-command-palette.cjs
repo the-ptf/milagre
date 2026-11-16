@@ -1,4 +1,3 @@
-// Real App, isolated IPC: keyboard routing, command dispatch, focus and responsive layout.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -67,7 +66,6 @@ async function browserChecks() {
   const window = new BrowserWindow({
     width: 1280,
     height: 760,
-    // Keep animation frames advancing under Xvfb, including reduced-motion dialog exits.
     show: true,
     webPreferences: { partition: "command-palette-test", backgroundThrottling: false },
   });
@@ -113,7 +111,6 @@ async function browserChecks() {
       await evaluate('document.querySelector("[data-sidebar-tools] [aria-label=\\"Command palette\\"]").getAttribute("aria-keyshortcuts").endsWith("+K")'),
       "Search sits in the top bar and names its shortcut",
     );
-    // A shown Xvfb window can open under the pointer; keep hover tooltips out of hint counts.
     window.webContents.sendInputEvent({ type: "mouseMove", x: 1000, y: 400 });
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length === 0');
     await key(modifierKey, modifier);
@@ -170,7 +167,6 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length > 0');
     await key("n", modifier);
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
-    // Let the new-chat animation frame finish focusing the composer before the next shortcut.
     await evaluate("new Promise(resolve => requestAnimationFrame(resolve))");
     assert.equal(await evaluate('document.querySelectorAll("[data-shortcut-hint]").length'), 0, "Executing a shortcut hides hints");
     await key("1", modifier);
@@ -186,7 +182,6 @@ async function browserChecks() {
     await evaluate('document.querySelector("[aria-label=\\\"Command palette\\\"]").focus()');
     await open();
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
-    // At rest a row's shortcut shows as plain ink-3 keys on the right; keycaps come only while the modifier is held.
     assert.ok(await evaluate('document.querySelectorAll("dialog [role=option] kbd").length > 0'), "Rows with a binding show their shortcut at rest");
     assert.equal(
       await evaluate('document.querySelectorAll("dialog kbd.shadow-btn").length'),
@@ -213,7 +208,6 @@ async function browserChecks() {
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Commit and open PR")'));
     await key("Tab");
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
-    // Nothing matches at all: one row offers a new Chat with the search as its draft.
     await search("missing-command-xyz");
     assert.deepEqual(
       await evaluate('[...document.querySelectorAll("dialog [role=option]")].map((option) => option.textContent.trim())'),
@@ -276,7 +270,6 @@ async function browserChecks() {
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Current")'), "Reopening shows the saved theme as current");
     await search("add palette");
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Add a command palette")'), "Search matches multiple words");
-    // No command, chat or project matches a typo'd word from a reply, so the palette searches what was said.
     await search("wranglr");
     await waitFor('!!document.querySelector("dialog [role=group][aria-label=Messages]")');
     assert.equal(await evaluate('document.querySelector("[aria-selected=true] mark").textContent'), "wrangler", "The matched word is marked");
@@ -311,7 +304,6 @@ async function browserChecks() {
       );
     }
     await screenshot("palette-light.png");
-    // Restore the full sidebar before later assertions on its selected Chat row.
     window.setContentSize(1280, 760);
     await search("appearance");
     await key("Enter");
@@ -333,7 +325,6 @@ async function browserChecks() {
     await key("Escape");
     await waitFor('!document.querySelector("dialog")');
     window.webContents.debugger.detach();
-    // A chat waiting on a question is not a modal: the shortcuts keep working over the card.
     await key("1", modifier);
     await waitFor('!!document.querySelector("[aria-current=page]")');
     await evaluate("window.agentEvent({ chatId: '/fixture#3', event: { type: 'turn-started' }, seq: 1 })");
@@ -346,7 +337,6 @@ async function browserChecks() {
     await screenshot("palette-over-question.png");
     await key("Escape");
     await waitFor('!document.querySelector("dialog")');
-    // A pick is the answer: the card goes at once, while the host still has it, and comes back if the agent refuses it.
     const questionShown = 'document.querySelector("[aria-label=\\"Agent question\\"]")?.getClientRects().length > 0';
     await evaluate(
       `[...document.querySelectorAll('[aria-label="Agent question"] button')].find((button) => button.textContent.includes("Review card")).click()`,
@@ -357,11 +347,9 @@ async function browserChecks() {
     await waitFor(questionShown);
     await key("n", modifier);
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
-    // A failed row action reports the cause in the actual App, with the Chat still present.
     await key("1", modifier);
     await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifierKey)}, bubbles: true }))`);
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]')?.click()`);
-    // One list rows have no ⋯ button: their menu opens on a right-click.
     await waitFor(`!!document.querySelector("[data-chat-id] [data-row]")`);
     await evaluate(`(() => {
       const row = document.querySelector("[data-chat-id]");
@@ -373,7 +361,6 @@ async function browserChecks() {
     await waitFor(`document.body.textContent.includes('Could not update Chat: Chat could not be saved: disk full')`);
     assert.ok(await evaluate('document.body.textContent.includes("Add a command palette")'));
     await screenshot("chat-action-failure.png");
-    // Triage an issue asks this Mac's host for a session and starts a new Chat with its draft, not sent.
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await open();
     await search("triage");
@@ -386,7 +373,6 @@ async function browserChecks() {
     assert.ok(await evaluate("window.calls.some((call) => Array.isArray(call) && call[0] === 'triage' && call[1].startsWith('Milagre desktop 1.2.3'))"));
     assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The triage draft waits in the composer, unsent");
     await screenshot("palette-triage.png");
-    // The new-chat row starts a Chat in the open Project with the search in the composer, not sent.
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await open();
     await search("zebra crossing notes");
@@ -399,8 +385,6 @@ async function browserChecks() {
     assert.ok(await evaluate('document.querySelector("[data-new-chat-heading]").textContent.includes("Start building in")'), "The new Chat names its Project");
     assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The search waits in the composer, unsent");
     await screenshot("palette-started-chat.png");
-    // The heading's Project dropdown lists the Projects with the open one checked; a pick switches to that Project and a
-    // switch that fails puts the draft back where it was typed.
     await evaluate("window.hideWebsite = true");
     await evaluate('document.querySelector("[data-new-chat-project]").click()');
     await waitFor('document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 2');

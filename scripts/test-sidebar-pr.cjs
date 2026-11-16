@@ -89,7 +89,6 @@ async function browserChecks() {
     await evaluate(
       `document.querySelector('[data-chat-pr]').dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }))`,
     );
-    // The card waits a moment for the pointer to reach it before closing.
     await waitFor('!document.querySelector("[data-chat-hover-card]")');
     const openColor = await evaluate('getComputedStyle(document.querySelector("[data-chat-pr] > span")).color');
     const geometry = await evaluate(`(() => {
@@ -111,7 +110,6 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-chat-pr]').dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))`);
     await waitFor('document.querySelector("[data-chat-hover-card]")?.textContent.includes("Ready to merge")');
     assert.ok(await evaluate('[...document.querySelectorAll("[role=tooltip]")].some(node => node.textContent === "Ready to merge · Pull request #10213")'));
-    // Capture the row and card with the pointer over the chat title, clear of the link tooltip.
     await evaluate(
       `document.querySelector('[data-chat-pr]').dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.querySelector('[data-row]') }))`,
     );
@@ -126,7 +124,6 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-chat-pr]").textContent.includes("Ready")');
     await evaluate("window.pr = { ...window.pr, hasConflicts: true }; window.refreshPR()");
     await waitFor('document.querySelector("[data-chat-pr]").textContent.includes("Conflicts")');
-    // The icon takes the fill tone and the word beside it the -ink shade, as on the phone.
     assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red")'), true);
     assert.equal(
       await evaluate(
@@ -225,7 +222,6 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-chat-pr]") && document.querySelector("aside").dataset.sidebarCollapsed === "false"');
     assert.equal(await evaluate('document.querySelector("[data-row]").getBoundingClientRect().height'), 32);
 
-    // A chat that made three PRs: the row shows the first and "+2", the card lists all of them.
     const prUrl = (n) => `https://github.com/example/project/pull/${n}`;
     await evaluate(`window.setMulti([
       { number: 84, url: "${prUrl(84)}", title: "Show the to-do pill", state: "MERGED", readyToMerge: false, hasConflicts: false },
@@ -258,7 +254,6 @@ async function browserChecks() {
       ["#84 · Show the to-do pillMerged", "#88 · Find text in the open chat", "#90 · Run a setup command in new worktreesConflicts"],
       "The card lists every PR in the order the chat made them, a merged one saying so",
     );
-    // Moving onto the card keeps it open past the grace period.
     await evaluate(
       `${thirdRow}.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.querySelector('[data-chat-hover-card]') }))`,
     );
@@ -274,7 +269,6 @@ async function browserChecks() {
     assert.deepEqual(opened.at(-1), prUrl(84), "A PR in the card opens externally");
     assert.equal(await evaluate("window.picks"), picksBefore, "Opening a PR from the card does not select the chat");
     await waitFor('!document.querySelector("[data-chat-hover-card]")');
-    // Leaving the card closes it after the grace period.
     await evaluate(`${thirdRow}.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))`);
     await waitFor('!!document.querySelector("[data-chat-hover-card]")');
     await evaluate(`${thirdRow}.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }))`);

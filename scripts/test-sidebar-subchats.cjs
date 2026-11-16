@@ -78,7 +78,6 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelector('[data-chat-id="1"]')`);
-    // A family starts folded: its parent alone.
     await check(["4", "1", "3"]);
     for (const mode of ["grouped", "list"]) {
       await evaluate(`window.setMode(${JSON.stringify(mode)})`);
@@ -99,7 +98,6 @@ async function browserChecks() {
       await delay(150);
       await check(["4", "1", "3"]);
     }
-    // "Detach from parent" is on a subchat's menu only.
     const menuLabels = async (id) => {
       await evaluate(
         `document.querySelector('[data-chat-id="${id}"]').dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 40, clientY: 40 }))`,

@@ -1,5 +1,3 @@
-// Real title components: running titles sweep for the whole call, pause for approval and stop when the call ends. The
-// sweep is a band (SweepText) animating transform only; the titles keep a static tint.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -44,13 +42,11 @@ async function browserChecks() {
     }
     throw Error(`Timed out: ${source}`);
   }
-  // The band and its counter are the only animations a running title has; the titles themselves only carry the tint.
   const motion = "document.getAnimations().filter(a => a.effect?.target?.matches?.('.sweep-band, .sweep-band-counter'))";
   const bands = "document.querySelectorAll('.sweep-band')";
   const titles = "document.querySelectorAll('.step-running:not(.sweep-band *)')";
   const titleMotion = "document.getAnimations().filter(a => a.effect?.target?.classList?.contains('step-running'))";
   const staticTitles = `${titles}.length > 0 && ${titleMotion}.length === 0 && [...${titles}].every(e => getComputedStyle(e).backgroundImage === 'none' && getComputedStyle(e).webkitTextFillColor === getComputedStyle(e).color)`;
-  // One band per title: its animations are transform-only, the band slides right and the counter left in lockstep.
   const oneBandEach = `[...${bands}].every(b => getComputedStyle(b).animationName === 'sweep-band' && getComputedStyle(b.firstElementChild).animationName === 'sweep-band-counter' && b.closest('.relative')?.querySelectorAll('.sweep-band').length === 1)`;
   async function capture(name) {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
@@ -72,7 +68,6 @@ async function browserChecks() {
       true,
       "only transform animates",
     );
-    // The copy is inert and hidden from assistive tech; it lines up with the title and truncates like it.
     assert.equal(
       await evaluate(
         `(() => { const b = document.querySelector('.sweep-band'); const copy = b.querySelector('.sweep-band-copy'); const title = b.parentElement; const t = title.getBoundingClientRect(); const c = copy.getBoundingClientRect(); return b.inert && b.getAttribute('aria-hidden') === 'true' && Math.abs(t.width - c.width) < 0.5 && getComputedStyle(copy).textOverflow === 'ellipsis' && getComputedStyle(copy).whiteSpace === 'nowrap'; })()`,
@@ -86,11 +81,9 @@ async function browserChecks() {
       "the copy's chip carries no fill",
     );
     await capture("sweeping");
-    // Pause both halves at the same phase, with a window's peak about 40px into the title, so the shot shows it on the text.
     await evaluate(`${motion}.forEach(a => { a.pause(); a.currentTime = 650; })`);
     await delay(150);
     await capture("band");
-    // The copy stays put while the window moves: band + counter cancel out.
     assert.equal(
       await evaluate(
         `(() => { const b = document.querySelector('.sweep-band'); const copy = b.querySelector('.sweep-band-copy'); return Math.abs(copy.getBoundingClientRect().left - b.parentElement.getBoundingClientRect().left) < 1; })()`,
@@ -100,14 +93,12 @@ async function browserChecks() {
     );
     await evaluate(`${motion}.forEach(a => a.play())`);
 
-    // Long calls keep sweeping, and ordinary renders do not restart the loop.
     await delay(2600);
     assert.equal(await evaluate(`${motion}.length`), 2, "still sweeping after two periods");
     const first = await evaluate(`${motion}[0].currentTime`);
     await evaluate("window.rerender()");
     assert.ok(await evaluate(`${motion}[0].currentTime >= ${first}`), "ordinary renders do not restart");
 
-    // Approval stops the sweep; the answer resumes it. Old hosts without a start time sweep too.
     await evaluate("window.wait(true)");
     await waitFor(`${bands}.length === 0 && ${titles}.length === 0`);
     await evaluate("window.wait(false)");
@@ -115,14 +106,11 @@ async function browserChecks() {
     await evaluate("window.start(0, false)");
     await waitFor(`${motion}.length === 2`);
 
-    // The folded header and its expansion sweep together, code spans included.
     await evaluate("window.folded(true); window.start(3000)");
     await waitFor("!!document.querySelector('[data-slot=activity]')");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");
     await waitFor(`${titles}.length === 4 && ${bands}.length === 2 && ${motion}.length === 4`);
     assert.equal(await evaluate(oneBandEach), true, "summary and row each carry one band");
-    // Parked rows retain their DOM and animation phase, but do no hidden sweep
-    // work. The summary stays live and opening the fold resumes the same loops.
     await evaluate(`window.rowSweeps = ${motion}.filter(a => a.effect.target.closest('[data-slot=activity-body]'))`);
     assert.equal(await evaluate("window.rowSweeps.length"), 2, "band and counter in the mounted body");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");

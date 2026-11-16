@@ -1,6 +1,4 @@
 // Real Electron checks for linking an existing Worktree to a Linear issue from the sidebar row: the row menu's
-// "Link issue…" (only when Linear is on and the chat has its own Worktree), "Unlink issue" for a stored
-// link, and the hover card's hint when the branch doesn't name the key. MILAGRE_SCREENSHOT_DIR saves images outside the repo.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -80,7 +78,6 @@ async function checks(url) {
     throw new Error("Timed out: " + source);
   }
   const rowEl = (id) => `document.querySelector('[data-row="${id}"]')`;
-  // Opens a row's ⋮ menu and returns the labels of its items.
   async function openMenu(id) {
     await evaluate(`${rowEl(id)}.querySelector('button[aria-haspopup="menu"]').click()`);
     await waitFor(`!!document.querySelector('[data-chat-menu]')`);
@@ -90,7 +87,6 @@ async function checks(url) {
     await evaluate(`document.querySelector('[data-chat-menu]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await waitFor(`!document.querySelector('[data-chat-menu]')`);
   }
-  // A pointer entering the row opens its hover card after the delay.
   async function hover(id) {
     await evaluate(`${rowEl(id)}.firstElementChild.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))`);
     await delay(700);
@@ -106,7 +102,6 @@ async function checks(url) {
     if (details.level === "error") errors.push(details.message);
   });
   try {
-    // Linear off: no link or unlink item on any row.
     await window.loadURL(url + "?linear=off");
     await waitFor(`!!document.querySelector('[data-row="chat-link"]')`);
     const offLabels = await openMenu("chat-link");
@@ -116,7 +111,6 @@ async function checks(url) {
     await window.loadURL(url + "?linear=on");
     await waitFor(`!!document.querySelector('[data-row="chat-link"]')`);
 
-    // The main checkout offers neither item.
     const mainLabels = await openMenu("chat-main");
     assert.equal(
       mainLabels.some((label) => /Linear issue/.test(label)),
@@ -125,13 +119,11 @@ async function checks(url) {
     );
     await closeMenu();
 
-    // An own Worktree with no link offers Link, not Unlink.
     const linkLabels = await openMenu("chat-link");
     assert.equal(linkLabels.includes("Link issue…"), true, "Link is offered for an own Worktree");
     assert.equal(linkLabels.includes("Unlink issue"), false);
     await screenshot("link-menu");
 
-    // Picking an issue in the picker hands its key to the link action for this chat.
     await evaluate(`[...document.querySelectorAll('[data-chat-menu] [data-menu-row]')].find((el) => el.textContent.trim() === 'Link issue…').click()`);
     await waitFor(`document.querySelectorAll('[data-linear-link-picker] [data-linear-issue-row]').length === 2`);
     assert.equal(await evaluate(`!!document.querySelector('[data-linear-link-picker] [data-linear-logo]')`), true, "picker rows show Linear's mark");
@@ -140,7 +132,6 @@ async function checks(url) {
     await waitFor(`!document.querySelector('[data-linear-link-picker]')`);
     assert.deepEqual(await evaluate(`window.__link`), [{ id: "chat-link", key: "ENG-2" }], "picking calls the link action with the chat and key");
 
-    // A stored link offers Unlink instead of Link, and Unlink calls the unlink action.
     const storedLabels = await openMenu("chat-stored");
     assert.equal(storedLabels.includes("Unlink issue"), true, "Unlink is offered for a stored link");
     assert.equal(storedLabels.includes("Link issue…"), false, "Link is replaced by Unlink");
@@ -148,7 +139,6 @@ async function checks(url) {
     await waitFor(`window.__unlink.length === 1`);
     assert.deepEqual(await evaluate(`window.__unlink`), [{ id: "chat-stored" }]);
 
-    // A shared Worktree offers neither Link nor Unlink, even with a stored key.
     const sharedLabels = await openMenu("chat-shared");
     assert.equal(
       sharedLabels.some((label) => /Linear issue/.test(label)),
@@ -157,12 +147,10 @@ async function checks(url) {
     );
     await closeMenu();
 
-    // The picker opened from a row near the bottom of the window stays inside it.
     await evaluate(`${rowEl("chat-low")}.scrollIntoView({ block: 'end' })`);
     await openMenu("chat-low");
     await evaluate(`[...document.querySelectorAll('[data-chat-menu] [data-menu-row]')].find((el) => el.textContent.trim() === 'Link issue…').click()`);
     await waitFor(`document.querySelectorAll('[data-linear-link-picker] [data-linear-issue-row]').length === 2`);
-    // The picker moves once its height is known, a frame after the rows appear, so wait for it to settle.
     await waitFor(
       `(() => { const box = document.querySelector('[data-linear-link-picker]').getBoundingClientRect(); return box.top >= 0 && box.bottom <= window.innerHeight; })()`,
     );
@@ -172,7 +160,6 @@ async function checks(url) {
     await evaluate(`document.querySelector('[data-linear-link-picker] [data-linear-issue-row] button')?.click()`);
     await waitFor(`!document.querySelector('[data-linear-link-picker]')`);
 
-    // The hover card hints when the branch doesn't name the stored key, and not when it does.
     await hover("chat-stored");
     assert.equal(
       await evaluate(`document.querySelector('[data-chat-card-link-hint]')?.textContent`),

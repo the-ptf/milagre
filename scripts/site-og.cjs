@@ -1,5 +1,3 @@
-// Renders apps/site/public/og.png (1200 × 630) on Dawn's day sky, with the real demo recordings at the approval moment,
-// so the link preview matches the page. Run after re-recording: node scripts/site-og.cjs
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -8,8 +6,8 @@ const { execFileSync, spawn } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 const site = path.join(root, "apps/site");
 const out = path.join(site, "public/og.png");
-const AT = "6.5"; // seconds into the recordings: both show the approval card
-const SCALE = 2; // rendered at 2x, then downscaled for crisp text
+const AT = "6.5";
+const SCALE = 2;
 
 function frame(video, file) {
   execFileSync("ffmpeg", ["-v", "error", "-y", "-ss", AT, "-i", path.join(site, "public/demo", video), "-frames:v", "1", file]);
@@ -17,7 +15,6 @@ function frame(video, file) {
 }
 const font = (file) => `data:font/woff2;base64,${fs.readFileSync(require.resolve(file, { paths: [root] })).toString("base64")}`;
 
-// The logo's legs and sparkle (StartupSplash), drawn as the landing hero draws them on Dawn's day sky.
 const LEFT =
   "M49.6983 66.5562L21.6836 116.174C19.802 119.507 22.2098 123.632 26.0372 123.632H39.9727L54.9727 100.132L66.9727 119.632L51.9727 144.132H26.0372C6.24066 144.132 -6.29344 122.89 3.27837 105.561L30.9405 55.4819L49.6983 66.5562Z";
 const RIGHT =
@@ -25,7 +22,6 @@ const RIGHT =
 const STAR =
   "M69.528 1.96636C71.0759 -0.655453 74.869 -0.655453 76.4169 1.96636L91.0103 26.6837C91.3538 27.2656 91.8392 27.751 92.4211 28.0945L117.138 42.6879C119.76 44.2358 119.76 48.0289 117.138 49.5768L92.4211 64.1702C91.8392 64.5137 91.3538 64.9991 91.0103 65.581L76.4169 90.2983C74.869 92.9201 71.0759 92.9201 69.528 90.2983L54.9347 65.581C54.5911 64.9991 54.1057 64.5137 53.5238 64.1702L28.8065 49.5768C26.1847 48.0289 26.1847 44.2358 28.8065 42.6879L53.5238 28.0945C54.1057 27.751 54.5911 27.2656 54.9347 26.6837L69.528 1.96636Z";
 
-// Soft clouds along the bottom, from the same seeded banks the hero uses (apps/site/src/dawn.ts), drawn for 1200 wide.
 function clouds() {
   let seed = 0;
   const random = () => {

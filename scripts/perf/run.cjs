@@ -1,7 +1,4 @@
-// Repeatable desktop performance runs against the built app and a scripted `claude`. See scripts/perf/README.md.
 //   npm run build:renderer --workspace milagre
-//   node scripts/perf/run.cjs idle|stream|code|soak [--seconds n] [--turns n] [--state <.milagre>] [--out file]
-//   node scripts/perf/run.cjs compare before.json after.json
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -63,7 +60,6 @@ function git(cwd, ...args) {
   execFileSync("git", args, { cwd, stdio: "ignore" });
 }
 
-/** A throwaway repository with one Claude Chat, or a copy of `state` with every Worktree on a path of its own. */
 function seedRepo(work, state) {
   const repo = path.join(work, "repo");
   const data = path.join(repo, ".milagre");
@@ -76,7 +72,6 @@ function seedRepo(work, state) {
   if (!state) {
     const worktree = { id: 1, project_id: 1, path: repo, name: "main" };
     const chat = { id: 2, worktree_id: 1, agent_name: "main", status: "Created", provider: "claude", generatedTitle: "Perf run" };
-    // A Chat without messages stays out of the sidebar. The host moves these into chats.db on its first read.
     const messages = [
       { id: 3, session_id: 2, role: "user", body: "Perf run" },
       { id: 4, session_id: 2, role: "assistant", body: "Ready.", model: "claude-perf" },
@@ -100,7 +95,6 @@ function seedRepo(work, state) {
       git(repo, "worktree", "add", "-q", "-b", `perf-${worktree.id}`, worktree.path);
     }
   }
-  // Without this a copied Chat would try to resume its real provider session.
   for (const chat of Object.values(copy.sessions)) delete chat.native_session_id;
   fs.writeFileSync(file, JSON.stringify(copy));
   return repo;
@@ -123,7 +117,6 @@ const kindOf = (command) => {
   return /fake-claude/.test(command) ? "stub" : "main";
 };
 
-/** This run's processes. The scratch directory is unique and in every one's command line, so nothing else matches. */
 function processes(work) {
   const rows = execFileSync("ps", ["-Ao", "pid=,time=,rss=,command="], { encoding: "utf8", maxBuffer: 1e8 }).split("\n");
   return rows.flatMap((row) => {
@@ -141,7 +134,6 @@ const cpuByKind = (rows) => {
   return totals;
 };
 
-/** Resident memory per process kind, in MB. */
 const rssByKind = (rows) => {
   const totals = {};
   for (const row of rows) totals[row.kind] = (totals[row.kind] ?? 0) + row.rss;
@@ -181,14 +173,12 @@ async function memory(page, work) {
   };
 }
 
-/** Composited layers in the window and the pixels they cover: each one is a GPU texture. */
 async function layers(page) {
   let tree = null;
   page.onEvent("LayerTree.layerTreeDidChange", (params) => {
     if (params.layers) tree = params.layers;
   });
   await page.call("LayerTree.enable");
-  // The tree arrives with the next committed frame; nudge one in case nothing is animating.
   await page.evaluate(
     `(() => { const probe = document.createElement("div"); document.body.append(probe); requestAnimationFrame(() => requestAnimationFrame(() => probe.remove())); })()`,
   );
@@ -228,7 +218,6 @@ const FRAME_PROBE = `(() => {
   requestAnimationFrame(tick);
 })()`;
 
-/** Main-thread work so far: style recalcs and layouts (about one per frame the page draws) and task time in ms. */
 async function mainThreadMetrics(page) {
   const { metrics } = await page.call("Performance.getMetrics");
   const value = (name) => metrics.find((metric) => metric.name === name)?.value ?? 0;
@@ -267,7 +256,6 @@ async function turn(page, work, kind, number, seconds) {
   await until(() => page.evaluate(`document.body.innerText.includes(${JSON.stringify(firstText)})`), `first text of turn ${number}`, 120000);
   const firstTextMs = Date.now() - sent;
   await until(() => fs.existsSync(path.join(work, "marks", `turn-${number}-end`)), `end of turn ${number}`, (seconds + 60) * 1000);
-  // The last batch and its settled highlight land just after the stub's result.
   await delay(1500);
   return firstTextMs;
 }
@@ -281,7 +269,6 @@ async function scenario(name, page, work, options, browser) {
     return { cpuPercent: cpuPercent(before, cpuByKind(after), seconds), rssMb: rssByKind(after), ...(await memory(page, work)) };
   }
   const kind = name === "code" ? "code" : name === "tool" ? "tool" : "mix";
-  // The probe's requestAnimationFrame loop asks for a frame every vsync itself, which hides what idle frames cost.
   if (!options.noFrames) await page.evaluate(FRAME_PROBE);
   if (name === "soak") {
     if (options.heap) await heapSnapshot(page, `${options.heap}-before.heapsnapshot`);
@@ -355,7 +342,6 @@ async function scenario(name, page, work, options, browser) {
   const elapsed = (Date.now() - started) / 1000;
   const cpu = cpuPercent(cpuBefore, cpuByKind(processes(work)), elapsed);
   if (process.env.PERF_SHOT) {
-    // The window at the end of the reply, then scrolled up a little, for a visual check of a change.
     const shot = async (file) => fs.writeFileSync(file, Buffer.from((await page.call("Page.captureScreenshot", { format: "png" })).data, "base64"));
     await shot(`${process.env.PERF_SHOT}-end.png`);
     await page.evaluate(`document.querySelector(".message-scroller-viewport").scrollBy(0, -240)`);
@@ -375,16 +361,13 @@ async function scenario(name, page, work, options, browser) {
 }
 
 async function stop(browser, app, work) {
-  // The browser exits instead of answering, so this call never settles.
   void browser?.call("Browser.close").catch(() => {});
   if (app && app.exitCode === null) await Promise.race([once(app, "exit"), delay(5000)]);
   for (const signal of ["SIGTERM", "SIGKILL"]) {
     for (const row of processes(work)) {
       try {
         process.kill(row.pid, signal);
-      } catch {
-        // Already gone.
-      }
+      } catch {}
     }
     await delay(1500);
   }
@@ -447,7 +430,6 @@ async function run(name, options) {
     );
     await until(() => page.evaluate(`!!document.querySelector('[contenteditable=true][aria-label="Prompt"]')`), "the composer");
     if (options.newChat) {
-      // A new Chat's page: what a window left open between tasks usually shows.
       const key = { key: "n", code: "KeyN", windowsVirtualKeyCode: 78, modifiers: process.platform === "darwin" ? 4 : 2 };
       await page.call("Input.dispatchKeyEvent", { type: "keyDown", ...key });
       await page.call("Input.dispatchKeyEvent", { type: "keyUp", ...key });

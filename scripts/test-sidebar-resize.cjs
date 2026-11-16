@@ -1,4 +1,3 @@
-// Browser check: dragging the sidebar's right edge resizes it, clamps, persists, and resets.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -36,7 +35,6 @@ async function browserChecks() {
   });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   let dragging = false;
-  // Only moves during a drag carry leftButtonDown; the positioning move has no pressed button.
   const mouse = (type, x, y) => {
     window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1, modifiers: type === "mouseMove" && dragging ? ["leftButtonDown"] : [] });
     if (type === "mouseDown") dragging = true;
@@ -62,8 +60,6 @@ async function browserChecks() {
     evaluate(
       '(() => { const r = document.querySelector("[aria-label=\\"Resize sidebar\\"]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()',
     );
-  // Queueing mouseUp is not its commit: React can apply it later, starting a width transition. Wait for
-  // persistence, the exact rendered width and the transition's end before reading or targeting the next handle.
   const settled = (expected, saved = String(expected)) =>
     waitFor(`(() => {
     const aside = document.querySelector("aside");
@@ -101,7 +97,6 @@ async function browserChecks() {
     assert.equal(await width(), 224, "starts at the default width");
     await screenshot("default");
     {
-      // Mid-drag, so the edge line shows.
       const { x, y } = await handle();
       mouse("mouseDown", x, y);
       await waitFor('document.body.style.cursor === "col-resize"');
@@ -156,7 +151,6 @@ async function browserChecks() {
     await key("End", 420);
     await key("Home", 224);
     await drag(0, 224);
-    // Longer than the former 400ms sleep, then no motion: both paths must settle without a transitionend dependency.
     await evaluate('document.documentElement.style.setProperty("--motion-scale", "4")');
     await key("End", 420);
     await evaluate('document.querySelector("[aria-label=\\"Collapse sidebar\\"]").click()');

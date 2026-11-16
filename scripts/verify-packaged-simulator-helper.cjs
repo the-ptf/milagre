@@ -1,4 +1,3 @@
-// Launch the installed helper from its real unpacked path; source node_modules cannot satisfy imports.
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { once } = require("node:events");

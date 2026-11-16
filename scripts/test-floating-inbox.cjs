@@ -1,4 +1,3 @@
-// Floating inbox interaction check with the real renderer and isolated data.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -43,7 +42,6 @@ async function browserChecks() {
   await app.whenReady();
   const window = new BrowserWindow({ width: 464, height: 820, show: false, webPreferences: { backgroundThrottling: false } });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
-  // Sample rendered frames instead of assuming the compositor has painted after a fixed 45ms.
   const sample = (read, trigger) =>
     evaluate(`new Promise(resolve => {
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -362,7 +360,6 @@ async function browserChecks() {
     assert.equal(await evaluate("document.querySelector('[aria-label=\"15 more Chats. Open inbox\"]').textContent.trim()"), "+15");
     await click('[aria-label="15 more Chats. Open inbox"]');
     assert.equal(await evaluate("window.toggled"), true, "overflow opens the inbox containing all Chats");
-    // The floating inbox follows the theme (decision 15): the thumb is the theme's ink.
     assert.equal(
       await evaluate(
         `(()=>{const thumb=document.querySelector("[data-position-thumb]");const probe=document.createElement('span');probe.style.color='var(--ink)';thumb.parentElement.append(probe);const ink=getComputedStyle(probe).color;probe.remove();return getComputedStyle(thumb).backgroundColor===ink&&ink!=='rgba(0, 0, 0, 0)'})()`,
@@ -374,7 +371,6 @@ async function browserChecks() {
     assert.equal(await evaluate('document.querySelector("[data-inbox-count]").textContent.trim()'), "20 of 20");
     assert.equal(await evaluate('document.querySelectorAll("[data-position-track]").length'), 1);
     assert.equal(await evaluate('document.querySelector("[data-position-track]").getBoundingClientRect().width'), 100);
-    // At the last message the 24px thumb sits at the end of the 100px track.
     assert.equal(await evaluate('new DOMMatrix(getComputedStyle(document.querySelector("[data-position-thumb]")).transform).m41'), 76);
     await jump(10, 20);
     assert.equal(await evaluate('document.querySelector("[data-inbox-count]").textContent.trim()'), "10 of 20");

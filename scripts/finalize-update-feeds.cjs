@@ -1,5 +1,3 @@
-// Signing/stapling can change installers after electron-builder writes its feeds.
-// Refresh hashes only after signing, or verify the complete staged release with --check.
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
@@ -27,8 +25,6 @@ async function main() {
     windows: [[beta ? "beta.yml" : "latest.yml"], [`Milagre-Setup-${v}-x64.exe`]],
     linux: [[beta ? "beta-linux.yml" : "latest-linux.yml"], [`Milagre-${v}-x86_64.AppImage`, `Milagre-${v}-amd64.deb`, `Milagre-${v}-x86_64.rpm`]],
   };
-  // A stable rebuilds the newest beta's commit, which beta installs already run: a beta feed on it would offer them a
-  // second download of the same code.
   const betaFeeds = { macos: "beta-mac.yml", windows: "beta.yml", linux: "beta-linux.yml" };
   for (const platform of selected)
     if (!beta && fs.existsSync(path.resolve(options.artifacts, betaFeeds[platform])))

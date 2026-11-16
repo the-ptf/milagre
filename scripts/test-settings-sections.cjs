@@ -1,8 +1,4 @@
 // Settings sections in Electron, inside the Settings modal: Church lists only Floating inbox, Ultracode Fatality, Delegate
-// Device notes and New Chat stats; Integrations holds the Babysit PRs row, which opens its own page; Phone & sharing holds Published pages
-// (Designs are always on); This Mac holds Drive other computers, which tells main each time it flips; Notifications holds the chime picker
-// (picking one saves and plays it; the replay button plays it again). The legacy sidebar switch is gone everywhere. Search settings (⌘F) finds sections and rows
-// and opens a row lit up.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -151,10 +147,7 @@ async function browserChecks() {
     await openSection("Chat");
     assert.equal(await evaluate(`!!${stats}`), false, "New Chat stats no longer belongs to Chat");
     await openSection("Appearance");
-    // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
-    // The mini window preview shows where each row applies: hovering a row highlights its region.
     await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
-    // Settings is a modal <dialog>: the × and Esc (the dialog's cancel) both ask to close it.
     assert.equal(await evaluate(`document.querySelector('dialog[data-settings-modal]').open`), true);
     await evaluate(`document.querySelector('dialog[data-settings-modal] button[aria-label="Close Settings"]').click()`);
     await waitFor(`window.settingsCloseCalls === 1`);
@@ -181,7 +174,6 @@ async function browserChecks() {
       evaluate(
         `[...document.querySelectorAll('[role="listbox"] [role="option"]')].find((o) => o.textContent.trim().startsWith(${JSON.stringify(text)})).click()`,
       );
-    // Custom chat width: a px field beside the menu; Enter commits, blur clamps, Escape restores.
     assert.equal(await evaluate(`!!document.querySelector('input[aria-label="Custom chat width in pixels"]')`), false, "no px field until Custom");
     await openMenu("Chat width");
     await pick("Custom");
@@ -206,7 +198,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem("milagre-settings")).appearance.chatWidthPx`), 2400, "Escape saves nothing");
     await evaluate(`document.querySelector('button[aria-label="Chat width"]').scrollIntoView({ block: "center" })`);
     await screenshot("width");
-    // Wide: the preview's chat column is 1024 css px before the scale, labelled, and stays highlighted after the change.
     await openMenu("Chat width");
     await pick("Wide");
     await waitFor(`${region("width")}.offsetWidth === 1024`);
@@ -254,7 +245,6 @@ async function browserChecks() {
     await evaluate(`document.querySelector('button[aria-label="Interface font"]').click()`);
     await waitFor(`!document.querySelector('[role="listbox"]')`);
     await screenshot("appearance");
-    // Sticky: scrolled down to Motion, the preview is still on screen.
     await evaluate(`document.querySelector('button[aria-label="Panel animations"]').scrollIntoView({ block: "end" })`);
     await delay(100);
     const previewBox = await evaluate(
@@ -262,14 +252,12 @@ async function browserChecks() {
     );
     assert.ok(previewBox.top >= 0 && previewBox.bottom <= previewBox.height, `the preview stays in view: ${JSON.stringify(previewBox)}`);
     await screenshot("preview-sticky");
-    // Panel animations replays the Changes panel in the preview, which then closes again.
     await openMenu("Panel animations");
     await pick("Fast");
     await waitFor(`!!document.querySelector("[data-preview-panel]")`);
     await delay(400);
     await screenshot("preview-motion");
     await waitFor(`!document.querySelector("[data-preview-panel]")`);
-    // Full: the column fills the miniature and the markers say so.
     await openMenu("Chat width");
     await pick("Full");
     await waitFor(`${region("width")}.textContent.includes("Full")`);
@@ -282,11 +270,9 @@ async function browserChecks() {
     await openMenu("Provider icons");
     await pick("Original");
     await waitFor(`!!document.querySelector("[data-provider-logo=codex] linearGradient")`);
-    // Sidebar usage left Appearance: Settings › General › Show in sidebar picks Meters or Compact meters.
     assert.equal(await evaluate(`!!document.querySelector('main [aria-label="Sidebar usage"]')`), false);
     await openSection("Church");
     await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`);
-    // Routines have no switch: every computer runs them.
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
@@ -330,7 +316,6 @@ async function browserChecks() {
       "settings that graduated are not in Church",
     );
     await screenshot("experimental");
-    // Babysit PRs left Church for Integrations: a row that opens its own page; Back returns to Integrations.
     assert.equal(await evaluate(`!!document.querySelector("main [data-babysit-prs-row]")`), false, "Babysit PRs is not in Church");
     await openSection("Integrations");
     const babysitRow = `document.querySelector("main [data-babysit-prs-row]")`;
@@ -369,7 +354,6 @@ async function browserChecks() {
     );
     assert.equal(await evaluate(`document.querySelector('main [data-babysit-level="3"]').textContent.includes("Default")`), true);
     assert.equal(await evaluate(`document.querySelector('main [role="radio"][aria-checked="true"]').value`), "3");
-    // Switches, chips, levels and stop rules save at once; a number rule sends its whole object.
     await evaluate(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').click()`);
     await waitFor(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "true"`);
     await evaluate(`[...document.querySelectorAll('main [aria-pressed]')].find((b) => b.textContent === "Branch behind base").click()`);
@@ -387,7 +371,6 @@ async function browserChecks() {
     ]);
     await evaluate(`document.querySelector("main h1").scrollIntoView({ block: "start" })`);
     await screenshot("babysit-prs-top");
-    // Typed fields save once, shortly after typing stops, and show Saved under the instructions.
     const typeInto = (selector, text) =>
       evaluate(
         `(() => { const field = document.querySelector(${JSON.stringify(selector)}); field.focus(); const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, "value").set.call(field, ${JSON.stringify(text)}); field.dispatchEvent(new Event("input", { bubbles: true })); })()`,
@@ -396,13 +379,11 @@ async function browserChecks() {
     await typeInto('main textarea[aria-label="Your instructions"]', "Run bun check before every push. Never force-push.");
     await waitFor(`!!document.querySelector("main [data-saved]")`);
     assert.deepEqual(await evaluate("window.babysitSaves.slice(5)"), [{ instructions: "Run bun check before every push. Never force-push." }]);
-    // Blur saves the own rule at once.
     await typeInto('main input[aria-label="Your own rule"]', "The PR gets the do-not-merge label");
     await evaluate(`document.querySelector('main input[aria-label="Your own rule"]').blur()`);
     await waitFor(`window.babysitSaves.length === 7`);
     assert.deepEqual(await evaluate("window.babysitSaves[6]"), { ownRuleText: "The PR gets the do-not-merge label" });
     await screenshot("babysit-prs");
-    // A save the host refuses goes back and says why; typed text stays and shows Not saved.
     const resolveSwitch = `document.querySelector('main [role="checkbox"][aria-label="Resolve threads it answered"]')`;
     const pageText = `document.querySelector("main [data-babysit-prs-page]").textContent`;
     await evaluate(`window.failBabysitSave = true; ${resolveSwitch}.click()`);
@@ -418,7 +399,6 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector("main [data-saved]")`);
     assert.equal(await evaluate(`${pageText}.includes("Daemon is not running") || ${pageText}.includes("Not saved")`), false, "a later save clears the error");
     assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Never force-push. Keep one commit per round." });
-    // Reset while a field is focused and half typed: the typed text is dropped and the field shows the default.
     await typeInto('main textarea[aria-label="Your instructions"]', "Half typed");
     const savesBeforeReset = await evaluate("window.babysitSaves.length");
     await evaluate(`document.querySelector("main [data-babysit-reset]").click()`);
@@ -431,17 +411,14 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('main input[aria-label="Your own rule"]')`), false, "reset turns Your own rule off");
     await evaluate(`document.querySelector('main button[aria-label="Back to Integrations"]').click()`);
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Integrations"`);
-    // Typing then going Back at once still saves the text.
     await evaluate(`${babysitRow}.click()`);
     await waitFor(`!!document.querySelector('main textarea[aria-label="Your instructions"]')`);
     await typeInto('main textarea[aria-label="Your instructions"]', "Report checks that fail outside this PR.");
     await evaluate(`document.querySelector('main button[aria-label="Back to Integrations"]').click()`);
     await delay(100);
-    // Well inside the 500 ms debounce: leaving the page saved it, not the timer.
     assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Report checks that fail outside this PR." });
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Integrations"`);
     assert.equal(await evaluate(`!!${babysitRow}`), true, "Back returns to Integrations");
-    // Designs are always on: Phone & sharing lists Published pages with no Designs switch; the Milagre MCP moved to MCP servers.
     await openSection("Phone & sharing");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
     assert.equal(await evaluate(`!!document.querySelector('main [role="checkbox"][aria-label="Designs"]')`), false, "Designs can't be turned off");
@@ -471,7 +448,6 @@ async function browserChecks() {
         "no legacy sidebar switch in " + label,
       );
     }
-    // Drive other computers is on This Mac's page, the nav row named after the computer.
     await evaluate(
       `[...document.querySelectorAll('[aria-label="Settings navigation"] button')].find((b) => /\\(this (Mac|computer)\\)$/.test(b.textContent.trim())).click()`,
     );
@@ -546,8 +522,6 @@ async function browserChecks() {
     assert.match(await evaluate("window.played[2]"), /^chime_bombastic_side_eye/);
     await screenshot("notifications");
 
-    // Search: ⌘F focuses the field at the top of the nav; results replace the sections, name the section and card, and
-    // Return opens the first one with its row lit up; Escape clears the query and brings the sections back.
     const searchField = `document.querySelector('[data-settings-search]')`;
     const typeSearch = (text) =>
       evaluate(
@@ -583,8 +557,6 @@ async function browserChecks() {
     await searchKey("Escape");
     await waitFor(`${searchField}.value === ""`);
     await waitFor(`[...document.querySelectorAll('aside button')].some((button) => button.textContent.trim() === "Usage")`);
-    // Worktrees opens cleanup inside Settings' React tree, even though its dialog portals to the body.
-    // Native Escape must dismiss only idle cleanup, preserve busy cleanup, and leave Stop usable.
     await openSection("Worktrees");
     await evaluate(`window.unmountSettingsOnClose = true`);
     const closeCalls = await evaluate("window.settingsCloseCalls");

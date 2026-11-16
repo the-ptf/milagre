@@ -1,4 +1,3 @@
-// Inter and every catalog family render from the embedded faces, with the advances designTextLayout assumes.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
@@ -9,7 +8,6 @@ async function check() {
   const { DESIGN_CATALOG_FAMILIES, designCatalogFont, designHtml, designTextLayout, loadDesignFonts, validateDesignDocument } =
     await import("../packages/shared/src/design.mjs");
   const sample = "The quick brown fox jumps over the lazy dog. Reservations 0123456789 · Filter and sort — it’s “quoted” café € 5 → 6…";
-  // 450 and 650 sit between measured weights: they must render with the face the layout measured, not CSS's heavier pick.
   const weights = [400, 450, 500, 600, 650, 700];
   const nodes = weights.map((fontWeight, index) => ({
     id: `w${fontWeight}`,
@@ -26,7 +24,6 @@ async function check() {
   try {
     await window.loadURL(`data:text/html;base64,${Buffer.from(designHtml(document)).toString("base64")}`);
     await window.webContents.executeJavaScript("document.fonts.ready");
-    // document.fonts.check() also passes when Inter is installed system-wide, so inspect the declared faces themselves.
     const faces = await window.webContents.executeJavaScript(
       `[...document.fonts].map((face) => ({ family: face.family.replace(/["']/g, ""), weight: face.weight, status: face.status }))`,
     );
@@ -47,7 +44,6 @@ async function check() {
     }
     console.log("PASS: embedded Inter renders at the measured widths");
 
-    // Every measured weight of every catalog family, loaded on demand and embedded like Inter.
     const catalogNodes = DESIGN_CATALOG_FAMILIES.flatMap((family) =>
       designCatalogFont(family).weights.map((fontWeight) => ({ id: `${family}-${fontWeight}`.replace(/\W+/g, "-"), family, fontWeight })),
     ).map(({ id, family, fontWeight }, index) => ({
@@ -63,7 +59,6 @@ async function check() {
     }));
     const catalog = validateDesignDocument({ schemaVersion: 1, width: 3200, height: catalogNodes.length * 30, nodes: catalogNodes });
     await loadDesignFonts(catalog);
-    // Every face at once is too large for a data URL.
     const page = path.join(app.getPath("userData"), "catalog.html");
     require("node:fs").writeFileSync(page, designHtml(catalog));
     await window.loadFile(page);

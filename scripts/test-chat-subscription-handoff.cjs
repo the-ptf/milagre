@@ -1,4 +1,3 @@
-// Real React commits with production desktop/mobile paging hooks; only the network is scripted.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");

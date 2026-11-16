@@ -1,6 +1,4 @@
 // Electron check of the Changes panel's PR tab: its header and merge button, checks status, reviewers and labels with
-// their pickers, comment cards, the Files tab, the PR's diff with a GitHub thread, adding to the review and submitting
-// it. window.milagre.pr is a stub.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -133,7 +131,6 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-open-pr]")');
     await click("[data-open-pr]");
 
-    // The panel opens on the PR's tab, beside the Changes tab and the Chat's other PR.
     await waitFor('!!document.querySelector("[data-pr-identity]")');
     const selected = (key) => evaluate(`document.querySelector('[data-changes-tab="${key}"]')?.getAttribute("aria-selected") ?? null`);
     assert.equal(await selected("pr:673"), "true");
@@ -142,7 +139,6 @@ async function browserChecks() {
     assert.match(await text("[data-pr-link]"), /the-ptf\/milagre\s*#673/);
     assert.equal(await text("[data-pr-merge]"), "Merge", "A ready PR gets the Merge button");
 
-    // Summary | Files 2, with the checks status and its bar beside them.
     assert.equal(await evaluate('document.querySelector("[data-pr-tab=summary]").getAttribute("aria-checked")'), "true");
     assert.match(await text("[data-pr-tab=files]"), /Files\s*2/);
     assert.equal(await evaluate('document.querySelector("[data-pr-checks-status]").getAttribute("data-pr-checks-status")'), "pass");
@@ -153,7 +149,6 @@ async function browserChecks() {
       ["passed", "skipped"],
     );
 
-    // Reviewers by review state, the PR's labels, and the comments as cards, newest first.
     assert.deepEqual(
       await evaluate('[...document.querySelectorAll("[data-pr-reviewers] [data-pr-reviewer]")].map((reviewer) => reviewer.getAttribute("data-pr-reviewer"))'),
       ["APPROVED", "COMMENTED"],
@@ -166,7 +161,6 @@ async function browserChecks() {
     assert.deepEqual(await cards(), ["IC1", "T1"]);
     assert.equal(await text("[data-pr-open-thread=T1] [data-pr-thread-path]"), "src/save.ts:3");
     assert.match(await text("[data-pr-comment=IC1]"), /marcosgenesis.*Looks good to me\./s);
-    // A comment's HTML renders: its GitHub attachment loads through pr:image, another host's image stays a link, a script doesn't run.
     await waitFor('document.querySelector("[data-pr-comment=IC1] td img")?.src.startsWith("data:image/png")');
     assert.equal(await evaluate('document.querySelector("[data-pr-comment=IC1] td img").style.width'), "250px");
     assert.equal(await evaluate("document.querySelector(\"[data-pr-comment=IC1] a[href='https://example.com/x.png']\")?.textContent"), "elsewhere");
@@ -185,7 +179,6 @@ async function browserChecks() {
     await delay(150);
     await shot("panel");
 
-    // The label picker lists the repository's labels; picking one adds it.
     await click("[data-pr-labels-add]");
     await waitFor('[...document.querySelectorAll("[data-picker-row]")].some((row) => row.textContent.includes("ui"))');
     await shot("labels");
@@ -195,7 +188,6 @@ async function browserChecks() {
     await click("[data-pr-labels-add]");
     await waitFor('!document.querySelector("[data-picker-panel]")');
 
-    // Label text reads at 4.5:1 or better on its chip, in dark and light, even for a pale yellow.
     const contrast = () =>
       evaluate(`(() => {
         const canvas = document.createElement("canvas"), context = canvas.getContext("2d", { willReadFrequently: true });
@@ -213,7 +205,6 @@ async function browserChecks() {
     assert.ok((await contrast()) >= 4.5, "Label chips read in light");
     await evaluate('document.documentElement.classList.add("dark"); document.querySelector("[data-pr-label]").style.setProperty("--label", "#d73a4a")');
 
-    // The reviewer picker leaves out the author; picking someone requests their review.
     await click("[data-pr-reviewers-add]");
     await waitFor('[...document.querySelectorAll("[data-picker-row]")].some((row) => row.textContent.includes("octocat"))');
     assert.ok(
@@ -232,7 +223,6 @@ async function browserChecks() {
     await click("[data-pr-reviewers-add]");
     await waitFor('!document.querySelector("[data-picker-panel]")');
 
-    // Merging asks once more, then merges with the remembered method.
     await click("[data-pr-merge]");
     assert.match(await text("[data-pr-merge]"), /Confirm merge/);
     assert.equal((await calls("merge")).length, 0, "The first click only asks to confirm");
@@ -240,20 +230,17 @@ async function browserChecks() {
     await waitFor('window.calls.some((call) => call.name === "merge")');
     assert.equal((await calls("merge"))[0].method, "squash");
 
-    // The arrow keys move between Summary and Files, and only the selected tab is in the Tab order.
     await evaluate('document.querySelector("[data-pr-tab=summary]").focus()');
     await evaluate('document.querySelector("[data-pr-tab=summary]").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))');
     assert.equal(await evaluate('document.activeElement.getAttribute("data-pr-tab")'), "files");
     assert.equal(await evaluate('document.querySelector("[data-pr-tab=summary]").tabIndex'), -1);
     await click("[data-pr-tab=summary]");
 
-    // The Files tab lists the PR's files with their open threads.
     await click("[data-pr-tab=files]");
     await waitFor('!!document.querySelector("[data-pr-files]")');
     assert.equal(await text("[data-pr-file-threads]"), "1", "The file with an open thread is marked");
     await shot("files");
 
-    // A file opens the PR's diff with GitHub's thread under its line.
     await click('[data-pr-file="src/save.ts"]');
     await waitFor('!!document.querySelector("[data-diff-view] [data-pr-thread=T1]")');
     const diffCall = (await calls("diffFiles"))[0];
@@ -262,7 +249,6 @@ async function browserChecks() {
     await delay(200);
     await shot("diff");
 
-    // A new line comment can go to the review.
     await evaluate(
       `document.querySelectorAll('[data-diff-file="src/save.ts"] [data-diff-row=add]')[0].querySelector("[data-diff-add]").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))`,
     );
@@ -283,7 +269,6 @@ async function browserChecks() {
     const comment = (await calls("comment"))[0];
     assert.deepEqual([comment.path, comment.line, comment.side, comment.body], ["src/save.ts", 2, "RIGHT", "Why pick first?"]);
 
-    // The review bar submits the pending review with a verdict.
     assert.equal(await text("[data-pr-review-summary]"), "1 pending");
     await click("[data-pr-review-open]");
     await waitFor('!!document.querySelector("[data-pr-review-form]")');
@@ -292,19 +277,16 @@ async function browserChecks() {
     await waitFor('window.calls.some((call) => call.name === "submitReview")');
     assert.equal((await calls("submitReview"))[0].event, "COMMENT");
 
-    // Fix in Chat on the thread goes to the Chat with its context.
     await click("[data-pr-thread=T1] [data-pr-fix]");
     await waitFor("typeof window.sent === 'string'");
     assert.match(await evaluate("window.sent"), /src\/save\.ts:3/);
 
-    // Uncommitted files show as "Not in the PR yet", which switches the panel to them.
     await click("[data-pr-tab=summary]");
     assert.equal(await text("[data-pr-local]"), "2 files not in the PR yet");
     await click("[data-pr-local]");
     await waitFor('document.querySelector("[data-changes-panel]")?.getAttribute("aria-label") === "Changes"');
     assert.equal(await selected("changes"), "true");
 
-    // Another Worktree's PR starts with fresh pickers: the label picker reads that Worktree's labels.
     await click('[data-changes-tab="pr:673"]');
     await waitFor('!!document.querySelector("[data-pr-identity]")');
     await evaluate('window.setSource("/other")');
@@ -312,11 +294,8 @@ async function browserChecks() {
     await waitFor('window.calls.some((call) => call.name === "labels" && call.cwd === "/other")');
     await click("[data-pr-labels-add]");
 
-    // A slow read (another computer's PR, a Link's) still answers the click at once: the icon spins from the click,
-    // past a full turn while GitHub hasn't answered, and stops once it has.
     const spinning = () => evaluate('document.querySelector("[data-diff-refresh] > span").classList.contains("animate-spin")');
     await evaluate("void (window.heldDetail = new Promise((resolve) => { window.releaseDetail = resolve; }))");
-    // Read in the click's own task, once React's microtask has rendered: before the next paint, without the read.
     const onClick = await evaluate(
       '(async () => { document.querySelector("[data-diff-refresh]").click(); await null; return document.querySelector("[data-diff-refresh] > span").classList.contains("animate-spin"); })()',
     );
@@ -328,7 +307,6 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-diff-refresh]").hasAttribute("aria-busy")');
     await waitFor('!document.querySelector("[data-diff-refresh] > span").classList.contains("animate-spin")');
 
-    // A conflicting PR says so under its branch, and offers no merge when ready.
     await evaluate('window.prDetail = { ...window.prDetailBase, mergeStateStatus: "DIRTY", reviewDecision: "REVIEW_REQUIRED", viewerCanMergeAsAdmin: true }');
     await click("[data-diff-refresh]");
     await waitFor('!!document.querySelector("[data-pr-status]")');
@@ -340,7 +318,6 @@ async function browserChecks() {
     assert.ok(!(await evaluate('document.querySelector("[data-picker-panel]").textContent.includes("Merge anyway")')), "Not even as an admin");
     await click("[data-pr-more]");
 
-    // At 280px the PR's number and the checks status stay whole; the repository name goes first.
     await evaluate('window.prDetail = { ...window.prDetail, mergeStateStatus: "BLOCKED" }');
     await click("[data-diff-refresh]");
     await waitFor('!!document.querySelector("[data-pr-auto]")');

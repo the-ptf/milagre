@@ -24,7 +24,6 @@ function request(operation, args) {
 
 try {
   if (!file || credentials.some((value) => !value)) throw new Error("A disk image and Apple credentials are required.");
-  // Upload once, then retain the ID across connection failures while waiting.
   const submission = JSON.parse(request("submission", ["notarytool", "submit", file, ...credentials, "--output-format", "json"]));
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(submission.id || "")) throw new Error("Apple did not return a valid submission ID.");
   console.log(`Waiting for Apple submission ${submission.id}.`);
@@ -37,7 +36,6 @@ try {
   request("stapling", ["stapler", "staple", file]);
   console.log(`Apple accepted and stapled ${file}.`);
 } catch (error) {
-  // Never print raw tool arguments or responses containing credentials.
   console.error(error instanceof SyntaxError ? "Apple returned invalid notarization JSON." : error.message);
   process.exit(1);
 }

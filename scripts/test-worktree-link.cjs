@@ -43,7 +43,6 @@ async function browserChecks() {
   }
   async function shot(name) {
     if (!capture) return;
-    // A hidden window repaints lazily: wait for the frame that shows the last change.
     await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
     await delay(250);
     const fs = require("node:fs/promises");
@@ -56,7 +55,6 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll("[data-worktree-link-divider]").length === 4');
     for (const name of ["worktree", "project", "same", "bare"]) {
       assert.equal(await evaluate(`${divider(name)}.getAttribute("role")`), "group");
-      // Full width of the transcript column, with a hairline of equal length on each side of the label.
       const box = await evaluate(
         `JSON.stringify([${divider(name)}.getBoundingClientRect().width, ...[...${divider(name)}.querySelectorAll("span.h-px")].map((line) => line.getBoundingClientRect().width)])`,
       ).then(JSON.parse);
@@ -70,20 +68,18 @@ async function browserChecks() {
     assert.equal(await evaluate(`${divider("same")}.getAttribute("aria-label")`), "Linked to Worktree upload-retries in this Project");
     await shot("dividers");
 
-    // A line without a summary opens nothing.
     assert.equal(await evaluate(`${divider("bare")}.querySelector("button").disabled`), true);
     await evaluate(`${divider("bare")}.querySelector("button").click()`);
     await delay(100);
     assert.equal(await evaluate('!!document.querySelector("[data-brief-dialog]")'), false);
 
-    // One with a summary opens it, without the tags that wrap it for the agent.
     await evaluate(`${divider("worktree")}.querySelector("button").click()`);
     await waitFor('document.querySelector("[data-brief-dialog]")');
     assert.equal(await evaluate('document.querySelector("#brief-dialog-title").textContent'), "Linked summary");
     assert.match(await evaluate('document.querySelector("[data-brief-preview]").textContent'), /^Milagre attached this summary/);
     assert.doesNotMatch(await evaluate('document.querySelector("[data-brief-preview]").textContent'), /linked_worktrees/);
     assert.equal(await evaluate('document.querySelector("[data-brief-preview] h2").textContent'), "web · branch main · worktree /code/web");
-    await delay(600); // the dialog fades and pops in
+    await delay(600);
     await shot("summary");
     await evaluate('document.querySelector("[data-brief-close]").click()');
     await waitFor('!document.querySelector("[data-brief-dialog]")');

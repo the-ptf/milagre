@@ -1,7 +1,3 @@
-// The Routines page, a Routine's page and its in-place form, on real components with a stubbed window.milagre: groups and
-// chip counts, a paused trigger's reason, the Routine page's chips, filter and day-grouped Runs, the New Routine form in
-// place (Starts, chips with popovers, the {{ placeholder list, the createRoutine input a Linear trigger saves, landing on
-// the new page), Edit in place with Rotate and Delete. Screenshots go to MILAGRE_SCREENSHOT_DIR when it is set.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -148,7 +144,6 @@ async function browserChecks() {
   const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
   const clickText = (selector, text) =>
     evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].find((node) => node.textContent.trim() === ${JSON.stringify(text)}).click()`);
-  // The Routines page's two filter dropdowns (Show, Computer): their rows as [label, count], and picking one.
   const filterRows = async (label) => {
     await click(`[data-routine-filters] button[aria-label=${JSON.stringify(label)}]`);
     await waitFor(`!!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
@@ -187,11 +182,9 @@ async function browserChecks() {
   try {
     await win.loadURL(process.argv[2]);
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 5`);
-    // A Chat whose babysit Heartbeat ended says why, on a line like a Heartbeat's.
     const stopped = "Stopped babysitting PR #473: the same problem failed 3 times.";
     assert.equal(await evaluate(`document.querySelector('[data-babysit-stopped-divider]').textContent`), stopped);
     assert.equal(await evaluate(`document.querySelector('[data-babysit-stopped-divider]').getAttribute('aria-label')`), stopped);
-    // Groups and the Show filter's counts (paused ones count in their group too).
     assert.deepEqual(
       JSON.parse(
         await evaluate(
@@ -209,7 +202,6 @@ async function browserChecks() {
       ["Triggers", "3"],
       ["Paused", "1"],
     ]);
-    // The paused trigger says why and shows Paused; a heartbeat names its Chat.
     assert.equal(
       await evaluate(`document.querySelector('[data-routine-row="t3"] [data-routine-problem]').textContent`),
       "3 failed runs in a row: Linear sign-in needed",
@@ -219,19 +211,16 @@ async function browserChecks() {
       `document.querySelector('[data-routine-row="h2"] [data-routine-meta]').textContent === 'Every 10 min · in Notification chimes · 3 of 20 Runs left'`,
     );
     assert.equal(await evaluate(`document.querySelector('[data-routine-row="t1"] [data-routine-status]').textContent`), "MIL-142 · 2 h ago");
-    // The header is the title and New Routine only; the lid note lives in the empty state.
     assert.doesNotMatch(await evaluate("document.querySelector('[data-routines-page]').textContent"), /Closing the lid|Agents that run/);
     assert.equal(
       await evaluate(`!!document.querySelector('[data-routine-row] [role="checkbox"], [data-routine-row] input[type=checkbox]')`),
       false,
       "no tick on the rows",
     );
-    // Paused filter keeps only the paused row.
     await pickFilter("Show", "Paused");
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 1 && !!document.querySelector('[data-routine-row="t3"]')`);
     await pickFilter("Show", "All Routines");
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 5`);
-    // The ⋯ menu: Pause (or Resume) first, Run now only for schedules; a webhook trigger has none.
     await click('[data-routine-row="t2"] [data-routine-more]');
     await waitFor(`!!document.querySelector('[data-routine-menu]')`);
     assert.deepEqual(
@@ -251,7 +240,6 @@ async function browserChecks() {
     await click('[data-routine-action="chat"]');
     assert.equal(await evaluate("window.opened"), "/code/milagre-ade#12");
     await shot("routines-page");
-    // A Chat's surfaces: the Heartbeat set card (Stop deletes the Routine; a gone one says Stopped) and Next check.
     assert.equal(
       await evaluate(`document.querySelector('[data-heartbeat-card="h1"]').textContent.includes('Heartbeat set: Babysit PR #473 until it merges')`),
       true,
@@ -262,7 +250,6 @@ async function browserChecks() {
     await click('[data-heartbeat-card="h1"] [data-heartbeat-stop]');
     await waitFor(`window.deleted === 'h1'`);
 
-    // A Routine's page: name with On, one toolbar (switch, Run now, Edit), chips, times, then Runs by day with a filter.
     await click('[data-routine-row="h2"] [data-routine-open]');
     await waitFor(`!!document.querySelector('[data-routine-page="h2"]')`);
     assert.equal(await evaluate(`document.querySelector('[data-routine-status-pill]').textContent.trim()`), "On");
@@ -291,7 +278,6 @@ async function browserChecks() {
       "Yesterday",
       "Thu, Oct 15",
     ]);
-    // Today's quiet stretch folds into one line with the latest quiet summary; the older day is one summary line.
     assert.match(
       await evaluate(`document.querySelector('[data-run-day="Today"] [data-routine-fold]').textContent`),
       /09:00–11:00.*3 quiet · no TODOs in NOTES\.md/,
@@ -302,7 +288,6 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-routine-run="o1"]')`);
     await click('[data-run-day="Today"] [data-routine-fold] button');
     await waitFor(`!!document.querySelector('[data-routine-run="q1"] [data-run-unread]')`);
-    // The Runs line up with the header: a row's time starts where the name does.
     assert.equal(
       await evaluate(
         `Math.abs(document.querySelector('[data-routine-run="a1"] span').getBoundingClientRect().left - document.querySelector('[data-routine-page] h1').getBoundingClientRect().left) < 1`,
@@ -310,15 +295,11 @@ async function browserChecks() {
       true,
     );
     await shot("routine-page");
-    // A Run's row opens its Chat beside the page (App moves its Chat pane there).
     await click('[data-routine-run="a1"]');
     assert.equal(await evaluate("window.runChat"), "/code/milagre-ade#31");
-    // The Failed filter keeps only the failed Run.
     await click('[data-routine-runs] [data-segment="failed"]');
     await waitFor(`document.querySelectorAll('[data-routine-run]').length === 1 && !!document.querySelector('[data-routine-run="f1"]')`);
 
-    // Edit in place: the name becomes a field, Cancel and Save replace the toolbar, the Runs go, Delete sits at the bottom.
-    // A Run Chat open beside the page closes as the form takes it over.
     await evaluate("window.paneClosed = 0");
     await click("[data-routine-edit]");
     await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
@@ -326,7 +307,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('[data-routine-editor] input[aria-label="Name"]').value`), "Watch CI on #461");
     assert.equal(await evaluate(`!!document.querySelector('[data-routine-runs], [data-routine-toolbar]')`), false);
     assert.match(await evaluate(`document.querySelector('[data-routine-delete]').textContent`), /Its Chats stay\..*Delete Routine/);
-    // The Schedule chip's popover: a Select inside it opens into the popover, and picking from it keeps the popover open.
     await click('[data-routine-chip-trigger="Schedule"]');
     await waitFor(`!!document.querySelector('[data-routine-chip-popover="Schedule"]')`);
     await click('[data-routine-chip-popover="Schedule"] [data-segment="at"]');
@@ -345,7 +325,6 @@ async function browserChecks() {
     await clickText('[role="listbox"][aria-label="Timezone"] [data-picker-row]', "UTC");
     await waitFor(`!document.querySelector('[role="listbox"][aria-label="Timezone"]')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-routine-chip-popover="Schedule"]')`), true);
-    // UTC names its zone on the chip unless this computer is on UTC too.
     assert.match(await evaluate(`document.querySelector('[data-routine-chip-trigger="Schedule"]').textContent.trim()`), /^Weekdays at 09:00( \(UTC\))?$/);
     await shot("routine-edit-schedule");
     await evaluate(
@@ -358,13 +337,11 @@ async function browserChecks() {
       "h2",
       { kind: "schedule", cron: "0 9 * * 1-5", timezone: "UTC" },
     ]);
-    // Cancel leaves without saving; Delete asks, then deletes and goes back to the list.
     await evaluate("window.updated = null");
     await click("[data-routine-edit]");
     await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
     await click("[data-routine-cancel]");
     await waitFor(`!!document.querySelector('[data-routine-page="h2"]')`);
-    // With changes, Cancel and Escape ask to discard them first; Keep editing stays.
     await click("[data-routine-edit]");
     await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
     await type('[data-routine-form] input[aria-label="Name"]', "Watch CI on #462");
@@ -378,7 +355,6 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-routine-discard]')`);
     await shot("routine-discard");
     await click("[data-routine-discard-keep]");
-    // Opening another Routine asks too: Keep editing goes back to the form, Discard goes on to the other page.
     await evaluate("window.openRoutine('t1')");
     await waitFor(`!!document.querySelector('[data-routine-discard]') && !!document.querySelector('[data-routine-editor="h2"]')`);
     await click("[data-routine-discard-keep]");
@@ -400,7 +376,6 @@ async function browserChecks() {
     await click("[data-routine-delete-confirm]");
     await waitFor(`window.deleted === 'h2' && !!document.querySelector('[data-routines-page]')`);
 
-    // New Routine in place: Create stays off until a name and a prompt are given; Starts picks the trigger.
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
     assert.equal(await evaluate(`document.querySelector('[data-routine-save]').disabled`), true);
@@ -418,7 +393,6 @@ async function browserChecks() {
       /Runs show here once the Routine is created\. The first one starts at 13:00\./,
     );
     assert.equal(await evaluate(`document.querySelector('[data-routine-prompt-hint]').textContent`), "Type {{ for the Run's fields");
-    // Every offers only the steps a cron repeats on evenly.
     await click('[data-routine-chip-trigger="Schedule"]');
     await waitFor(`!!document.querySelector('[data-routine-chip-popover="Schedule"] button[aria-label="Every"]')`);
     await click('[data-routine-chip-popover="Schedule"] button[aria-label="Every"]');
@@ -438,7 +412,6 @@ async function browserChecks() {
     );
     await waitFor(`!document.querySelector('[data-routine-chip-popover="Schedule"]') && !!document.querySelector('[data-routine-editor="new"]')`);
     await shot("routine-new");
-    // Linear: its rows show under the chips, and the Team Select's panel is the topmost element where it opens.
     await click('[data-routine-editor] [data-segment="linear"]');
     await waitFor(`!!document.querySelector('[data-routine-form] button[aria-label="Team"]')`);
     assert.doesNotMatch(await evaluate(`document.querySelector('[data-routine-runs-placeholder]').textContent`), /first one/);
@@ -460,7 +433,6 @@ async function browserChecks() {
     await shot("routines-form-team");
     await clickText('[role="listbox"][aria-label="Team"] [data-picker-row]', "MIL · Milagre");
     await waitFor(`!document.querySelector('[role="listbox"][aria-label="Team"]')`);
-    // MIL's labels load into the Label Select.
     await waitFor(`!!document.querySelector('[data-routine-form] button[aria-label="Label"]')`);
     await click('[data-routine-form] button[aria-label="Label"]');
     await waitFor(`!!document.querySelector('[role="listbox"][aria-label="Label"]')`);
@@ -469,7 +441,6 @@ async function browserChecks() {
     await type('[data-routine-form] input[aria-label="Name"]', "Take issues labelled agent");
     assert.equal(await evaluate(`document.querySelector('[data-routine-chip="trigger"]').textContent.trim()`), "Linear · label agent added · team MIL");
 
-    // {{iss suggests issue.key first; Enter inserts it.
     await type("[data-routine-prompt]", "Work on {{iss");
     await waitFor(`!!document.querySelector('[data-routine-placeholders] [data-placeholder="issue.key"]')`);
     assert.equal(await evaluate(`document.querySelector('[data-routine-placeholders] [aria-selected="true"]').dataset.placeholder`), "issue.key");
@@ -479,7 +450,6 @@ async function browserChecks() {
     );
     await waitFor(`document.querySelector('[data-routine-prompt]').value === 'Work on {{issue.key}}'`);
     await waitFor(`!document.querySelector('[data-routine-placeholders]')`);
-    // With the mouse: a lower row is the topmost element at its own point (not clipped by the form's scroll fade).
     await type("[data-routine-prompt]", "Work on {{issue.key}} {{iss");
     await waitFor(`!!document.querySelector('[data-routine-placeholders] [data-placeholder="issue.state"]')`);
     assert.equal(
@@ -494,7 +464,6 @@ async function browserChecks() {
     await click('[data-routine-placeholders] [data-placeholder="issue.state"]');
     await waitFor(`document.querySelector('[data-routine-prompt]').value === 'Work on {{issue.key}} {{issue.state}}'`);
 
-    // Create calls createRoutine with a Linear trigger and lands on the new Routine's page.
     await waitFor(`!document.querySelector('[data-routine-save]').disabled`);
     await click("[data-routine-save]");
     await waitFor(`window.created !== null`);
@@ -518,7 +487,6 @@ async function browserChecks() {
     await click("[data-routine-back]");
     await waitFor(`!!document.querySelector('[data-routines-page]')`);
 
-    // Escape cancels the (unchanged) form and is consumed there, so App's Escape stays put.
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
     assert.equal(
@@ -531,7 +499,6 @@ async function browserChecks() {
     );
     await waitFor(`!document.querySelector('[data-routine-form]') && !!document.querySelector('[data-routines-page]')`);
 
-    // A webhook Routine: its new page shows its URL once, with Copy.
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
     await click('[data-routine-editor] [data-segment="webhook"]');
@@ -549,7 +516,6 @@ async function browserChecks() {
     await click("[data-routine-back]");
     await waitFor(`!!document.querySelector('[data-routines-page]')`);
 
-    // A Linear comment Routine: no Where chip, a note instead; the target is filled from the open Project.
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
     await click('[data-routine-editor] [data-segment="linear"]');
@@ -562,7 +528,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-routine-chip-trigger="Where"]')`), false);
     await type('[data-routine-form] input[aria-label="Name"]', "Answer comments");
     await type("[data-routine-prompt]", "Reply to the comment");
-    // The Mac's list can't be read after the create: the form says so, and Create stays off, so a second click makes nothing.
     await evaluate("window.failList = true; window.createCount = 0");
     await click("[data-routine-save]");
     await waitFor(`window.created && window.created.name === 'Answer comments'`);
@@ -583,8 +548,6 @@ async function browserChecks() {
     await click("[data-routine-back]");
     await waitFor(`!!document.querySelector('[data-routines-page]')`);
 
-    // Edit the webhook from its row's menu: the page opens in its form; rotate its URL, then Save: the patch carries no
-    // stale hook id, so it goes through.
     await click('[data-routine-row="t2"] [data-routine-more]');
     await waitFor(`!!document.querySelector('[data-routine-action="edit"]')`);
     await click('[data-routine-action="edit"]');
@@ -597,8 +560,6 @@ async function browserChecks() {
     assert.equal(await evaluate("window.updated[0]"), "t2");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.updated[1].trigger)")), { kind: "webhook", signed: true });
 
-    // A paired computer comes online: its Routines join the list, its rows carry its laptop mark and name (this Mac's carry
-    // none), the Computer chips narrow the list to one Mac, and Run now goes to the studio.
     await click("[data-routine-back]");
     await waitFor(`!!document.querySelector('[data-routines-page]')`);
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [window.studio] })`);
@@ -638,16 +599,13 @@ async function browserChecks() {
     await waitFor("!!window.remoteRan");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.remoteRan)")), ["6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7", remote]);
     assert.equal(await evaluate("window.localRan === undefined"), true, "this Mac ran nothing");
-    // The studio goes offline: its last copy stays listed, and the page says that's what it is.
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [{ ...window.studio, state: 'offline' }] })`);
     const problem = `[data-routines-computer-problem="6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]`;
     await waitFor(`document.querySelector(${JSON.stringify(problem)})?.textContent.startsWith('studio is offline.')`);
     assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true, "the last copy stays listed");
-    // The studio comes back online: its notice goes and its Routines stay listed.
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [window.studio] })`);
     await waitFor(`!document.querySelector(${JSON.stringify(problem)})`);
     assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true, "its Routines stay listed");
-    // Other computers switched off: the studio's Routines leave the list.
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [{ ...window.studio, state: 'off' }] })`);
     await waitFor(`!document.querySelector(${JSON.stringify(row(remote))})`);
     console.log(

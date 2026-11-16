@@ -1,11 +1,3 @@
-// A host for measuring the phone app: a throwaway Project behind a daemon whose only agent is scripted, so a turn
-// streams or runs a tool at the same pace every time. No provider account, network or real command.
-//
-//   node scripts/perf/mobile-host.cjs [--port 8961] [--metro 8912] [--chats 4] [--seconds 60] [--root <earlier run>]
-//
-// In a Chat, send `perf-stream` (Markdown streamed for --seconds), `perf-tool` (one Bash step running for --seconds)
-// or `perf-steps` (a new short tool step every 2 s). With --chats n, n extra Chats stream `perf-stream` in the
-// background from the start, each for --seconds: the Chats list while other Chats work.
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -42,7 +34,6 @@ function section(n) {
   ].join("\n");
 }
 
-/** A scripted session for core's SessionManager (the demo agent's shape, with perf prompts). */
 function perfSession(_provider, { emit }) {
   const timers = new Set();
   const later = (ms, run) => {
@@ -116,7 +107,6 @@ function perfSession(_provider, { emit }) {
 }
 
 async function main() {
-  // --root reuses an earlier run's folder, data and token, so a paired phone reconnects after a restart.
   const reuse = Boolean(values.root);
   const root = reuse ? await fs.realpath(values.root) : await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-perf-")));
   const dataDir = path.join(root, "profile");
@@ -137,7 +127,6 @@ async function main() {
   const opened = await client.call("project:open", [project]);
   const first = Object.values(opened.state.sessions)[0];
   await client.call("chat:patch", [project, first.id, { title: "Perf run" }]);
-  // Extra Chats streaming in the background: the Chats list while other Chats work. Each runs for --seconds.
   const worktreeId = first.worktree_id ?? first.worktreeId;
   const send = (body, sessionId) =>
     client.call("chat:send", [

@@ -1,4 +1,3 @@
-// Shared declarations stay available without loading fonts, icons, layout or rendering.
 import { z } from "zod";
 import { designPaint } from "./design-colors.mjs";
 import { validDesignFontFamily } from "./design-font-family.mjs";
@@ -115,11 +114,6 @@ export const designDocumentSchema = z
   })
   .strict();
 
-// What agents send to design_show and design_apply. Every tool definition is sent with each request, so these leave out
-// what the saved document is checked against anyway: color patterns, the generated componentSourceId, the node fields
-// repeated in design_apply, and its `replace` (design_show with expectedVersion replaces a whole design). Layers are
-// open objects, so a field these don't list still reaches validateDesignDocument and applyDesignOperations, which
-// reject it.
 const plainColor = z.string().max(100);
 const { componentSourceId: _generated, ...wireNodeShape } = { ...nodeSchema.shape, fill: plainColor.optional(), stroke: plainColor.optional() };
 export const designDocumentInputSchema = z

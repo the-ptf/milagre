@@ -1,5 +1,4 @@
 // Real Codex/Claude + production daemon/MCP/artifact storage in a disposable Project/profile.
-// No credential files are read or copied here. Providers use their existing sign-ins, with ephemeral sessions.
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -157,7 +156,6 @@ async function startHarness(settings, alternatives = []) {
       if (event.type === "text-delta") turn.assistantText += event.text;
       if (event.type === "permission-request" || event.type === "question-request") {
         if (event.type === "permission-request" && fixturePermission(event, turn, settings.allowedSkillReads)) {
-          // Only the bundled skill read and fixture-owned artifact calls, one call at a time.
           void client.call("agent:respond-permission", [{ chatId, requestId: event.requestId, decision: "allow" }]).catch(turn.reject);
           return;
         }
@@ -253,7 +251,6 @@ async function startHarness(settings, alternatives = []) {
           const request = rpc.request.bind(rpc);
           rpc.request = async (method, params, options) => {
             if (method === "thread/start") {
-              // Per-thread overrides only: external MCPs stay disabled, and no provider conversation is saved.
               const inherited = (await request("config/read", { cwd: project })).config;
               const disabled = Object.fromEntries(Object.keys(inherited.mcp_servers ?? {}).map((name) => [name, { enabled: false }]));
               params = { ...params, ephemeral: true, config: { ...params.config, mcp_servers: { ...disabled, ...params.config?.mcp_servers } } };
@@ -340,7 +337,6 @@ async function startHarness(settings, alternatives = []) {
           turn.reject = reject;
           timer = setTimeout(() => reject(new Error(`The ${label} turn exceeded ${timeoutMs / 1000} seconds.`)), timeoutMs);
         });
-        // Observe the rejection even if chat:send is still starting its provider.
         done.catch(() => {});
         activeTurn = turn;
         try {

@@ -1,7 +1,3 @@
-// Regenerate the catalog fonts designs can name besides Inter: Google Fonts (SIL OFL 1.1) families at the weights listed
-// below. Each is subset like Inter, saved as its own module so viewers load only the families a design names, and measured
-// for shared line breaking. Needs network access.
-// Run: node scripts/generate-design-catalog-fonts.cjs
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -9,13 +5,10 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const OUT = path.join(ROOT, "packages/shared/src");
 const FONTS = path.join(OUT, "design-catalog-fonts");
-// A legacy user agent makes the Google Fonts CSS API answer with whole static TrueType instances, one per weight.
 const LEGACY_AGENT = "Mozilla/4.0";
 
 const slug = (family) => family.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
-// Grotesks, serifs, slabs and condensed display faces: a working type system for most briefs. A weight a family lacks is
-// skipped, and text asking for it renders with the nearest drawn weight.
 const FAMILIES = {
   "Albert Sans": [400, 500, 600],
   Anton: [400],
@@ -63,7 +56,6 @@ async function download(family, weight) {
   const css = await fetch(`https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g, "+")}:wght@${weight}`, {
     headers: { "User-Agent": LEGACY_AGENT },
   });
-  // A weight the family does not have is a 400 for the whole request; the nearest drawn weight stands in for it.
   if (!css.ok) return null;
   const url = /url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.ttf)\)/.exec(await css.text())?.[1];
   if (!url) throw new Error(`No TrueType source for ${family} ${weight}`);
@@ -94,7 +86,6 @@ async function measureFonts(faces, characters) {
         { weight },
       );
       document.fonts.add(await face.load());
-      // Canvas silently falls back to another font when a face is missing, so prove each weight is really loaded.
       if (!document.fonts.check(`${weight} 16px "${name}"`)) throw new Error(`${family} ${weight} did not load`);
       context.font = `${weight} 1000px "${name}"`;
       result[family][weight] = Array.from(characters, (character) => Math.round(context.measureText(character).width) / 1000);
@@ -139,7 +130,6 @@ async function main() {
     for (const weight of weights) {
       const source = await download(family, weight);
       if (!source) continue;
-      // Keep the typographic family and subfamily (name IDs 16/17), as for Inter, so resvg tells the weights apart.
       const font = await subsetFont(source, characters, { targetFormat: "truetype", preserveNameIds: [1, 2, 16, 17] });
       drawn[weight] = font.toString("base64");
     }
@@ -161,7 +151,6 @@ async function main() {
       {
         family,
         weights: Object.keys(weights).map(Number),
-        // Advances at 1000px with kerning off: the 95 printable ASCII characters, then DESIGN_EXTRA_CHARACTERS in order.
         advances: metrics[family],
       },
     ]),

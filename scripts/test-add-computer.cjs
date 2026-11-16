@@ -1,7 +1,4 @@
 // Run with npm test -- --only test-add-computer. Add computer in Electron against a stand-in for main: a pasted link that
-// isn't one, or is this Mac's own, is refused under the field; a good link shows the computer and how it is reached, with
-// "Show it as" filled in; Add waits for the other Mac's Allow and can be cancelled; every refusal shows its words; a
-// computer that is added closes the dialog. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -95,7 +92,6 @@ async function browserChecks() {
     await delay(250);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  // React reads a field's value from its own setter, so a test types through it.
   const type = (label, text) =>
     evaluate(`(() => {
       const input = document.querySelector('dialog[data-add-computer] input[aria-label=${JSON.stringify(label)}]');
@@ -169,7 +165,6 @@ async function browserChecks() {
     await waitFor(`document.querySelector('dialog[data-add-computer]')?.open`);
     await evaluate(`document.querySelector('dialog[data-add-computer]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(`!document.querySelector('dialog')`);
-    // A parent that unmounts the dialog mid-pairing still stops the pairing.
     await evaluate(`document.querySelector('[data-open]').click()`);
     await waitFor(`document.querySelector('dialog[data-add-computer]')?.open`);
     await type("Pairing link", LINK);

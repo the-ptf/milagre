@@ -1,5 +1,3 @@
-// Browser check: dragging chats in the sidebar pins, reorders and unpins them, a click still opens a chat, the keyboard
-// does the same, and dropping a chat on another one's middle offers a Link between their Worktrees. The bridge is stubbed.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -82,7 +80,6 @@ async function browserChecks() {
   const order = () =>
     evaluate('[...document.querySelectorAll("[data-chat-id]")].map(n => n.dataset.chatId + (n.closest("[data-pinned-chats]") ? "*" : "")).join(" ")');
   const calls = () => evaluate("window.calls");
-  // Presses on a row, moves in steps past the 4px threshold, and holds over the point before letting go.
   async function drag(from, to, { release = true } = {}) {
     mouse("mouseMove", from.x, from.y);
     mouse("mouseDown", from.x, from.y);
@@ -111,7 +108,6 @@ async function browserChecks() {
     await delay(300);
     assert.equal(await order(), "4 3 2 1");
 
-    // A click with no movement opens the chat.
     const three = await row(3);
     mouse("mouseMove", three.x, three.y);
     mouse("mouseDown", three.x, three.y);
@@ -119,7 +115,6 @@ async function browserChecks() {
     await delay(150);
     assert.deepEqual((await calls()).picks, ["3"], "a click opens the chat");
 
-    // Dragging a chat shows an empty Pinned section; dropping there pins it, and Undo takes it back.
     mouse("mouseMove", three.x, three.y);
     mouse("mouseDown", three.x, three.y);
     mouse("mouseMove", three.x, three.y + 2);
@@ -140,7 +135,6 @@ async function browserChecks() {
     await delay(200);
     assert.equal(await order(), "4 3 2 1", "Undo unpins it");
 
-    // Pin 3 again, then 1 on the line below it, then move 1 above 3.
     await drag(
       await row(3),
       await evaluate(
@@ -162,12 +156,10 @@ async function browserChecks() {
     await drag(await row(1), { x: pinnedThreeAgain.x, y: Math.round(pinnedThreeAgain.top + 3) });
     assert.equal(await order(), "1* 3* 4 2", "pinned chats reorder");
 
-    // Dragged out onto the line above a recent chat, a pinned chat is unpinned.
     const four = await row(4);
     await drag(await row(3), { x: four.x, y: Math.round(four.top + 3) });
     assert.equal(await order(), "1* 4 3 2", "dragged out of Pinned, the chat is unpinned");
 
-    // On the middle of a chat in the same worktree, nothing is offered and the hint says why.
     const three2 = await row(3);
     await drag(await row(4), three2, { release: false });
     await waitFor('document.querySelector("[data-drop-target]")?.dataset.dropTarget === "invalid"');
@@ -177,7 +169,6 @@ async function browserChecks() {
     await delay(250);
     assert.equal(await evaluate('!!document.querySelector("[data-link-popover]")'), false);
 
-    // On the middle of another worktree's chat, a popover asks first; Create Link adds it, Undo removes it.
     const two = await row(2);
     await drag(await row(4), two, { release: false });
     await waitFor('document.querySelector("[data-drop-target]")?.dataset.dropTarget === "link"');
@@ -194,7 +185,6 @@ async function browserChecks() {
         { project_id: "p1", worktree_path: "/repo/.w/bravo" },
       ],
     ]);
-    // Already linked: the same drop now explains instead of offering a Link.
     await drag(await row(4), await row(2), { release: false });
     await waitFor('/Already linked/.test(document.querySelector("[data-drop-target]")?.textContent ?? "")');
     key("Escape");
@@ -206,7 +196,6 @@ async function browserChecks() {
     await delay(200);
     assert.deepEqual((await calls()).removed, ["l0"], "Undo removes the Link");
 
-    // Keyboard: Space picks the focused chat up, arrows move it with announcements, Space drops, Escape cancels.
     await evaluate('document.querySelector("[data-chat-id=\\"2\\"] [data-row]").focus()');
     key("Space");
     await waitFor('/Picked up Bravo/.test(document.querySelector("[aria-live=assertive]").textContent)');
@@ -227,7 +216,6 @@ async function browserChecks() {
     await delay(200);
     assert.equal(await order(), "1* 2* 4 3", "Escape leaves the list as it was");
 
-    // Collapsed, rows don't drag.
     await evaluate('document.querySelector("[aria-label=\\"Collapse sidebar\\"]").click()');
     await delay(400);
     await drag(await row(4), await row(1));

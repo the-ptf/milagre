@@ -1,4 +1,3 @@
-// Checks lazy folded activity, fixed caps and reveal behavior through the real renderer components.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -66,13 +65,11 @@ async function browserChecks() {
     await waitFor(`${rowCount} === 150`);
     assert.equal(await evaluate(`${earlier}.textContent`), "Show earlier steps (100, 2 failed)");
     assert.ok((await evaluate(firstTitle)).includes("Command 100"));
-    // Preserve an opened output across appends, revealing earlier entries and collapsing the block.
     await evaluate('document.querySelector("[data-slot=step] button[aria-expanded]").click()');
     await waitFor('document.querySelector("[data-slot=step]").textContent.includes("retained output")');
     await evaluate("window.append()");
     await waitFor(`${rowCount} === 155`);
     assert.ok((await evaluate(firstTitle)).includes("Command 100"));
-    // Measure after the fold/output transitions finish. Screenshot capture can otherwise hide a transient position.
     await waitFor(
       `${fold}.nextElementSibling.getAnimations({ subtree: true }).every(animation => !Number.isFinite(animation.effect?.getComputedTiming().endTime) || animation.playState === "finished")`,
     );
@@ -133,12 +130,10 @@ async function browserChecks() {
     await waitFor(`${rowCount} === 0`);
     await evaluate(`${fold}.click()`);
     await waitFor(`${rowCount} === 150`);
-    // The answerless message's preview stays its summary after rows mount or change.
     const rail = 'document.querySelector("[aria-label=\\"Go to assistant message 2 of 2\\"]")';
     await waitFor(`!!${rail}`);
     await evaluate(`${rail}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }))`);
     await waitFor('!!document.querySelector("[data-slot=preview-rail-title]")');
-    // A changed summary proves the scroller's delayed refresh ran; stale previews cannot satisfy this.
     const previewTitle = 'document.querySelector("[data-slot=preview-rail-title]")?.textContent';
     const summary = `${fold}.textContent.replace(/\\s+/g, " ").trim()`;
     await evaluate("window.append()");

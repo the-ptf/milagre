@@ -1,6 +1,4 @@
-// Synthetic renderer benchmark, using the real App and the send test's held IPC fixture.
 // Run before/after with the same Node/Electron versions, idle machine and viewport.
-// Values are React render time, not network latency or a guarantee for real projects.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -86,7 +84,6 @@ async function main() {
         },
         load(id) {
           if (id === "/__chat_flow_fixture.tsx") return fixture;
-          // Optional snapshots let an A/B run use the previous components without editing the working tree.
           const snapshots = process.env.MILAGRE_BENCHMARK_COMPONENTS;
           if (snapshots && ["/components/ChatComposer.tsx", "/components/motion/PreviewRail.tsx"].some((file) => id.endsWith(file))) {
             return fs.readFileSync(path.join(snapshots, path.basename(id)), "utf8");

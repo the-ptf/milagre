@@ -1,5 +1,3 @@
-// Isolated production ThinkingIndicator, comparing visible/hidden work. No provider or real user state is loaded.
-// MILAGRE_IDLE_BASELINE=1 reads the pre-change indicator/styles from the pinned baseline for a paired comparison.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");

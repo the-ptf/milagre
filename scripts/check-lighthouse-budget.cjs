@@ -1,14 +1,9 @@
 #!/usr/bin/env node
-// Lighthouse scores for apps/site never go down (AGENTS.md, Pull requests). This compares the
-// budget file at the PR's base with the PR's copy and fails when a floor drops or skipAudits gains an audit, unless
-// the PR carries the lighthouse-budget-approved label.
-// node scripts/check-lighthouse-budget.cjs <base-budget.json> <head-budget.json>   (LABELS='["label", ...]')
 const fs = require("node:fs");
 
 const BUDGET = "apps/site/lighthouse-budget.json";
 const LABEL = "lighthouse-budget-approved";
 
-/** Every number in the budget, by its dotted path ("mobile.performance"). Keys starting with $ are notes. */
 function floors(budget, prefix = "") {
   const out = {};
   for (const [key, value] of Object.entries(budget ?? {})) {
@@ -21,8 +16,6 @@ function floors(budget, prefix = "") {
 }
 
 /**
- * What the head budget loosens compared with the base: a floor that went down or disappeared, or a skipped audit
- * that was not skipped before. A missing head budget loosens everything.
  * @param {object | null} base @param {object | null} head
  */
 function loosened(base, head) {
@@ -64,7 +57,6 @@ if (require.main === module) {
   const [baseFile, headFile] = process.argv.slice(2);
   const result = check({ base: readJson(baseFile), head: readJson(headFile), labels: JSON.parse(process.env.LABELS || "[]") });
   if (result.ok) console.log(result.message);
-  // A GitHub annotation carries the whole message on one line, %0A for each line break.
   else console.error(process.env.GITHUB_ACTIONS ? `::error::${result.message.replace(/\n/g, "%0A")}` : result.message);
   process.exit(result.ok ? 0 : 1);
 }

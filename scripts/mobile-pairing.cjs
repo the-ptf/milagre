@@ -1,7 +1,5 @@
-// computerName and pairingLink live with the daemon, which builds the same link for the Phone setting.
 const { computerName, pairingLink } = require("../apps/daemon/src/mobile-pairing.cjs");
 
-// Prints the scan-to-pair block. The QR and the link both carry the token.
 function printPairing({
   address,
   token,

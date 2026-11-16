@@ -1,8 +1,4 @@
 // A demo computer for Apple's TestFlight Beta App Review: `npm run review:demo [-- --data-dir /absolute/path]`.
-// It runs its own daemon on its own data dir (default /Users/Shared/Milagre Review Demo, so no path shows the owner's
-// home) with only the scripted demo agent, pairs
-// through the public relay on port 8899, and confines every paired phone to one seeded Git project. The owner's Milagre
-// (its data dir and port 8797) is never touched.
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -16,10 +12,8 @@ const { version } = require("../apps/daemon/package.json");
 const PROJECT_NAME = "Milagre Demo Project";
 const DEFAULT_DATA_DIR = "/Users/Shared/Milagre Review Demo";
 const LINK_FILE = "review-pairing-link.txt";
-// Never the owner's 8797: the demo's bridge listens on its own loopback port.
 const PHONE_PORT = 8899;
 const COMPUTER_NAME = "Milagre Demo Mac";
-// The relay lets a new phone pair for 10 minutes after the window opens; the reviewer may come hours later.
 const KEEP_OPEN_MS = 5 * 60 * 1000;
 const COPY = {
   ack: "Demo agent: your message reached the demo computer through Milagre's relay. ",
@@ -36,7 +30,6 @@ const FILES = {
   "src/greeting.js": "function greeting(name) {\n  return `Hello, ${name}!`;\n}\n\nmodule.exports = { greeting };\n",
   "src/app.js": "const { greeting } = require('./greeting.js');\n\nconsole.log(greeting(process.argv[2] || 'world'));\n",
 };
-// Left uncommitted, so the Changes view has something to show.
 const CHANGES = {
   "src/greeting.js":
     "function greeting(name, { excited = false } = {}) {\n  return `Hello, ${name}${excited ? '!!' : '!'}`;\n}\n\nmodule.exports = { greeting };\n",
@@ -55,7 +48,6 @@ const exists = (file) =>
 const git = (cwd, args) =>
   execFileSync("git", ["-C", cwd, "-c", "user.name=Milagre Demo", "-c", "user.email=demo@example.invalid", ...args], { stdio: "ignore" });
 
-/** The Git project the reviewer sees. Created once; a later start keeps whatever the reviewer did. */
 async function seedProject(project) {
   if (await exists(path.join(project, ".git"))) return false;
   await fs.mkdir(path.join(project, "src"), { recursive: true });
@@ -77,7 +69,6 @@ async function waitFor(read, what, timeoutMs = 15000) {
   throw new Error(`Timed out waiting for ${what}`);
 }
 
-/** Two Chats with a conversation each, made through the daemon as the phone would. Only on a project with no messages. */
 async function seedChats(client, project) {
   const snapshot = () => client.call("project:snapshot", [project]);
   const { state } = await snapshot();
@@ -112,7 +103,6 @@ async function seedChats(client, project) {
   return true;
 }
 
-/** Writes the pairing link for the owner to hand to App Review: private to this user. */
 async function writeLink(dataDir, link) {
   const file = path.join(dataDir, LINK_FILE);
   const temporary = `${file}.${process.pid}.tmp`;
@@ -122,13 +112,8 @@ async function writeLink(dataDir, link) {
   return file;
 }
 
-/**
- * Starts the demo computer. `phoneOptions` is merged over the demo's own (tests pass a fake relay); `allowedRoot` is
- * always the demo project.
- */
 async function startReviewDemo({ dataDir = DEFAULT_DATA_DIR, phoneOptions = {}, keepOpenMs = KEEP_OPEN_MS, log = console.log } = {}) {
   if (!path.isAbsolute(dataDir)) throw new Error("Pass an absolute --data-dir");
-  // Made private when it is created; /Users/Shared itself is open to every user.
   await fs.mkdir(dataDir, { recursive: true, mode: 0o700 });
   dataDir = await fs.realpath(dataDir);
   const project = path.join(dataDir, PROJECT_NAME);
@@ -162,7 +147,6 @@ async function startReviewDemo({ dataDir = DEFAULT_DATA_DIR, phoneOptions = {}, 
     if (status.state === "error") throw new Error(`The phone did not start: ${status.error}`);
     await client.call("phone:open-pairing");
     const linkFile = await writeLink(dataDir, status.pairingLink);
-    // Every few minutes the window opens again, so a phone that has never paired can still pair hours later.
     timer = setInterval(() => {
       client.call("phone:open-pairing").catch((error) => log(`Could not reopen pairing: ${error.message}`));
     }, keepOpenMs);
@@ -174,10 +158,6 @@ async function startReviewDemo({ dataDir = DEFAULT_DATA_DIR, phoneOptions = {}, 
   }
 }
 
-/**
- * What the demo prints at start. The link carries the pairing token, so it never goes to a log: only its file is
- * named, and the QR (which encodes the link) shows only in a terminal.
- */
 async function announce(
   demo,
   { log = console.log, isTTY = process.stdout.isTTY, renderQr = (text, done) => require("qrcode-terminal").generate(text, { small: true }, done) } = {},

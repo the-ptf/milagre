@@ -65,7 +65,6 @@ async function browserChecks() {
     throw Error(`Timed out: ${source}`);
   }
   async function click(text) {
-    // Provider tabs show only a logo; they are found by their label.
     const expr = `[...document.querySelectorAll('button')].find(el => el.getAttribute("aria-label") === ${JSON.stringify(text)} || el.textContent.includes(${JSON.stringify(text)}))`;
     await waitFor(`!!(${expr})`);
     await evaluate(`(${expr}).click()`);
@@ -81,7 +80,6 @@ async function browserChecks() {
   const modelIs = (name) => waitFor(`document.querySelector('[data-promptbar] [data-model-name]')?.textContent === ${JSON.stringify(name)}`);
   try {
     await window.loadURL(process.argv[2]);
-    // Vite builds the app on first request: 3-4s on a warm CI runner, up to 8s on a cold one. Later waits stay short.
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`, 1200);
     await newChat();
     await modelIs("GPT-6-Astra");
@@ -91,7 +89,6 @@ async function browserChecks() {
     await shot("composer-provider-tabs");
     await click("Antigravity");
     await waitFor(`document.body.textContent.includes("Gemini 3.8 Flash")`);
-    // One row per model family; the thinking levels are efforts, not rows.
     const rows = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-picker-row]')].map(el => el.textContent))`));
     const families = rows.filter((text) => text.startsWith("Gemini"));
     assert.equal(families.length, 2, rows.join(" | "));
@@ -107,7 +104,6 @@ async function browserChecks() {
     await shot("composer-antigravity-models");
     await click("Gemini 4 Argon");
     await modelIs("Gemini 4 Argon");
-    // Effort sits beside the models: a three-step slider from Low to High, and the picker stays open after a pick.
     await waitFor(`!!document.querySelector('[data-model-settings] [role="slider"]')`);
     assert.equal(await evaluate(`document.querySelector('[data-model-settings] [role="slider"]').getAttribute('aria-valuemax')`), "2");
     assert.match(await evaluate(`document.querySelector('[data-model-settings]').textContent`), /Low.*High/);
@@ -116,7 +112,6 @@ async function browserChecks() {
     await click("Opus 5.5");
     await modelIs("Opus 5.5");
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem('milagre-settings')).defaultModelId`), "claude-opus-5-5");
-    // The model picker is still open; its footer holds the permission.
     await click("Agent permissions");
     await click("Full permissions");
     await evaluate(`document.querySelector('[data-promptbar] [data-permission-mode]').click()`);
@@ -183,7 +178,6 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[aria-label="Send"]').disabled`);
     await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
     await waitFor(`!!window.finishWorktree`);
-    // Since #198 the submitted message shows at once while the worktree is prepared.
     await waitFor(`document.querySelector('[aria-label="Conversation"]')?.textContent.includes('First prompt')`);
     await evaluate(`window.failWorktree()`);
     await waitFor(`document.body.textContent.includes('Could not create the worktree')`);
