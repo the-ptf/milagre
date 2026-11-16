@@ -45,7 +45,9 @@ function serve() {
     if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, "index.html");
     if (!fs.existsSync(file)) return res.writeHead(404).end();
     const type = types[path.extname(file)] || "application/octet-stream";
-    const cache = /^\/(_astro|demo|logos)\/|^\/icons\.svg$/.test(pathname) ? "public, max-age=2592000" : "public, max-age=0, must-revalidate";
+    const cache = /^\/(_astro|demo|logos)\/|^\/(icons\.svg|app-icon.*|og\.png)$/.test(pathname)
+      ? "public, max-age=2592000"
+      : "public, max-age=0, must-revalidate";
     const body = fs.readFileSync(file);
     const compress = /text|javascript|svg|json|xml/.test(type) && /\bbr\b/.test(req.headers["accept-encoding"] || "");
     res.writeHead(200, { "Content-Type": type, "Cache-Control": cache, ...(compress ? { "Content-Encoding": "br" } : {}) });
