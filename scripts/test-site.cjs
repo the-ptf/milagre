@@ -295,6 +295,10 @@ const checks = [
     async run(open, evaluate, shot) {
       const window = await open({ width: 390, height: 844, mobile: true });
       assert.equal(await evaluate(window, `getComputedStyle(document.querySelector(".mac")).display`), "none");
+      assert.equal(await evaluate(window, `new URL(document.querySelector("[data-phone]").poster).pathname`), "/demo/phone.webp");
+      assert.match(await evaluate(window, `getComputedStyle(document.querySelector(".phone-video")).backgroundImage`), /\/demo\/phone\.webp/);
+      assert.equal(await evaluate(window, `document.querySelectorAll('link[rel="preload"][as="font"]').length`), 2);
+      assert.equal(await evaluate(window, `document.querySelector("#browser video").getAttribute("poster")`), null);
       await assertHeroScreen(evaluate, window);
       await shot(window, "phone.png");
       window.destroy();

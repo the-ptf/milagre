@@ -7,6 +7,10 @@
   Cache-Control: public, max-age=2592000
 /logos/*
   Cache-Control: public, max-age=2592000
+/app-icon*
+  Cache-Control: public, max-age=2592000
+/og.png
+  Cache-Control: public, max-age=2592000
 # Points agents at the machine-readable versions of the site (RFC 8288).
 /
   Link: </llms.txt>; rel="describedby"; type="text/plain", </index.md>; rel="alternate"; type="text/markdown", </.well-known/agent-skills/index.json>; rel="describedby"; type="application/json", </.well-known/ai-catalog.json>; rel="describedby"; type="application/json"

@@ -1,6 +1,7 @@
 ---
 import "../styles/global.css";
 import geistLatin from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
+import instrumentSerifLatin from "@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2?url";
 interface Props {
   title: string;
   description: string;
@@ -12,6 +13,7 @@ interface Props {
 }
 const { title, description, socialTitle = title, socialDescription = description, schema = [], noindex = false, themeColor = "#fffaf0" } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
+const isLanding = Astro.url.pathname === "/";
 const ogImage = new URL("/og.png", Astro.site);
 const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with an agent waiting for approval to run the mobile checks.";
 ---
@@ -21,6 +23,7 @@ const ogImageAlt = "Milagre on a Mac and an iPhone showing the same Chat, with a
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
+    {isLanding && <link rel="preload" href={instrumentSerifLatin} as="font" type="font/woff2" crossorigin />}
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
