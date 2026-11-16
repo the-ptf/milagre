@@ -74,13 +74,13 @@ export const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, cha
 /** The title bar's trailing buttons: the panel toggles and the Canvas button, which a split's Panels menu replaces. */
 export function cornerButtonCount(
   splitOn: boolean,
-  panels: Partial<Record<PanelName, SidePanel>>,
+  shown: Partial<Record<PanelName, SidePanel>>,
   changesAvailable: boolean,
   prNumber: number | null | undefined,
   view: string,
 ) {
   if (splitOn) return 0;
-  return sidePanelCount(panels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" || view === "canvas" ? 1 : 0);
+  return sidePanelCount(shown, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" || view === "canvas" ? 1 : 0);
 }
 
 type PanelProps = { changes?: SidePanel; pullRequest?: SidePanel & { number: number } };
