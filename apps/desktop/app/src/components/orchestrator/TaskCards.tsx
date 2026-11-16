@@ -9,6 +9,7 @@ import { useMotionScale } from "../../lib/ease";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
+import { useProjectImages } from "../../lib/project-images";
 import { ProjectAvatar } from "../primitives/ProjectAvatar";
 import { Select } from "../primitives/Select";
 import { SpinnerRing } from "../primitives/SpinnerRing";
@@ -53,10 +54,16 @@ export function StatusMark({ card }: { card: TaskCard }) {
   );
 }
 
+/** The Project's own icon, as the sidebar shows it, with its initial while there is none. */
+export function ProjectIcon({ path, name, size = 16, className }: { path: string | null; name: string; size?: 16 | 20 | 24; className?: string }) {
+  const image = useProjectImages(path ? [path] : []);
+  return <ProjectAvatar name={name || "?"} src={path ? image(path) : null} size={size} className={className} />;
+}
+
 export function ProjectLabel({ path, name, size = 16 }: { path: string | null; name: string; size?: 16 | 20 }) {
   return (
     <>
-      <ProjectAvatar name={name || "?"} size={size} />
+      <ProjectIcon path={path} name={name} size={size} />
       <span className="truncate">{name || path}</span>
     </>
   );

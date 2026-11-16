@@ -1,13 +1,12 @@
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
 import { modelName } from "../../lib/orchestrator-names";
 import { usePanelWidth } from "../agents/panel-width";
-import { ProjectAvatar } from "../primitives/ProjectAvatar";
 import { ResizeHandle } from "../primitives/ResizeHandle";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SectionLabel } from "../primitives/SectionLabel";
 import { COLUMNS } from "./OrchestratorBoard";
 import { OrchestratorBox } from "./OrchestratorBox";
-import { StatusMark, type CardEnv } from "./TaskCards";
+import { ProjectIcon, StatusMark, type CardEnv } from "./TaskCards";
 
 export function OrchestratorTaskList({
   cards,
@@ -63,7 +62,7 @@ export function OrchestratorTaskList({
                     <span className="grid min-w-0 flex-1 gap-0.5">
                       <span className="truncate text-13 font-medium text-ink">{task.title}</span>
                       <span className="flex min-w-0 items-center gap-1.5 text-11 text-ink-3">
-                        {task.projectPath && <ProjectAvatar name={env.projectName(task.projectPath)} size={16} />}
+                        {task.projectPath && <ProjectIcon path={task.projectPath} name={env.projectName(task.projectPath)} />}
                         <span className="truncate">
                           {[env.projectName(task.projectPath), task.model && modelName(task.model)].filter(Boolean).join(" · ") || card.detail}
                         </span>

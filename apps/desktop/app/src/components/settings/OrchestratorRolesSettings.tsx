@@ -10,7 +10,7 @@ import { Checkbox } from "../primitives/Checkbox";
 import { FIELD_AREA } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
-import { ProjectAvatar } from "../primitives/ProjectAvatar";
+import { ProjectIcon } from "../orchestrator/TaskCards";
 import { Segmented } from "../primitives/Segmented";
 import { Select } from "../primitives/Select";
 import { SpinnerRing } from "../primitives/SpinnerRing";
@@ -116,7 +116,7 @@ function ProjectRow({ project, onSave }: { project: OrchestratorProject; onSave:
   return (
     <div className={`flex items-start gap-3 px-4 py-3 ${project.included ? "" : "opacity-60"}`}>
       <Checkbox aria-label={`Route to ${project.name}`} className="mt-2" checked={project.included} onCheckedChange={(on) => onSave(on, project.hints)} />
-      <ProjectAvatar name={project.name} size={24} className="mt-1" />
+      <ProjectIcon path={project.path} name={project.name} size={24} className="mt-1" />
       <div className="grid min-w-0 flex-1 gap-1.5">
         <span className="text-13 font-medium text-ink">{project.name}</span>
         <textarea
