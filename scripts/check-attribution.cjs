@@ -86,8 +86,10 @@ function stripFile(file) {
 }
 
 function main(argv) {
-  const [mode, value] = argv;
-  if (mode === "--commit-msg") return report(attributionLines(fs.readFileSync(value, "utf8")).map((line) => `commit message: ${line}`));
+  const [mode] = argv;
+  // lefthook passes {1} unquoted on Windows, so a checkout under a folder with a space ("C:\Users\me\My Projects")
+  // hands the message file over in pieces: they are one path again.
+  if (mode === "--commit-msg") return report(attributionLines(fs.readFileSync(argv.slice(1).join(" "), "utf8")).map((line) => `commit message: ${line}`));
   if (mode === "--amend-head") {
     // Drops the lines from HEAD's message and, when an AI tool authored it, makes you the author.
     const message = git(["log", "-1", "--format=%B"]);
