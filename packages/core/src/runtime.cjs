@@ -432,6 +432,7 @@ function createRuntime(options) {
   let limitResume = null;
   let routines = null;
   let babysitWatch = null;
+  let autopilot = null;
   let chatSecrets = null;
   let bugReports = null;
   let subchatEscalation = null;
@@ -444,8 +445,7 @@ function createRuntime(options) {
       emit("agent:event", { chatId, event, ...(state ? { state: scopeStates.withPersistence(projectOfKey(chatId), state) } : {}), ...(seq ? { seq } : {}) });
       return;
     }
-    routines?.observe(chatId, event);
-    babysitWatch?.observe(chatId, event);
+    for (const watcher of [routines, babysitWatch, autopilot]) watcher?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) {
@@ -1647,10 +1647,11 @@ function createRuntime(options) {
     for (const owner of repositoryOwners.values()) owner.release();
     dataOwner.release();
   });
-  const taskAccounts = registerOrchestrator(
+  const { taskAccounts, autopilot: orchestratorAutopilot } = registerOrchestrator(
     { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
-    { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat },
+    { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion },
   );
+  autopilot = orchestratorAutopilot;
   const close = () => shutdown.run();
 
   return {

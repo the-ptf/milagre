@@ -3,7 +3,14 @@ const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/age
 const { patchSession } = require("@milagre/shared/project-edits");
 const { createOrchestratorStore } = require("../orchestrator/store.cjs");
 const { createOrchestrator } = require("../orchestrator/service.cjs");
+const { createAutopilot } = require("../orchestrator/autopilot.cjs");
 const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
+
+const QUESTION_SCHEMA = {
+  type: "object",
+  properties: { answers: { type: "object" }, confidence: { type: "number" }, summary: { type: "string" } },
+  required: ["answers", "confidence", "summary"],
+};
 
 const MEMORY_SCHEMA = {
   type: "object",
@@ -59,7 +66,7 @@ function taskAccountsFor({ states, accounts, routing, agentCli }) {
 
 function registerOrchestrator(
   { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
-  { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat },
+  { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion },
 ) {
   const store = createOrchestratorStore({ file: path.join(dataDir, "orchestrator.json"), emit });
   const routerCall = routerModels({ agentCli, clientVersion: version });
@@ -107,7 +114,17 @@ function registerOrchestrator(
   commands.handle("orchestrator:memory:import", () => orchestrator.importMemory());
   commands.handle("orchestrator:memory:save", (_event, notes) => orchestrator.saveMemoryNotes(notes));
   commands.handle("orchestrator:memory:forget", () => orchestrator.forgetMemory());
-  return taskAccountsFor({ states, accounts, routing, agentCli });
+  const autopilot = createAutopilot({
+    store,
+    ports: {
+      sessionOf: (chatId) => states.states.get(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)],
+      respondPermission,
+      answerQuestion,
+      note: (chatId, body) => void chats.addNote(chatId, { body }),
+      questionCall: (router) => routerCall(router, QUESTION_SCHEMA),
+    },
+  });
+  return { taskAccounts: taskAccountsFor({ states, accounts, routing, agentCli }), autopilot };
 }
 
 module.exports = { registerOrchestrator };
