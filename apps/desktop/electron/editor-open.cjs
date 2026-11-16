@@ -1,5 +1,4 @@
 const { ipcErrorMessage } = require("@milagre/shared/result");
-/** Convert the editor adapter's historical null/string return into the wire Result. */
 /**
  * @param {{ editors: () => Promise<import("@milagre/core/editors").DetectedEditor[]>; open: typeof import("@milagre/core/editors").openInEditor; checkRoot?: (root: string) => Promise<void | string[]> }} options
  * @returns {(request: import("@milagre/core/editors").EditorRequest | null) => Promise<import("@milagre/shared/result").Result<null>>}

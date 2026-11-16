@@ -1,4 +1,3 @@
-// Links in agent replies open in the user's browser. The app window itself never navigates away from Milagre.
 const EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 function externalUrl(url) {
@@ -10,7 +9,6 @@ function externalUrl(url) {
   }
 }
 
-// The dev server is matched by origin; a packaged build loads one file, matched by path.
 function isAppUrl(url, appUrl) {
   try {
     const target = new URL(url);
@@ -35,9 +33,6 @@ function guardNavigation(webContents, { appUrl, openExternal }) {
     event.preventDefault();
     leave(url);
   });
-  // will-navigate is the main frame's alone. An embedded frame (a design, the simulator viewer) stays on the document
-  // the app gave it: a design that sets location to a remote page would show that page inside the app, without the
-  // policy its srcdoc carried.
   webContents.on("will-frame-navigate", (event) => {
     if (/^milagre-artifact:\/\/preview\/[a-f0-9]{48}$/.test(event.url)) return;
     if (event.isMainFrame || isAppUrl(event.url, appUrl) || /^about:(srcdoc|blank)$/.test(event.url)) return;

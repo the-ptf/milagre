@@ -1,4 +1,3 @@
-// One quit attempt at a time. A failed save keeps the process alive for retry.
 function createQuitHandler({ prepare, quit, failed }) {
   let pending;
   return () =>

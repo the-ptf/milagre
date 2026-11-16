@@ -1,6 +1,5 @@
 const fs = require("node:fs");
 const clamp = (value, min, max) => Math.min(Math.max(min, max), Math.max(min, value));
-// Separate small windows keep transparent areas from intercepting the user's other apps.
 function createFloatingInbox({ BrowserWindow, screen, preload, load, positionFile }) {
   let dock = null;
   let inbox = null;
@@ -147,8 +146,6 @@ function createFloatingInbox({ BrowserWindow, screen, preload, load, positionFil
     hidePreview();
     close();
     const point = screen.getCursorScreenPoint();
-    // A tall native window is constrained by the work area, so its top grip cannot
-    // reach the bottom target. Keep a compact grip and logo under the pointer.
     drag = { offset: { x: 27, y: 17 }, previous: position, reducedMotion, target: hit(point) };
     dock.setBounds({ x: point.x - 27, y: point.y - 17, width: 54, height: 70 });
     dock.setAlwaysOnTop(true, "screen-saver", 1);
@@ -235,7 +232,6 @@ function createFloatingInbox({ BrowserWindow, screen, preload, load, positionFil
       frame: false,
       transparent: true,
       backgroundColor: "#00000000",
-      // The renderer draws the rounded surface's shadow. A native shadow outlines
       // the transparent window and leaves a dark halo around its margins on macOS.
       hasShadow: false,
       resizable: false,
@@ -278,7 +274,6 @@ function createFloatingInbox({ BrowserWindow, screen, preload, load, positionFil
         dock = make("dock");
         inbox = make("inbox");
         inbox.on("blur", close);
-        // The system Close shortcut dismisses this panel; the dock can open it again.
         inbox.on("close", (event) => {
           event.preventDefault();
           close();

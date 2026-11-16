@@ -7,11 +7,7 @@ const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { WHISPER_MODELS, silentPcm, whisperText } = require("@milagre/shared/dictation");
 
-// Dictation on this computer: whisper.cpp transcribes the window's recording here, so the voice never leaves it. Each
-// model downloads once, picked in Settings or on the first take that needs it, and the one in use stays loaded for a
-// few minutes after the last take.
 const IDLE_RELEASE_MS = 3 * 60 * 1000;
-// Progress reaches the windows at most this often; a download writes thousands of chunks a second.
 const PROGRESS_MS = 100;
 
 /**
@@ -44,7 +40,6 @@ function createDictation({
     return model;
   }
 
-  // Several windows can dictate, or a take can be cancelled while its inference is still finishing.
   function serial(work) {
     if (idle) clearTimeout(idle);
     idle = null;
@@ -66,7 +61,6 @@ function createDictation({
 
   const announce = (model) => void stateOf(model).then(onChange, () => {});
 
-  /** Downloads a model once, checked against its hash. A second call while it downloads joins the first. */
   function download(id) {
     const model = modelOf(id);
     const running = downloads.get(model.id);
@@ -105,7 +99,6 @@ function createDictation({
     return entry.promise;
   }
 
-  /** Stops a model's download; its promise rejects with an AbortError. */
   function cancel(id) {
     downloads.get(modelOf(id).id)?.controller.abort();
   }
@@ -120,7 +113,6 @@ function createDictation({
 
   async function warm(model) {
     await download(model.id);
-    // One model in memory at a time: switching models frees the last one first.
     if (context && context.id !== model.id) await release();
     if (!context) {
       const whisper = loadWhisper().then((native) => native.initWhisper({ filePath: fileOf(model), useGpu: true }));
@@ -140,7 +132,6 @@ function createDictation({
   }
 
   /**
-   * The text of a recording: 16 kHz mono 16-bit PCM. `language` is a Whisper code or "auto"; `prompt` the project's words.
    * @param {{ audio: ArrayBuffer, language?: string, prompt?: string, model?: string }} request
    */
   async function transcribe({ audio, language = "auto", prompt = "", model: id }) {
@@ -161,7 +152,6 @@ function createDictation({
     }
   }
 
-  /** Deletes a downloaded model, cancelling its download and freeing it from memory first. */
   async function remove(id) {
     const model = modelOf(id);
     cancel(model.id);
@@ -178,7 +168,6 @@ function createDictation({
     download,
     cancel,
     remove,
-    /** Downloads the model if it must and loads it, so the take's first words don't wait for either. */
     prepare: (id) =>
       serial(async () => {
         await warm(modelOf(id));

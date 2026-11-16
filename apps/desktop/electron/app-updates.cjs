@@ -2,8 +2,6 @@
 const { isChannelNotPublished, isNewerRelease } = require("./release-channel.cjs");
 
 /**
- * An updater that loads on the first check: electron-updater takes tens of milliseconds to require, and nothing needs it
- * while the app launches. Settings and listeners made before then wait for it.
  * @param {() => any} load
  */
 function deferUpdater(load) {
@@ -37,8 +35,6 @@ function deferUpdater(load) {
   };
 }
 
-// How long the app may take to quit once it has handed the update over. Past this it never will (the installer failed
-// or a window refused to close): with its host already stopped, it starts again rather than sit there without one.
 const QUIT_TIMEOUT_MS = 60_000;
 // How long macOS's updater may take to unpack and verify the downloaded update before the host stops.
 const STAGE_TIMEOUT_MS = 3 * 60_000;
@@ -77,11 +73,6 @@ function stageNativeUpdate(target, native, { timeoutMs = STAGE_TIMEOUT_MS } = {}
   });
 }
 
-/**
- * One updater owns downloads, background checks, and explicit host shutdown for installation. An install prepares the
- * update first (`stage`), then stops the host, then quits: a failure before the host stops leaves everything running,
- * one while it stops brings it back (`resumeHost`), and a quit that never comes starts Milagre again (`relaunch`).
- */
 function createAppUpdates({
   updater,
   enabled,
@@ -102,7 +93,6 @@ function createAppUpdates({
   let checking = null;
   /** @type {Promise<void> | null} */
   let installing = null;
-  /** Where an install is: its errors are the step's own until it quits (see failed). */
   let phase = /** @type {"" | "staging" | "stopping" | "quitting"} */ ("");
   let lastCheck = -Infinity;
   /** @param {Partial<typeof state>} next */
@@ -115,7 +105,6 @@ function createAppUpdates({
     return state;
   };
   const reason = (error) => (error instanceof Error ? error.message : String(error));
-  // The host is stopped and the app did not quit to install: start Milagre again, with its host, rather than leave it.
   let gaveUp = false;
   const giveUp = (error) => {
     if (gaveUp) return;
@@ -127,12 +116,9 @@ function createAppUpdates({
   const failed = (error) => {
     if (error !== undefined) log(`updater error: ${reason(error)}`);
     if (state.status === "installing") {
-      // Before the quit, the install step that failed reports it; after, nothing else will.
       if (phase === "quitting") giveUp(error ?? new Error("updater error"));
       return state;
     }
-    // A failed metadata check leaves the existing installer usable. Once a newer download starts,
-    // electron-updater owns/replaces the cache, so a download failure must be retried instead.
     if (state.status === "downloaded") return state;
     return update({
       status: "error",
@@ -140,7 +126,6 @@ function createAppUpdates({
     });
   };
   updater.autoDownload = false;
-  // A normal quit must leave the shared host running; installation explicitly stops it.
   updater.autoInstallOnAppQuit = false;
   const needsDownload = (info) => state.status !== "downloaded" || isNewerRelease(info.version, state.version);
   updater.on("update-available", (info) => {
@@ -168,7 +153,6 @@ function createAppUpdates({
         () => (state.status === "checking" ? update({ status: "up-to-date", version: null }) : state),
         (error) => {
           if (isChannelNotPublished(error)) return noUpdate();
-          // electron-updater also emits an error event; preserve its download-specific explanation.
           return state.status === "error" ? state : failed(error);
         },
       )
@@ -182,7 +166,6 @@ function createAppUpdates({
     if (state.status !== "downloaded") return Promise.resolve();
     installing = Promise.resolve()
       .then(async () => {
-        // Finish a concurrent refresh before choosing which installer to apply.
         if (checking) await checking;
         if (state.status !== "downloaded") return;
         update({ status: "installing", error: undefined });
@@ -224,23 +207,13 @@ function createAppUpdates({
       });
     return installing;
   }
-  // The Auto update switch, which the host keeps (app-auto-update.cjs): shown on the notice, read by createAutoInstall.
   const setAuto = (auto) => (state.auto === (auto === true) ? state : update({ auto: auto === true }));
   return { get: () => state, check, install, setAuto };
 }
 
-// No keyboard or mouse input for this long before an auto update restarts Milagre, so it never restarts under someone at
-// the Mac. A server nobody sits at is always past it.
 const INPUT_IDLE_SECONDS = 5 * 60;
-// Quiet checks in a row, a minute apart, before installing: a Chat between two turns (a queued message, a Delegation's
-// report) looks idle for a moment.
 const QUIET_CHECKS = 2;
 
-/**
- * Installs a downloaded update by itself while Auto update is on, once the host says no Chat or Routine runs
- * (`activity`, app-update:activity) and nobody has used the Mac for INPUT_IDLE_SECONDS. A host that can't answer counts
- * as busy. An install that fails is not tried again for that version; the notice offers Install & restart.
- */
 function createAutoInstall(controller, { activity, inputIdleSeconds }) {
   let quiet = 0;
   let failedVersion = null;
@@ -263,7 +236,6 @@ function createAutoInstall(controller, { activity, inputIdleSeconds }) {
     return true;
   }
   return {
-    /** One check; resolves true when it tried to install. */
     tick() {
       ticking ??= step().finally(() => {
         ticking = null;
