@@ -20,10 +20,7 @@ export function useBtw(chatId: string | null) {
       received = true;
       setState(payload.btw);
     };
-    const offLocal = window.milagre.onBtwEvent?.(receive);
-    const offRemote = window.milagre.onComputerEvent?.((event) => {
-      if (event.channel === "chat:btw-event") receive(event.payload);
-    });
+    const off = bridgeForKey(chatId).onBtwEvent?.(receive);
     async function load() {
       const next = await bridgeForKey(chatId).readBtw(chatId!);
       if (!cancelled && !received) setState(next);
@@ -31,8 +28,7 @@ export function useBtw(chatId: string | null) {
     void load().catch(() => {});
     return () => {
       cancelled = true;
-      offLocal?.();
-      offRemote?.();
+      off?.();
     };
   }, [chatId]);
   const ask = useEvent(async (request: Omit<BtwRequest, "chatId">) => {
