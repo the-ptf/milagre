@@ -27,7 +27,8 @@ export function TaskMark({ item }: { item: BoardItem }) {
         <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />
       </View>
     );
-  if (item.column === "review") return <Icon icon={GitPullRequestIcon} tone="green" size={16} />;
+  if (item.column === "review" && item.pullRequest === "open") return <Icon icon={GitPullRequestIcon} tone="green" size={16} />;
+  if (item.column === "review") return <Icon icon={CheckmarkCircle02Icon} tone="ink3" size={16} />;
   if (item.column === "done")
     return item.pullRequest === "merged" ? <Icon icon={GitMergeIcon} tone="purple" size={16} /> : <Icon icon={CheckmarkCircle02Icon} tone="ink3" size={16} />;
   if (item.mark === "running" || item.mark === "background") return <SpinnerRing size={16} />;

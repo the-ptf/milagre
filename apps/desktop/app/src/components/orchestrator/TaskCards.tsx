@@ -41,7 +41,7 @@ export function StatusMark({ card }: { card: TaskCard }) {
         <span className={`size-2 rounded-full ${failed(card) ? "bg-red" : "bg-orange"}`} />
       </span>
     );
-  if (card.column === "review")
+  if (card.column === "review" && card.session?.summary?.pullRequests?.length)
     return (
       <span className="flex shrink-0 text-green">
         <Icon icon={GitPullRequestIcon} size={14} />
