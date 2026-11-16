@@ -27,6 +27,19 @@
         "buildType": "apk",
         "image": "latest"
       }
+    },
+    "play": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "channel": "testflight",
+      "node": "26.13.0",
+      "env": {
+        "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "image": "latest"
+      }
     }
   },
   "submit": {
@@ -34,6 +47,12 @@
       "ios": {
         "appleTeamId": "9J2K2AFDLJ",
         "ascAppId": "6818804252"
+      }
+    },
+    "play": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
       }
     }
   }
