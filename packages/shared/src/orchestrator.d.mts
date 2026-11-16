@@ -75,9 +75,26 @@ export interface OrchestratorMemoryNote {
 export interface OrchestratorMemory {
   notes: OrchestratorMemoryNote[];
   trust: Record<string, { answered: number; corrected: number }>;
-  sources: { name: string; count: number; found: boolean }[];
+  sources: { name: string; count: number; unit: "notes" | "rules"; found: boolean }[];
   importedAt: number | null;
   updatedAt: number;
+}
+
+export interface OrchestratorProject {
+  path: string;
+  name: string;
+  included: boolean;
+  hints: string | null;
+  defaultHints: string | null;
+}
+
+export interface OrchestratorComputer {
+  id: string;
+  name: string;
+  online: boolean;
+  cpu: number | null;
+  memoryFree: number | null;
+  agents: number | null;
 }
 
 export interface OrchestratorSnapshot {

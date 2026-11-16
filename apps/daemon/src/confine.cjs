@@ -166,6 +166,8 @@ const PATHS = Object.freeze({
   "done:settings:read": none,
   "done:settings:save": denied,
   "orchestrator:read": none,
+  "orchestrator:projects": none,
+  "orchestrator:computers": none,
   "orchestrator:settings:save": denied,
   "orchestrator:send": denied,
   "orchestrator:task:project": denied,

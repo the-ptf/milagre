@@ -3,7 +3,15 @@ import type { IdleWorktrees, RemoveWorktree } from "@milagre/shared/storage";
 import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
-import type { OrchestratorMemory, OrchestratorMemoryNote, OrchestratorSettings, OrchestratorSnapshot, OrchestratorTask } from "@milagre/shared/orchestrator";
+import type {
+  OrchestratorComputer,
+  OrchestratorMemory,
+  OrchestratorMemoryNote,
+  OrchestratorProject,
+  OrchestratorSettings,
+  OrchestratorSnapshot,
+  OrchestratorTask,
+} from "@milagre/shared/orchestrator";
 import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
@@ -447,6 +455,8 @@ export type MilagreBridge = {
   /** The settings changed, here or from another device. */
   onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
   readOrchestrator: () => Promise<OrchestratorSnapshot>;
+  readOrchestratorProjects: () => Promise<OrchestratorProject[]>;
+  readOrchestratorComputers: () => Promise<OrchestratorComputer[]>;
   saveOrchestratorSettings: (patch: Partial<OrchestratorSettings>) => Promise<OrchestratorSettings>;
   sendToOrchestrator: (prompt: string) => Promise<OrchestratorTask>;
   pickOrchestratorProject: (taskId: string, projectPath: string) => Promise<OrchestratorTask | null>;

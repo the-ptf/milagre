@@ -31,6 +31,12 @@
     "orchestrator:read": {
       "parameters": []
     },
+    "orchestrator:projects": {
+      "parameters": []
+    },
+    "orchestrator:computers": {
+      "parameters": []
+    },
     "orchestrator:settings:save": {
       "parameters": [
         {

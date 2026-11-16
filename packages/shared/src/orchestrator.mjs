@@ -223,9 +223,12 @@ export function normalizeOrchestratorMemory(raw) {
     notes: Array.isArray(value.notes) ? value.notes.map(normalizeMemoryNote).filter(Boolean).slice(-NOTES_KEPT) : [],
     trust,
     sources: Array.isArray(value.sources)
-      ? value.sources
-          .filter(isObject)
-          .map((source) => ({ name: String(source.name ?? "").slice(0, 40), count: Math.max(0, Number(source.count) || 0), found: source.found === true }))
+      ? value.sources.filter(isObject).map((source) => ({
+          name: String(source.name ?? "").slice(0, 40),
+          count: Math.max(0, Number(source.count) || 0),
+          unit: source.unit === "rules" ? "rules" : "notes",
+          found: source.found === true,
+        }))
       : [],
     importedAt: Number.isFinite(value.importedAt) ? value.importedAt : null,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0,

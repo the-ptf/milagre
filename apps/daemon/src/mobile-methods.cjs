@@ -58,6 +58,8 @@ const METHODS = new Set([
   "done:settings:read",
   "done:settings:save",
   "orchestrator:read",
+  "orchestrator:projects",
+  "orchestrator:computers",
   "orchestrator:settings:save",
   "orchestrator:send",
   "orchestrator:task:project",

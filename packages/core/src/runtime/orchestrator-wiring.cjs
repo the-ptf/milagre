@@ -131,6 +131,8 @@ function registerOrchestrator(
     },
   });
   commands.handle("orchestrator:read", () => orchestrator.snapshot());
+  commands.handle("orchestrator:projects", () => orchestrator.projects());
+  commands.handle("orchestrator:computers", () => orchestrator.computers());
   commands.handle("orchestrator:settings:save", (_event, patch) => orchestrator.saveSettings(patch));
   commands.handle("orchestrator:send", (_event, prompt) => orchestrator.send(prompt));
   commands.handle("orchestrator:task:project", (_event, taskId, projectPath) => orchestrator.pickProject(String(taskId), String(projectPath)));

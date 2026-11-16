@@ -84,7 +84,7 @@ async function importMemory({ call, home = os.homedir(), env = process.env, onSo
         read.push({ source: source.name, file, text });
       } catch {}
     }
-    const entry = { name: source.name, count: source.files.length, found: source.files.length > 0 };
+    const entry = { name: source.name, count: source.files.length, unit: source.unit, found: source.files.length > 0 };
     counted.push(entry);
     onSource(entry);
   }
