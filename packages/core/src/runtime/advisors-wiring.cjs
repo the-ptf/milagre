@@ -169,7 +169,13 @@ function createAdvisorsWiring({
       await existingChat("controlling advisors")(chatId);
       return advisors[method](chatId, String(advisorId));
     });
-  return { advisorStore, advisorMcp, advisorDelivery, advisors };
+  async function close() {
+    await advisorDelivery.close();
+    await advisors.close();
+    await advisorMcp.close();
+    await advisorStore.close();
+  }
+  return { advisorStore, advisorDelivery, advisors, close };
 }
 
 module.exports = { createAdvisorsWiring };

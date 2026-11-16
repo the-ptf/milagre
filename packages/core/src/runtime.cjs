@@ -44,6 +44,8 @@ const { readPullRequestState } = require("./pull-request.cjs");
 const { registerPullRequests } = require("./runtime/pull-requests.cjs");
 const { registerSettingsCommands } = require("./runtime/settings-commands.cjs");
 const { createToolServices } = require("./runtime/tool-services.cjs");
+const { createLocalMcpWiring } = require("./runtime/local-mcp-wiring.cjs");
+const { createShutdown } = require("./runtime/shutdown.cjs");
 const { registerChatLifecycle } = require("./runtime/chat-lifecycle.cjs");
 const { registerProjects } = require("./runtime/projects.cjs");
 const { createWorktrees } = require("./runtime/worktrees.cjs");
@@ -101,7 +103,6 @@ function createRuntime(options) {
   let needsUserCount = 0;
   const NEEDS_USER_CHATS = 500;
   let closing = false;
-  let closed;
   let advisors;
   let advisorDelivery;
   const chatsHome = createChatsHome({ root: options.chatsHome ?? path.join(require("node:os").homedir(), ".milagre", "chats") });
@@ -171,6 +172,19 @@ function createRuntime(options) {
     if (!scope || !Number.isSafeInteger(id) || id < 1 || !scopeStates.has(scope) || !(await scopeStates.get(scope)).sessions[id])
       throw new Error(`Open an existing Chat before ${action}.`);
   };
+  const toolServices = createToolServices({
+    options,
+    dataDir,
+    emit,
+    commands,
+    existingChat,
+    agents: () => agents,
+    scopeStates: () => scopeStates,
+    chats: () => chats,
+    ports: () => ports,
+    advisors: () => advisors,
+    sendAsUser: (...args) => sendAsUser(...args),
+  });
   const {
     computerUseSettings,
     computerUseScreen,
@@ -188,19 +202,7 @@ function createRuntime(options) {
     panelForwarders,
     chatWorktrees,
     terminals,
-  } = createToolServices({
-    options,
-    dataDir,
-    emit,
-    commands,
-    existingChat,
-    agents: () => agents,
-    scopeStates: () => scopeStates,
-    chats: () => chats,
-    ports: () => ports,
-    advisors: () => advisors,
-    sendAsUser: (...args) => sendAsUser(...args),
-  });
+  } = toolServices;
   const searchFiles = createFileSearch();
   const environmentReady =
     options.environmentReady ??
@@ -1364,7 +1366,7 @@ function createRuntime(options) {
     if (setup.failed) throw new Error(setup.note || "Worktree setup did not finish.");
     return { ...made, setupNote: setup.note };
   }
-  const { advisorStore, advisorMcp, ...advisorServices } = createAdvisorsWiring({
+  const advisorServices = createAdvisorsWiring({
     options,
     dataDir,
     version,
@@ -1383,6 +1385,7 @@ function createRuntime(options) {
     simulatorToolDefinitions,
     isClosing: () => closing,
   });
+  const { advisorStore } = advisorServices;
   ({ advisorDelivery, advisors } = advisorServices);
   const linkWorkspaces = createLinkWorkspaces({
     store: linkStore,
@@ -1548,71 +1551,39 @@ function createRuntime(options) {
     routines: () => routines,
     localMcp: () => localMcp,
   });
-  const designAdapter = path.join(__dirname, "design-mcp-tools.cjs");
-  const localMcpHost = require("./local-mcp-host.cjs").createLocalMcpHost({
-    projects: async () => [...withoutHomes(await projectRegistry().list()), ...(await chatsHomeEntries())],
+  const { localMcp } = createLocalMcpWiring({
+    options,
+    dataDir,
+    emit,
+    commands,
+    handlers,
+    environmentReady,
+    withoutHomes,
+    projectRegistry,
+    chatsHomeEntries,
     readProject,
     scopeStates,
     chats,
-    permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
-    createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
+    agents,
     stopChat,
-    setPermissionMode: (chatId, mode) => setPermissionMode(chatId, mode),
-    respondPermission: (chatId, requestId, decision) => respondPermission({ chatId, requestId, decision }),
-    answerQuestion: (chatId, requestId, answers, summary, sender) => answerQuestion({ chatId, requestId, answers, summary }, sender),
-    suggestAnswer: (chatId, details) => subchatEscalation.suggest(chatId, details),
+    setPermissionMode,
+    respondPermission,
+    answerQuestion,
     patchChat,
-    searchChats: async (projectPath, query, limit) => await handlers.get("chat:search")(null, projectPath, query, { limit }),
-    links: { list: async () => (await projectRegistry().snapshot()).links, add: addLink, remove: removeLink },
-    activeWorktrees: async (projectPath) => (await activeWorktrees(projectPath)).map((worktree) => worktree.path),
-    approve: (chatId, request) => agents.askApproval(chatId, request),
-    models: (projectPath) => handlers.get("agent:models")(null, projectPath),
-    getProjectAccounts: (projectPath, refresh) => handlers.get("accounts:scope")(null, projectPath, refresh),
-    assignProjectAccount: async (projectPath, provider, id, canAssign) => limitSwitch.decorate(await assignAccount(projectPath, provider, id, { canAssign })),
-    worktreeStatus,
-    removeWorktree: (projectPath, worktreePath) => handlers.get("worktree:remove")(null, worktreePath, { projectPath }),
+    addLink,
+    removeLink,
+    assignAccount,
     assertRegistrableProject,
-    registerProject: async (folder) => {
-      assertRegistrableProject(folder);
-      await openProject(folder, { takeNotice: false, focus: false });
-      emit("local-mcp:changed", { projectAdded: true });
-    },
-    validateDesignChat: async (chatId) => {
-      const scope = projectOfKey(chatId);
-      if (!isLinkScopeKey(scope)) {
-        if (!chatsHome.isHome(scope) && !(await projectRegistry().list()).some((project) => project.path === scope))
-          throw Error("Open this Project in Milagre first");
-        await readProject(scope);
-      }
-      await existingChat("connecting Designs")(chatId);
-    },
+    openProject,
+    chatsHome,
+    existingChat,
+    artifacts,
+    linkStore,
+    states,
+    linkMembers,
+    subchatEscalation: () => subchatEscalation,
+    limitSwitch: () => limitSwitch,
   });
-  const localMcp = require("./local-mcp.cjs").createLocalMcp({
-    dataDir,
-    emit,
-    environmentReady,
-    clientOptions: options.localMcpClients,
-    designGroup: existsSync(designAdapter) ? require(designAdapter).createDesignToolGroup({ artifacts }) : undefined,
-    agentScope: (chatId) => {
-      const projectPath = projectOfKey(chatId);
-      const state = isLinkScopeKey(projectPath) ? linkStore.cached(scopeFromKey(projectPath).linkId) : states.states.get(projectPath);
-      const session = state?.sessions[sessionIdFromKey(chatId)];
-      if (!session || session.archived) throw Error("Chat is unavailable or archived");
-      const designGrant = { designs: { chatId, designIds: "*", capabilities: ["read", "write"] } };
-      const projectPaths = isLinkScopeKey(projectPath) ? (linkMembers.get(scopeFromKey(projectPath).linkId) ?? []) : [projectPath];
-      if (!projectPaths.length) return designGrant;
-      return {
-        ...designGrant,
-        projects: { projectPaths, capabilities: ["read", "create"] },
-        worktrees: { projectPaths, capabilities: ["read", "create"] },
-        chats: { projectPaths, capabilities: ["read", "create", "start"] },
-      };
-    },
-    host: localMcpHost,
-  });
-  for (const method of ["status", "create", "update", "rotate", "revoke", "enableClient", "disableClient"])
-    commands.handle(`local-mcp:${method}`, (_context, ...args) => localMcp[method](...args));
-  void localMcp.resume().catch(() => console.warn("Local MCP could not resume its loopback listener. Open Settings > Milagre MCP to retry."));
 
   limitResume.start();
 
@@ -1640,67 +1611,67 @@ function createRuntime(options) {
   });
   snoozeSweep.start();
 
-  function close() {
-    clearInterval(uploadSweepTimer);
-    chatSecrets?.close();
-    bugReports?.close();
-    void doneSweep.stop();
-    void snoozeSweep.stop();
+  const shutdown = createShutdown();
+  let routinesStopped;
+  let limitResumeStopped;
+  shutdown.stop(() => clearInterval(uploadSweepTimer));
+  shutdown.stop(() => chatSecrets?.close());
+  shutdown.stop(() => bugReports?.close());
+  shutdown.stop(() => void doneSweep.stop());
+  shutdown.stop(() => void snoozeSweep.stop());
+  shutdown.stop(() => {
     closing = true;
-    pullRequests.close();
+  });
+  shutdown.stop(() => pullRequests.close());
+  shutdown.stop(() => {
     for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");
-    subchatEscalation.close();
-    const routinesStopped = routines.stop();
-    const limitResumeStopped = limitResume.stop();
-    linked.suspend();
-    closed ??= (async () => {
-      await routinesStopped;
-      await limitResumeStopped;
-      await localMcp.close();
-      await advisorDelivery.close();
-      await advisors.close();
-      await advisorMcp.close();
-      await advisorStore.close();
-      await Promise.all([
-        simulators.close(),
-        browsers.close(),
-        panelForwarders.closeAll(),
-        artifacts.close(),
-        designKits.close(),
-        pageComments.close(),
-        terminals.dispose(),
-      ]);
-      await linear.dispose();
-      await Promise.allSettled(active);
-      await attachmentTransfers.close();
-      accounts.close();
-      keybindings.close();
-      keepAwake.quit();
-      computerResources.close();
-      ports.close();
-      diffs.close();
-      if (!states.closed) {
-        await chats.suspendRunning();
-        await scopeStates.flush().catch(() => {});
-        await Promise.allSettled([worktreeSetups.cancelAll(), agents.closeAll()]);
-        await Promise.allSettled(starting);
-        await agents.closeAll();
-        await Promise.allSettled([...background, ...chatTitles.pending.values()]);
-      }
-      while (background.size) await Promise.allSettled(background);
-      await states.close();
-      await linkStore.close();
-      await linked.close();
-      await usage.idle();
-      for (const { owner } of projectOwners.values()) owner.release();
-      for (const owner of repositoryOwners.values()) owner.release();
-      dataOwner.release();
-    })().catch((error) => {
-      closed = undefined;
-      throw error;
-    });
-    return closed;
-  }
+  });
+  shutdown.stop(() => subchatEscalation.close());
+  shutdown.stop(() => {
+    routinesStopped = routines.stop();
+  });
+  shutdown.stop(() => {
+    limitResumeStopped = limitResume.stop();
+  });
+  shutdown.stop(() => linked.suspend());
+  shutdown.close(() => routinesStopped);
+  shutdown.close(() => limitResumeStopped);
+  shutdown.close(() => localMcp.close());
+  shutdown.close(() => advisorServices.close());
+  shutdown.close(() => toolServices.close());
+  shutdown.close(() => linear.dispose());
+  shutdown.close(() => Promise.allSettled(active));
+  shutdown.close(() => attachmentTransfers.close());
+  shutdown.close(() => {
+    accounts.close();
+    keybindings.close();
+    keepAwake.quit();
+    computerResources.close();
+    ports.close();
+    diffs.close();
+  });
+  shutdown.close(async () => {
+    if (states.closed) return;
+    await chats.suspendRunning();
+    await scopeStates.flush().catch(() => {});
+    await Promise.allSettled([worktreeSetups.cancelAll(), agents.closeAll()]);
+    await Promise.allSettled(starting);
+    await agents.closeAll();
+    await Promise.allSettled([...background, ...chatTitles.pending.values()]);
+  });
+  shutdown.close(async () => {
+    while (background.size) await Promise.allSettled(background);
+  });
+  shutdown.close(() => states.close());
+  shutdown.close(() => linkStore.close());
+  shutdown.close(() => linked.close());
+  shutdown.close(() => usage.idle());
+  shutdown.close(() => {
+    for (const { owner } of projectOwners.values()) owner.release();
+    for (const owner of repositoryOwners.values()) owner.release();
+    dataOwner.release();
+  });
+  const close = () => shutdown.run();
 
   return {
     methods: commands.methods(),

@@ -297,7 +297,17 @@ function createToolServices({ options, dataDir, emit, commands, existingChat, ag
       return terminals[method](request);
     });
   }
-  return { ...devices, ...design, pageComments, ...browserTools, chatWorktrees, terminals };
+  const close = () =>
+    Promise.all([
+      devices.simulators.close(),
+      browserTools.browsers.close(),
+      browserTools.panelForwarders.closeAll(),
+      design.artifacts.close(),
+      design.designKits.close(),
+      pageComments.close(),
+      terminals.dispose(),
+    ]);
+  return { ...devices, ...design, pageComments, ...browserTools, chatWorktrees, terminals, close };
 }
 
 module.exports = { createToolServices };
