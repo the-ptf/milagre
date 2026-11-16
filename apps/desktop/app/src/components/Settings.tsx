@@ -32,6 +32,8 @@ import type { ModelOption } from "../model";
 import { GlideGroup } from "./sidebar/GlideGroup";
 import { WorktreeCleanup } from "./settings/WorktreeCleanup";
 import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
+import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
+import { ImportDialog } from "./settings/ImportDialog";
 import { lazyView } from "../lib/lazy-view";
 import { SECTION_KEYWORDS, SECTION_TITLES, SETTINGS_INDEX } from "../lib/settings-index";
 import { findSetting } from "../lib/settings-find";
@@ -340,6 +342,7 @@ function IntegrationsSettings({ title }: { title?: string }) {
 /** Worktrees on every Project: how they follow main, and cleaning up the ones no Chat uses. Each Project's page sets its own. */
 function WorktreesSettings() {
   const [cleaning, setCleaning] = useState(false);
+  const [importing, setImporting] = useState(false);
   return (
     <>
       <Group title="Main branch">
@@ -347,6 +350,11 @@ function WorktreesSettings() {
       </Group>
       <Group title="Add Project">
         <DetectRepositoriesSetting />
+        <Row label={IMPORT_TITLE} description={IMPORT_INTRO}>
+          <button type="button" data-import-open onClick={() => setImporting(true)} className={SECONDARY_BUTTON}>
+            Import…
+          </button>
+        </Row>
       </Group>
       <Group title="Storage" footer="Each Project's page sets how its new Worktrees are named and set up.">
         <Row label={CLEANUP_TITLE} description={CLEANUP_INTRO}>
@@ -356,6 +364,7 @@ function WorktreesSettings() {
         </Row>
       </Group>
       {cleaning && <WorktreeCleanup bridge={window.milagre} computerName={null} onClose={() => setCleaning(false)} />}
+      {importing && <ImportDialog bridge={window.milagre} onClose={() => setImporting(false)} />}
     </>
   );
 }

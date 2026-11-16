@@ -369,6 +369,7 @@
     "./app-update": "./src/app-update.ts",
     "./computer-resources": "./src/computer-resources.ts",
     "./storage": "./src/storage.ts",
+    "./ade-import": "./src/ade-import.ts",
     "./mcp": "./src/mcp.ts",
     "./local-mcp": "./src/local-mcp.ts",
     "./use-provider-updates": "./src/use-provider-updates.ts",

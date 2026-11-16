@@ -22,6 +22,8 @@ const SLOW_METHODS = Object.freeze({
   "worktree:remove": 330000,
   "storage:remove-worktree": 330000,
   "storage:worktrees": 120000,
+  "import:scan": 120000,
+  "import:run": 600000,
   "link:delete": LINK_DELETE_MS,
   // Installing Antigravity downloads about 110 MB and unpacks it; a slow connection takes minutes.
   "agent:update-cli": 1200000,

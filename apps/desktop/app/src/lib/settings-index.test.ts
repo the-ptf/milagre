@@ -46,9 +46,17 @@ const pageSources = [
     "NotificationScheduleSetting",
     "token-usage/TokenUsagePage",
   ].map((name) => `${COMPONENTS}${name}.tsx`),
-  ...["auto-update.ts", "browser-sign-ins.ts", "chat-display.ts", "device-notes.mjs", "linear.ts", "main-sync.ts", "new-chat-glance.ts", "storage.ts"].map(
-    (name) => `../../../../../packages/shared/src/${name}`,
-  ),
+  ...[
+    "ade-import.ts",
+    "auto-update.ts",
+    "browser-sign-ins.ts",
+    "chat-display.ts",
+    "device-notes.mjs",
+    "linear.ts",
+    "main-sync.ts",
+    "new-chat-glance.ts",
+    "storage.ts",
+  ].map((name) => `../../../../../packages/shared/src/${name}`),
 ];
 // The index writes a Mac or computer title with the same constant as the row, so the source reads `${computerNoun}` where the index has its value.
 const allSource = pageSources.map(read).join("\n").replaceAll("${computerNoun}", computerNoun);

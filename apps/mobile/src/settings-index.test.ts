@@ -33,7 +33,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
   "token-usage": ["app/(settings)/token-usage.tsx", "token-usage-section.tsx"],
   skills: ["app/(settings)/skills.tsx"],
   mcp: ["app/(settings)/mcp.tsx", "mcp-section.tsx", "local-mcp-section.tsx"],
-  worktrees: ["app/(settings)/worktrees.tsx", "mac-settings-sections.tsx", shared("main-sync.ts")],
+  worktrees: ["app/(settings)/worktrees.tsx", "mac-settings-sections.tsx", shared("main-sync.ts"), shared("ade-import.ts")],
   connections: ["app/(settings)/connections.tsx", "linear-section.tsx", shared("linear.ts")],
   "babysit-prs": ["app/(settings)/babysit-prs.tsx", "babysit-section.tsx"],
   "orchestrator-settings": [

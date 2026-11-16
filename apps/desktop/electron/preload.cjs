@@ -68,6 +68,26 @@ const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.
 
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @returns {import("../app/src/electron.d.ts").MilagreBridge["simulators"]}
+ */
+function simulatorBridge(invoke) {
+  return {
+    list: (request) => invoke("simulator:list", request),
+    attach: (request) => invoke("simulator:attach", request),
+    detach: (request) => invoke("simulator:detach", request),
+    open: (request) => invoke("simulator:open", request),
+    frame: (request) => invoke("simulator:frame", request),
+    offer: (request) => invoke("simulator:offer", request),
+    status: (request) => invoke("simulator:status", request),
+    control: (request) => invoke("simulator:control", request),
+    input: (request) => invoke("simulator:input", request),
+    repair: (request) => invoke("simulator:repair", request),
+    close: (request) => invoke("simulator:close", request),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "askBtw" | "stopBtw" | "readBtw" | "onBtwEvent" | "forkChat" | "deleteChat">}
  */
@@ -121,19 +141,7 @@ function hostSettingsBridge(invoke, listen) {
  */
 function makeBridge(invoke, listen, send) {
   return {
-    simulators: {
-      list: (request) => invoke("simulator:list", request),
-      attach: (request) => invoke("simulator:attach", request),
-      detach: (request) => invoke("simulator:detach", request),
-      open: (request) => invoke("simulator:open", request),
-      frame: (request) => invoke("simulator:frame", request),
-      offer: (request) => invoke("simulator:offer", request),
-      status: (request) => invoke("simulator:status", request),
-      control: (request) => invoke("simulator:control", request),
-      input: (request) => invoke("simulator:input", request),
-      repair: (request) => invoke("simulator:repair", request),
-      close: (request) => invoke("simulator:close", request),
-    },
+    simulators: simulatorBridge(invoke),
     computerUse: {
       readSettings: () => invoke("computer-use:settings:read"),
       saveSettings: (patch) => invoke("computer-use:settings:save", patch),
@@ -254,6 +262,8 @@ function makeBridge(invoke, listen, send) {
     readComputerResources: (options) => invoke("computer:resources:read", options),
     readIdleWorktrees: () => invoke("storage:worktrees"),
     removeIdleWorktree: (request) => invoke("storage:remove-worktree", request),
+    scanImports: () => invoke("import:scan"),
+    runImport: (request) => invoke("import:run", request),
     readKeybindings: () => invoke("keybindings:read"),
     setKeybindingCommand: (command, rules) => invoke("keybindings:set-command", command, rules),
     resetKeybindingCommand: (command) => invoke("keybindings:reset-command", command),

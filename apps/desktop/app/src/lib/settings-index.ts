@@ -17,6 +17,7 @@ import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
 import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
+import { IMPORT_INTRO, IMPORT_TITLE } from "@milagre/shared/ade-import";
 
 export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
 
@@ -43,7 +44,7 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
 
 export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   general: "editor sidebar chat order chat list done archive snooze plan usage keep awake",
-  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder",
+  worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder import migrate t3 paseo orca",
   "this-mac": "computer resources memory disk drive other computers add computer computer use",
   usage: "token tokens cost spend dollars analytics estimated",
   accounts: "sign in login claude codex antigravity profile per project link usage limits",
@@ -534,6 +535,13 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     group: "Add Project",
     description: "When a folder you add holds repositories, offer to add them as Projects with a Link that groups them.",
     keywords: "repositories folder import link group monorepo clients",
+  },
+  {
+    page: "worktrees",
+    title: IMPORT_TITLE,
+    group: "Add Project",
+    description: IMPORT_INTRO,
+    keywords: "import migrate t3 code paseo orca threads chats projects move switch",
   },
   { page: "worktrees", title: "Storage" },
   {

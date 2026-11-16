@@ -13,6 +13,8 @@ import { InlineError } from "./primitives/InlineError";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Select } from "./primitives/Select";
 import { useOpenFolder } from "./ImportFolderDialog";
+import { ImportDialog } from "./settings/ImportDialog";
+import { IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { ThisComputer, isWindows, thisComputer } from "../lib/shortcut-hints";
 
 const THIS_MAC = "this-mac";
@@ -24,15 +26,25 @@ const MODES: { id: Mode; name: string; line: string; icon: typeof FolderOpenIcon
   { id: "link", name: "Link Projects", line: "Work across several", icon: Link04Icon },
 ];
 
-export function AddProjectDialog({
-  onClose,
-  onOpened,
-  onLinkProjects,
-}: {
-  onClose: () => void;
-  onOpened: (project: OpenProject) => void;
-  onLinkProjects?: () => void;
-}) {
+type AddProjectProps = { onClose: () => void; onOpened: (project: OpenProject) => void; onLinkProjects?: () => void };
+
+/** Add Project, or the import from T3 Code, Paseo or Orca that its link opens in its place. */
+export function AddProjectDialog(props: AddProjectProps) {
+  const [importing, setImporting] = useState(false);
+  if (!importing) return <AddProjectChooser {...props} onImport={() => setImporting(true)} />;
+  return (
+    <ImportDialog
+      bridge={bridgeFor(null)}
+      onClose={() => setImporting(false)}
+      onImported={(projectPath) => {
+        props.onClose();
+        if (projectPath) void bridgeFor(null).openProjectAt(projectPath).then(props.onOpened);
+      }}
+    />
+  );
+}
+
+function AddProjectChooser({ onClose, onOpened, onLinkProjects, onImport }: AddProjectProps & { onImport: () => void }) {
   const { thisMac, computers } = useComputers();
   const [on, setOn] = useState<string>(THIS_MAC);
   const [listing, setListing] = useState<DirListing | null>(null);
@@ -148,6 +160,9 @@ export function AddProjectDialog({
           </button>
         ))}
       </div>
+      <button type="button" data-add-project-import onClick={onImport} className="mt-2 text-left text-12 text-ink-3 hover:text-ink">
+        {IMPORT_TITLE}: T3 Code, Paseo or Orca…
+      </button>
       {computers.length > 0 && (
         <div className="mt-4 flex items-center justify-between gap-3">
           <p className={FIELD_LABEL}>On</p>

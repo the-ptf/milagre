@@ -316,8 +316,7 @@ function createRuntime(options) {
   }
 
   async function editProject(projectPath, change, options) {
-    const result = await scopeStates.update(projectPath, change, options);
-    if (result.changed) broadcastProjectState(projectPath, result.state);
+    await updateProject(projectPath, change, options);
     await scopeStates.flush(projectPath);
   }
 
@@ -1492,6 +1491,7 @@ function createRuntime(options) {
   });
   ({ limitSwitch, limitResume } = limits);
   const withoutHomes = (list) => list.filter((project) => !chatsHome.isHome(project.path));
+  require("./runtime/ade-import.cjs").registerAdeImport({ commands, emit, openProject, editProject, projectRegistry, projectStateReadOnly, options });
   const { projectOrigin, addLink, removeLink, canvasChatModes, assertRegistrableProject } = registerProjects({
     options,
     dataDir,

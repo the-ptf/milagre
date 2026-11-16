@@ -512,6 +512,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/pr-blockers" && !(id in modules)) return require("@milagre/shared/pr-blockers");
       // /storage's name and hint, which the Chat lists beside /undo.
       if (id === "@milagre/shared/storage" && !(id in modules)) return require("../packages/shared/src/storage.ts");
+      // Worktrees › Import from another app: its row title and hint.
+      if (id === "@milagre/shared/ade-import" && !(id in modules)) return require("../packages/shared/src/ade-import.ts");
       if (id === "@milagre/shared/project-list" && !(id in modules)) return require("../packages/shared/src/project-list.ts");
       // Snooze: the shared rules, the row menu's choices, and the phone's default at its 1 hour.
       if (id === "@milagre/shared/snooze" && !(id in modules)) return require("@milagre/shared/snooze");
