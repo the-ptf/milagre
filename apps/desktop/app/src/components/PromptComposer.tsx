@@ -1,9 +1,8 @@
-import { useShortcutLabel } from "../lib/keybindings";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { followUpDelivery, type MessageDelivery } from "@milagre/shared/queued-messages";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -33,24 +32,12 @@ import { compactButtonState } from "@milagre/shared/chat-display";
 import { PROMPT_PLACEHOLDER, matchingMentionChats, matchingMentionComputers } from "@milagre/shared/prompt-mentions";
 import { useChatMentions, useMentionComputers } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
-import {
-  NOTICE_SECONDS,
-  provisionalRange,
-  correctTake,
-  takeRange,
-  revertTake,
-  startTake,
-  writeTake,
-  type DictationTake,
-  type Selection as TextRange,
-} from "@milagre/shared/voice-dictation";
-import { useDictationShortcut } from "../lib/dictation-shortcut";
-import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
 import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
 import { SpinnerRing } from "./primitives/SpinnerRing";
 import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
+import { useDictationTake } from "./composer/use-dictation-take";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -79,42 +66,30 @@ const COMMANDS = [
 ];
 
 interface PromptComposerProps {
-  /** The chat's computer is away: the field is disabled and its placeholder says so. */
   offlineName?: string | null;
-  /** The connection to the chat's computer is coming back: the field stays open, its placeholder says so. */
   reconnectingName?: string | null;
   imageDraft: ImageDraft;
   projectPath: string;
-  /** Where skills are read, when not `projectPath` (a Link's key, or a shared Chat's own folder). */
   skillScope?: string;
-  /** Account routing uses the canonical Project or Link, rather than a Link Chat's workspace folder. */
   accountScope?: string;
   draft: string;
   onDraftChange: (draft: string) => void;
-  /** Passages quoted into the next message, shown as chips over the prompt; they alone can be sent. */
   quotes?: readonly ComposerQuote[];
   onRemoveQuote?: (id: string) => void;
-  /** Prompts sent in this chat, oldest first; Up and Down at the field's first or last line step through them. */
   history?: string[];
   onSend: (delivery?: MessageDelivery) => void;
   onStop?: () => void;
   sendBlocked: boolean;
-  /** A turn is running in this chat; a follow-up steers it or queues, per Settings › Chat › Messages during a turn. */
   running?: boolean;
   runningProvider?: ModelProvider;
-  /** A predicted follow-up, offered only in an empty, idle composer. */
   suggestion?: string;
-  /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
   compactionFeedback?: { percent: number; freed: string } | null;
   compacting?: boolean;
   compactQueued?: boolean;
   onCancelCompact?: () => void;
-  /** The models each agent offers, or the maintained list until it reports them. */
   models: ModelOption[];
-  /** How each agent's CLI stands; a problem is flagged on its tab and in a notice above the models. */
   cliStatus: AgentCliStatus | null;
-  /** The model picker was opened; the status is checked again. */
   onModelPickerOpen: () => void;
   onUpdateCli?: (provider: ModelProvider) => void;
   updatingCli?: ModelProvider | null;
@@ -129,11 +104,8 @@ interface PromptComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
-  /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
-  /** The Chat is saved: `/undo` is offered, and sending it opens Undo changes instead of reaching the agent. */
   canUndo?: boolean;
-  /** The idle field's prompt in place of the default, e.g. a Chat without a Project's. */
   placeholder?: string;
 }
 
@@ -147,12 +119,9 @@ const DICTATION_LABELS = {
   transcribing: "Transcribing",
 } as const;
 
-// A popover above the composer clears its top edge by this much, so it never covers the prompt.
 const POPOVER_GAP = 12;
-// Clear space between a popover and the edge of the area that clips it.
 const POPOVER_EDGE = 8;
 
-/** The box of the nearest ancestor that clips its overflow (the main column), or the window. */
 function clipRect(element: HTMLElement) {
   for (let node = element.parentElement; node; node = node.parentElement) {
     const { overflowX } = getComputedStyle(node);
@@ -160,15 +129,11 @@ function clipRect(element: HTMLElement) {
   }
   return { left: 0, right: window.innerWidth };
 }
-// In the tall layout the controls sit on the composer's bottom row, so a popover opens just above its own button.
 const POPOVER_BUTTON_GAP = 8;
-// Popovers stay clear of the window-drag strip across the top of the window.
 const POPOVER_TOP_INSET = 48;
 const POPOVER_BOTTOM_INSET = 16;
-// Smallest room below a tall composer that still fits a usable list.
 const POPOVER_MIN_BELOW = 220;
 
-/** Rising bars, one per level the model offers; the filled ones show how hard the agent will think. */
 export function PromptComposer({
   offlineName,
   reconnectingName,
@@ -216,11 +181,9 @@ export function PromptComposer({
   const mentionComputers = useMentionComputers();
   const [dismissed, setDismissed] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Church).
   const [fatality, setFatality] = useState(0);
   const { ultracodeFatality, dictationAction, dictationShortcutMode, showContextSize, compactButtonDisplay } = useSettings();
   const { settings: contextSettings } = useContextSettings();
-  // Settings › Chat decides whether a follow-up steers or queues; a provider that can't steer always queues.
   const delivery = followUpDelivery(contextSettings.followUps);
   const queuesFollowUp = delivery === "queue" || compacting || !providerCapabilities(runningProvider ?? selectedModel.provider).steer;
   const quiet = contextSettings.autoCompact && Boolean(onCompact);
@@ -228,14 +191,11 @@ export function PromptComposer({
   const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
   const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
   const effortName = effort ? effortCopy(effort).name : "";
-  // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
-  // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
   const ultracodeOn = capability.ultracode && ultracode;
   const orchestrating = ultracodeOn || effort === "ultra";
   const effortLabel = ultracodeOn ? "Ultra" : effortName;
   const canUseFastMode = capability.fastMode;
   const [provider, setProvider] = useState<ModelProvider>(selectedModel.provider);
-  // The provider tab follows the selected model, which follows the open chat.
   useEffect(() => {
     setProvider(selectedModel.provider);
   }, [selectedModel.provider]);
@@ -267,7 +227,6 @@ export function PromptComposer({
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [rowBox, setRowBox] = useState<{ top: number; height: number } | null>(null);
 
-  // Where Up/Down stands in `history`, and the draft to restore past its newest entry.
   const browsing = useRef<{ index: number; stash: string } | null>(null);
   useEffect(() => {
     browsing.current = null;
@@ -307,7 +266,6 @@ export function PromptComposer({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `commands` is rebuilt each render; its names and descriptions are what count.
     [commands.map((command) => `${command.name}\t${command.desc}`).join("\n")],
   );
-  // The mention being typed is the @ menu's search; the rest are looked up so they show as chips.
   const typing = token?.kind === "at" ? draft.slice(token.start + 1, token.end) : null;
   const { known, version: knownVersion, markKnown } = useKnownFiles(projectPath, draft, typing);
   const imageCount = imageDraft.images.length;
@@ -323,14 +281,11 @@ export function PromptComposer({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `known` is a Set that grows in place; `knownVersion` counts its growth.
     [draft, skillKey, known, knownVersion, imageCount, mentions.chats, mentionComputers],
   );
-  // The @ menu searched the mention being typed: an exact match is a file too.
   const typedFound = typing !== null && fileSearch.files.includes(typing) ? typing : null;
   useEffect(() => {
     if (typedFound) markKnown(typedFound);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `markKnown` is rebuilt each render.
   }, [typedFound, projectPath]);
-  // A chip is its file's only representation: the file is attached while the chip is in the draft (no tile), deleting
-  // the chip detaches it, and undoing that attaches it again. Files attached by paste or + are never detached here.
   const mentionAttached = useRef(new Set<string>());
   const mentionScope = useRef(imageDraft.scope);
   const chipKey = [...new Set(parts.flatMap((part) => (part.kind === "file" ? [fileMentionPath(projectPath, part.path) ?? ""] : [])).filter(Boolean))].join(
@@ -338,12 +293,10 @@ export function PromptComposer({
   );
   const chipPaths = useMemo(() => (chipKey ? chipKey.split("\n") : []), [chipKey]);
   useEffect(() => {
-    // Another Chat's attachments: what this composer attached for the last one is gone with them.
     if (mentionScope.current !== imageDraft.scope) {
       mentionScope.current = imageDraft.scope;
       mentionAttached.current.clear();
     }
-    // A copy: removing a file can update the attachment draft.
     for (const path of Array.from(mentionAttached.current)) {
       if (chipPaths.includes(path)) continue;
       mentionAttached.current.delete(path);
@@ -359,7 +312,6 @@ export function PromptComposer({
   const onSendLatest = useRef(onSend);
   onSendLatest.current = onSend;
   const chatMatches = menu === "at" ? matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId) : [];
-  // Only with another computer to name: This Mac alone is no choice.
   const computerMatches = menu === "at" && mentionComputers.length > 1 ? matchingMentionComputers(mentionComputers, tokenQuery) : [];
   const rows: MenuRow[] =
     menu === "at"
@@ -420,7 +372,6 @@ export function PromptComposer({
     if (target) setRowBox({ top: target.offsetTop, height: target.offsetHeight });
   }, [active, engaged, menu, tokenQuery, rows.length]);
 
-  // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
     modelOpen,
     () => {
@@ -433,10 +384,6 @@ export function PromptComposer({
   );
   const lastAnchor = useRef<[HTMLElement, number] | null>(null);
 
-  // Right-align the popover with its trigger, or left-align when that would leave the area that clips it. A popover that
-  // fits the composer stays inside its edges, so it never hangs over the transcript column beside it; only one wider
-  // than the composer may reach past its left edge, up to the main column. It opens above the composer, or, in the tall
-  // layout, right above its button; below the button when there's more room.
   function anchorTo(trigger: HTMLElement, width: number) {
     lastAnchor.current = [trigger, width];
     const rootElement = popoverRootRef.current;
@@ -481,12 +428,9 @@ export function PromptComposer({
     transformOrigin: `${anchor.below ? "top" : "bottom"} ${anchor.alignRight ? "right" : "left"}`,
   };
 
-  // Sending moves on from whatever was being picked, and the composer's layout may change under an open popover.
   function send() {
     browsing.current = null;
     setModelOpen(false);
-    // Every chip's file goes with the message, even one whose attachment the effect hasn't caught up with yet; the
-    // parent's send reads its attachments from its render, so commit them first and send from the new render.
     const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
     if (missing.length) {
       flushSync(() => {
@@ -498,12 +442,9 @@ export function PromptComposer({
       onSendLatest.current(delivery);
       return;
     }
-    // Sent whether or not \`running\` is set: a turn waiting on an approval or question still runs on the host, which
-    // applies the delivery only while a turn runs.
     onSend(delivery);
   }
 
-  // The picker stays open after a pick: effort, fast mode and Ultracode sit beside the models.
   function chooseModel(model: ModelOption) {
     onModelChange(model);
     setProvider(model.provider);
@@ -511,8 +452,6 @@ export function PromptComposer({
 
   const draftLatest = useRef(draft);
   draftLatest.current = draft;
-  const dictatedSend = useRef<{ value: string; scope: string } | null>(null);
-  // Wait for the parent's updated draft and attachments before using its ordinary send action.
   useEffect(() => {
     const pending = dictatedSend.current;
     if (!pending) return;
@@ -521,154 +460,21 @@ export function PromptComposer({
     if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
   });
 
-  // The take's words live in the field itself, rewritten in place as the recognizer revises them.
-  const take = useRef<DictationTake | null>(null);
-  const [provisional, setProvisional] = useState<TextRange | null>(null);
-  const write = (text: string, settled: number) => {
-    const current = take.current;
-    if (!current) return null;
-    const written = writeTake(current, draftLatest.current, text, settled);
-    if (!written) return null;
-    take.current = written.take;
-    setProvisional(provisionalRange(written.take));
-    setCaret(written.caret);
-    onDraftChange(written.value);
-    inputRef.current?.setSelection(written.caret);
-    return written;
-  };
-  const writeLatest = useRef(write);
-  writeLatest.current = write;
-  // A finished take whose fix-up hasn't answered: its words stay tinted and the status names the model until it does,
-  // and it rewrites them only if the draft is still exactly what the take left.
-  const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
-  const corrections = useRef(0);
-  useEffect(
-    () => () => {
-      correcting.current = null;
-    },
-    [],
-  );
-  const [fixing, setFixing] = useState<string | null>(null);
-  const endCorrection = useCallback(() => {
-    correcting.current = null;
-    setFixing(null);
-    if (!take.current) setProvisional(null);
-  }, []);
-  useEffect(() => {
-    endCorrection();
-  }, [imageDraft.scope, endCorrection]);
-  useEffect(() => {
-    const pending = correcting.current;
-    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
-    if (pending && draft !== pending.take.produced) endCorrection();
-  }, [draft, endCorrection]);
-
-  const dictation = useDictation(
-    projectPath,
-    imageDraft.scope,
-    (text, anchor, correction) => {
-      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
-      take.current ??= startTake(draftLatest.current, anchor.selection);
-      const written = writeLatest.current(text, text.length);
-      take.current = null;
-      const scope = imageDraft.scope;
-      const sendAfter = dictationAction === "send";
-      if (!written || !correction) {
-        setProvisional(null);
-        if (written && sendAfter) dictatedSend.current = { value: written.value, scope };
-        return;
-      }
-      const id = (corrections.current += 1);
-      correcting.current = { id, take: written.take };
-      setProvisional(takeRange(written.take));
-      setFixing(correction.model);
-      void correction.text.then((fixed) => {
-        const pending = correcting.current;
-        if (pending?.id !== id) return;
-        endCorrection();
-        const corrected = correctTake(pending.take, draftLatest.current, fixed);
-        if (corrected) {
-          setCaret(corrected.caret);
-          onDraftChange(corrected.value);
-          inputRef.current?.setSelection(corrected.caret);
-        }
-        // Send now waits for the fix-up, so what goes out is the corrected message.
-        if (sendAfter)
-          dictatedSend.current = {
-            value: corrected?.value ?? pending.take.produced,
-            scope,
-          };
-      });
-    },
-    {
-      scope: mentions.project,
-      chatId: mentions.currentId,
-      provider: selectedModel.provider,
-    },
-  );
-  const partialText = dictation.partial.text;
-  const partialSettled = dictation.partial.settled;
-  useEffect(() => {
-    if (take.current && partialText) writeLatest.current(partialText, partialSettled);
-  }, [partialText, partialSettled]);
-  const discardDictation = () => {
-    const current = take.current;
-    dictation.cancel();
-    take.current = null;
-    setProvisional(null);
-    if (!current) return;
-    const back = revertTake(current, draftLatest.current);
-    setCaret(back.selection.start);
-    onDraftChange(back.value);
-    inputRef.current?.setSelection(back.selection.start, back.selection.end);
-  };
-  const dictateShortcutLabel = useShortcutLabel("dictation.toggle");
-  const dictating = dictation.phase !== "idle";
-  const startDictation = () => {
-    endCorrection();
-    const selection = inputRef.current?.getSelection() ?? {
-      start: caret,
-      end: caret,
-    };
-    take.current = startTake(draftLatest.current, selection);
-    setProvisional(null);
-    void dictation.start({ selection });
-  };
-  // The shortcut was let go before the microphone opened: the take finishes as soon as it records.
-  const finishWhenRecording = useRef(false);
-  const { phase: dictationPhase, stop: stopDictation } = dictation;
-  useEffect(() => {
-    if (dictationPhase === "idle") finishWhenRecording.current = false;
-    if (dictationPhase !== "recording" || !finishWhenRecording.current) return;
-    finishWhenRecording.current = false;
-    void stopDictation();
-  }, [dictationPhase, stopDictation]);
-  const rootRef = useRef<HTMLDivElement>(null);
-  useDictationShortcut({
-    root: () => rootRef.current,
-    dictating: () => dictationPhase !== "idle",
-    mode: () => dictationShortcutMode,
-    start: startDictation,
-    finish: () => {
-      if (dictationPhase === "recording") void stopDictation();
-      else if (dictationPhase === "preparing") finishWhenRecording.current = true;
-      // Let go while the model was still downloading: there is nothing to finish yet.
-      else if (dictationPhase === "downloading") discardDictation();
-    },
-  });
-  // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
-  const discardLatest = useRef(discardDictation);
-  discardLatest.current = discardDictation;
-  useEffect(() => {
-    if (!dictating && take.current) discardLatest.current();
-  }, [dictating]);
-  const { error: dictationError, dismiss: dismissDictationError } = dictation;
-  useEffect(() => {
-    // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
-    if (!dictationError || dictationError.kind === "permission") return;
-    const timer = setTimeout(dismissDictationError, NOTICE_SECONDS * 1000);
-    return () => clearTimeout(timer);
-  }, [dictationError, dismissDictationError]);
+  const { dictateShortcutLabel, dictating, dictation, dictationError, discardDictation, fixing, provisional, rootRef, startDictation, dictatedSend } =
+    useDictationTake({
+      projectPath,
+      imageDraft,
+      draft,
+      draftLatest,
+      onDraftChange,
+      setCaret,
+      inputRef,
+      caret,
+      dictationAction,
+      dictationShortcutMode,
+      mentions,
+      selectedModel,
+    });
 
   function insertImages(promise: Promise<number[]>, range = inputRef.current?.getSelection() ?? { start: caret, end: caret }) {
     const original = draftLatest.current;
@@ -683,7 +489,6 @@ export function PromptComposer({
     });
   }
 
-  // Deleting an image's chip from the text removes the image too, and renumbers the chips after it.
   function dropUnmentionedImages(previous: string, next: string) {
     const before = mentionedImages(previous, imageCount);
     const after = mentionedImages(next, imageCount);
@@ -741,8 +546,6 @@ export function PromptComposer({
     inputRef.current?.focus();
   }
 
-  // Escape closes the slash/@ menu or an open picker, from the prompt or a picker's search field.
-  // Only then is it consumed: with nothing open it reaches the window and stops the running turn.
   function handleEscape(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Escape" || !(menu || modelOpen)) return;
     event.preventDefault();
@@ -752,8 +555,6 @@ export function PromptComposer({
     inputRef.current?.focus();
   }
 
-  // Up on the first line steps back through sent prompts, Down on the last line steps forward and finally restores
-  // the draft that was there before, like a shell or VS Code's chat.
   function recall(event: KeyboardEvent<HTMLDivElement>) {
     const up = event.key === "ArrowUp";
     if ((!up && event.key !== "ArrowDown") || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.nativeEvent.isComposing) return false;
@@ -774,7 +575,6 @@ export function PromptComposer({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    // Keys during an IME composition belong to the IME: Enter commits the text, it doesn't pick or send.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (menu && rows.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -799,7 +599,6 @@ export function PromptComposer({
         return;
       }
     }
-    // Backspace at the very start takes back the quote chip just before the caret, as it would a chip in the text.
     if (event.key === "Backspace" && onRemoveQuote && quotes.length && !event.metaKey && !event.altKey && !event.ctrlKey) {
       const selection = inputRef.current?.getSelection();
       if (selection?.start === 0 && selection.end === 0) {
@@ -811,8 +610,6 @@ export function PromptComposer({
     if (recall(event)) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      // An unaccepted suggestion is never sent. Otherwise the parent checks its live draft, which a render-time
-      // `canSend` can trail when Enter follows the edit in the same task.
       if (canSend || !visibleSuggestion) send();
     }
   }
@@ -842,7 +639,6 @@ export function PromptComposer({
                 }}
               />
               {rows.map((row, index) => {
-                // A search lists its matches best first across the groups, so it carries no group headings.
                 const showGroup = (menu === "at" || !tokenQuery) && row.group && row.group !== rows[index - 1]?.group;
                 return (
                   <Fragment key={row.key}>
@@ -1010,7 +806,6 @@ export function PromptComposer({
               {imageDraft.error}
             </div>
           )}
-          {/* Status remains available to screen readers without inserting a row during the recording handoff. */}
           {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
             <p role="status" data-dictation-status className="sr-only">
               {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
@@ -1021,10 +816,7 @@ export function PromptComposer({
             </span>
           ) : null}
 
-          {/* The prompt has its own row at every width, with the controls on the row below it. */}
           <div className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,max-content)_auto] items-end gap-x-1 gap-y-1.5">
-            {/* Quotes sit at the start of the prompt's line, as chips in the text; the prompt takes the rest of the row
-            and drops under them when they leave it too little. */}
             <div className="relative col-span-full row-start-1 flex w-full min-w-0 flex-wrap items-start">
               {onRemoveQuote && quotes.length > 0 && (
                 <span className="contents text-[length:calc(var(--chat-size)+1px)] leading-5 [&>[data-quote-chip]]:mt-2 [&>[data-quote-chip]]:ml-2 [&>[data-quote-chip]]:top-0">
@@ -1158,7 +950,6 @@ export function PromptComposer({
               <span className="relative flex shrink-0">
                 {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
                 {dictation.download ? (
-                  // The model downloads before the take records: an arrow dropping through a ring that fills with it.
                   <Tooltip
                     label={`Downloading speech model · ${Math.round((dictation.download.received / dictation.download.total) * 100)}% of ${Math.round(dictation.download.total / 1e6)} MB`}
                     align="end"
@@ -1176,7 +967,6 @@ export function PromptComposer({
                     </button>
                   </Tooltip>
                 ) : dictating ? (
-                  // The mic grew into the capsule, in its own place: discard the take, or stop it. Nothing else moved.
                   <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
                     <button
                       type="button"
@@ -1198,10 +988,8 @@ export function PromptComposer({
                         onClick={() => void dictation.stop()}
                         className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
                       >
-                        {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
                         <span
                           aria-hidden
-                          // 20px at rest and 27.6px at full voice, so it never bleeds past the 28px capsule.
                           className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
                           style={{
                             transform: "scale(calc(1 + var(--level, 0) * 0.38))",
@@ -1249,7 +1037,6 @@ export function PromptComposer({
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40 ${ultracodeOn ? "bg-purple" : "bg-ink"}`}
               >
                 {canStop ? (
-                  // A stop square (10px, 2px corners), not a dot that reads as record.
                   <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className="block">
                     <rect width="10" height="10" rx="2" fill="currentColor" />
                   </svg>

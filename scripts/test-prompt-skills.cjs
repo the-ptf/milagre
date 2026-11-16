@@ -443,7 +443,7 @@ async function main() {
         name: "dictation-delivery-fixture",
         enforce: "pre",
         resolveId(id) {
-          if (id === "./useDictation") return "\0dictation-fixture";
+          if (id === "../useDictation") return "\0dictation-fixture";
         },
         load(id) {
           if (id !== "\0dictation-fixture") return;
