@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["./.oxlintrc.size-baseline.json"],
+  "options": { "reportUnusedDisableDirectives": "error" },
   "plugins": ["typescript", "react", "import", "promise", "unicorn", "oxc"],
   "categories": {
     "correctness": "error",

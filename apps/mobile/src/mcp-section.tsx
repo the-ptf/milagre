@@ -28,11 +28,9 @@ export function McpSection() {
   for (const group of other) groups.set(group.source, [...group.rows]);
   for (const row of attention) if (row.source) groups.set(row.source, [...(groups.get(row.source) ?? []), row]);
   // Copy then sort: this Hermes build has no Array#toSorted, and these arrays are copies already.
-  /* oxlint-disable unicorn/no-array-sort */
   const sources = [...groups]
     .map(([source, rows]) => ({ source, rows: [...rows].sort((a, b) => a.name.localeCompare(b.name)) }))
     .sort((a, b) => mcpSourceRank(a.source) - mcpSourceRank(b.source) || a.source.localeCompare(b.source));
-  /* oxlint-enable unicorn/no-array-sort */
   const outside = sources.reduce((total, group) => total + group.rows.length, 0);
   const empty = !!mcp.entries && !mcp.checking && !signIn.length && !user.length && !outside && !mcp.problems.length;
 

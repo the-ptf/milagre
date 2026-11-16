@@ -1279,9 +1279,7 @@ function ChatPane({
       setPicking(false);
     }
   }
-  // eslint-disable-next-line react-hooks/refs -- latest-callback ref, read only from effects and the choice sheet.
   sendGenui.current = (text: string) => send(text, false);
-  // eslint-disable-next-line react-hooks/refs -- latest-callback ref for design messages.
   sendDesign.current = () => {
     const message = designKey ? peekDesignMessage(designKey) : null;
     if (!message || !designKey || designSending.current === message || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
@@ -1298,7 +1296,6 @@ function ChatPane({
         designSending.current = null;
       });
   };
-  // eslint-disable-next-line react-hooks/refs -- latest-callback ref, read only when an issue is picked in the choice sheet.
   startIssue.current = (issue) => void send(issueFirstMessage(issue, draft), true, undefined, issue);
   async function chooseIssue() {
     await pickLinearIssue("Start from a Linear issue", (issue) => startIssue.current(issue));

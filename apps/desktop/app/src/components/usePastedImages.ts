@@ -78,7 +78,6 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
     }
     return () => {
       generation.current++;
-      // oxlint-disable-next-line react-hooks/exhaustive-deps -- read on the way out: the leaving Chat's latest attachments.
       const leaving = { images: currentImages.current, ...latest.current };
       if (leaving.images.length || leaving.files.length) stashed.set(scope, leaving);
     };

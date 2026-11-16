@@ -222,7 +222,6 @@ function App() {
   const [linkNewChatText, setLinkNewChatText] = useState("");
   const [linkDialogOpen, setLinkDialogOpen] = useState<boolean | NamedProjectLink>(false);
   const [deletingLink, setDeletingLink] = useState<NamedProjectLink | null>(null);
-  // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const scopeDrafts = useMemo(createScopeDrafts, []);
   const [linkStates, setLinkStates] = useState<Record<string, LinkState>>({});
   const linkStatesRef = useRef(linkStates);
@@ -235,7 +234,6 @@ function App() {
   const [selectedSessionId, setSelectedSessionState] = useState<number | null>(null);
   const selectedSessionRef = useRef<number | null>(null);
   selectedSessionRef.current = selectedSessionId;
-  // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const draftStore = useMemo(createDraftStore, []);
   const setDraft = draftStore.set;
   function setSelectedSessionId(next: SetStateAction<number | null>) {
@@ -370,7 +368,6 @@ function App() {
     setLoading(true);
     setStartupError(null);
     try {
-      // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
       const initial = await window.milagre.getCurrentProject();
       if (initial) adoptProject(initial);
       else setOnboarding(true);
@@ -432,7 +429,6 @@ function App() {
       })
       .catch(() => {});
     const snapshotOff = window.milagre.onRuntimeSnapshot?.((snapshot) => {
-      // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
       for (const next of snapshot.projects) receiveState(next.path, next.state);
       for (const next of snapshot.links ?? []) setLinkStates((previous) => ({ ...previous, [next.linkId]: next.state }));
     });
@@ -465,7 +461,6 @@ function App() {
       retryable: (error) => !cancelled && retryKind(error) !== null,
       budget: READ_RETRY_BUDGET,
     }).then(
-      // oxlint-disable-next-line promise/no-callback-in-promise -- the handler receives the resolved value, not a Node-style callback
       (next) => rememberBranches(path, next),
       () => {},
     );
@@ -480,7 +475,6 @@ function App() {
   const offlineTray = useOfflineTray(project?.path, selectedSession?.id ?? null, readOnly);
   const subagents = useMemo(
     () => selectedSession?.subagents?.filter((agent) => agent.id !== selectedSession.native_session_id),
-    // oxlint-disable-next-line react/preserve-manual-memoization -- the callback reads selectedSession.subagents and selectedSession.native_session_id, both listed; the compiler infers the whole selectedSession object from the property access
     [selectedSession?.subagents, selectedSession?.native_session_id],
   );
   const selectedWorktree = worktrees.find((worktree) => worktree.id === (selectedSession?.worktree_id ?? selectedWorktreeId)) ?? firstWorktree;
@@ -520,7 +514,6 @@ function App() {
             : state!.messages.filter((message) => message.session_id === pendingCanonicalId)
           : withPreview(messages, pendingSend)
         : messages,
-    // oxlint-disable-next-line react/preserve-manual-memoization -- the callback reads state!.messages (non-null assertion) and the list names state?.messages, the same value; the compiler infers state itself from the assertion
     [pendingHere, pendingSend, pendingCanonicalId, state?.messages, messages, lean, canonicalWindow.messages],
   );
   const transcriptKey = `${project?.path}|${chatView.current}`;
@@ -808,7 +801,6 @@ function App() {
     }
     return grouped;
   }, [sidebarState?.messages, sidebarState?.sessions]);
-  // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const readPullRequestRefs = useMemo(pullRequestRefsCache, []);
   const selectedPullRequests =
     showGit && project && selectedSession && selectedWorktree
@@ -1238,7 +1230,6 @@ function App() {
     if (!isLinkScopeKey(owner) && owner !== projectRef.current?.path)
       prefetchLeanChat(owner, sessionIdFromKey(chatId), statesRef.current[owner] ?? cachedProjectCopy(owner)?.state);
     if (isLinkScopeKey(owner)) {
-      // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
       void selectLink(owner.slice("milagre-link:".length), sessionIdFromKey(chatId));
       return;
     }
@@ -1251,7 +1242,6 @@ function App() {
     const separator = chatId.lastIndexOf("#");
     if (separator <= 0) return;
     pendingNotificationChat.current = chatId;
-    // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
     void switchProject(chatId.slice(0, separator));
   });
   useEffect(() => window.milagre.onOpenChat(openChatByKey), []);
@@ -1553,7 +1543,6 @@ function App() {
     if (created.setupNote) setNotice(created.setupNote);
     void bridgeForKey(project.path)
       .listBranches(project.path)
-      // oxlint-disable-next-line promise/no-callback-in-promise -- the handler receives the resolved value, not a Node-style callback
       .then((next) => rememberBranches(project.path, next))
       .catch(() => {});
     return { sessionId: session.id as number | null, worktreeId: created.worktreeId };

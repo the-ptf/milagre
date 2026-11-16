@@ -15,7 +15,6 @@ import { useTheme } from "../theme";
 const byName = (list: RecentProject[]) =>
   list
     .map((item) => ({ ...item, name: item.name || item.path.split("/").at(-1) || "Project" }))
-    // oxlint-disable-next-line unicorn/no-array-sort -- sorts the copy map made; toSorted crashed this sheet in a 2026-10-26 simulator build
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 const keyOf = (hostId: string, path: string) => `${hostId}\n${path}`;
 

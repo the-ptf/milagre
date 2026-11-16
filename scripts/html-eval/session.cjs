@@ -54,7 +54,6 @@ async function runSession({ root, caseSpec, iteration, model, cli, systemPrompt,
   };
   writeJson(path.join(dir, "session.json"), meta);
   // Preserve the actual tool definition while wrapping only its execution for evidence.
-  // oxlint-disable-next-line no-map-spread
   const definitions = htmlRenderToolDefinitions(chatId, artifacts).map((def) => ({
     ...def,
     run: async (args) => {

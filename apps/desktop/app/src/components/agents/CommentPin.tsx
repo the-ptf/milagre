@@ -211,7 +211,6 @@ export function CommentPin({
             ) : (
               <>
                 <textarea
-                  // oxlint-disable-next-line jsx-a11y/no-autofocus -- the bubble opens to be written in, like Figma's
                   autoFocus
                   aria-label={`Comment ${number} on ${pin.design.title}`}
                   value={pin.text}

@@ -27,7 +27,6 @@ function createAdvisorStore({ dataDir }) {
         .catch(() => {})
         .then(async () => {
           const previous = await readDisk(chatId);
-          // eslint-disable-next-line promise/no-callback-in-promise -- this is a host port, not a Node callback
           const next = await change(previous);
           if (next === previous) return next;
           await fs.mkdir(directory, { recursive: true, mode: 0o700 });

@@ -245,7 +245,6 @@ function createAdvisors({
           await show(next);
           if (!terminal) return;
           entry.busy = false;
-          // eslint-disable-next-line promise/no-callback-in-promise -- this is a host port, not a Node callback
           await completed(record.chatId, next.completions.at(-1));
           await serial(record.chatId, async () => {
             if (!current()) return;

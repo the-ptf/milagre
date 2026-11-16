@@ -26,16 +26,12 @@ const UNEXPLAINED_BASELINE = {
   "apps/mobile/src/artifact-files.ts react-hooks/exhaustive-deps": 1,
   "apps/mobile/src/beside-session.tsx react-hooks/exhaustive-deps": 1,
   "apps/mobile/src/designs-sheet.tsx react-hooks/exhaustive-deps": 2,
-  "apps/mobile/src/mcp-section.tsx unicorn/no-array-sort": 1,
-  "apps/mobile/src/pr-review.ts unicorn/no-array-sort": 2,
   "apps/mobile/src/project-accounts-section.tsx react-hooks/set-state-in-effect": 1,
   "apps/mobile/src/project-navigation.tsx react-hooks/exhaustive-deps": 1,
   "apps/mobile/src/push.tsx react-hooks/refs": 1,
   "apps/mobile/src/session.tsx react-hooks/exhaustive-deps": 1,
-  "apps/mobile/src/session.tsx react-hooks/set-state-in-effect": 1,
   "apps/mobile/src/ultracode-fatality.tsx react-hooks/exhaustive-deps": 1,
   "apps/mobile/src/usage-limit-card.tsx react-hooks/set-state-in-effect": 1,
-  "scripts/html-eval/session.cjs no-map-spread": 1,
 };
 
 const insideStringLiteral = (tail) => /\\[nr]/.test(tail);

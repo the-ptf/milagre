@@ -44,11 +44,9 @@ export function filesByFolder(files: PullRequestFile[]): { folder: string; files
     groups.set(folder, [...(groups.get(folder) ?? []), file]);
   }
   // Hermes has no toSorted; these sort copies.
-  /* oxlint-disable unicorn/no-array-sort */
   return [...groups.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([folder, list]) => ({ folder, files: list.slice().sort((a, b) => (a.path < b.path ? -1 : 1)) }));
-  /* oxlint-enable unicorn/no-array-sort */
 }
 
 export const fileName = (path: string) => path.split("/").pop() || path;
@@ -79,7 +77,6 @@ export function commentItems(pr: PullRequestDetail, newestFirst: boolean) {
     ...pr.threads.filter((thread) => !thread.resolved).map((thread) => ({ type: "thread" as const, at: thread.comments[0]?.createdAt ?? "", thread })),
   ];
   // Hermes has no toSorted; this sorts the copy above.
-  // oxlint-disable-next-line unicorn/no-array-sort
   items.sort((a, b) => (newestFirst ? Date.parse(b.at) - Date.parse(a.at) : Date.parse(a.at) - Date.parse(b.at)) || 0);
   return { items, resolved: pr.threads.filter((thread) => thread.resolved) };
 }

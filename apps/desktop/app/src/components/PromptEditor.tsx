@@ -437,7 +437,6 @@ export function PromptEditor({
         return rootRef.current;
       },
     }),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the handle reads refs only.
     [],
   );
 

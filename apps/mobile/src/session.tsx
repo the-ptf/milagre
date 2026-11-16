@@ -275,7 +275,6 @@ function useSessionState() {
   }, []);
   useEffect(() => {
     // Invalidate previously displayed discovery when the selected Project changes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshProviders();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") void refreshProviders();
