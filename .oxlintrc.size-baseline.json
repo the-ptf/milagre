@@ -21,7 +21,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 546,
+            "max": 542,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -47,7 +47,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 286,
+            "max": 282,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -60,7 +60,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 397,
+            "max": 396,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -73,7 +73,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 645,
+            "max": 642,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -92,7 +92,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 297,
+            "max": 292,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1248,7 +1248,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 284,
+            "max": 282,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1313,7 +1313,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 289,
+            "max": 288,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1407,7 +1407,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 523,
+            "max": 522,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -1490,7 +1490,7 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 312,
+            "max": 310,
             "skipBlankLines": true,
             "skipComments": true
           }
