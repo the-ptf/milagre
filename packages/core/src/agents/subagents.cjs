@@ -132,7 +132,7 @@ function claudeSubagents(message, state) {
     id ??= message.task_id;
     state.taskAgents.set(message.task_id, id);
     const patch = {
-      ...(message.description ? { title: message.description } : {}),
+      ...(message.subtype === "task_started" && message.description ? { title: message.description } : {}),
       ...(message.prompt ? { prompt: message.prompt } : {}),
       ...(message.subagent_type ? { agentType: message.subagent_type } : {}),
     };
@@ -149,7 +149,6 @@ function claudeSubagents(message, state) {
           { pending: "initializing", running: "running", completed: "completed", failed: "failed", killed: "cancelled", paused: "waiting" }[
             message.patch.status
           ] ?? "unknown";
-      if (message.patch.description) patch.title = message.patch.description;
     }
     events.push(update(state, id, patch, message.summary ? { id: "summary", kind: "message", text: message.summary } : undefined));
   }
