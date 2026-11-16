@@ -45,3 +45,26 @@ The first run reads Claude Code, Codex, Antigravity and Kiro instruction and mem
 model keep durable notes; without a model it keeps bullet rules that say always, never, must or prefer. The owner can untick,
 delete, read again or forget. Memory syncs across paired computers by `orchestrator:memory:merge`: the copy with the newer
 `updatedAt` wins on both sides, so two computers editing at once keep the later one.
+
+## Orchestrator or a Worktree Chat
+
+```mermaid
+flowchart TD
+  start([Something to do]) --> mid{Did it come up inside another Chat?}
+  mid -- yes --> mention["Type @Orchestrator in that Chat"]
+  mid -- no --> steer{Will you steer it turn by turn?<br/>design, review, exploring}
+  steer -- yes --> chat["Worktree Chat"]
+  steer -- no --> branch{Does it continue a branch<br/>you're already on?}
+  branch -- yes --> chat
+  branch -- no --> careful{Does it touch production data,<br/>credentials or money?}
+  careful -- yes --> chat
+  careful -- no --> orch["Orchestrator box"]
+  mention --> orch
+  orch --> board["Board: autopilot takes the safe asks,<br/>anything irreversible waits in Needs you"]
+  board --> grows{Turned into long work?}
+  grows -- yes --> move["Move to sidebar"] --> chat
+  grows -- no --> done([Done, or In review while its PR is open])
+```
+
+Use the Orchestrator for self-contained work you hand off and check later; open a Chat in the Project's Worktree for work
+you steer, that builds on a branch, or that you want to approve step by step.
