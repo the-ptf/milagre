@@ -68,6 +68,7 @@ import {
   mergeScopeChats,
   railLive,
   rememberScopeRows,
+  runMarkSets,
   scopeChats,
   useScopeStates,
   type ChatsGroupRow,
@@ -149,6 +150,7 @@ type SidebarNavProps = {
   scopeChatActions?: (scopeKey: string, gitless: boolean) => ChatRowActions;
   usage?: ReactNode;
   usageButton?: ReactNode;
+  orchestrator?: ReactNode;
   variant?: string;
   runningKeys?: string;
   waitingKeys?: string;
@@ -271,6 +273,7 @@ export default memo(function SidebarNav({
   scopeChatActions,
   usage,
   usageButton,
+  orchestrator,
   runningKeys = "",
   waitingKeys = "",
   askingKeys = "",
@@ -489,14 +492,7 @@ export default memo(function SidebarNav({
     [...scopes.map((scope) => scope.key), ...homeScopes].filter((key) => key !== currentKey),
   );
   useEffect(() => rememberScopeRows(currentKey, recents), [currentKey, recents]);
-  const marks = useMemo(
-    () => ({
-      running: new Set(runningKeys.split("\n").filter(Boolean)),
-      waiting: new Set(waitingKeys.split("\n").filter(Boolean)),
-      asking: new Set(askingKeys.split("\n").filter(Boolean)),
-    }),
-    [runningKeys, waitingKeys, askingKeys],
-  );
+  const marks = useMemo(() => runMarkSets(runningKeys, waitingKeys, askingKeys), [runningKeys, waitingKeys, askingKeys]);
   const { withBeats, actionsFor, pickerFor, hoverFor } = useScopeRowHandles({
     scopeStates,
     scopeChatActions,
@@ -1224,6 +1220,7 @@ export default memo(function SidebarNav({
         }
       >
         <div className="flex min-h-0 w-full shrink-0 flex-col">
+          {orchestrator}
           <ScrollArea
             ref={scrollRef}
             onScroll={(event) => {

@@ -95,50 +95,52 @@ export function HostNotices({
   onProvidersUpdated: () => void;
 }) {
   return (
-    <PersistenceNotices scopes={scopes}>
+    <>
       <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag">
         <ProviderUpdateNotice onSettings={onSettings} onUpdated={onProvidersUpdated} />
       </div>
-      {hostConnection.connected && hostConnection.hostOutdated && (
-        <NoticeCard
-          data-host-outdated
-          className="no-drag"
-          action={
-            <Button
-              size={28}
-              className="shrink-0"
-              disabled={restartingHost}
-              onClick={() => {
-                setRestartingHost(true);
-                void window.milagre
-                  .restartHost()
-                  .catch((error) => setNotice(`Couldn't restart the host: ${ipcErrorMessage(error)}`))
-                  .finally(() => setRestartingHost(false));
-              }}
-            >
-              {restartingHost ? "Restarting…" : "Restart host"}
-            </Button>
-          }
-        >
-          {hostConnection.message ?? "Restart Milagre's background host to load large projects."}
-        </NoticeCard>
-      )}
-      {!hostConnection.connected && (
-        <NoticeCard data-host-disconnected className="no-drag">
-          {hostConnection.failed ? (
-            <>
-              <p className="font-medium">Couldn't restart Milagre's background host</p>
-              <p className="mt-1 text-ink-2">{hostConnection.message} Your draft is kept here. Quit and reopen Milagre to try again.</p>
-            </>
-          ) : (
-            <>
-              <p className="font-medium">Reconnecting to your computer</p>
-              <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
-            </>
-          )}
-        </NoticeCard>
-      )}
-    </PersistenceNotices>
+      <PersistenceNotices scopes={scopes}>
+        {hostConnection.connected && hostConnection.hostOutdated && (
+          <NoticeCard
+            data-host-outdated
+            className="no-drag"
+            action={
+              <Button
+                size={28}
+                className="shrink-0"
+                disabled={restartingHost}
+                onClick={() => {
+                  setRestartingHost(true);
+                  void window.milagre
+                    .restartHost()
+                    .catch((error) => setNotice(`Couldn't restart the host: ${ipcErrorMessage(error)}`))
+                    .finally(() => setRestartingHost(false));
+                }}
+              >
+                {restartingHost ? "Restarting…" : "Restart host"}
+              </Button>
+            }
+          >
+            {hostConnection.message ?? "Restart Milagre's background host to load large projects."}
+          </NoticeCard>
+        )}
+        {!hostConnection.connected && (
+          <NoticeCard data-host-disconnected className="no-drag">
+            {hostConnection.failed ? (
+              <>
+                <p className="font-medium">Couldn't restart Milagre's background host</p>
+                <p className="mt-1 text-ink-2">{hostConnection.message} Your draft is kept here. Quit and reopen Milagre to try again.</p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium">Reconnecting to your computer</p>
+                <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
+              </>
+            )}
+          </NoticeCard>
+        )}
+      </PersistenceNotices>
+    </>
   );
 }
 

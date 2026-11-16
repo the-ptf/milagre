@@ -454,7 +454,9 @@ export function SettingsPanel({
         {section === "worktrees" && <WorktreesSettings />}
         {section === "devices" && <PhoneSharingPage title={title} />}
         {section === "this-mac" && <ThisMacPage title={title} onAddComputer={onAddComputer} />}
-        {section === "experimental" && <ExperimentalSettings title={title} />}
+        {section === "experimental" && (
+          <ExperimentalSettings title={title} models={models} onOpenKeybindings={onSectionChange ? () => onSectionChange("keybindings") : undefined} />
+        )}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}
         {section === "about" && <AboutSettings update={update} />}
         {section === "project" && project && <ProjectSettings key={project.path} project={project} onManageAccounts={() => onSectionChange?.("accounts")} />}

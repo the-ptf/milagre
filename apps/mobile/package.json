@@ -50,6 +50,7 @@
     "expo-system-ui": "~58.0.7",
     "expo-updates": "~58.0.22",
     "markdown-it": "^15.0.2",
+    "open-bot-avatar": "0.2.1",
     "pele": "1.6.0",
     "react": "19.3.0",
     "react-native": "0.88.1",

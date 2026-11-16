@@ -92,6 +92,8 @@ Compose both diffs into an integration checkout. In `runtime.cjs`, retain the De
 
 `project_accounts({projectPath, refresh?})` returns the Project's public provider Account choices, effective IDs and computer defaults (`projects: read`). `project_set_account({projectPath, provider, accountId})` chooses one of those IDs, or `null` to follow the computer default (`projects: create`). These tools share the model picker's account routing: every Chat in that Project uses the selection on its next idle turn; running turns and background tasks keep their original Account. Named Links keep their independent selections. Both tools enforce Project grants and connection revocation. They never return credentials, sign in, send a prompt or restart a Chat.
 
+`orchestrator_send({prompt})` hands a request to the Orchestrator, which picks the Project, role, model, account and computer and starts a hidden task Chat (`projects: create`); it fails while the Orchestrator is off. `orchestrator_tasks()` lists its tasks (`projects: read`). See [orchestrator.md](orchestrator.md).
+
 The CLI exposes the same scoped tools to other Chats:
 
 ```sh

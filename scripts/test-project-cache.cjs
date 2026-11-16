@@ -139,6 +139,7 @@ const stubs = {
   "./computer-actions": "export const isDesktopComputer = name => /studio|mini|imac/i.test(name);",
   "./chat-display-setting": "export const useChatList = () => ['grouped', () => {}];",
   "./status-indicators": "export const ChatMarkIcon = () => null;",
+  "./orchestrator-row": "export const OrchestratorRow = () => null;",
   "./icons": "export const Icon = () => null; export const SpinnerRing = () => null; export const LinearLogo = () => null;",
   "./loading-logo": "export const LoadingLogo = () => null;",
   "./app/settings": "export const SettingsView = () => null;",

@@ -30,7 +30,8 @@ export type Command = {
     | "link"
     | "pullRequest"
     | "folderAdd"
-    | "canvas";
+    | "canvas"
+    | "orchestrator";
   run: () => void | Promise<unknown>;
   searchOnly?: boolean;
 };

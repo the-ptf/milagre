@@ -29,6 +29,7 @@ export function fullChatTitle(session: AgentSession | LinkChatSession, messages?
 export function isHandoverChat(session: AgentSession | LinkChatSession | undefined): boolean;
 /** Whether a Routine's Run created the Chat and hides it from the lists unless `waiting` says it waits on someone. */
 export function isHiddenRunChat(session: AgentSession | LinkChatSession | undefined, waiting?: boolean): boolean;
+export function isHiddenTaskChat(session: AgentSession | LinkChatSession | undefined): boolean;
 /** Whether the chat lists show the Chat: it has a message or a handover; a hidden Run Chat only while `waiting`. */
 export function isListedChat(session: AgentSession | LinkChatSession | undefined, messageCount: number, waiting?: boolean): boolean;
 

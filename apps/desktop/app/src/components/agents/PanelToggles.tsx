@@ -68,11 +68,21 @@ const LEADING = new Set<PanelName>(["details", "terminal"]);
 export const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) =>
   BUTTONS.filter(({ name }) => shown[name]).length + Number(changes) + Number(pullRequest);
 
-export function PanelToggles({ right, changes, pullRequest }: { right: number; changes?: SidePanel; pullRequest?: SidePanel & { number: number } }) {
+export function PanelToggles({
+  right,
+  changes,
+  pullRequest,
+  hidden = false,
+}: {
+  right: number;
+  changes?: SidePanel;
+  pullRequest?: SidePanel & { number: number };
+  hidden?: boolean;
+}) {
   const shown = useSidePanels();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
+      if (hidden || event.defaultPrevented || event.isComposing || isModalOpen()) return;
       const command = shortcutCommand(event);
       const button = command && BUTTONS.find((item) => item.command === command && panels[item.name]);
       const panel = button && panels[button.name];
@@ -82,7 +92,7 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [hidden]);
   const buttons = BUTTONS.filter(({ name }) => shown[name]);
   const chrome = useWindowChrome();
   const { rules } = useKeybindings();
@@ -101,7 +111,7 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
       </Tooltip>
     );
   };
-  if (!buttons.length && !changes && !pullRequest) return null;
+  if (hidden || (!buttons.length && !changes && !pullRequest)) return null;
   return (
     <div data-slot="panel-toggles" className="no-drag fixed top-[var(--window-chrome-top)] z-[60] flex gap-2" style={{ right: right + chrome.rightInset }}>
       {buttons.filter(({ name }) => LEADING.has(name)).map(panelButton)}

@@ -40,6 +40,8 @@ Before you write a change, and again before you publish:
 
 A new native build ships through the **Mobile release** GitHub Action (iOS to TestFlight, Android as the APK on the newest GitHub release). Every run waits for a maintainer's approval on the `mobile-release` environment; never dispatch it without the user's go-ahead.
 
+Google Play takes an app bundle, not the APK: the `play` build profile makes one (`npx eas-cli@latest build --platform android --profile play`), and the `play` submit profile sends it to the internal testing track as a draft (`npx eas-cli@latest submit --platform android --profile play`), using the Google service account key stored in the project's EAS credentials. It is a new native build like any other, so it needs the same approval. Its channel is `testflight`, so the Play app takes the same OTA updates as the APK and the TestFlight build.
+
 CI runs the same comparison as the `Mobile fingerprint` check and fails the PR when the hash changes without the `native-build-approved` label.
 
 Run EAS CLI as `npx eas-cli@latest <command>` and substitute that for bare `eas` in docs examples. Docs: https://docs.expo.dev/eas/index.md
