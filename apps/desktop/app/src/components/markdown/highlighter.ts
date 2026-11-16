@@ -1,4 +1,4 @@
-import { createCssVariablesTheme, type HighlighterCore, type ThemedToken } from "shiki/core";
+import { createCssVariablesTheme, type HighlighterCore, type LanguageRegistration, type RegexEngine, type ThemedToken } from "shiki/core";
 import type { CodeLanguage } from "../../lib/code-languages";
 
 const LOADERS: Record<CodeLanguage, () => Promise<unknown>> = {
@@ -50,20 +50,48 @@ const milagreTheme = createCssVariablesTheme({ name: "milagre", variablePrefix: 
 
 const MAX_HIGHLIGHT_CHARS = 40_000;
 
-let highlighter: Promise<HighlighterCore> | undefined;
+const WARM_SLICE_MS = 8;
+
+let highlighter: Promise<{ core: HighlighterCore; engine: RegexEngine }> | undefined;
 let ready: HighlighterCore | undefined;
 const loaded = new Set<CodeLanguage>();
 const loading = new Map<CodeLanguage, Promise<void>>();
 
 function loadHighlighter() {
-  highlighter ??= Promise.all([import("shiki/core"), import("shiki/engine/javascript")]).then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }]) =>
-    createHighlighterCore({
-      engine: createJavaScriptRegexEngine(),
-      themes: [milagreTheme],
-      langs: [],
-    }),
+  highlighter ??= Promise.all([import("shiki/core"), import("shiki/engine/javascript")]).then(
+    async ([{ createHighlighterCore }, { createJavaScriptRegexEngine }]) => {
+      const engine = createJavaScriptRegexEngine();
+      return { core: await createHighlighterCore({ engine, themes: [milagreTheme], langs: [] }), engine };
+    },
   );
   return highlighter;
+}
+
+function grammarPatterns(grammar: unknown, found = new Set<string>(), seen = new Set<object>()) {
+  if (!grammar || typeof grammar !== "object" || seen.has(grammar)) return found;
+  seen.add(grammar);
+  const rule = grammar as Record<string, unknown>;
+  for (const key of ["match", "begin", "end", "while"]) if (typeof rule[key] === "string") found.add(rule[key]);
+  for (const value of Object.values(rule)) grammarPatterns(value, found, seen);
+  return found;
+}
+
+function warmPatterns(engine: RegexEngine, grammar: LanguageRegistration | undefined) {
+  const patterns = [...grammarPatterns(grammar)];
+  return new Promise<void>((resolve) => {
+    const slice = () => {
+      const until = performance.now() + WARM_SLICE_MS;
+      do {
+        const pattern = patterns.pop();
+        if (pattern === undefined) return resolve();
+        try {
+          engine.createScanner([pattern]).findNextMatchSync("a", 0, 0);
+        } catch {}
+      } while (performance.now() < until);
+      setTimeout(slice, 0);
+    };
+    setTimeout(slice, 0);
+  });
 }
 
 export function isLanguageReady(language: CodeLanguage) {
@@ -75,8 +103,10 @@ export function loadLanguage(language: CodeLanguage): Promise<void> {
   let pending = loading.get(language);
   if (!pending) {
     pending = loadHighlighter()
-      .then(async (core) => {
-        await core.loadLanguage(LOADERS[language]() as Parameters<HighlighterCore["loadLanguage"]>[0]);
+      .then(async ({ core, engine }) => {
+        const grammars = ((await LOADERS[language]()) as { default: LanguageRegistration[] }).default;
+        await core.loadLanguage(grammars);
+        await warmPatterns(engine, grammars.at(-1));
         ready = core;
         loaded.add(language);
       })
@@ -86,10 +116,32 @@ export function loadLanguage(language: CodeLanguage): Promise<void> {
   return pending;
 }
 
-export function highlight(code: string, language: CodeLanguage): ThemedToken[][] | undefined {
+/** A highlighted run of code; `className` names a shared rule with its colors. */
+export type CodeToken = { content: string; className: string };
+
+const tokenClasses = new Map<string, string>();
+let tokenSheet: CSSStyleSheet | null | undefined;
+
+function tokenClass(style: ThemedToken["htmlStyle"]) {
+  if (!style) return "code-token";
+  let declarations = "";
+  for (const property in style) declarations += `${property}:${style[property]};`;
+  let name = tokenClasses.get(declarations);
+  if (name) return name;
+  tokenSheet ??= typeof document === "undefined" ? null : document.head.appendChild(document.createElement("style")).sheet;
+  if (!tokenSheet) return "code-token";
+  const rule = `code-token-${tokenClasses.size}`;
+  tokenSheet.insertRule(`.${rule} { ${declarations} }`, tokenSheet.cssRules.length);
+  name = `code-token ${rule}`;
+  tokenClasses.set(declarations, name);
+  return name;
+}
+
+export function highlight(code: string, language: CodeLanguage): CodeToken[][] | undefined {
   if (!ready || !loaded.has(language) || code.length > MAX_HIGHLIGHT_CHARS) return undefined;
   try {
-    return ready.codeToTokens(code, { lang: language, themes: { light: "milagre", dark: "milagre" }, defaultColor: false }).tokens;
+    const { tokens } = ready.codeToTokens(code, { lang: language, themes: { light: "milagre", dark: "milagre" }, defaultColor: false });
+    return tokens.map((line) => line.map((token) => ({ content: token.content, className: tokenClass(token.htmlStyle) })));
   } catch {
     return undefined;
   }

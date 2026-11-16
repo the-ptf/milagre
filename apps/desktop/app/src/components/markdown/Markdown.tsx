@@ -214,7 +214,7 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   if (isMarkdownFence(fence)) return streaming ? <MarkdownBody text={closeOpenMarkdown(text)} cache={false} /> : <MarkdownBody text={text} />;
   if (isMermaidFence(fence)) return <MermaidBlock code={text} />;
   const plain = <CodeBlock code={text} fence={fence} streaming={streaming} />;
-  return isGenuiFence(fence) ? <GenerativeUI code={text} fallback={plain} /> : plain;
+  return isGenuiFence(fence) ? <GenerativeUI key={String(streaming)} code={text} fallback={plain} /> : plain;
 }
 
 const components: Components = {
@@ -254,34 +254,48 @@ function parseMarkdown(text: string, html = false): ReactElement {
   return ReactMarkdown({ children: text, remarkPlugins: REMARK_PLUGINS, rehypePlugins: html ? HTML_PLUGINS : undefined, components, urlTransform });
 }
 
-const CACHE_ENTRIES = 500;
-const CACHE_CHARS = 2_000_000;
 const CACHE_MAX_TEXT = 200_000;
-const parsedBodies = new Map<string, ReactElement>();
-let parsedChars = 0;
 
-function cachedMarkdown(text: string, html = false): ReactElement {
-  const key = html ? HTML_KEY + text : text;
-  const hit = parsedBodies.get(key);
-  if (hit) {
-    parsedBodies.delete(key);
-    parsedBodies.set(key, hit);
-    return hit;
-  }
-  const parsed = parseMarkdown(text, html);
-  if (text.length > CACHE_MAX_TEXT) return parsed;
-  parsedBodies.set(key, parsed);
-  parsedChars += key.length;
-  for (const oldest of parsedBodies.keys()) {
-    if (parsedBodies.size <= CACHE_ENTRIES && parsedChars <= CACHE_CHARS) break;
-    parsedBodies.delete(oldest);
-    parsedChars -= oldest.length;
-  }
-  return parsed;
+function parsedCache(maxEntries: number, maxChars: number) {
+  const bodies = new Map<string, ReactElement>();
+  let chars = 0;
+  return (text: string, html = false): ReactElement => {
+    const key = html ? HTML_KEY + text : text;
+    const hit = bodies.get(key);
+    if (hit) {
+      bodies.delete(key);
+      bodies.set(key, hit);
+      return hit;
+    }
+    const parsed = parseMarkdown(text, html);
+    if (text.length > CACHE_MAX_TEXT) return parsed;
+    bodies.set(key, parsed);
+    chars += key.length;
+    for (const oldest of bodies.keys()) {
+      if (bodies.size <= maxEntries && chars <= maxChars) break;
+      bodies.delete(oldest);
+      chars -= oldest.length;
+    }
+    return parsed;
+  };
 }
 
-const MarkdownBody = memo(function MarkdownBody({ text, cache = true, html = false }: { text: string; cache?: boolean; html?: boolean }) {
-  return cache ? cachedMarkdown(text, html) : parseMarkdown(text, html);
+const cachedMarkdown = parsedCache(500, 2_000_000);
+const cachedStreamedBlock = parsedCache(64, 200_000);
+
+const MarkdownBody = memo(function MarkdownBody({
+  text,
+  cache = true,
+  html = false,
+  streamed = false,
+}: {
+  text: string;
+  cache?: boolean;
+  html?: boolean;
+  streamed?: boolean;
+}) {
+  if (!cache) return parseMarkdown(text, html);
+  return streamed ? cachedStreamedBlock(text, html) : cachedMarkdown(text, html);
 });
 
 const WRAPPER = "markdown break-words [overflow-wrap:anywhere]";
@@ -334,15 +348,14 @@ const StreamingBlocks = memo(function StreamingBlocks({ text }: { text: string }
   const blocks = splitStreamingBlocks(text);
   return (
     <div className={WRAPPER}>
-      {blocks.map((block, index) =>
-        index === blocks.length - 1 ? (
-          <MarkdownStreamingContext key={index} value={true}>
-            <MarkdownBody text={closeOpenMarkdown(block)} cache={false} />
+      {blocks.map((block, index) => {
+        const last = index === blocks.length - 1;
+        return (
+          <MarkdownStreamingContext key={index} value={last}>
+            {last ? <MarkdownBody text={closeOpenMarkdown(block)} cache={false} /> : <MarkdownBody text={block} streamed />}
           </MarkdownStreamingContext>
-        ) : (
-          <MarkdownBody key={index} text={block} />
-        ),
-      )}
+        );
+      })}
     </div>
   );
 });

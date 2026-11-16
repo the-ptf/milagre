@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { resolveCodeLanguage } from "../../lib/code-languages";
 import { diffRows } from "../../lib/message-fences";
@@ -120,7 +119,7 @@ export function CodeBlock({
                 <span className="whitespace-pre">
                   {lines?.[index]
                     ? lines[index].map((token, tokenIndex) => (
-                        <span key={tokenIndex} className="code-token" style={token.htmlStyle as CSSProperties}>
+                        <span key={tokenIndex} className={token.className}>
                           {token.content}
                         </span>
                       ))
@@ -139,7 +138,7 @@ export function CodeBlock({
                   <Fragment key={index}>
                     {index > 0 && "\n"}
                     {line.map((token, tokenIndex) => (
-                      <span key={tokenIndex} className="code-token" style={token.htmlStyle as CSSProperties}>
+                      <span key={tokenIndex} className={token.className}>
                         {token.content}
                       </span>
                     ))}

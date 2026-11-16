@@ -103,9 +103,13 @@ export function useTooltip(
   useLayoutEffect(() => {
     const trigger = triggerRef.current;
     hostRef.current = layerHost(trigger);
+    if (!enabled || !showHints || !shortcut) {
+      setHintRect(null);
+      return;
+    }
     const modal = openModal();
     const bounds = trigger?.getBoundingClientRect();
-    setHintRect(enabled && showHints && shortcut && bounds?.width && bounds.height && (!modal || modal.contains(trigger)) ? bounds : null);
+    setHintRect(bounds?.width && bounds.height && (!modal || modal.contains(trigger)) ? bounds : null);
   }, [enabled, showHints, shortcut]);
   useLayoutEffect(() => {
     const badge = hintRef.current;

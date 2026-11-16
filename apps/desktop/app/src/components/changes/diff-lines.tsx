@@ -1,12 +1,11 @@
-import type { CSSProperties, ReactNode } from "react";
-import type { ThemedToken } from "shiki/core";
+import type { ReactNode } from "react";
 import { resolveCodeLanguage } from "../../lib/code-languages";
 import { splitRows, wordChanges, type Range } from "../../lib/diff-layout";
 import { extensionOf } from "../../lib/diff-comments";
 import type { DiffHunk, DiffLine } from "../../lib/diff-parse";
-import { highlight } from "../markdown/highlighter";
+import { highlight, type CodeToken } from "../markdown/highlighter";
 
-export type Decorated = { tokens?: ThemedToken[]; words?: Range[] };
+export type Decorated = { tokens?: CodeToken[]; words?: Range[] };
 
 export function decorate(hunks: DiffHunk[], path: string, languageReady: boolean): Map<DiffLine, Decorated> {
   const result = new Map<DiffLine, Decorated>();
@@ -34,7 +33,7 @@ export function Content({ line, decoration }: { line: DiffLine; decoration?: Dec
   const wordClass = line.kind === "add" ? "bg-[var(--diff-add-word)]" : "bg-[var(--diff-remove-word)]";
   const pieces: ReactNode[] = [];
   let offset = 0;
-  const segments = decoration?.tokens?.length ? decoration.tokens : [{ content: line.text, htmlStyle: undefined } as ThemedToken];
+  const segments = decoration?.tokens?.length ? decoration.tokens : [{ content: line.text, className: "" }];
   for (const token of segments) {
     const start = offset;
     const end = offset + token.content.length;
@@ -46,11 +45,7 @@ export function Content({ line, decoration }: { line: DiffLine; decoration?: Dec
       if (from === undefined || to === undefined || from === to) continue;
       const changed = words.some(([a, b]) => from >= a && to <= b);
       pieces.push(
-        <span
-          key={`${start}-${from}`}
-          className={`${decoration?.tokens ? "code-token" : ""} ${changed ? wordClass : ""}`}
-          style={token.htmlStyle as CSSProperties | undefined}
-        >
+        <span key={`${start}-${from}`} className={`${token.className} ${changed ? wordClass : ""}`}>
           {token.content.slice(from - start, to - start)}
         </span>,
       );
