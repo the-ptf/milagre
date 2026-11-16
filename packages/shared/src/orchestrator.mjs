@@ -368,19 +368,27 @@ export function isOrchestratorAnswer(message) {
 }
 
 /** Back-to-back autopilot answers show as one line: the first carries every summary, the rest are hidden. */
+const ANSWER_NOTE = /^The Orchestrator answered for you: ([\s\S]*?)\.?$/;
+
+function answerSummary(message) {
+  if (isOrchestratorAnswer(message)) return message.context.summary;
+  return !message?.context && typeof message?.body === "string" ? (ANSWER_NOTE.exec(message.body.trim())?.[1] ?? null) : null;
+}
+
 export function foldOrchestratorAnswers(entries) {
   let lead = null;
   return entries.map((entry) => {
     if (entry.hidden) return entry;
-    if (!isOrchestratorAnswer(entry.message)) {
+    const summary = answerSummary(entry.message);
+    if (summary === null) {
       lead = null;
       return entry;
     }
     if (!lead) {
-      lead = { ...entry, message: { ...entry.message, context: { ...entry.message.context, summaries: [entry.message.context.summary] } } };
+      lead = { ...entry, message: { ...entry.message, context: { kind: "orchestrator-answer", summary, summaries: [summary] } } };
       return lead;
     }
-    lead.message.context.summaries.push(entry.message.context.summary);
+    lead.message.context.summaries.push(summary);
     return { ...entry, hidden: true };
   });
 }

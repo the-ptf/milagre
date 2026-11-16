@@ -188,3 +188,15 @@ test("back-to-back autopilot answers fold into one line that lists them all", ()
   assert.equal(entries[2].hidden, undefined);
   assert.deepEqual(entries[3].message.context.summaries, ["picked Monthly"], "a reply in between starts a new line");
 });
+
+test("answers saved before the Pebble line, as plain notes, fold in too", () => {
+  const plain = (id, body) => ({ message: { id, role: "assistant", body, context: null } });
+  const entries = foldOrchestratorAnswers([
+    plain(1, "The Orchestrator answered for you: allowed `ls`."),
+    plain(2, "The Orchestrator answered for you: picked Monthly."),
+    plain(3, "Here is what I changed."),
+  ]);
+  assert.deepEqual(entries[0].message.context, { kind: "orchestrator-answer", summary: "allowed `ls`", summaries: ["allowed `ls`", "picked Monthly"] });
+  assert.equal(entries[1].hidden, true);
+  assert.equal(entries[2].message.context, null);
+});
