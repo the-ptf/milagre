@@ -26,17 +26,29 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
     const started = await remote.invoke(pick.id, "orchestrator:start-here", [
       { prompt: task.prompt, title: route.title, origin, role: route.role, reason: route.reason ?? null },
     ]);
+    const computerReason = `${pick.name} has the most room (${Math.round((1 - (pick.cpu ?? 0)) * 100)}% CPU free)`;
     store.updateTask(taskId, () => ({
-      ...started,
-      id: taskId,
-      prompt: task.prompt,
-      createdAt: task.createdAt,
+      title: route.title,
+      projectPath: pick.projectPath,
       computer: pick.name,
       remoteComputerId: pick.id,
       remoteTaskId: started.id,
-      reason: { ...started.reason, computer: `${pick.name} has the most room (${Math.round((1 - (pick.cpu ?? 0)) * 100)}% CPU free)` },
+      state: "routing",
     }));
+    void follow(taskId, pick.id, started.id, computerReason);
     return store.task(taskId);
+  }
+
+  async function follow(taskId, computerId, remoteTaskId, computerReason) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const remoteTask = (await ports.remote.invoke(computerId, "orchestrator:read", []).catch(() => null))?.tasks?.find((entry) => entry.id === remoteTaskId);
+      if (remoteTask && remoteTask.state !== "routing") {
+        const { id: _id, prompt: _prompt, createdAt: _createdAt, computer: _computer, remoteComputerId: _from, remoteTaskId: _task, ...fields } = remoteTask;
+        store.updateTask(taskId, () => ({ ...fields, reason: { ...fields.reason, computer: computerReason } }));
+        return;
+      }
+      await ports.wait(3000);
+    }
   }
 
   async function capacity() {
@@ -53,7 +65,10 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
     const project = projects.find((_, index) => origins[index] === origin);
     if (!project) throw new Error("That Project isn't on this computer.");
     const taskId = addTask(String(prompt));
-    return start(taskId, { projectPath: project.path, role, title, reason });
+    void start(taskId, { projectPath: project.path, role, title, reason }).catch((error) =>
+      store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) })),
+    );
+    return store.task(taskId);
   }
 
   return { placeElsewhere, capacity, startHere };

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
-import type { OrchestratorSettings } from "@milagre/shared/orchestrator";
+import { isMemoryImporting, type OrchestratorSettings } from "@milagre/shared/orchestrator";
 import { space } from "./design-tokens";
 import { BoardSection, forgetEverything, MemorySection, RolesSection } from "./orchestrator-roles-section";
 import { ComputersPreferences, ProjectsSection } from "./orchestrator-projects-section";
@@ -37,7 +37,7 @@ export function OrchestratorSettingsPage() {
       <View pointerEvents={settings.enabled ? "auto" : "none"} style={[{ gap: space.section }, dimmed(settings.enabled)]}>
         <MemorySection
           memory={snapshot.memory}
-          busy={reading}
+          busy={reading || isMemoryImporting(snapshot.memory)}
           onNotes={(notes) => void store.saveNotes(notes).catch((failure: Error) => setFailed(failure.message))}
           onReadAgain={() => {
             setReading(true);

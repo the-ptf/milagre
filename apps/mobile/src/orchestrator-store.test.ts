@@ -7,7 +7,7 @@ import { createOrchestratorStore } from "./orchestrator-store.ts";
 const snapshot = (patch: Partial<OrchestratorSnapshot["settings"]> = {}, tasks: OrchestratorTask[] = []): OrchestratorSnapshot => ({
   settings: { ...ORCHESTRATOR_DEFAULTS, ...patch },
   tasks,
-  memory: { notes: [], trust: {}, sources: [], importedAt: null, updatedAt: 0 },
+  memory: { notes: [], trust: {}, sources: [], importedAt: null, importStartedAt: null, updatedAt: 0 },
 });
 
 function host(initial: OrchestratorSnapshot) {

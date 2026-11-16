@@ -125,6 +125,7 @@ function registerOrchestrator(
           agents: chats.busyChats?.().size ?? 0,
         };
       },
+      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
       withTimeout: (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms).unref?.())]),
     },
   });

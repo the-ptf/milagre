@@ -77,6 +77,8 @@ export interface OrchestratorMemory {
   trust: Record<string, { answered: number; corrected: number }>;
   sources: { name: string; count: number; unit: "notes" | "rules"; found: boolean }[];
   importedAt: number | null;
+  /** Later than `importedAt` while a read of the agents' memory is running. */
+  importStartedAt: number | null;
   updatedAt: number;
 }
 
@@ -124,6 +126,7 @@ export function normalizeOrchestratorTask(raw: unknown): OrchestratorTask | null
 export function normalizeOrchestratorTasks(raw: unknown): OrchestratorTask[];
 export function normalizeMemoryNote(raw: unknown): OrchestratorMemoryNote | null;
 export function normalizeOrchestratorMemory(raw: unknown): OrchestratorMemory;
+export function isMemoryImporting(memory: OrchestratorMemory | null | undefined): boolean;
 export function titleFromPrompt(prompt: string): string;
 export function keywordRoute(
   prompt: string,

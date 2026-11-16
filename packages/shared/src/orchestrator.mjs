@@ -231,8 +231,13 @@ export function normalizeOrchestratorMemory(raw) {
         }))
       : [],
     importedAt: Number.isFinite(value.importedAt) ? value.importedAt : null,
+    importStartedAt: Number.isFinite(value.importStartedAt) ? value.importStartedAt : null,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0,
   };
+}
+
+export function isMemoryImporting(memory) {
+  return memory?.importStartedAt != null && (memory.importedAt == null || memory.importStartedAt > memory.importedAt);
 }
 
 export function titleFromPrompt(prompt) {

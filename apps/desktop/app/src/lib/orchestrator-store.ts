@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import {
   ORCHESTRATOR_DEFAULTS,
+  isMemoryImporting,
   normalizeOrchestratorMemory,
   type OrchestratorMemoryNote,
   type OrchestratorSettings,
@@ -96,7 +97,16 @@ export async function showTaskInSidebar(taskId: string, shown: boolean) {
 export async function importMemory() {
   const memory = await window.milagre.importOrchestratorMemory();
   apply({ ...snapshot, memory });
-  return memory;
+  await new Promise<void>((resolve) => {
+    const check = () => {
+      if (isMemoryImporting(snapshot.memory)) return;
+      listeners.delete(check);
+      resolve();
+    };
+    listeners.add(check);
+    check();
+  });
+  return snapshot.memory;
 }
 
 export async function saveMemoryNotes(notes: OrchestratorMemoryNote[]) {

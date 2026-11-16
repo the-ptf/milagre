@@ -70,7 +70,7 @@ function fallbackNotes(read) {
 }
 
 /** Reads what the owner's agents already know about them and boils it down to notes for the Orchestrator's memory. */
-async function importMemory({ call, home = os.homedir(), env = process.env, onSource = () => {}, now = () => Date.now() }) {
+async function importMemory({ call, home = os.homedir(), env = process.env, onSource = () => {}, now = () => Date.now(), timeoutMs = 120_000 }) {
   const sources = sourcesFor(home, env);
   const read = [];
   let budget = TOTAL;
@@ -92,7 +92,7 @@ async function importMemory({ call, home = os.homedir(), env = process.env, onSo
   if (call && read.length) {
     try {
       const prompt = read.map(({ source, file, text }) => `<file source="${source}" name="${path.basename(file)}">\n${text}\n</file>`).join("\n\n");
-      const reply = await call({ system: SYSTEM, prompt });
+      const reply = await Promise.race([call({ system: SYSTEM, prompt }), new Promise((resolve) => setTimeout(resolve, timeoutMs, null).unref?.())]);
       const parsed = JSON.parse(extractJson(reply ?? ""));
       if (Array.isArray(parsed?.notes)) notes = parsed.notes;
     } catch {}

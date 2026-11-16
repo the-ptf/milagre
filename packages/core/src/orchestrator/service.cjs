@@ -145,6 +145,38 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
 
   const placement = createPlacement({ store, ports, settings, projectList, addTask, start: (taskId, route) => start(taskId, route) });
 
+  let importing = null;
+
+  async function readMemory() {
+    const at = now();
+    store.update((current) => ({ ...current, memory: { ...current.memory, sources: [], importStartedAt: at, updatedAt: at } }));
+    const result = await importMemory({
+      call: ports.memoryCall?.(settings().router) ?? null,
+      onSource: (source) => store.update((current) => ({ ...current, memory: { ...current.memory, sources: [...current.memory.sources, source] } })),
+      ...(ports.home ? { home: ports.home } : {}),
+      now,
+    }).catch((error) => {
+      console.warn("[orchestrator] couldn't read the agents' memory:", error.message);
+      return { sources: store.read().memory.sources, notes: [] };
+    });
+    store.update((current) => ({
+      ...current,
+      memory: {
+        ...current.memory,
+        sources: result.sources,
+        notes: [...current.memory.notes.filter((note) => note.source === "Milagre"), ...result.notes],
+        importedAt: now(),
+        updatedAt: now(),
+      },
+    }));
+  }
+
+  function startInBackground(taskId, route) {
+    store.updateTask(taskId, () => ({ state: "routing", error: null }));
+    void start(taskId, route).catch((error) => store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) })));
+    return store.task(taskId);
+  }
+
   function chatKeyOf(task) {
     return task?.projectPath && task.sessionId !== null ? ports.chatKey(task.projectPath, task.sessionId) : null;
   }
@@ -205,10 +237,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       const projects = await projectList();
       if (!projects.some((project) => project.path === projectPath)) throw new Error("That Project isn't one the Orchestrator can use.");
       learn("project");
-      return start(taskId, { projectPath, role: task.role, title: task.title, reason: "You picked it" }).catch((error) => {
-        store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) }));
-        return store.task(taskId);
-      });
+      return startInBackground(taskId, { projectPath, role: task.role, title: task.title, reason: "You picked it" });
     },
     async showInSidebar(taskId, shown) {
       const task = store.task(taskId);
@@ -231,42 +260,26 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       await dropChat(task);
       learn(change.projectPath && change.projectPath !== task.projectPath ? "project" : "role");
       store.updateTask(taskId, () => ({ state: "routing", sessionId: null, worktreeId: null, error: null }));
-      if (!change.projectPath && !change.role) return routeAndStart(taskId);
-      return start(taskId, {
+      if (!change.projectPath && !change.role) {
+        void routeAndStart(taskId);
+        return store.task(taskId);
+      }
+      return startInBackground(taskId, {
         projectPath: change.projectPath ?? task.projectPath,
         role: change.role ?? task.role,
         title: task.title,
         reason: change.projectPath ? "You picked it" : task.reason.project,
-      }).catch((error) => {
-        store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) }));
-        return store.task(taskId);
       });
     },
     dismiss(taskId) {
       store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
       return null;
     },
-    async importMemory() {
-      const at = now();
-      store.update((current) => ({ ...current, memory: { ...current.memory, sources: [], updatedAt: at } }));
-      const result = await importMemory({
-        call: ports.memoryCall?.(settings().router) ?? null,
-        onSource: (source) => store.update((current) => ({ ...current, memory: { ...current.memory, sources: [...current.memory.sources, source] } })),
-        ...(ports.home ? { home: ports.home } : {}),
-        now,
-      });
-      store.update((current) => ({
-        ...current,
-        memory: {
-          ...current.memory,
-          sources: result.sources,
-          notes: [...current.memory.notes.filter((note) => note.source === "Milagre"), ...result.notes],
-          importedAt: now(),
-          updatedAt: now(),
-        },
-      }));
+    importMemory() {
+      if (!importing) importing = readMemory().finally(() => (importing = null));
       return store.read().memory;
     },
+    whenImported: () => importing ?? Promise.resolve(),
     saveMemoryNotes(notes) {
       if (!Array.isArray(notes)) throw new Error("Memory notes must be a list");
       store.update((current) => ({ ...current, memory: { ...current.memory, notes, updatedAt: now() } }));

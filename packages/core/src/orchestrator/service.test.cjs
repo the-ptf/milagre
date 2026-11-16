@@ -44,9 +44,15 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
     originOf: async (projectPath) => `git@github.com:me/${projectPath.split("/").pop()}`,
     capacity: async () => ({ cpu: 0.7, memoryFree: 0.2, agents: 3 }),
     withTimeout: (promise) => promise,
+    wait: async () => {},
   };
   const orchestrator = createOrchestrator({ store, ports, now: () => 1000 });
   return { orchestrator, store, calls, events };
+}
+
+async function until(check) {
+  for (let i = 0; i < 200 && !check(); i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(check(), "the condition never held");
 }
 
 async function settled(orchestrator, taskId) {
@@ -79,7 +85,8 @@ test("with no matching Project the task waits for the owner, then starts where t
   await settled(orchestrator, task.id);
   assert.equal(store.task(task.id).state, "needs-project");
   assert.equal(calls.sent.length, 0);
-  await orchestrator.pickProject(task.id, "/p/rdfood");
+  assert.equal((await orchestrator.pickProject(task.id, "/p/rdfood")).state, "routing", "picking returns at once");
+  await until(() => store.task(task.id).state === "started");
   assert.equal(store.task(task.id).projectPath, "/p/rdfood");
   assert.equal(store.read().memory.trust.project.corrected, 1, "picking the Project is a correction the memory learns");
 });
@@ -130,6 +137,20 @@ test("a task goes to the paired computer with the most room when its Project is 
     list: () => [{ id: "studio-id", name: "Studio" }],
     invoke: async (id, method, args) => {
       invoked.push([id, method, args]);
+      if (method === "orchestrator:read")
+        return {
+          tasks: [
+            {
+              id: "remote-task",
+              state: "started",
+              projectPath: "/Users/s/happiergym",
+              sessionId: 3,
+              title: "Fix the rest timer",
+              model: "claude-opus-5-5",
+              reason: { project: "x" },
+            },
+          ],
+        };
       if (method === "orchestrator:capacity")
         return {
           cpu: 0.1,
@@ -137,7 +158,7 @@ test("a task goes to the paired computer with the most room when its Project is 
           agents: 0,
           projects: [{ path: "/Users/s/happiergym", name: "happiergym", origin: "git@github.com:me/happiergym" }],
         };
-      return { id: "remote-task", state: "started", projectPath: "/Users/s/happiergym", sessionId: 3, title: "Fix the rest timer", reason: { project: "x" } };
+      return { id: "remote-task", state: "routing" };
     },
   };
   const { orchestrator, store, calls } = setup(t, {
@@ -145,14 +166,16 @@ test("a task goes to the paired computer with the most room when its Project is 
     reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
   });
   const task = await orchestrator.send("the rest timer in my gym app skips");
-  await settled(orchestrator, task.id);
+  await until(() => store.task(task.id).sessionId === 3);
   const saved = store.task(task.id);
   assert.equal(saved.computer, "Studio");
+  assert.equal(saved.state, "started");
+  assert.equal(saved.model, "claude-opus-5-5");
   assert.equal(saved.remoteTaskId, "remote-task");
   assert.equal(saved.projectPath, "/Users/s/happiergym");
   assert.match(saved.reason.computer, /Studio has the most room/);
   assert.equal(calls.sent.length, 0, "nothing started on this computer");
-  assert.equal(invoked.at(-1)[1], "orchestrator:start-here");
+  assert.ok(invoked.some(([, method]) => method === "orchestrator:start-here"));
   await orchestrator.undo(task.id);
   assert.deepEqual(invoked.at(-1), ["studio-id", "orchestrator:task:undo", ["remote-task"]]);
 });

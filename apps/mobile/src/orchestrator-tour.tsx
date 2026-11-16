@@ -4,7 +4,7 @@ import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue } from "
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { ArrowUp01Icon, CheckmarkCircle02Icon, ComputerTerminal01Icon, GitMergeIcon, LockIcon, MinusSignIcon } from "@hugeicons/core-free-icons";
-import { activeRoles, type OrchestratorMemoryNote, type OrchestratorSnapshot, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { activeRoles, isMemoryImporting, type OrchestratorMemoryNote, type OrchestratorSnapshot, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon, SpinnerRing } from "./icons";
 import { Mascot } from "./mascot";
@@ -269,13 +269,14 @@ export function OrchestratorTour({ snapshot, store }: { snapshot: OrchestratorSn
   const reducedMotion = useReducedMotion();
   const motion = useMotionScale();
   const [skipped, setSkipped] = useState(false);
-  const [reading, setReading] = useState(true);
+  const [asked, setAsked] = useState(false);
+  const reading = !asked || isMemoryImporting(snapshot.memory);
   const t = useClock(skipped);
   useEffect(() => {
     void store
       .act("orchestrator:memory:import", [])
       .catch(() => {})
-      .finally(() => setReading(false));
+      .finally(() => setAsked(true));
   }, [store]);
   const summary = skipped || (t >= AT.end && !reading);
   const size = useSharedValue(1);
