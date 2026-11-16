@@ -410,16 +410,10 @@ function createRuntime(options) {
     states,
     track,
     updateProject,
-    terminals,
-    artifacts,
-    computerUseScreen,
-    pageComments,
     git,
     closing: () => closing,
-    advisorDelivery: () => advisorDelivery,
-    advisors: () => advisors,
-    agents: () => agents,
-    chats: () => chats,
+    releaseChat: (chatId) => releaseChat(chatId),
+    retireChat: (chatId, how) => retireChat(chatId, how),
     linear: () => linear,
     linearIssues: () => linearIssues,
     worktreeSetups: () => worktreeSetups,
@@ -797,13 +791,8 @@ function createRuntime(options) {
                 const lookup = await readPullRequestStateOf(worktree.path).catch(() => ({ known: false, pr: null }));
                 return { known: lookup.known, open: lookup.pr?.state === "OPEN" };
               },
-              closeChat: async (chatKey) => {
-                terminals.closeChat(chatKey);
-                await advisorDelivery.stop(chatKey);
-                await advisors.stopChat(chatKey);
-                await worktreeSetups.cancel(chatKey);
-                await agents.closeChat(chatKey);
-              },
+              closeChat: (chatKey) => releaseChat(chatKey),
+              retireChat: (chatKey) => retireChat(chatKey, { mode: "run-cleanup" }),
               moveChats: (scope, sessionIds, change) => moveRunChats(scope, sessionIds, change),
               remove: async (worktree) => {
                 const result = await handlers.get("worktree:remove")({}, worktree.path, { projectPath });
@@ -912,10 +901,7 @@ function createRuntime(options) {
           force: force === true,
           closeSession: async () => {
             await check();
-            for (const key of keys) {
-              terminals.closeChat(key);
-              await agents.closeChat(key);
-            }
+            for (const key of keys) await releaseChat(key);
           },
         });
         return reconcileState(
@@ -928,13 +914,7 @@ function createRuntime(options) {
       { chats: [] },
     );
     if (result.removed) {
-      for (const key of keys) {
-        chats.forget(key);
-        computerUseScreen.forget(key);
-        await stopChatWork(key);
-        await artifacts.removeChat(key).catch(() => {});
-        await pageComments.removeChat(key).catch(() => {});
-      }
+      for (const key of keys) await retireChat(key, { mode: "worktree-removal" });
       await worktreeSetups.forget(worktreePath);
       await pruneLinks();
     }
@@ -1054,7 +1034,8 @@ function createRuntime(options) {
     markIssueStarted,
     archiveChat,
     moveRunChats,
-    stopChatWork,
+    retireChat,
+    releaseChat,
     archiveRunChat,
     keepRunChat,
     patchChat,
@@ -1095,6 +1076,7 @@ function createRuntime(options) {
     terminals,
     artifacts,
     computerUseScreen,
+    pageComments,
     advisorDelivery: () => advisorDelivery,
     advisors: () => advisors,
     bugReports: () => bugReports,
@@ -1407,10 +1389,8 @@ function createRuntime(options) {
     titles: chatTitles,
     issues: { message: linearIssueMessage, started: markIssueStarted },
     retire: async (scope, sessionId) => {
-      const chatId = chatKey(scope, sessionId);
-      await archiveChat(scope, sessionId);
-      await worktreeSetups.cancel(chatId);
-      await agents.closeChat(chatId);
+      const { stopped } = await archiveChat(scope, sessionId);
+      await stopped;
     },
     released: async ({ removed, kept }) => {
       for (const member of removed) await worktreeSetups.forget(member.worktreePath);

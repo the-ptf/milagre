@@ -255,11 +255,98 @@ function registerChatSend({
   return { sendAsUser, linearIssueMessage, markIssueStarted };
 }
 
+const RETIRE_MODES = new Set(["archive", "delete", "worktree-removal", "run-cleanup"]);
+
+/**
+ * The one ordered sequence that retires a Chat, shared by archive, delete, Worktree removal and Routine Run cleanup.
+ * `retireChat(chatId, { mode, edit })` runs every step in `steps` order; `edit` is the mode's Project state change, which
+ * notifies clients. Archive starts the steps, saves `edit` at once and finishes the steps in the background (#718, #734),
+ * resolving with `{ stopped }`. Delete runs the steps, then `edit`, then removes the Chat's stored data. Worktree removal
+ * frees the Worktree with `releaseChat` (the steps marked `frees`) before Git removes it, so a refused removal loses
+ * nothing, and retires the Chat with its stored data once the Worktree is gone. Run cleanup saves `edit`, then runs the steps.
+ */
+function createChatRetirement({
+  agents,
+  background,
+  chats,
+  scopeStates,
+  track,
+  worktreeSetups,
+  terminals,
+  artifacts,
+  computerUseScreen,
+  pageComments,
+  advisorDelivery,
+  advisors,
+  bugReports,
+  chatSecrets,
+  linked,
+  routines,
+  stopChat,
+}) {
+  const steps = [
+    { name: "end Heartbeats", run: (chatId) => routines().chatArchived(chatId) },
+    {
+      name: "cancel a pending continuation",
+      run: (chatId) => scopeStates.has(projectOfKey(chatId)) && chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId)),
+    },
+    { name: "stop the turn and queued sends", frees: true, run: (chatId) => chats.runs[chatId] && stopChat(chatId) },
+    { name: "cancel Worktree setup", frees: true, run: (chatId) => worktreeSetups.cancel(chatId) },
+    { name: "close the agent session", frees: true, run: (chatId) => agents.closeChat(chatId) },
+    { name: "stop background commands", frees: true, run: (chatId) => terminals.closeChat(chatId) },
+    {
+      name: "settle advisors",
+      frees: true,
+      run: async (chatId) => {
+        await advisorDelivery().stop(chatId);
+        await advisors().stopChat(chatId);
+      },
+    },
+    { name: "settle delegations", run: (chatId) => linked().stop({ chatKey: chatId }) },
+    {
+      name: "clear pending questions",
+      run: (chatId) => {
+        chatSecrets()?.cancel(chatId);
+        bugReports()?.cancel(chatId);
+      },
+    },
+  ];
+  async function runSteps(chatId, list = steps) {
+    for (const step of list) await step.run(chatId);
+  }
+  const releaseChat = (chatId) =>
+    runSteps(
+      chatId,
+      steps.filter((step) => step.frees),
+    );
+  async function removeChatData(chatId) {
+    chats.forget(chatId);
+    computerUseScreen.forget(chatId);
+    await artifacts.removeChat(chatId).catch(() => {});
+    await pageComments.removeChat(chatId).catch(() => {});
+  }
+  async function retireChat(chatId, { mode, edit = async () => {} }) {
+    if (!RETIRE_MODES.has(mode)) throw new Error(`Unknown way to retire a Chat: ${mode}`);
+    if (mode === "archive") {
+      const stopped = runSteps(chatId);
+      stopped.catch(() => {});
+      await edit();
+      void track(() => stopped, background).catch((error) => console.warn("Milagre couldn't stop an archived Chat's work:", error.message));
+      return { stopped };
+    }
+    if (mode === "run-cleanup") await edit();
+    await runSteps(chatId);
+    if (mode === "run-cleanup") return {};
+    await edit();
+    await removeChatData(chatId);
+    return {};
+  }
+  return { steps: steps.map((step) => step.name), retireChat, releaseChat, removeChatData };
+}
+
 function registerChatRetire({
   commands,
   handlers,
-  agents,
-  background,
   chats,
   editProject,
   environmentReady,
@@ -269,26 +356,19 @@ function registerChatRetire({
   needsUserAt,
   scopeStates,
   states,
-  track,
-  worktreeSetups,
-  terminals,
-  artifacts,
-  computerUseScreen,
-  advisorDelivery,
-  advisors,
   linkRuntime,
   needsUserCount,
   routines,
-  stopChat,
+  retirement,
 }) {
+  const { retireChat } = retirement;
   async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
-    if (!scopeStates.has(projectPath)) return;
+    if (!scopeStates.has(projectPath)) return { stopped: Promise.resolve() };
     await chats.cancelLimitResume(projectPath, sessionId);
-    const chatId = `${projectPath}#${sessionId}`;
-    const stopping = stopChatWork(chatId);
-    stopping.catch(() => {});
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
-    void track(() => stopping, background).catch((error) => console.warn("Milagre couldn't stop an archived Chat's work:", error.message));
+    return retireChat(`${projectPath}#${sessionId}`, {
+      mode: "archive",
+      edit: () => editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] }),
+    });
   }
   async function moveRunChats(projectPath, sessionIds, { worktreeId, formerWorktree, archive = [], restore }) {
     const before = {};
@@ -321,13 +401,6 @@ function registerChatRetire({
     );
     return before;
   }
-  async function stopChatWork(chatId) {
-    terminals.closeChat(chatId);
-    routines().chatArchived(chatId);
-    if (chats.runs[chatId]) return stopChat(chatId);
-    await advisorDelivery().stop(chatId);
-    await advisors().stopChat(chatId);
-  }
   async function archiveRunChat(projectPath, sessionId, runId) {
     const left = (session) => isHiddenRunChat(session) && !session.archived && session.routine.runId === runId;
     if (!scopeStates.has(projectPath) || !left((await scopeStates.get(projectPath)).sessions[sessionId])) return;
@@ -341,7 +414,7 @@ function registerChatRetire({
       },
       { chats: [] },
     );
-    if (archived) await stopChatWork(`${projectPath}#${sessionId}`);
+    if (archived) await retireChat(`${projectPath}#${sessionId}`, { mode: "run-cleanup" });
   }
   async function keepRunChat(projectPath, sessionId) {
     if (!scopeStates.has(projectPath)) return;
@@ -419,12 +492,10 @@ function registerChatRetire({
       if (link.canvasLinkId && !(await linkStore.get(linkId)).releasedAt)
         throw new Error("Switch this Link to separate Chats before deleting its shared conversation.");
     }
-    await stopChatWork(chatId);
-    await worktreeSetups.cancel(chatId);
-    await agents.closeChat(chatId);
-    await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
-    computerUseScreen.forget(chatId);
-    await artifacts.removeChat(chatId).catch(() => {});
+    await retireChat(chatId, {
+      mode: "delete",
+      edit: () => editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] }),
+    });
   });
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
     scopeStates.has(projectPath)
@@ -438,7 +509,7 @@ function registerChatRetire({
     if (typeof chatId !== "string" || typeof body !== "string" || !scopeStates.has(projectOfKey(chatId))) return undefined;
     return chats.addNote(chatId, { body, context: { kind: "git-action" } });
   });
-  return { archiveChat, moveRunChats, stopChatWork, archiveRunChat, keepRunChat, patchChat, reopenDoneChat, wakeSnoozedChat, archiveDoneChat };
+  return { archiveChat, moveRunChats, archiveRunChat, keepRunChat, patchChat, reopenDoneChat, wakeSnoozedChat, archiveDoneChat };
 }
 
 function registerChatStatus({
@@ -557,6 +628,7 @@ function registerChatLifecycle({
   terminals,
   artifacts,
   computerUseScreen,
+  pageComments,
   advisorDelivery,
   advisors,
   bugReports,
@@ -605,33 +677,42 @@ function registerChatLifecycle({
     reopenDoneChat: (...args) => reopenDoneChat(...args),
     wakeSnoozedChat: (...args) => wakeSnoozedChat(...args),
   });
-  const { archiveChat, moveRunChats, stopChatWork, archiveRunChat, keepRunChat, patchChat, reopenDoneChat, wakeSnoozedChat, archiveDoneChat } =
-    registerChatRetire({
-      commands,
-      handlers,
-      agents,
-      background,
-      chats,
-      editProject,
-      environmentReady,
-      existingChat,
-      heldState,
-      linkStore,
-      needsUserAt,
-      scopeStates,
-      states,
-      track,
-      worktreeSetups,
-      terminals,
-      artifacts,
-      computerUseScreen,
-      advisorDelivery,
-      advisors,
-      linkRuntime,
-      needsUserCount,
-      routines,
-      stopChat,
-    });
+  const retirement = createChatRetirement({
+    agents,
+    background,
+    chats,
+    scopeStates,
+    track,
+    worktreeSetups,
+    terminals,
+    artifacts,
+    computerUseScreen,
+    pageComments,
+    advisorDelivery,
+    advisors,
+    bugReports,
+    chatSecrets,
+    linked,
+    routines,
+    stopChat,
+  });
+  const { archiveChat, moveRunChats, archiveRunChat, keepRunChat, patchChat, reopenDoneChat, wakeSnoozedChat, archiveDoneChat } = registerChatRetire({
+    commands,
+    handlers,
+    chats,
+    editProject,
+    environmentReady,
+    existingChat,
+    heldState,
+    linkStore,
+    needsUserAt,
+    scopeStates,
+    states,
+    linkRuntime,
+    needsUserCount,
+    routines,
+    retirement,
+  });
   const { readOpenChat, agentCliStatus } = registerChatStatus({
     options,
     emit,
@@ -660,7 +741,8 @@ function registerChatLifecycle({
     markIssueStarted,
     archiveChat,
     moveRunChats,
-    stopChatWork,
+    retireChat: retirement.retireChat,
+    releaseChat: retirement.releaseChat,
     archiveRunChat,
     keepRunChat,
     patchChat,
@@ -671,4 +753,4 @@ function registerChatLifecycle({
   };
 }
 
-module.exports = { registerChatLifecycle };
+module.exports = { registerChatLifecycle, createChatRetirement };

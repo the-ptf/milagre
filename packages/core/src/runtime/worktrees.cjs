@@ -24,14 +24,8 @@ function createWorktreeBasics({
   ownProject,
   readProject,
   states,
-  terminals,
-  artifacts,
-  computerUseScreen,
-  pageComments,
-  advisorDelivery,
-  advisors,
-  agents,
-  chats,
+  releaseChat,
+  retireChat,
   worktreeSetups,
   pruneLinks,
 }) {
@@ -112,25 +106,14 @@ function createWorktreeBasics({
       seen,
       force,
       closeSession: async () => {
-        for (const gone of goneChats) {
-          terminals.closeChat(gone);
-          await advisorDelivery().stop(gone);
-          await advisors().stopChat(gone);
-        }
-        if (typeof chatId === "string") {
-          await worktreeSetups().cancel(chatId);
-          await worktreeSetups().forget(worktreePath);
-          await agents().closeChat(chatId);
-        }
+        for (const gone of goneChats) await releaseChat(gone);
+        if (typeof chatId === "string") await worktreeSetups().forget(worktreePath);
         inUse(await states.get(projectPath));
       },
     });
     if (states.has(projectPath)) await readProject(projectPath);
     if (result.removed) {
-      for (const id of goneChats) computerUseScreen.forget(id);
-      await Promise.all(goneChats.map((id) => artifacts.removeChat(id).catch(() => {})));
-      await Promise.all(goneChats.map((id) => pageComments.removeChat(id).catch(() => {})));
-      for (const id of goneChats) chats().forget(id);
+      for (const id of goneChats) await retireChat(id, { mode: "worktree-removal" });
       await pruneLinks();
     }
     return result;
@@ -437,16 +420,10 @@ function createWorktrees({
   states,
   track,
   updateProject,
-  terminals,
-  artifacts,
-  computerUseScreen,
-  pageComments,
   git,
   closing,
-  advisorDelivery,
-  advisors,
-  agents,
-  chats,
+  releaseChat,
+  retireChat,
   linear,
   linearIssues,
   worktreeSetups,
@@ -465,14 +442,8 @@ function createWorktrees({
     ownProject,
     readProject,
     states,
-    terminals,
-    artifacts,
-    computerUseScreen,
-    pageComments,
-    advisorDelivery,
-    advisors,
-    agents,
-    chats,
+    releaseChat,
+    retireChat,
     worktreeSetups,
     pruneLinks,
   });
