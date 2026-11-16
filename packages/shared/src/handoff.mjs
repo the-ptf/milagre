@@ -31,6 +31,7 @@ export function handoffKind(state, sessionId, provider) {
   if (!last) return null;
   if (last !== provider) return "switch";
   const session = state.sessions[sessionId];
+  if (session?.forkedFrom && !session?.native_session_id) return null;
   const replied = chatMessages(state, sessionId).some((message) => message.role === "assistant" && message.outcome === "completed");
   return replied && !session?.native_session_id ? "restore" : null;
 }

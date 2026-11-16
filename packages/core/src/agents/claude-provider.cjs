@@ -128,6 +128,9 @@ class ClaudeSession {
     tldrEnabled = true,
     sharedLink = false,
     analysisOnly = false,
+    sideChat = false,
+    forkSession = false,
+    ephemeral = false,
     executionAdvisor = false,
     linked = null,
     mcpExtras = null,
@@ -147,6 +150,9 @@ class ClaudeSession {
       tldrEnabled,
       sharedLink,
       analysisOnly,
+      sideChat,
+      forkSession,
+      ephemeral,
       executionAdvisor,
       linked,
       mcpExtras,
@@ -154,7 +160,7 @@ class ClaudeSession {
       spawnImpl,
       interruptGraceMs,
     });
-    this.state = { sessionId: resumeId ?? null, turnId: null, hasText: false };
+    this.state = { sessionId: forkSession ? null : (resumeId ?? null), turnId: null, hasText: false };
     this.query = null;
     this.inbox = null;
     this.child = null;
@@ -382,9 +388,10 @@ class ClaudeSession {
         ...(!this.analysisOnly && !this.executionAdvisor ? { agents: QA_AGENTS } : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
+        ...(this.ephemeral ? { persistSession: false } : {}),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
         ...(this.executionAdvisor ? { disallowedTools: ["AskUserQuestion", "Agent", "Task"] } : {}),
-        ...(this.resumeId ? { resume: this.resumeId } : {}),
+        ...(this.resumeId ? { resume: this.resumeId, ...(this.forkSession ? { forkSession: true } : {}) } : {}),
         // Own the process so close() can stop Claude Code and everything it started.
         spawnClaudeCodeProcess: ({ command, args, cwd, env, signal }) => {
           const child = spawnCommand(command, args, { cwd, env, signal, stdio: ["pipe", "pipe", "pipe"], detached: true, windowsHide: true }, this.spawnImpl);
@@ -396,6 +403,7 @@ class ClaudeSession {
         },
       },
     });
+    this.forkSession = false;
     void this.readMessages(this.query);
     for (const name of this.mcpOff) await this.query.toggleMcpServer?.(name, false)?.catch(() => {});
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});

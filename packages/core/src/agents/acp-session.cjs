@@ -109,6 +109,8 @@ class AcpSession {
     workspaceInstructions,
     tldrEnabled = true,
     sharedLink = false,
+    analysisOnly = false,
+    sideChat = false,
     linked = null,
     mcpExtras = null,
     clientVersion = "0.0.0",
@@ -128,6 +130,8 @@ class AcpSession {
       workspaceInstructions,
       tldrEnabled,
       sharedLink,
+      analysisOnly,
+      sideChat,
       linked,
       mcpExtras,
       clientVersion,
@@ -244,7 +248,7 @@ class AcpSession {
       await this.finishTurn([]);
       return { turnId: null, steered: false, cancelled: true };
     }
-    if (this.cancelRequested || this.closed || (this.escalation && !this.inStrictMode())) {
+    if (this.cancelRequested || this.closed || ((this.escalation || this.analysisOnly) && !this.inStrictMode())) {
       await this.finishTurn([{ type: "turn-cancelled" }]);
       return { turnId: null, steered: false, cancelled: true };
     }
@@ -326,7 +330,7 @@ class AcpSession {
     );
     this.agentCapabilities = init?.agentCapabilities ?? {};
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
-    const extras = this.mcpExtras ? await readMcpExtras(this) : null;
+    const extras = this.mcpExtras && !this.analysisOnly ? await readMcpExtras(this) : null;
     const mcpServers = [...(url ? [{ type: "http", name: "milagre", url, headers: [] }] : []), ...(extras?.servers ?? []).map(toAcpServer)];
     const result = this.state.sessionId ? await this.resume(mcpServers) : await this.requestSession("session/new", { cwd: this.cwd, mcpServers });
     if (typeof result?.modes?.currentModeId === "string") this.state.mode = result.modes.currentModeId;
@@ -400,7 +404,7 @@ class AcpSession {
   }
 
   async applyMode() {
-    const mode = this.escalation ? "ask" : this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode;
+    const mode = this.analysisOnly || this.escalation ? "ask" : this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode;
     const target = this.config.modes[mode] ?? this.config.modes.ask;
     // Kiro's permission mode is its `autopilot` option; its `mode` names its agents (see kiro-acp.cjs).
     const option = this.config.modeOption ?? "mode";
@@ -468,9 +472,10 @@ class AcpSession {
       this.reply(id, outcome(null));
       return;
     }
-    if (this.escalation) {
+    if (this.escalation || this.analysisOnly) {
       const known = this.state.calls.get(String(toolCall.toolCallId ?? "")) ?? {};
-      const refused = this.escalation.denial(acpCall({ ...known, ...toolCall }, this.linked?.tools));
+      const call = acpCall({ ...known, ...toolCall }, this.linked?.tools);
+      const refused = this.escalation ? this.escalation.denial(call) : !call.readOnly;
       this.reply(id, outcome(isQuestionCall(toolCall.toolCallId) ? null : pickOption(options, refused ? "deny" : "allow")));
       return;
     }

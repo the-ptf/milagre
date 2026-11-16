@@ -1,4 +1,5 @@
 export type LiveSignal =
+  | "btw"
   | "runs"
   | "project"
   | "accounts"
@@ -12,6 +13,7 @@ export type LiveSignal =
   | "pulls"
   | "orchestrator";
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
+  type === "btw" ||
   type === "runs" ||
   type === "project" ||
   type === "accounts" ||

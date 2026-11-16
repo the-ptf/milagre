@@ -736,9 +736,14 @@ export type MilagreBridge = {
     accountId: string,
   ) => Promise<{ continued: boolean; label: string }>;
   patchChat: (projectPath: string, sessionId: number, patch: SessionPatch) => Promise<void>;
+  forkChat: (projectPath: string, sessionId: number, options?: { messageId?: number }) => Promise<{ sessionId: number }>;
   deleteChat: (projectPath: string, sessionId: number) => Promise<void>;
   /** "Detach from parent": a subchat lists on its own again, and its open Delegations stop reporting back. */
   detachChat: (projectPath: string, sessionId: number) => Promise<string>;
+  askBtw: (request: import("@milagre/shared/model").BtwRequest) => Promise<import("@milagre/shared/model").BtwState>;
+  stopBtw: (chatId: string, options?: { clear?: boolean }) => Promise<import("@milagre/shared/model").BtwState | null>;
+  readBtw: (chatId: string) => Promise<import("@milagre/shared/model").BtwState | null>;
+  onBtwEvent: (callback: (payload: { chatId: string; btw: import("@milagre/shared/model").BtwState | null }) => void) => () => void;
   /** Archives one of a chat's subagents, or brings it back; the provider carries on either way. */
   archiveSubagent: (projectPath: string, sessionId: number, id: string, archived: boolean) => Promise<void>;
   archiveFinishedSubagents: (projectPath: string, sessionId: number) => Promise<void>;

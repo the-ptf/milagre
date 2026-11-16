@@ -43,6 +43,11 @@ function sharedRead(read) {
 const CHAT_LIST_CACHE = 64;
 const CHAT_LIST_MAX_AGE = 30000;
 const ATTACHMENT_QUOTA = 200 * 1024 * 1024;
+function chatLiveSignal(channel, payload) {
+  if (channel === "chat:btw-event") return ["btw", payload.btw?.status === "running" ? LIVE_DELAY.runs : 0];
+  if (payload.state || payload.stateTooLarge || typeof payload.version === "number") return ["project", LIVE_DELAY.runs];
+  return [payload.event?.type === "subagent-update" ? "project" : "runs"];
+}
 const SIGNALS = { "designs:enabled-changed": "designs", "keybindings:changed": "keybindings", "routines:changed": "routines" };
 const OWNER_SIGNALS = {
   "accounts:changed": "accounts",
@@ -234,6 +239,7 @@ async function startMobileBridge({
       if (entry.kinds.has("routines")) types.push("routines");
       if (entry.kinds.has("orchestrator")) types.push("orchestrator");
       if (entry.kinds.has("pulls")) types.push("pulls");
+      if (entry.kinds.has("btw")) types.push("btw");
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
       entry.kinds.clear();
@@ -286,13 +292,12 @@ async function startMobileBridge({
       )
         signal(entry, "project");
       else if (
-        channel === "agent:event" &&
+        (channel === "agent:event" || channel === "chat:btw-event") &&
         typeof payload?.chatId === "string" &&
         payload.event?.type !== "step-draft" &&
         chatInProject(entry.projectPath, payload.chatId)
       ) {
-        if (payload.state || payload.stateTooLarge || typeof payload.version === "number") signal(entry, "project", LIVE_DELAY.runs);
-        else signal(entry, payload.event?.type === "subagent-update" ? "project" : "runs");
+        signal(entry, ...chatLiveSignal(channel, payload));
       }
     }
   });

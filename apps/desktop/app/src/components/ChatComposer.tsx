@@ -1,3 +1,4 @@
+import { usePromptFocus } from "./composer/use-prompt-focus";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { type ComposerQuote } from "@milagre/shared/prompt-parts";
 import { MessageSelection } from "./MessageSelection";
@@ -15,7 +16,7 @@ import { chatHistory } from "@milagre/shared/chat-history";
 import type { Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { runStatusLabel } from "@milagre/shared/tool-activity";
@@ -42,9 +43,6 @@ import { BackgroundWork } from "./agents/BackgroundWork";
 import { backgroundItems } from "@milagre/shared/chat-activity";
 import { ChatMarkDotInline } from "./sidebar/ChatMarks";
 import { UndoPanel } from "./checkpoints/UndoPanel";
-import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
-import { STORAGE_COMMAND } from "@milagre/shared/storage";
-import { openStorage } from "../lib/storage-open";
 import { headingLayer, newChatLook } from "../lib/new-chat-look";
 import { WelcomeSky } from "./WelcomeSky";
 import { NewChatGlance } from "./NewChatGlance";
@@ -59,6 +57,7 @@ import { ReplyProviders, TranscriptContexts, TranscriptSlots } from "./transcrip
 import { NO_WORKTREES, NO_BRANCHES, NewChatHeader } from "./NewChatHeader";
 import type { ChatComposerProps } from "./composer/chat-composer-props";
 import { useRunSteps } from "../lib/agent-runs-store";
+import { sideQuestionsBlocked, useSideQuestions } from "./composer/use-side-questions";
 
 const EMPTY_SUBAGENTS: Subagent[] = [];
 
@@ -212,37 +211,10 @@ export function ChatComposer({
     store,
     root,
   });
-  const focusPrompt = useCallback((atEnd = false) => {
-    requestAnimationFrame(() => {
-      const editor = root.current?.querySelector<HTMLElement>("[data-prompt-editor]");
-      editor?.focus();
-      if (atEnd && editor) {
-        const range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(false);
-        window.getSelection()?.removeAllRanges();
-        window.getSelection()?.addRange(range);
-      }
-    });
-  }, []);
+  const focusPrompt = usePromptFocus(root);
   const moveDraft = useEvent((key: string, home?: Pick<ChatsHome, "exists">) => {
     root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
     newChatChange?.(key, home);
-  });
-  const send = useEvent((delivery?: MessageDelivery) => {
-    const draft = store.text();
-    if (runtimeChat && draft.trim() === "/undo") {
-      store.setText("");
-      openUndo();
-      return;
-    }
-    if (draft.trim() === `/${STORAGE_COMMAND}`) {
-      store.setText("");
-      const computer = computerOfKey(runtimeChat ?? "");
-      openStorage(computer === LOCAL_COMPUTER ? null : computer);
-      return;
-    }
-    onSend(delivery);
   });
   const artifactChat = runtimeChat;
   const compactionFeedback = useCompactionFeedback(
@@ -258,6 +230,23 @@ export function ChatComposer({
     focusPrompt(true);
   });
   useQuoteInbox(runtimeChat, addQuotes);
+  const sideQuestions = useSideQuestions({
+    chatId: runtimeChat,
+    blocked: sideQuestionsBlocked(readOnlyHistory, offlineName),
+    offScreen,
+    model: selectedModel,
+    effort,
+    store,
+    openChat: onOpenLinkedChat,
+    quote: addQuotes,
+    focus: focusPrompt,
+    onUndo: openUndo,
+  });
+
+  const send = useEvent((delivery?: MessageDelivery) => {
+    if (sideQuestions.intercept(store.text())) return;
+    onSend(delivery);
+  });
 
   function handleFileDrop(event: DragEvent<HTMLDivElement>) {
     const files = Array.from(event.dataTransfer.files);
@@ -398,6 +387,7 @@ export function ChatComposer({
                             undoable={undoable}
                             undoBlocked={isSending || Boolean(offlineName)}
                             onUndo={runtimeChat && !readOnlyHistory ? undoTask : undefined}
+                            onFork={sideQuestions.fork}
                             highlightId={highlightId}
                             onCheckpointPreview={runtimeChat && !readOnlyHistory ? previewRecovery : undefined}
                             waitingStepIds={waitingStepIds}
@@ -547,6 +537,7 @@ export function ChatComposer({
             className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "pointer-events-auto z-20 -mt-1.5"}`}
           >
             <UpdatePillSlot className={`bottom-full ${isNewChat ? "mb-2" : "mb-1.5"}`} />
+            {sideQuestions.overlay}
             {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
             {saveNotice}
             {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}

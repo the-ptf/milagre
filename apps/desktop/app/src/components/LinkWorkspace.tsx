@@ -1,3 +1,4 @@
+import { linkConversationActions, linkConversationTarget } from "./link-chat-actions";
 import type { MessageDelivery } from "@milagre/shared/queued-messages";
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../lib/outbox";
 import { OfflineTray, useOfflineTray } from "./OfflineTray";
@@ -654,13 +655,7 @@ export function LinkWorkspace({
                 onOpenScopeChat={(key, id) => onCanvasChat(key, Number(id))}
                 onNewChatInScope={onNewChatInScope}
                 chatActions={{
-                  onRename: (id, title) => void bridge.patchChat(owner, Number(id), { title }).catch((error) => setError(ipcErrorMessage(error))),
-                  onMarkUnread: (id, unread) => void bridge.patchChat(owner, Number(id), { unread }),
-                  onReload: (id) =>
-                    void bridge
-                      .reloadChat(chatKeyForScope(scope, Number(id)))
-                      .then(() => showNotice("Chat reloaded. Your next message starts a fresh agent."))
-                      .catch((error) => setError(ipcErrorMessage(error))),
+                  ...linkConversationActions(bridge, owner, pick, setError, showNotice),
                   remote: isRemoteKey(owner),
                   onReveal: isRemoteKey(owner)
                     ? undefined
@@ -814,6 +809,7 @@ export function LinkWorkspace({
                         backgroundTasks={session?.backgroundTasks}
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
+                        onOpenLinkedChat={linkConversationTarget(owner, pick, onCanvasChat)}
                         onOpenDiff={(path, worktree) => {
                           const member = session?.worktrees.find((item) => item.worktreePath === worktree);
                           if (member) setMemberId(member.projectId);
