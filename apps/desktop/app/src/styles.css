@@ -1237,6 +1237,9 @@ a {
     transform: none;
   }
 }
+[data-run-chat-pane]:has([data-orchestrator-task-header]) nav:has(> [data-slot="preview-rail-item"]) {
+  display: none;
+}
 .orchestrator-hop {
   transform-origin: 50% 100%;
   animation-name: orchestrator-hop;
