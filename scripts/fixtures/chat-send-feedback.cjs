@@ -42,6 +42,10 @@ window.railItemsRendered = 0;
 window.committedRuns = {};
 const listeners = new Set();
 window.emitAgent = (sessionId, event) => listeners.forEach(listener => listener({ chatId: "/fixture#" + sessionId, event }));
+window.finishTurn = (sessionId, body) => {
+  state.messages.push({ id: state.next_id++, session_id: sessionId, body, context: null, role: "assistant", model: "claude-opus-5-5", outcome: "completed" });
+  listeners.forEach(listener => listener({ chatId: "/fixture#" + sessionId, event: { type: "turn-completed" }, state: structuredClone(state) }));
+};
 // Read messages independently of a stale summary, as a reconnect can do while a send is pending.
 window.preparePageRefresh = () => {
   const snapshot = leanState();
@@ -145,7 +149,7 @@ if (new URLSearchParams(location.search).has("link")) {
   const root = createRoot(document.getElementById("root"));
   const drafts = createScopeDrafts();
   const renderLink = (selected = undefined) => root.render(<LinkWorkspace initialSessionId={selected}
-    opened={opened} state={linkState} agents={{ runs: {} }} drafts={drafts}
+    opened={opened} state={linkState} agents={{ store: null }} drafts={drafts}
     preferences={{ models: [model], selectedModel: model, modelForChat: () => model, showModel: noop, onModelChange: noop, cliStatus: {}, onModelPickerOpen: noop, onUpdateCli: noop,
       capability: { efforts: ["high"], ultracode: false, fastMode: false } }}
     hostConnection={{ connected: true }} saveScopes={[]} ports={{}} linkedWork={{ delegations: [], negotiations: [], receiveOnly: [] }}

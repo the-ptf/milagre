@@ -13,7 +13,7 @@ import { gridDrop, dropSide } from "/src/lib/grid-drop";
 import { useScopeStates } from "/src/lib/sidebar-scopes";
 import { ScopeContext } from "/src/lib/computer-bridge";
 import { ChatComposer } from "/src/components/ChatComposer";
-import { RunTextContext, createRunTextStore } from "/src/lib/run-text";
+import { AgentRunsContext, createAgentRunsStore } from "/src/lib/agent-runs-store";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 import { createDraftStore, useDraftQuotes } from "/src/lib/draft-store";
@@ -84,23 +84,23 @@ function Harness() {
   return (
     <>
       <ChatGrid keys={["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused={focused}
-        states={{ "/fixture": state }} runs={runs} delegated={new Set()} models={MODEL_CATALOG}
+        states={{ "/fixture": state }} delegated={new Set()} models={MODEL_CATALOG}
         onFocus={(key) => (window.focusedTo = key)} onDismiss={(key) => (window.dismissed = key)}
         pinned={pinned} onTogglePin={togglePin}><FocusedChat chatKey={focused} /></ChatGrid>
       <GridDropOverlay />
     </>
   );
 }
-// The window reads a running turn's text from the run text store (lib/run-text.ts), as App provides it.
-const runText = createRunTextStore((key) => runs[key]?.text);
+const agentRuns = createAgentRunsStore();
+agentRuns.set(runs);
 createRoot(document.getElementById("root")).render(
   <div style={{ height: "100vh", padding: 12 }}>
     <ScopeProbe />
-    <RunTextContext.Provider value={runText}>
+    <AgentRunsContext.Provider value={agentRuns}>
       <ScopeContext.Provider value="mac-b|/remote">
         <Harness />
       </ScopeContext.Provider>
-    </RunTextContext.Provider>
+    </AgentRunsContext.Provider>
   </div>,
 );
 `;

@@ -62,6 +62,12 @@ import { useRunSteps } from "../lib/agent-runs-store";
 
 const EMPTY_SUBAGENTS: Subagent[] = [];
 
+function useLiveSteps(given: ChatComposerProps["streamingSteps"], streamingKey: string | undefined, statusLabel: string | undefined) {
+  const live = useRunSteps(given ? undefined : streamingKey);
+  const steps = given ?? live;
+  return { steps, phase: statusLabel ?? runStatusLabel(steps) };
+}
+
 export function ChatComposer({
   mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
@@ -92,6 +98,7 @@ export function ChatComposer({
   readOnlyHistory = false,
   streamingKey,
   streamingText,
+  streamingSteps: givenSteps,
   subagents = EMPTY_SUBAGENTS,
   backgroundTasks,
   onArchiveFinishedSubagents,
@@ -189,8 +196,7 @@ export function ChatComposer({
     changeComputer,
   } = useNewChatSetup({ isNewChat, scopeKind, offlineName, linearActive, onStartFromIssue, newChatProject, projectPath });
   const workingModelName = runModelName ?? selectedModel.name;
-  const streamingSteps = useRunSteps(streamingKey);
-  const phase = statusLabel ?? runStatusLabel(streamingSteps);
+  const { steps: streamingSteps, phase } = useLiveSteps(givenSteps, streamingKey, statusLabel);
   const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
   const [transcriptAtEnd, setTranscriptAtEnd] = useState(true);
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;

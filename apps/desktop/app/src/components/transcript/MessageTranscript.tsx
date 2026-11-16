@@ -4,7 +4,7 @@ import { suggestionOutcomes } from "@milagre/shared/subchat-escalation";
 import { useEvent } from "../../lib/stable";
 import { useRunText } from "../../lib/agent-runs-store";
 import { type ContextType, Fragment, memo, startTransition, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ChatMessage as AppChatMessage, ChatStep } from "../../model";
+import type { ChatMessage as AppChatMessage } from "../../model";
 import { Button } from "../primitives/Button";
 import { InlineError } from "../primitives/InlineError";
 import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
@@ -89,7 +89,6 @@ export const MessageTranscript = memo(function MessageTranscript({
   onUndo?: (checkpointId: string) => void;
   highlightId?: number | null;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
-  streamingSteps?: ChatStep[];
 } & Pick<
   ChatComposerProps,
   | "earlier"
@@ -99,6 +98,7 @@ export const MessageTranscript = memo(function MessageTranscript({
   | "isSending"
   | "streamingKey"
   | "streamingText"
+  | "streamingSteps"
   | "asking"
   | "waitingStepIds"
   | "onRecommendationSelect"
