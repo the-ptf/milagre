@@ -232,6 +232,7 @@ async function startMobileBridge({
       if (entry.kinds.has("keybindings")) types.push("keybindings");
       if (entry.kinds.has("links")) types.push("links");
       if (entry.kinds.has("routines")) types.push("routines");
+      if (entry.kinds.has("orchestrator")) types.push("orchestrator");
       if (entry.kinds.has("pulls")) types.push("pulls");
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
