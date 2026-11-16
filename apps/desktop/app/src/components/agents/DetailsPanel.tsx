@@ -40,6 +40,7 @@ import Tooltip from "../primitives/Tooltip";
 import { useSidePanel } from "./PanelToggles";
 import { useComputers } from "../../lib/computers";
 import { useRoutines } from "../../lib/routines";
+import { useRuns } from "../../lib/agent-runs-store";
 import { openInEditor, useEditors } from "../../lib/editors";
 
 /*
@@ -76,7 +77,6 @@ function setDetailsPanelOpen(next: boolean) {
   listeners.forEach((listener) => listener());
 }
 
-// The folds, kept for the session across Chats.
 const folds = { lineage: false, background: false, links: false };
 
 type ChatMenuSource = { item: SidebarRecent; actions: ChatRowActions };
@@ -186,7 +186,6 @@ function CopyRow({
       <CopiedNote shown={copied} />
     </button>
   );
-  // A branch cut in its middle names itself in full under the pointer.
   return shown === text ? (
     row
   ) : (
@@ -296,7 +295,6 @@ function DetailsBody({ data }: { data: DetailsData }) {
     folds[name] = !folds[name];
     rerender((n) => n + 1);
   };
-  // Which row was just copied ("repo", "branch", "path"): it says Copied for a moment.
   const [copied, setCopied] = useState<string | null>(null);
   const copy = (row: string, text: string) => {
     void navigator.clipboard.writeText(text).catch(() => {});
@@ -351,7 +349,6 @@ function DetailsBody({ data }: { data: DetailsData }) {
                 <span className="min-w-0 flex-1 truncate">{middle(data.path, 26)}</span>
               </button>
             </Tooltip>
-            {/* The buttons give way to "Copied" for a moment, crossfading. */}
             <span className="relative flex shrink-0 items-center">
               <span
                 className={`flex items-center transition-opacity duration-fast ${copied === "path" ? "pointer-events-none opacity-0" : "opacity-100"}`}
@@ -472,7 +469,6 @@ function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
   const scale = useMotionScale();
   const chrome = useWindowChrome();
   const cardRef = useRef<HTMLDivElement>(null);
-  // Written to the card's style, not rendered: the Chat resizes on every frame a panel beside it slides or is dragged.
   useLayoutEffect(() => {
     const card = cardRef.current;
     if (!shown || !card) return;
@@ -480,7 +476,6 @@ function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
     const place = () => {
       if (!main) return void (card.style.right = `${12 + chrome.rightInset}px`);
       const edge = window.innerWidth - main.getBoundingClientRect().right;
-      // A dock's room (the Chat's right margin) already holds its 12px gap; the Changes panel sits flush beside the Chat.
       const gap = parseFloat(getComputedStyle(main).marginRight) > 0 ? 0 : 12;
       card.style.right = `${Math.max(12 + chrome.rightInset, edge + gap)}px`;
     };
@@ -493,7 +488,6 @@ function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
       window.removeEventListener("resize", place);
     };
   }, [shown, chrome.rightInset]);
-  // Its corner toggle, while a Chat is open; no shortcut.
   useSidePanel("details", data ? { open: shown, toggle: () => setDetailsPanelOpen(!open) } : null);
   const atOnce = chatSwitching();
   const fade = { duration: scaled(DURATION.base, scale), ease: EASE_OUT };
@@ -511,7 +505,6 @@ function DetailsPanelSlot({ data }: { data: DetailsData | null }) {
           animate="open"
           exit="closed"
           transition={fade}
-          // Under the corner's buttons, right-aligned with them; as tall as its sections, up to the window, then it scrolls.
           ref={cardRef}
           className="details-glass fixed top-[var(--window-chrome-height)] z-[56] flex max-h-[calc(100vh-var(--window-chrome-height)-12px)] w-[300px] flex-col overflow-hidden rounded-window"
         >
@@ -545,7 +538,7 @@ export function DetailsPanelHost({
   remoteComputer?: { name: string; offline: boolean };
   /** Shows the Worktree in Finder (this Mac's Chats only). */
   onReveal?: () => void;
-  family?: Omit<FamilyReads, "routines" | "now">;
+  family?: Omit<FamilyReads, "routines" | "now" | "runs">;
   backgroundTasks?: BackgroundTask[];
   ports?: AgentPort[];
   subagents?: Subagent[];
@@ -558,8 +551,8 @@ export function DetailsPanelHost({
   const { thisMac } = useComputers();
   const { routines } = useRoutines();
   const { editor } = useEditors();
-  // Lineage's states ("Working 2m") read the clock to the minute.
   const now = useDisplayNow(60_000, Boolean(chatKey && family));
+  const runs = useRuns(useDetailsPanelOpen() && Boolean(chatKey && family));
   const local = !remoteComputer;
   const data: DetailsData | null = chatKey
     ? {
@@ -573,7 +566,7 @@ export function DetailsPanelHost({
         onReveal: local && worktree ? onReveal : undefined,
         onOpenInEditor: local && worktree ? () => void openInEditor(worktree.path) : undefined,
         editorName: editor?.name,
-        family: family ? { ...family, routines, now } : undefined,
+        family: family ? { ...family, runs, routines, now } : undefined,
         onOpenChat,
         menuFor: (key) => {
           const item = project && chatActions ? chats?.find((chat) => sharedChatKey(project.path, Number(chat.id)) === key) : undefined;

@@ -7,6 +7,7 @@ import { setBookmarkReserve } from "../../lib/bookmark-reserve";
 import { useDisplayNow } from "../../lib/display-clock";
 import { useShortcutLabel } from "../../lib/keybindings";
 import { useRoutines } from "../../lib/routines";
+import { useRuns } from "../../lib/agent-runs-store";
 import type { SubchatSource } from "../../lib/subchat-track";
 import { useControlsClearance } from "../../lib/window-chrome";
 import { Icon } from "../primitives/Icon";
@@ -15,7 +16,7 @@ import { FamilyMenu } from "./FamilyMenu";
 
 const CRUMB = "no-drag flex h-7 min-w-0 items-center rounded-control text-13 font-medium transition-colors active:scale-press focus-visible:outline-2";
 
-type Reads = Omit<SubchatSource, "parentKey">;
+type Reads = Omit<SubchatSource, "parentKey" | "runs">;
 
 export function SubchatBookmark({
   chatKey,
@@ -39,7 +40,8 @@ export function SubchatBookmark({
   const { bar, inset } = useControlsClearance<HTMLDivElement>(bookmark !== null, corner);
   const group = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const full = { ...reads, routines, now };
+  const runs = useRuns();
+  const full = { ...reads, runs, routines, now };
   const hasParent = bookmark !== null;
   const parent = bookmark ? familyEntry(bookmark.parent, full, false) : null;
   const model = menuOpen ? familyMenuModel(chatKey, full) : null;

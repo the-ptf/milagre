@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import type { ChatSendRequest, CoordinatorState, LinkState, PermissionDecision, QuestionAnswers, QuestionImages } from "../model";
 import {
@@ -13,38 +13,40 @@ import {
   replaceComputerEntries,
 } from "../lib/agent-runs";
 import { answerSummary } from "../lib/question-answers";
-import { createRunTextStore, onlyTextChanged } from "../lib/run-text";
+import { createAgentRunsStore, onlyTextChanged } from "../lib/agent-runs-store";
 import { stateEvents } from "../lib/state-events";
 import { bridgeFor, bridgeForKey } from "../lib/computer-bridge";
 import { useComputers } from "../lib/computers";
 import type { AgentRuns, QueuedRunEvent, SentAnswer } from "../lib/agent-runs";
 
+/**
+ * Agent runs live in a store, so a tool step re-renders only what shows it. An event that carries a Project's state
+ * holds the store until the render with that state commits: `heldFor` is a render of this hook's owner, batched with
+ * the state update (and with any other update the event made), and the store is released from its layout effect,
+ * before that render paints. A run therefore never ends, starts or changes a frame before the transcript shows it.
+ */
 export function useAgentRuns(onState: (projectPath: string, state: CoordinatorState | LinkState) => void, modelFor: (chatId: string) => string = () => "") {
-  const [runs, setRuns] = useState<AgentRuns>({});
-  const runsRef = useRef(runs);
+  const [store] = useState(createAgentRunsStore);
   const onStateRef = useRef(onState);
   const modelForRef = useRef(modelFor);
   onStateRef.current = onState;
   modelForRef.current = modelFor;
 
-  const [text] = useState(() => createRunTextStore((chatKey) => runsRef.current[chatKey]?.text));
-  const setAll = useCallback(
-    (next: AgentRuns) => {
-      const previous = runsRef.current;
-      runsRef.current = next;
-      setRuns(next);
-      text.notify([...Object.keys(previous), ...Object.keys(next)].filter((key) => previous[key]?.text !== next[key]?.text));
-    },
-    [text],
-  );
+  const [heldFor, setHeldFor] = useState(0);
+  const holds = useRef(0);
+  const hold = useCallback(() => {
+    store.hold();
+    holds.current += 1;
+    setHeldFor(holds.current);
+  }, [store]);
+  useLayoutEffect(() => {
+    if (heldFor === holds.current) store.release();
+  }, [heldFor, store]);
+
   const [events] = useState(() =>
     createCoalescer<QueuedRunEvent>((batch) => {
-      const previous = runsRef.current;
-      const next = applyRunEvents(previous, batch);
-      if (next === previous) return;
-      if (!onlyTextChanged(previous, batch)) return setAll(next);
-      runsRef.current = next;
-      text.notify(batch.map(({ chatId }) => chatId));
+      const previous = store.latest();
+      store.set(applyRunEvents(previous, batch), onlyTextChanged(previous, batch));
     }),
   );
   const taken = useRef(new Map<string, number>());
@@ -54,14 +56,15 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
       events.flush();
       generation.current.set(computerId, (generation.current.get(computerId) ?? 0) + 1);
       taken.current.set(computerId, snapshot.seq);
-      setAll(replaceComputerEntries(runsRef.current, computerId, snapshot.runs));
+      store.set(replaceComputerEntries(store.latest(), computerId, snapshot.runs));
     },
-    [events, setAll],
+    [events, store],
   );
 
   useEffect(() => {
     let recovered = false;
     const unsubscribe = stateEvents.onAgentEvent(({ chatId, event, state, seq }) => {
+      if (state) hold();
       if (eventIsNew(taken.current, chatId, seq))
         events.push({ chatId, event, model: event.type === "turn-started" ? modelForRef.current(chatId) : "" }, Boolean(state) || isUrgentRunEvent(event));
       else if (state) events.flush();
@@ -87,7 +90,7 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
       recover?.();
       recoverRemote?.();
     };
-  }, [events, take]);
+  }, [events, hold, take]);
 
   const { computers } = useComputers();
   const online = computers
@@ -113,19 +116,19 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
   useEffect(() => {
     if (!away) return;
     events.flush();
-    let next = runsRef.current;
+    let next = store.latest();
     for (const id of away.split("\n").filter(Boolean)) {
       if (!Object.keys(next).some((key) => computerOfKey(key) === id)) continue;
       next = dropComputerRuns(next, id);
       taken.current.delete(id);
       generation.current.set(id, (generation.current.get(id) ?? 0) + 1);
     }
-    if (next !== runsRef.current) setAll(next);
-  }, [away, events, setAll]);
+    if (next !== store.latest()) store.set(next);
+  }, [away, events, store]);
   useEffect(() => {
     const ids = new Set(known.split("\n").filter(Boolean));
     events.flush();
-    let next = runsRef.current;
+    let next = store.latest();
     for (const key of Object.keys(next)) {
       const id = computerOfKey(key);
       if (id !== LOCAL_COMPUTER && !ids.has(id)) {
@@ -134,8 +137,8 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
         generation.current.set(id, (generation.current.get(id) ?? 0) + 1);
       }
     }
-    if (next !== runsRef.current) setAll(next);
-  }, [events, known, setAll]);
+    if (next !== store.latest()) store.set(next);
+  }, [events, known, store]);
 
   const send = useCallback((request: ChatSendRequest) => bridgeForKey(request.projectPath).sendMessage(request), []);
 
@@ -144,21 +147,21 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
   const answer = useCallback(
     async (chatId: string, requestId: string, sent: SentAnswer, deliver: () => Promise<boolean>) => {
       events.flush();
-      setAll(markAnswered(runsRef.current, chatId, requestId, sent));
+      store.set(markAnswered(store.latest(), chatId, requestId, sent));
       try {
         const accepted = await deliver();
         if (!accepted) {
           events.flush();
-          setAll(clearAnswered(runsRef.current, chatId, requestId));
+          store.set(clearAnswered(store.latest(), chatId, requestId));
         }
         return accepted;
       } catch (error) {
         events.flush();
-        setAll(clearAnswered(runsRef.current, chatId, requestId));
+        store.set(clearAnswered(store.latest(), chatId, requestId));
         throw error;
       }
     },
-    [events, setAll],
+    [events, store],
   );
 
   const respond = useCallback(
@@ -169,7 +172,7 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
 
   const answerQuestion = useCallback(
     (chatId: string, requestId: string, answers: QuestionAnswers | null, images?: QuestionImages, suggestionId?: string) => {
-      const request = runsRef.current[chatId]?.questions.find((item) => item.requestId === requestId);
+      const request = store.latest()[chatId]?.questions.find((item) => item.requestId === requestId);
       const summary = answers && request ? answerSummary(request.questions, answers, images) : "";
       const attached = answers && images ? images : undefined;
       return answer(chatId, requestId, answers ? "answered" : "dismissed", () =>
@@ -180,10 +183,10 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
             : bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary),
       );
     },
-    [answer],
+    [answer, store],
   );
 
   const dismissSuggestion = useCallback((chatId: string, id: string) => bridgeForKey(chatId).dismissSuggestion(chatId, id), []);
 
-  return { runs, text, send, interrupt, respond, answerQuestion, dismissSuggestion };
+  return { store, send, interrupt, respond, answerQuestion, dismissSuggestion };
 }

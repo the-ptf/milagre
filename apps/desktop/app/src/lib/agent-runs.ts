@@ -7,7 +7,9 @@ import type { AgentRun, AgentRuns, SentAnswer } from "@milagre/shared/agent-runs
 export type { AgentRun, AgentRuns, SentAnswer } from "@milagre/shared/agent-runs";
 export { chatInProject, chatKey, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 
-export function chatsWaitingForUser(runs: AgentRuns, projectPath: string): Set<number> {
+export type RunStatuses = Readonly<Record<string, Pick<AgentRun, "approvals" | "questions">>>;
+
+export function chatsWaitingForUser(runs: RunStatuses, projectPath: string): Set<number> {
   const waiting = new Set<number>();
   for (const [key, run] of Object.entries(runs)) {
     if ((run.approvals.length > 0 || run.questions.length > 0) && chatInProject(projectPath, key)) waiting.add(sessionIdFromKey(key));
@@ -15,7 +17,7 @@ export function chatsWaitingForUser(runs: AgentRuns, projectPath: string): Set<n
   return waiting;
 }
 
-export function chatsAskingUser(runs: AgentRuns, projectPath: string): Set<number> {
+export function chatsAskingUser(runs: RunStatuses, projectPath: string): Set<number> {
   const asking = new Set<number>();
   for (const [key, run] of Object.entries(runs)) {
     if (run.approvals.length === 0 && run.questions.length > 0 && chatInProject(projectPath, key)) asking.add(sessionIdFromKey(key));
@@ -23,7 +25,7 @@ export function chatsAskingUser(runs: AgentRuns, projectPath: string): Set<numbe
   return asking;
 }
 
-export function chatsRunning(runs: AgentRuns, projectPath: string): Set<number> {
+export function chatsRunning(runs: RunStatuses, projectPath: string): Set<number> {
   return new Set(
     Object.keys(runs)
       .filter((key) => chatInProject(projectPath, key))
@@ -31,7 +33,7 @@ export function chatsRunning(runs: AgentRuns, projectPath: string): Set<number> 
   );
 }
 
-export function chatsInBackground(runs: AgentRuns, projectPath: string, sessions: CoordinatorState["sessions"] = {}): Map<number, number> {
+export function chatsInBackground(runs: RunStatuses, projectPath: string, sessions: CoordinatorState["sessions"] = {}): Map<number, number> {
   const background = new Map<number, number>();
   for (const session of Object.values(sessions)) {
     const { activity, background: count } = chatActivity(session, runs[chatKey(projectPath, session.id)]);
@@ -46,12 +48,12 @@ export function markAnswered(runs: AgentRuns, chatId: string, requestId: string,
   return { ...runs, [chatId]: { ...run, answered: { ...run.answered, [requestId]: decision } } };
 }
 
-export function sentDecision(run: AgentRun | undefined, requestId: string): PermissionDecision | null {
+export function sentDecision(run: Pick<AgentRun, "answered"> | undefined, requestId: string): PermissionDecision | null {
   const sent = run?.answered[requestId];
   return sent === "allow" || sent === "allow-for-chat" || sent === "deny" ? sent : null;
 }
 
-export function sentReply(run: AgentRun | undefined, requestId: string): "answered" | "dismissed" | null {
+export function sentReply(run: Pick<AgentRun, "answered"> | undefined, requestId: string): "answered" | "dismissed" | null {
   const sent = run?.answered[requestId];
   return sent === "answered" || sent === "dismissed" ? sent : null;
 }

@@ -63,7 +63,7 @@ import {
   sortedWorktrees,
 } from "./model";
 import { useAgentRuns } from "./components/useAgentRuns";
-import { RunTextContext } from "./lib/run-text";
+import { AgentRunsContext, useRunShell, useRunStatuses } from "./lib/agent-runs-store";
 import { useAgentPorts } from "./lib/ports";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import {
@@ -530,6 +530,7 @@ function App() {
     const latest = isLinkScopeKey(owner) ? linkStatesRef.current[owner.slice("milagre-link:".length)] : statesRef.current[owner];
     return latest ? lastUserModel(latest, sessionIdFromKey(chatId)) : "";
   });
+  const runStatuses = useRunStatuses(agentRuns.store);
   const { pullRequests, chatPullRequests: chatPrs, dismissedBlockers, dismissBlockerAction } = useWorktreePullRequests(project?.path ?? "", state);
   const linear = useLinear();
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
@@ -554,7 +555,7 @@ function App() {
   const terminalChatRef = useRef(terminalChatId);
   terminalChatRef.current = terminalChatId;
   useTerminalSync(terminalChatId);
-  const run = project && selectedSession ? agentRuns.runs[chatKey(project.path, selectedSession.id)] : undefined;
+  const run = useRunShell(agentRuns.store, project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined);
   const permissionMode = composerPrefs.pickedPermissionMode ?? run?.permissionMode ?? composerPrefs.permissionMode;
   const waitingStepIds = useMemo(() => run?.approvals.flatMap((request) => (request.stepId ? [request.stepId] : [])), [run?.approvals]);
   const agentPorts = useAgentPorts();
@@ -619,7 +620,7 @@ function App() {
     setBaseBranch(saved.baseBranch ?? null);
     setBaseOverride(null);
   }
-  const runningCount = Object.keys(agentRuns.runs).length;
+  const runningCount = Object.keys(runStatuses).length;
   const previousRunningCount = useRef(runningCount);
 
   useEffect(() => {
@@ -695,12 +696,12 @@ function App() {
 
   useEffect(() => stateEvents.onProjectState(({ path, state: next }) => receiveState(path, next)), []);
 
-  const waiting = useStableSet(useMemo(() => chatsWaitingForUser(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
-  const asking = useStableSet(useMemo(() => chatsAskingUser(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
-  const running = useStableSet(useMemo(() => chatsRunning(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
+  const waiting = useStableSet(useMemo(() => chatsWaitingForUser(runStatuses, project?.path ?? ""), [runStatuses, project?.path]));
+  const asking = useStableSet(useMemo(() => chatsAskingUser(runStatuses, project?.path ?? ""), [runStatuses, project?.path]));
+  const running = useStableSet(useMemo(() => chatsRunning(runStatuses, project?.path ?? ""), [runStatuses, project?.path]));
   const backgroundKey = useMemo(
-    () => [...chatsInBackground(agentRuns.runs, project?.path ?? "", state?.sessions)].map(([id, count]) => `${id}:${count}`).join(","),
-    [agentRuns.runs, project?.path, state?.sessions],
+    () => [...chatsInBackground(runStatuses, project?.path ?? "", state?.sessions)].map(([id, count]) => `${id}:${count}`).join(","),
+    [runStatuses, project?.path, state?.sessions],
   );
   const backgroundChats = useMemo(
     () => new Map(backgroundKey ? backgroundKey.split(",").map((entry) => entry.split(":").map(Number) as [number, number]) : []),
@@ -714,7 +715,7 @@ function App() {
   const hiddenProjects = useHiddenProjects();
   const hiddenComputers = useHiddenComputers();
   const attentionKey = chatsNeedingAttention(
-    agentRuns.runs,
+    runStatuses,
     view === "chat" && project && selectedSession ? chatKey(project.path, selectedSession.id) : "",
     hiddenProjects,
     hiddenComputers,
@@ -767,7 +768,7 @@ function App() {
     linkOpen: Boolean(selectedLink),
     focusedChatKey,
     gridStates,
-    runs: agentRuns.runs,
+    runs: runStatuses,
     linkedWork,
     openLinkedChat: (key) => openLinkedChat(key),
     openAlone: (key) => openAlone(key),
@@ -1023,7 +1024,7 @@ function App() {
         chatId: key,
         getState: () => archiveState(projectPath) ?? null,
         currentProjectPath: () => projectRef.current?.path,
-        stop: () => (agentRuns.runs[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
+        stop: () => (agentRuns.store.latest()[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
         undoWindow: () => deleteUndoWindow(key),
         hide: () => bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false }),
         destroy: () => bridgeForKey(projectPath).deleteChat(projectPath, sessionId),
@@ -1972,7 +1973,7 @@ function App() {
       setNotice(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
     }
   });
-  const sidebarRunKeys = runKeys(agentRuns.runs);
+  const sidebarRunKeys = runKeys(runStatuses);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   const switchLinkFromSidebar = useEvent((id: string) => void selectLink(id));
   const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
@@ -2425,7 +2426,6 @@ function App() {
   const approvalProps: ChatApprovalProps = {
     chatId: chatKey(project.path, selectedSession?.id ?? 0),
     run,
-    runs: agentRuns.runs,
     messages: displayedMessages,
     pendingApproval,
     approvalCard,
@@ -2565,7 +2565,7 @@ function App() {
               {bookmarkedParent && focusedChatKey && (
                 <SubchatBookmark
                   chatKey={focusedChatKey}
-                  reads={{ sessions: familySessions, runs: agentRuns.runs, work: linkedWork }}
+                  reads={{ sessions: familySessions, work: linkedWork }}
                   corner={cornerButtons * CORNER_PITCH}
                   onOpen={openAlone}
                   onBeside={openBeside}
@@ -2575,7 +2575,7 @@ function App() {
               {view === "canvas" && (
                 <CanvasView
                   states={states}
-                  runs={agentRuns.runs}
+                  runs={runStatuses}
                   linkedWork={linkedWork}
                   onOpenChat={(path, id) => void openCanvasChat(path, id)}
                   onNewChat={(path) => {
@@ -2631,7 +2631,6 @@ function App() {
                     keys={shownTiles}
                     focused={gridFocusKey}
                     states={gridStates}
-                    runs={agentRuns.runs}
                     delegated={delegatedKeys}
                     models={models}
                     onFocus={openLinkedChat}
@@ -2714,7 +2713,6 @@ function App() {
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         statusLabel={pendingHere && pendingSend && !run ? sendStatusLabel(pendingSend) : undefined}
                         streamingKey={run && project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
-                        streamingSteps={run?.steps}
                         subagents={subagents}
                         backgroundTasks={selectedSession?.backgroundTasks}
                         onArchiveFinishedSubagents={archiveFinishedChildren}
@@ -2861,7 +2859,7 @@ function App() {
               project={project ? { name: project.name, path: project.path } : undefined}
               worktree={selectedWorktree ? { name: selectedWorktree.name, path: selectedWorktree.path } : undefined}
               remoteComputer={openComputer ? { name: openComputer.name, offline: isDimmed(openComputer) } : undefined}
-              family={state ? { sessions: state.sessions, runs: agentRuns.runs, work: linkedWork } : undefined}
+              family={state ? { sessions: state.sessions, work: linkedWork } : undefined}
               backgroundTasks={selectedSession?.backgroundTasks}
               ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
               subagents={subagents}
@@ -2897,7 +2895,7 @@ function App() {
               base={gitDialog.base}
               provider={gitDialog.provider}
               chat={gitDialog.chat}
-              turnRunning={Boolean(agentRuns.runs[chatKey(project.path, gitDialog.sessionId)])}
+              turnRunning={Boolean(runStatuses[chatKey(project.path, gitDialog.sessionId)])}
               onClose={() => setGitDialog(null)}
               onSendToAgent={(text) => {
                 if (selectedSession?.id === gitDialog.sessionId) void executeSend(text, permissionMode, []);
@@ -2922,14 +2920,14 @@ function App() {
     </BridgeContext.Provider>
   );
   return (
-    <RunTextContext.Provider value={agentRuns.text}>
+    <AgentRunsContext.Provider value={agentRuns.store}>
       <WorkspaceSlots
         shown={selectedLink ? "link" : "project"}
         slots={[...(linkWorkspace ? [{ key: "link", element: linkWorkspace }] : []), { key: "project", element: projectWorkspace }]}
       />
       {selectedLink && linkDialogs}
       {settingsModal}
-    </RunTextContext.Provider>
+    </AgentRunsContext.Provider>
   );
 }
 

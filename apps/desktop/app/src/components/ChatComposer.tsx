@@ -58,6 +58,7 @@ import { useComposerLayout, useNewChatSetup, useUndoFlow } from "./composer/comp
 import { ReplyProviders, TranscriptContexts, TranscriptSlots } from "./transcript/ChatTranscript";
 import { NO_WORKTREES, NO_BRANCHES, NewChatHeader } from "./NewChatHeader";
 import type { ChatComposerProps } from "./composer/chat-composer-props";
+import { useRunSteps } from "../lib/agent-runs-store";
 
 const EMPTY_SUBAGENTS: Subagent[] = [];
 
@@ -91,7 +92,6 @@ export function ChatComposer({
   readOnlyHistory = false,
   streamingKey,
   streamingText,
-  streamingSteps,
   subagents = EMPTY_SUBAGENTS,
   backgroundTasks,
   onArchiveFinishedSubagents,
@@ -189,6 +189,7 @@ export function ChatComposer({
     changeComputer,
   } = useNewChatSetup({ isNewChat, scopeKind, offlineName, linearActive, onStartFromIssue, newChatProject, projectPath });
   const workingModelName = runModelName ?? selectedModel.name;
+  const streamingSteps = useRunSteps(streamingKey);
   const phase = statusLabel ?? runStatusLabel(streamingSteps);
   const [jumpToBottom, setJumpToBottom] = useState<{ key: string | null | undefined; jump: () => void } | null>(null);
   const [transcriptAtEnd, setTranscriptAtEnd] = useState(true);

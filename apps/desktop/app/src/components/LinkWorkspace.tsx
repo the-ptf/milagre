@@ -51,6 +51,7 @@ import { createDraftStore, draftKey } from "../lib/draft-store";
 import { createScopeDrafts, memberWorktreeForAction } from "../lib/link-scope";
 import { usePastedImages } from "./usePastedImages";
 import type { useAgentRuns } from "./useAgentRuns";
+import { useRunShell, useRunStatuses } from "../lib/agent-runs-store";
 import { attachmentPrompt } from "../lib/media";
 import { sentDecision, sentReply } from "../lib/agent-runs";
 import { PermissionCard } from "./agents/PermissionCard";
@@ -186,20 +187,18 @@ export function LinkWorkspace({
   const session = sessionId == null ? undefined : state.sessions[sessionId];
   const offlineTray = useOfflineTray(owner, sessionId, offline);
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
-  // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
   const terminalPlaces: TerminalPlace[] | undefined = session?.worktrees.map((member) => ({
     path: member.worktreePath,
     label: member.alias ?? member.projectPath.split(/[\\/]/).findLast(Boolean) ?? member.worktreePath,
   }));
-  const run = chatId ? agents.runs[chatId] : undefined;
-  // Every project's chats that wait on the user, except in Projects hidden from the sidebar; the Link's own are marked in its sidebar.
+  const run = useRunShell(agents.store, chatId ?? undefined);
+  const runStatuses = useRunStatuses(agents.store);
   const hiddenProjects = useHiddenProjects();
   const hiddenComputers = useHiddenComputers();
-  const attentionKey = chatsNeedingAttention(agents.runs, "", hiddenProjects, hiddenComputers).join("\n");
-  const sidebarRunKeys = runKeys(agents.runs);
+  const attentionKey = chatsNeedingAttention(runStatuses, "", hiddenProjects, hiddenComputers).join("\n");
+  const sidebarRunKeys = runKeys(runStatuses);
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const { chatOrder } = useSettings();
-  // The Projects with a Chat waiting on the user, marked in the Link's sidebar.
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
   const pins = useChatPins();
   const runMarks = useMemo(
@@ -210,22 +209,18 @@ export function LinkWorkspace({
     }),
     [sidebarRunKeys.running, sidebarRunKeys.waiting, sidebarRunKeys.asking],
   );
-  // A host that keeps messages by Chat (chat-pages-v1) sends states without them: the open Chat reads its own.
   const lean = isLean(state);
   const chatWindow = useChatMessages(lean ? owner : null, sessionId);
   const messages = useMemo(
     () => (lean ? chatWindow.messages : state.messages.filter((message) => message.session_id === sessionId)),
     [lean, chatWindow.messages, state.messages, sessionId],
   );
-  // The message just sent, shown at once while the host prepares the Chat (its Worktrees' checkpoint, the agent
-  // starting), as a Project Chat's and the phone's are. `sent`: the host took it, and the agent is starting.
   const [pendingSends, setPendingSends] = useState<(PendingChat & { key: string; sent?: boolean; provider: ModelProvider })[]>([]);
   const pendingSend = pendingSends.findLast((pending) => pending.key === sendKey || (sessionId !== null && pending.targetSessionId === sessionId));
   const pendingHere = pendingSend !== undefined;
   const preparing = Boolean(pendingSend && !pendingSend.sent);
   const sendsInFlight = useRef(new Set<string>());
   const shownMessages = useMemo(() => (pendingHere ? withPreview(messages, pendingSend) : messages), [pendingHere, pendingSend, messages]);
-  // The saved copy replaces the preview once this Chat's messages hold it.
   useEffect(() => {
     const id = pendingSend?.message.clientMessageId;
     if (pendingSend?.sent && pendingHere && messages.some((message) => message.clientMessageId === id))
@@ -242,7 +237,6 @@ export function LinkWorkspace({
     ? (session?.permissionMode ?? "ask")
     : (composerPrefs.pickedPermissionMode ?? session?.permissionMode ?? composerPrefs.permissionMode);
   const linear = useLinear();
-  // As a Project Chat's: Ultracode and Fast only count for a model that has them, so a Codex pick drops a Claude Ultracode.
   const ultracode = Boolean(preferences.capability?.ultracode) && composerPrefs.ultracode;
   const fastMode = Boolean(preferences.capability?.fastMode) && composerPrefs.fastMode;
   const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner, queueForComputer(owner));
@@ -250,7 +244,6 @@ export function LinkWorkspace({
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
   const [findSeed, setFindSeed] = useState<string | undefined>();
-  // A ⌘K message result picks its chat first; the find bar opens once that chat's messages are on screen.
   const pendingFind = useRef<{ sessionId: number; term: string } | null>(null);
   const [memberId, setMemberId] = useState<string>("");
   const [gitMemberId, setGitMemberId] = useState("");
@@ -261,7 +254,6 @@ export function LinkWorkspace({
   const terminalChatId = canvasOpen || session?.archived ? null : chatId;
   useTerminalSync(terminalChatId);
   const chosen = session?.worktrees.find((member) => member.projectId === memberId);
-  // Each Project's Worktree branch can have its own PR: the panel's menu lists them, open ones first.
   const members = session?.worktrees ?? NO_MEMBERS;
   const branchPrs = useBranchPullRequests({ paths: members.map((member) => member.worktreePath), active: Boolean(session), bridge });
   const memberPrs = members
@@ -270,7 +262,6 @@ export function LinkWorkspace({
       return pr ? [{ member, pr, name: opened.projects.find((project) => project.id === member.projectId)?.name ?? member.projectId }] : [];
     })
     .sort((a, b) => Number(a.pr.state === "MERGED") - Number(b.pr.state === "MERGED"));
-  // The PR shown is the chosen Project's; the panel reads it only while it shows it.
   const prEntry = memberPrs.find((entry) => entry.member.projectId === memberId);
   const [prWanted, setPrWanted] = useState(false);
   const prReview = usePullRequest({ cwd: prEntry?.member.worktreePath, number: prEntry?.pr.number, active: prWanted, bridge });
@@ -286,7 +277,6 @@ export function LinkWorkspace({
   const prShown = changes.open && changes.mode === "pr" && Boolean(prEntry);
   useEffect(() => setPrWanted(prShown), [prShown]);
   const prLocal = useLocalChanges({ cwd: prEntry?.member.worktreePath, active: prShown, bridge });
-  // The Changes tab lists every member's uncommitted and committed files; the diff shows the picked file's section.
   const linkMode = changes.mode === "uncommitted" ? "uncommitted" : "committed";
   const comparisonMembers = (session?.worktrees ?? []).map((member) => ({ ...member, base: comparisonBases[member.worktreePath] || member.base }));
   const uncommittedLists = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: "uncommitted", active: changes.open });
@@ -297,7 +287,6 @@ export function LinkWorkspace({
   latest.current.sessionId = sessionId;
   useEffect(() => {
     latest.current.active = true;
-    // The text saved when this Link was last left belongs to the Chat that was open then.
     draftStore.select(draftKey(owner, saved.sessionId));
     draftStore.set(saved.text);
     draftStore.select(draftKey(owner, latest.current.sessionId));
@@ -310,7 +299,6 @@ export function LinkWorkspace({
       unsubscribe();
     };
   }, [owner]);
-  // Each Chat keeps its own draft; a send clears the one it came from before the selection moves on.
   useLayoutEffect(() => draftStore.select(draftKey(owner, sessionId)), [draftStore, sessionId]);
   const imageDraftRef = useRef(imageDraft);
   imageDraftRef.current = imageDraft;
@@ -349,7 +337,6 @@ export function LinkWorkspace({
     }
   }, [initialSessionId, openNonce]);
   const { modelForChat: _modelForChat, showModel: _showModel, onModelChange: _onModelChange, ...composerModels } = preferences;
-  // The picker follows the open chat, as a Project's does: its own pick, else its last turn's model.
   useEffect(() => {
     if (!chatId) return;
     const model = preferences.modelForChat(chatId, session?.provider, messages);
@@ -357,8 +344,6 @@ export function LinkWorkspace({
   }, [chatId, session?.provider, messages, preferences.models]);
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
-      // The Settings modal lets the app's shortcuts through (App closes it for all but ⌘K, which opens this palette on
-      // top). Escape is Settings' own: it never reaches the canvas, Find or a running turn behind it.
       if (event.defaultPrevented || event.isComposing || appShortcutsBlocked()) return;
       if (event.key === "Escape" && isModalOpen()) return;
       if (canvasOpen && event.key === "Escape") {
@@ -416,7 +401,6 @@ export function LinkWorkspace({
   }, [chatId, run, findOpen, session, changes.toggle, canvasOpen, terminalChatId, onNewChat]);
   function pick(id: number | null) {
     if (id !== sessionId) onPickChat?.();
-    // Another Chat: its page read goes out before this pick renders anything, and the switch is measured from here.
     if (id !== null && Number.isSafeInteger(id) && id > 0 && id !== sessionId) {
       if (lean) prefetchChatMessages(owner, id);
       beginChatSwitch(chatKeyForScope(scope, id));
@@ -447,8 +431,6 @@ export function LinkWorkspace({
       })
       .catch(() => {});
   }, [owner, chatId, state.sessions, hiddenProjects]);
-  // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
-  // `issue`: a new Chat started from a Linear issue, whose first message is the issue and then what the user typed.
   async function send(
     body = draftStore.get().trim(),
     preserve = false,
@@ -465,7 +447,6 @@ export function LinkWorkspace({
     const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files }));
     sendsInFlight.current.add(sendKey);
     setError(null);
-    // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
     if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
     if (queueForComputer(owner) || hasQueuedChat(owner, sessionId)) {
@@ -512,7 +493,6 @@ export function LinkWorkspace({
         sendsInFlight.current.delete(sendKey);
       }
     }
-    // A Link's state has no Worktrees (its Chats own theirs); the preview reads only its sessions and messages.
     const preview = createPendingChat({
       state: state as unknown as CoordinatorState,
       worktreeId: 0,
@@ -526,7 +506,6 @@ export function LinkWorkspace({
     });
     const previewId = preview.message.clientMessageId;
     setPendingSends((current) => [...current, { ...preview, key: sendKey, provider: model.provider }]);
-    // The message shows in the Chat now, so it leaves the composer now; a failed send puts it back.
     const clears = !preserve && (issue !== undefined || draftStore.get().trim() === body);
     if (clears) {
       draftStore.set("");
@@ -552,7 +531,6 @@ export function LinkWorkspace({
         fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
-        // Milagre reads the issue again and writes its card; a Mac that predates that sends the body as a plain message.
         ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: typed })! } : {}),
       };
       const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
@@ -593,19 +571,15 @@ export function LinkWorkspace({
   function openMessage(id: number, term: string) {
     pendingFind.current = { sessionId: id, term };
     if (id === sessionId) {
-      // The chat is already open, so the effect above won't run on its own.
       setFindSeed(term);
       setFindOpen(true);
       setFindSignal((value) => value + 1);
       pendingFind.current = null;
     } else pick(id);
   }
-  // The same rows the sidebar builds for this Link while a Project is open: its Chat order, pins and times, so the
-  // one-list sidebar keeps every row where it was when the window switches between the Link and a Project.
   const recents = scopeChats(owner, state, chatOrder, runMarks, { pins }).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
-  // As in a Project's Chat: the approval shows on its tool row, its card only while no row takes it.
   const stepApproval = useStepApprovalScope(approval, (run?.approvals.length ?? 1) - 1, approval ? sentDecision(run, approval.requestId) : null, (decision) => {
     if (approval && chatId) void agents.respond(chatId, approval.requestId, decision).catch((failure) => setError(ipcErrorMessage(failure)));
   });
@@ -704,26 +678,22 @@ export function LinkWorkspace({
                     setGitChoice(Number(id));
                     setGitMemberId("");
                   },
-                  // A shared Chat keeps its Worktrees when archived; only its Terminals would end.
                   onArchiveCheck: async (id) => ({
                     milagreOwned: false,
                     shared: false,
                     status: null,
                     terminals: await busyTerminals(chatKeyForScope(scope, Number(id))),
                   }),
-                  // As a Project's archive: the row goes and the window leaves the Chat at once, without waiting on the
-                  // host; a Chat whose archive fails comes back with the error.
                   onArchive: (id) => {
                     const chat = Number(id);
                     const key = chatKeyForScope(scope, chat);
                     const work = archiveLinkChat({
-                      running: Boolean(agents.runs[key]),
+                      running: Boolean(runStatuses[key]),
                       stop: () => agents.interrupt(key),
                       hide: () => bridge.deleteChat(owner, chat),
                     });
                     onArchiving?.(key, work);
                     void work.catch((error) => setError(ipcErrorMessage(error)));
-                    // The open Chat went: the new-chat screen takes its place, on this Mac as New chat opens it.
                     if (sessionId === chat) {
                       if (onNewChat) onNewChat();
                       else pick(null);
@@ -737,7 +707,7 @@ export function LinkWorkspace({
               {canvasOpen ? (
                 <CanvasView
                   states={CANVAS_STATES}
-                  runs={agents.runs}
+                  runs={runStatuses}
                   linkedWork={linkedWork}
                   focusLink={opened.link}
                   onBack={() => setCanvasOpen(false)}
@@ -784,8 +754,6 @@ export function LinkWorkspace({
                         onFastModeChange={composerPrefs.setFastMode}
                         permissionMode={permissionMode}
                         scopeKind="link"
-                        // A new Chat reads its Projects' skills; an open one, its Worktrees' and main checkouts'. Another
-                        // Mac's shared Chat folder isn't a path this Mac's bridge can route, so its Link key stands in.
                         skillScope={isRemoteKey(owner) ? owner : (session?.workspacePath ?? owner)}
                         linearActive={linear.active}
                         onStartFromIssue={(issue) => void send(issueFirstMessage(issue, draftStore.get().trim()), false, true, undefined, issue)}
@@ -835,7 +803,6 @@ export function LinkWorkspace({
                           ) : undefined
                         }
                         streamingKey={run && chatId ? chatId : undefined}
-                        streamingSteps={run?.steps}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend.startedAt : undefined)}
                         statusLabel={pendingHere && !run ? sendStatusLabel({ sent: pendingSend.sent, provider: pendingSend.provider }) : undefined}
                         runModelName={run?.model}
@@ -977,7 +944,6 @@ export function LinkWorkspace({
               )}
             </ChangesPanelSlot>
           </div>
-          {/* The canvas button at the corner's far right, then Changes and the panel buttons left of it. */}
           <CanvasButton
             active={canvasOpen}
             onToggle={() => {
@@ -1073,7 +1039,6 @@ export function LinkWorkspace({
                   return;
                 }
                 pick(null);
-                // The new Chat's draft takes the search now, before the render that selects it.
                 draftStore.select(draftKey(owner, null));
                 draftStore.set(query);
               }}
@@ -1088,7 +1053,7 @@ export function LinkWorkspace({
               base={gitDialog.member.base}
               provider={gitSession?.provider}
               chat={gitChatContext(gitDialogTitle, chatMessagesOf(gitDialog.sessionId))}
-              turnRunning={Boolean(agents.runs[chatKeyForScope(scope, gitDialog.sessionId)])}
+              turnRunning={Boolean(runStatuses[chatKeyForScope(scope, gitDialog.sessionId)])}
               onClose={() => setGitDialog(null)}
               onSendToAgent={(text) => {
                 pick(gitDialog.sessionId);

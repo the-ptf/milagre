@@ -2,7 +2,8 @@ import type { ComponentProps } from "react";
 import { RemoteDelegationCard } from "../components/agents/RemoteDelegationCard";
 import { SubchatWaitingNote } from "../components/agents/SubchatMessages";
 import { QuestionCard } from "../components/lazy-views";
-import { sentDecision, sentReply, type AgentRun } from "../lib/agent-runs";
+import { sentDecision, sentReply } from "../lib/agent-runs";
+import { useRuns, type RunShell } from "../lib/agent-runs-store";
 import { lazyView } from "../lib/lazy-view";
 import { pendingWaitingNote } from "../lib/subchat-transcript";
 import type { ChatMessage, OpenDelegation, PermissionDecision } from "../model";
@@ -15,8 +16,7 @@ type QuestionProps = ComponentProps<typeof QuestionCard>;
 export type ChatApprovalProps = {
   /** The open Chat's key, which keys the cards so another Chat's never reuses them. */
   chatId: string;
-  run: AgentRun | undefined;
-  runs: Record<string, AgentRun>;
+  run: RunShell | undefined;
   messages: ChatMessage[];
   pendingApproval: PermissionRequest | undefined;
   approvalCard: PermissionRequest | undefined;
@@ -38,6 +38,7 @@ export function approvalShown({ approvalCard, pendingQuestion, remoteDelegations
 
 export function ChatApproval(props: ChatApprovalProps) {
   const { chatId, run, pendingApproval, approvalCard, pendingQuestion, questionSent } = props;
+  const runs = useRuns(props.remoteDelegations.length > 0);
   return (
     <div className="flex w-full flex-col gap-2">
       <SubchatWaitingNote messages={props.messages} ask={pendingApproval ? "approval" : "question"} />
@@ -68,7 +69,7 @@ export function ChatApproval(props: ChatApprovalProps) {
         <RemoteDelegationCard
           key={delegation.id}
           delegation={delegation}
-          run={delegation.to_chat ? props.runs[delegation.to_chat] : undefined}
+          run={delegation.to_chat ? runs[delegation.to_chat] : undefined}
           onAnswer={(requestId, decision) => {
             if (delegation.to_chat) void props.onRespond(delegation.to_chat, requestId, decision).catch(() => {});
           }}

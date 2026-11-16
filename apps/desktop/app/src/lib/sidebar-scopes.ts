@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import type { CoordinatorState, LinkState, OpenProject, Routine } from "@milagre/shared/model";
 import { clock, triggerText } from "@milagre/shared/routines";
 import { isSnoozed } from "@milagre/shared/snooze";
-import type { AgentRuns } from "@milagre/shared/agent-runs";
+import type { RunStatuses } from "./agent-runs.ts";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { seedHeldState, stateEvents } from "./state-events.ts";
 import { warmRecentChats } from "./chat-messages.ts";
@@ -22,9 +22,9 @@ export function rememberProjectCopy(project: OpenProject) {
   projectCopies.set(project.path, project);
 }
 
-export function runKeys(runs: AgentRuns) {
+export function runKeys(runs: RunStatuses) {
   const entries = Object.entries(runs);
-  const keys = (keep: (run: AgentRuns[string]) => boolean) =>
+  const keys = (keep: (run: RunStatuses[string]) => boolean) =>
     entries
       .filter(([, run]) => keep(run))
       .map(([key]) => key)

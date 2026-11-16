@@ -8,7 +8,6 @@ import type {
   EffortLevel,
   ModelCapability,
   ChatMessage as AppChatMessage,
-  ChatStep,
   Isolation,
   ModelOption,
   ModelProvider,
@@ -63,7 +62,6 @@ export interface ChatComposerProps {
   readOnlyHistory?: boolean;
   streamingKey?: string;
   streamingText?: string;
-  streamingSteps?: ChatStep[];
   subagents?: Subagent[];
   backgroundTasks?: BackgroundTask[];
   onArchiveFinishedSubagents?: () => void;

@@ -1,6 +1,6 @@
-import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isHiddenRunChat } from "@milagre/shared/chats";
 import type { CoordinatorState, LinkState, LinkedWork } from "../model";
+import type { RunStatuses } from "./agent-runs.ts";
 
 export type ChatLayout = "single" | "grid" | "split";
 
@@ -15,7 +15,7 @@ export function saveChatLayout(storage: Pick<Storage, "setItem">, layout: ChatLa
   storage.setItem(LAYOUT_KEY, layout);
 }
 
-export function activeChatKeys(runs: AgentRuns, work: LinkedWork, states: Record<string, CoordinatorState | LinkState>): string[] {
+export function activeChatKeys(runs: RunStatuses, work: LinkedWork, states: Record<string, CoordinatorState | LinkState>): string[] {
   const keys = new Set([...Object.keys(runs), ...work.delegations.flatMap((item) => (item.to_chat ? [item.to_chat] : []))]);
   const sessions = new Map<string, CoordinatorState["sessions"][string] | LinkState["sessions"][string]>();
   for (const [path, state] of Object.entries(states))

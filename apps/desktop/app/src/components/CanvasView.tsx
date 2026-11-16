@@ -35,7 +35,7 @@ import {
   type CanvasTone,
   type CanvasWorktree,
 } from "@milagre/shared/canvas";
-import type { AgentRuns } from "@/lib/agent-runs";
+import type { RunStatuses } from "@/lib/agent-runs";
 import type { CanvasSnapshot, LinkEndpoint } from "@/electron";
 import type { CoordinatorState, LinkedWork, NamedProjectLink } from "@/model";
 import { chatMark } from "@/lib/chat-list";
@@ -67,10 +67,7 @@ const SECTION_HEADER = 52;
 const CARD_GAP = 12;
 const SECTION_GAP = 96;
 const ROW_WIDTH = 1400;
-// Live marks come from the runs, open Projects from their own states, and Links from their own event. This read brings
-// the rest (new Chats in unopened Projects, a Link workspace's cards), and it reads every Project on the host, so it runs rarely.
 const CANVAS_REFRESH_MS = 60_000;
-// A card: 1px border, 12px padding, then 38px per chat; two or more chats add 21px dividers and a 26px footer.
 const CHAT_ROW = 38;
 const DIVIDER = 21;
 const FOOTER = 26;
@@ -107,7 +104,6 @@ type CanvasNode = SectionNode | CardNode;
 const nodeTypes = { project: SectionNode, worktree: WorktreeCard };
 const edgeTypes = { link: LinkEdge, membership: MembershipEdge };
 
-// Sections take one of the theme's quiet hues by Project, so neighbours read apart; orange stays for "waiting for you".
 const SECTION_TONES: [string, ...string[]] = ["var(--accent)", "var(--green)", "var(--purple, var(--accent))"];
 function sectionTone(id: string) {
   let hash = 0;
@@ -177,7 +173,6 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
             {activity ? <span className="size-1.5 rounded-full bg-accent" /> : <Icon icon={Folder01Icon} size={12} />}
             <span>{activity?.label ?? "Projects"}</span>
             {activity?.negotiationId && (
-              // -my-1 keeps the pill's height with a 24px button in it.
               <Button variant="danger-ghost" size={24} className="-my-1 ml-1" onClick={() => data?.onStop(activity.negotiationId!)}>
                 Stop
               </Button>
@@ -353,7 +348,7 @@ function sectionSize(cards: Array<{ position: { x: number; y: number }; height: 
 function buildNodes(
   snapshot: CanvasSnapshot,
   states: Record<string, CoordinatorState>,
-  runs: AgentRuns,
+  runs: RunStatuses,
   work: LinkedWork,
   filter: CanvasFilter,
   now: number,
@@ -383,7 +378,6 @@ function buildNodes(
       // ponytail: no interruption is passed here, so this never fires; drop it once CanvasMark (shared/canvas.ts) has "interrupted".
       return mark === "interrupted" ? "idle" : mark;
     });
-    // A Project with nothing active stays off the canvas, unless a Link or a named group needs it there.
     if (!worktrees.length && !keep.has(project.id)) continue;
     shown.push(...worktrees);
     const receiveOnly = new Set(
@@ -511,7 +505,7 @@ export function CanvasView({
   focusLink,
 }: {
   states: Record<string, CoordinatorState>;
-  runs: AgentRuns;
+  runs: RunStatuses;
   linkedWork: LinkedWork;
   onOpenChat: (projectPath: string, id: number) => void;
   /** Starts a chat in a Project; the section's + button is there only with it. */
@@ -543,7 +537,6 @@ export function CanvasView({
     const timer = window.setInterval(() => void refresh(), CANVAS_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
-  // Opening Canvas during a host restart can fail its first read. Retry as soon as the host is usable.
   useEffect(
     () =>
       window.milagre.onRuntimeConnection?.((connection) => {
@@ -551,9 +544,7 @@ export function CanvasView({
       }),
     [refresh],
   );
-  // A Link changed elsewhere (the sidebar, the phone, another window) shows at once, not at the next read.
   useEffect(() => window.milagre.onLinksChanged?.((links) => Array.isArray(links) && setSnapshot((current) => current && { ...current, links })), []);
-  // "Idle · 25m ago" stays true without a state change.
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
@@ -569,7 +560,6 @@ export function CanvasView({
     [snapshot, focusLink],
   );
   const imageOf = useProjectImages(useMemo(() => visible?.projects.map((project) => project.path) ?? [], [visible]));
-  // Projects a Link or a named group reaches stay on the canvas even with no active chat, so the line has two ends.
   const keep = useMemo(() => {
     const ids = new Set<string>();
     for (const link of visible?.links ?? []) for (const end of [link.a, link.b]) if (!end.worktree_path) ids.add(end.project_id);
@@ -592,7 +582,6 @@ export function CanvasView({
         }),
       ),
     );
-    // imageOf changes identity every render; imageKey says when an image actually arrived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, states, runs, linkedWork, filter, now, imageKey, keep, openChat, newChat, Boolean(onNewChat)]);
   const counts = useMemo(() => canvasFilterCounts(shown), [shown]);
@@ -602,7 +591,6 @@ export function CanvasView({
   }, []);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const edges = useMemo(() => {
-    // A Link leaves the side facing the other end, so its line and its label run between the two.
     const centerX = (id: string) => {
       const node = nodeById.get(id);
       const parent = node?.parentId ? nodeById.get(node.parentId) : undefined;

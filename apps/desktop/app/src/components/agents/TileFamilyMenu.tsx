@@ -3,12 +3,13 @@ import { ArrowExpandDiagonal01Icon, UnfoldMoreIcon } from "@hugeicons/core-free-
 import { useDisplayNow } from "../../lib/display-clock";
 import { familyMenuModel, type FamilyReads } from "../../lib/family-menu";
 import { useRoutines } from "../../lib/routines";
+import { useRuns } from "../../lib/agent-runs-store";
 import { Icon } from "../primitives/Icon";
 import { MenuRow, MenuSeparator, Popover } from "../primitives/Popover";
 import { FamilyRow } from "./FamilyMenu";
 
 export interface TileMenuControls {
-  reads: (chatKey: string) => Omit<FamilyReads, "routines" | "now">;
+  reads: (chatKey: string) => Omit<FamilyReads, "routines" | "now" | "runs">;
   onOpenAlone: (key: string) => void;
   onReplace: (tile: string, next: string) => void;
 }
@@ -18,7 +19,8 @@ export function TileTitle({ chatKey, title, tiles, controls }: { chatKey: string
   const trigger = useRef<HTMLButtonElement>(null);
   const { routines } = useRoutines();
   const now = useDisplayNow(1000, open);
-  const model = open ? familyMenuModel(chatKey, { ...controls.reads(chatKey), routines, now }) : null;
+  const runs = useRuns(open);
+  const model = open ? familyMenuModel(chatKey, { ...controls.reads(chatKey), runs, routines, now }) : null;
   const rows = model ? [...model.ancestors, ...model.subchats].filter((entry) => !tiles.includes(entry.key)) : [];
   const close = () => setOpen(false);
   return (

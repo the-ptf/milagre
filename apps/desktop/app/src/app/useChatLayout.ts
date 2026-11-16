@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import type { TileMenuControls } from "../components/agents/TileFamilyMenu";
-import { projectOfKey, sessionIdFromKey } from "../lib/agent-runs";
+import { projectOfKey, sessionIdFromKey, type RunStatuses } from "../lib/agent-runs";
 import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "../lib/chat-grid";
 import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "../lib/grid-drop";
 import { useEvent } from "../lib/stable";
@@ -35,7 +34,7 @@ function useLayoutState() {
 
 type LayoutState = ReturnType<typeof useLayoutState>;
 
-function useGridTiles(state: LayoutState, gridOn: boolean, gridFocusKey: string | null, runs: AgentRuns, linkedWork: LinkedWork, gridStates: States) {
+function useGridTiles(state: LayoutState, gridOn: boolean, gridFocusKey: string | null, runs: RunStatuses, linkedWork: LinkedWork, gridStates: States) {
   const { gridPins, changeGridPins } = state;
   const livePins = useMemo(
     () =>
@@ -105,7 +104,7 @@ export type ChatLayoutInputs = {
   linkOpen: boolean;
   focusedChatKey: string | null;
   gridStates: States;
-  runs: AgentRuns;
+  runs: RunStatuses;
   linkedWork: LinkedWork;
   openLinkedChat: (key: string) => void;
   openAlone: (key: string) => void;
@@ -141,12 +140,11 @@ function useDropTarget(
 }
 
 function useTileMenu(inputs: ChatLayoutInputs, endSplit: () => void, swapSplitTile: (tile: string, next: string) => void) {
-  const { gridStates, runs, linkedWork } = inputs;
+  const { gridStates, linkedWork } = inputs;
   const openAlone = useEvent((key: string) => inputs.openAlone(key));
-  const familyReadsRef = useRef<TileMenuControls["reads"]>(() => ({ sessions: undefined, runs: {}, work: { delegations: [] } }));
+  const familyReadsRef = useRef<TileMenuControls["reads"]>(() => ({ sessions: undefined, work: { delegations: [] } }));
   familyReadsRef.current = (key) => ({
     sessions: isLinkScopeKey(projectOfKey(key)) ? undefined : (gridStates[projectOfKey(key)] as CoordinatorState | undefined)?.sessions,
-    runs,
     work: linkedWork,
   });
   return useMemo<TileMenuControls>(

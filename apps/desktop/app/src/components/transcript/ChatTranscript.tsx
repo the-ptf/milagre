@@ -34,7 +34,7 @@ export function ChatTranscript({
   waitingStepIds,
   runStartedAt,
   models,
-}: { chatKey: string; mentionContext?: ChatMentionScope } & Pick<
+}: { chatKey: string; mentionContext?: ChatMentionScope; streamingSteps?: ChatStep[] } & Pick<
   ChatComposerProps,
   | "messages"
   | "messageScope"
@@ -43,7 +43,6 @@ export function ChatTranscript({
   | "isSending"
   | "streamingKey"
   | "streamingText"
-  | "streamingSteps"
   | "asking"
   | "waitingStepIds"
   | "runStartedAt"

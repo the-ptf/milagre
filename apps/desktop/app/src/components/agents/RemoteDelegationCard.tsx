@@ -7,7 +7,7 @@ import type { OpenDelegation, PermissionDecision } from "../../model";
 import { PermissionCard } from "./PermissionCard";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
-import { useRunText } from "../../lib/run-text";
+import { useRunText } from "../../lib/agent-runs-store";
 
 const STATUS: Record<RemoteRunStatus, string> = {
   sending: "Sending",
