@@ -1,4 +1,5 @@
 import { projectOfKey, sessionIdFromKey } from "./agent-runs.mjs";
+import { foldOrchestratorAnswers } from "./orchestrator.mjs";
 import { computerOfKey, isLinkScopeKey, qualifyKey } from "./chat-scopes.mjs";
 
 const SUMMARY_LIMIT = 80;
@@ -102,7 +103,7 @@ export function groupQuietRuns(messages) {
     }
   }
   close();
-  return entries;
+  return foldOrchestratorAnswers(entries);
 }
 
 const STEP = /^\*\/([1-9]\d*)$/;

@@ -4,6 +4,7 @@ import {
   ORCHESTRATOR_DEFAULTS,
   autopilotDecision,
   autopilotPending,
+  foldOrchestratorAnswers,
   isMemoryImporting,
   boardColumn,
   isIrreversible,
@@ -166,4 +167,14 @@ test("an answer waiting out its veto window keeps the request off the owner's pl
   assert.equal(autopilotPending(task, { ...run, answered: { r1: "allow" } }, now), null);
   assert.equal(autopilotPending({ answered: [...task.answered, { requestId: "r1", decision: "answered" }] }, run, now), null);
   assert.equal(autopilotPending(task, { approvals: [{ requestId: "r2" }] }, now), null);
+});
+
+test("back-to-back autopilot answers fold into one line that lists them all", () => {
+  const answer = (id, summary) => ({ message: { id, context: { kind: "orchestrator-answer", summary } } });
+  const reply = (id) => ({ message: { id, role: "assistant", context: null } });
+  const entries = foldOrchestratorAnswers([answer(1, "allowed `ls`"), answer(2, "allowed Use Read?"), reply(3), answer(4, "picked Monthly")]);
+  assert.deepEqual(entries[0].message.context.summaries, ["allowed `ls`", "allowed Use Read?"]);
+  assert.equal(entries[1].hidden, true);
+  assert.equal(entries[2].hidden, undefined);
+  assert.deepEqual(entries[3].message.context.summaries, ["picked Monthly"], "a reply in between starts a new line");
 });

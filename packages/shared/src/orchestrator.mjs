@@ -369,6 +369,24 @@ export function isOrchestratorAnswer(message) {
   return message?.context?.kind === "orchestrator-answer" && typeof message.context.summary === "string";
 }
 
+/** Back-to-back autopilot answers show as one line: the first carries every summary, the rest are hidden. */
+export function foldOrchestratorAnswers(entries) {
+  let lead = null;
+  return entries.map((entry) => {
+    if (entry.hidden) return entry;
+    if (!isOrchestratorAnswer(entry.message)) {
+      lead = null;
+      return entry;
+    }
+    if (!lead) {
+      lead = { ...entry, message: { ...entry.message, context: { ...entry.message.context, summaries: [entry.message.context.summary] } } };
+      return lead;
+    }
+    lead.message.context.summaries.push(entry.message.context.summary);
+    return { ...entry, hidden: true };
+  });
+}
+
 export function recordTrust(trust, kind, outcome) {
   const entry = trust[kind] ?? { answered: 0, corrected: 0 };
   return { ...trust, [kind]: outcome === "corrected" ? { ...entry, corrected: entry.corrected + 1 } : { ...entry, answered: entry.answered + 1 } };

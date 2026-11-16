@@ -751,7 +751,7 @@ export type ChatContext =
   | AdvisorResultContext
   | WorktreeLinkedContext
   | LinkedContext
-  | { kind: "orchestrator-answer"; summary: string }
+  | { kind: "orchestrator-answer"; summary: string; summaries?: string[] }
   | HandoffContext
   | CompactionContext
   | PullRequestActionContext

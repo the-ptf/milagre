@@ -144,7 +144,10 @@ export function autopilotPending(
   run: { approvals?: readonly { requestId: string }[]; questions?: readonly { requestId: string }[]; answered?: Record<string, unknown> } | null | undefined,
   now?: number,
 ): OrchestratorAnswer | null;
-export function isOrchestratorAnswer<T extends { context?: unknown }>(message: T): message is T & { context: { kind: "orchestrator-answer"; summary: string } };
+export function isOrchestratorAnswer<T extends { context?: unknown }>(
+  message: T,
+): message is T & { context: { kind: "orchestrator-answer"; summary: string; summaries?: string[] } };
+export function foldOrchestratorAnswers<E extends { message: { context?: unknown }; hidden?: true }>(entries: E[]): E[];
 export function trustScore(entry: { answered: number; corrected: number } | undefined): number;
 export function autopilotDecision(input: {
   mode: AutopilotMode;

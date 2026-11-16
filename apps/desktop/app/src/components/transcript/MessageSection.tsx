@@ -297,7 +297,7 @@ function messageDivider(
     );
   if (isChatReload(message)) return <ChatReloadDivider />;
   if (isBabysitStopped(message)) return <BabysitStoppedDivider context={message.context} />;
-  if (isOrchestratorAnswer(message)) return <OrchestratorAnswerLine summary={message.context.summary} />;
+  if (isOrchestratorAnswer(message)) return <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />;
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   return null;

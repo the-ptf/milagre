@@ -563,5 +563,9 @@ export const ChatReply = memo(function ChatReply({
 /** A Chat's reply row: the reply, or the one-line Pebble note autopilot leaves when it answers for the owner. */
 export const ChatRow = memo(function ChatRow(props: ComponentProps<typeof ChatReply>) {
   const { message } = props;
-  return message && isOrchestratorAnswer(message) ? <OrchestratorAnswerLine summary={message.context.summary} /> : <ChatReply {...props} />;
+  return message && isOrchestratorAnswer(message) ? (
+    <OrchestratorAnswerLine summaries={message.context.summaries ?? [message.context.summary]} />
+  ) : (
+    <ChatReply {...props} />
+  );
 });
