@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ArrowDown01Icon, ShieldUserIcon } from "@hugeicons/core-free-icons";
 import { MASCOT_COLORS, VETO_SECONDS, type AutopilotMode, type OrchestratorSettings } from "@milagre/shared/orchestrator";
@@ -11,7 +12,7 @@ import { Findable } from "./settings-find";
 import { Group } from "./settings-list";
 import { useTheme } from "./theme";
 import { modelsFor } from "./turn-options";
-import { DISABLED_OPACITY, PullDown, Segmented, Toggle, useStyles } from "./ui";
+import { DISABLED_OPACITY, Field, PullDown, Segmented, Toggle, useStyles } from "./ui";
 
 type Save = (patch: Partial<OrchestratorSettings>) => void;
 
@@ -98,6 +99,31 @@ function Swatches({ color, onPick }: { color: string; onPick: (color: string) =>
   );
 }
 
+function NameRow({ name, onSave }: { name: string; onSave: (name: string) => void }) {
+  const [draft, setDraft] = useState(name);
+  const commit = () => {
+    const next = draft.replace(/\s+/g, " ").trim();
+    if (next && next !== name) onSave(next);
+    else setDraft(name);
+  };
+  return (
+    <Findable title="Name">
+      <View style={{ paddingVertical: space.lg }}>
+        <Field
+          label="Name"
+          value={draft}
+          maxLength={40}
+          autoCapitalize="words"
+          returnKeyType="done"
+          onChangeText={setDraft}
+          onBlur={commit}
+          onSubmitEditing={commit}
+        />
+      </View>
+    </Findable>
+  );
+}
+
 function routerSections(settings: OrchestratorSettings, models: AgentModels | null): MenuSection[] {
   return (["claude", "codex"] as const).map((provider) => ({
     title: provider === "claude" ? "Claude" : "Codex",
@@ -134,6 +160,9 @@ export function OrchestratorSection({
         </Text>
       </View>
       <View pointerEvents={on ? "auto" : "none"} style={[{ gap: space.section }, dimmed(on)]}>
+        <Group title="Name" inset={0}>
+          <NameRow key={settings.name} name={settings.name} onSave={(name) => save({ name })} />
+        </Group>
         <Group title="Mascot" inset={0}>
           <Swatches color={settings.mascotColor} onPick={(mascotColor) => save({ mascotColor })} />
         </Group>

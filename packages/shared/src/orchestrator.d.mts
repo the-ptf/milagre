@@ -28,6 +28,7 @@ export interface OrchestratorSettings {
   hideTaskChats: boolean;
   notify: boolean;
   mascotColor: string;
+  name: string;
   boardHidden: boolean;
   tourDone: boolean;
 }

@@ -80,12 +80,14 @@ export const ORCHESTRATOR_DEFAULTS = Object.freeze({
   hideTaskChats: true,
   notify: true,
   mascotColor: "#ffffff",
+  name: "Orchestrator",
   boardHidden: false,
   tourDone: false,
 });
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value, max) => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null);
+const oneLine = (value, max) => (typeof value === "string" ? text(value.replace(/[\r\n]+/g, " "), max) : null);
 const oneOf = (value, options, fallback) => (options.includes(value) ? value : fallback);
 
 function normalizeRole(raw, fallback) {
@@ -148,6 +150,7 @@ export function normalizeOrchestratorSettings(raw) {
     notify: value.notify !== false,
     mascotColor:
       typeof value.mascotColor === "string" && /^#[0-9a-f]{6}$/i.test(value.mascotColor) ? value.mascotColor.toLowerCase() : ORCHESTRATOR_DEFAULTS.mascotColor,
+    name: oneLine(value.name, 40) ?? ORCHESTRATOR_DEFAULTS.name,
     boardHidden: value.boardHidden === true,
     tourDone: value.tourDone === true,
   };

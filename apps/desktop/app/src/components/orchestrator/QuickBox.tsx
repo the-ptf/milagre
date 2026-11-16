@@ -4,7 +4,7 @@ import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import { Mascot, type Look } from "./Mascot";
 import { OrchestratorBox } from "./OrchestratorBox";
 
-export function QuickBox({ color, onClose }: { color: string; onClose: () => void }) {
+export function QuickBox({ color, name, onClose }: { color: string; name: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
   const [look, setLook] = useState<Look>(null);
@@ -19,7 +19,7 @@ export function QuickBox({ color, onClose }: { color: string; onClose: () => voi
   return (
     <dialog
       ref={dialog}
-      aria-label="Orchestrator"
+      aria-label={name}
       data-orchestrator-quick-box
       className="command-palette no-drag fixed m-0 w-[min(640px,calc(100vw-32px))] overflow-visible bg-transparent p-0 text-ink"
       onCancel={(event) => {

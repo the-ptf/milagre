@@ -15,6 +15,7 @@ import { ORCHESTRATOR_DESCRIPTION } from "../../lib/orchestrator-copy";
 import { saveOrchestratorSettings, useOrchestrator } from "../../lib/orchestrator-store";
 import { Button, IconButton } from "../primitives/Button";
 import { SettingCheckbox } from "../primitives/Checkbox";
+import { Input } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { Select } from "../primitives/Select";
@@ -116,6 +117,33 @@ function ComputersGroup({ settings, save }: { settings: Settings; save: (patch: 
   );
 }
 
+function NameField({ name, onSave }: { name: string; onSave: (name: string) => void }) {
+  const [draft, setDraft] = useState(name);
+  const commit = () => {
+    const next = draft.replace(/\s+/g, " ").trim();
+    if (next && next !== name) onSave(next);
+    else setDraft(name);
+  };
+  return (
+    <Input
+      size={32}
+      aria-label="Orchestrator name"
+      value={draft}
+      maxLength={40}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        else if (event.key === "Escape") {
+          setDraft(name);
+          event.currentTarget.blur();
+        }
+      }}
+      className="w-[220px]"
+    />
+  );
+}
+
 function OrchestratorForm({
   settings,
   models,
@@ -144,6 +172,9 @@ function OrchestratorForm({
       </Group>
       <div data-orchestrator-options inert={!settings.enabled} className={`transition-opacity duration-base ${settings.enabled ? "" : "opacity-40"}`}>
         <Group title="Mascot and shortcut">
+          <Row label="Name" description="What the sidebar row and the page call it">
+            <NameField key={settings.name} name={settings.name} onSave={(name) => save({ name })} />
+          </Row>
           <Row label="Color" description="Pebble, made with Open Bot Avatar">
             <div role="radiogroup" aria-label="Mascot color" className="flex gap-2.5">
               {MASCOT_COLORS.map((color) => (

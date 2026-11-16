@@ -5,6 +5,7 @@ import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon, SpinnerRing } from "./icons";
 import { Mascot } from "./mascot";
 import { useSession } from "./session";
+import { promptText } from "./text-prompt";
 import { useTheme } from "./theme";
 import { ListRow } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
@@ -37,7 +38,7 @@ function Counts({ running, needs }: { running: number; needs: number }) {
 /** The pinned Orchestrator row atop the Chats list, shown while the connected computer has it on. */
 export function OrchestratorRow({ onOpen }: { onOpen: () => void }) {
   const session = useSession();
-  const { snapshot } = useOrchestrator(session.client);
+  const { snapshot, store } = useOrchestrator(session.client);
   const enabled = !!snapshot?.settings.enabled;
   const { counts } = useOrchestratorBoard(enabled ? snapshot.tasks : NO_TASKS);
   if (!enabled) return null;
@@ -50,9 +51,15 @@ export function OrchestratorRow({ onOpen }: { onOpen: () => void }) {
   return (
     <View style={{ paddingHorizontal: space.gutter }}>
       <ListRow
-        title="Orchestrator"
+        title={snapshot.settings.name}
         subtitle={subtitle}
         onPress={onOpen}
+        onLongPress={() =>
+          void promptText("Rename", { value: snapshot.settings.name }).then((name) => {
+            const next = name?.replace(/\s+/g, " ").trim();
+            if (next && next !== snapshot.settings.name) void store?.saveSettings({ name: next }).catch(() => {});
+          })
+        }
         leading={<Mascot size={32} color={snapshot.settings.mascotColor} />}
         trailing={<Counts running={counts.running} needs={counts.needs} />}
       />

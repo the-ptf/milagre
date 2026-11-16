@@ -39,6 +39,15 @@ test("settings start off with the picked defaults and keep only known values", (
   assert.deepEqual(odd.computerPreferences, { studio: "prefer" });
 });
 
+test("the Orchestrator name is trimmed to one line of at most 40 characters and falls back when empty", () => {
+  assert.equal(normalizeOrchestratorSettings(null).name, "Orchestrator");
+  assert.equal(normalizeOrchestratorSettings({ name: "  Jarvis  " }).name, "Jarvis");
+  assert.equal(normalizeOrchestratorSettings({ name: "a\nb" }).name, "a b");
+  assert.equal(normalizeOrchestratorSettings({ name: "x".repeat(60) }).name, "x".repeat(40));
+  assert.equal(normalizeOrchestratorSettings({ name: "   " }).name, "Orchestrator");
+  assert.equal(normalizeOrchestratorSettings({ name: 5 }).name, "Orchestrator");
+});
+
 test("a role without a model is inactive, and roles always keep one with a model", () => {
   const settings = normalizeOrchestratorSettings({ roles: [{ id: "build", name: "Build", provider: null }] });
   assert.ok(

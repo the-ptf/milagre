@@ -91,7 +91,7 @@ export function OrchestratorPage({
         style={{ paddingLeft: clearance.inset.paddingLeft + 12, paddingRight: clearance.inset.paddingRight }}
         className="flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2"
       >
-        <h1 className="text-13 font-semibold text-ink">Orchestrator</h1>
+        <h1 className="text-13 font-semibold text-ink">{orchestrator.settings.name}</h1>
         <span className="text-13 text-ink-3">
           {names.projects.length} {names.projects.length === 1 ? "Project" : "Projects"}
         </span>

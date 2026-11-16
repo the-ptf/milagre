@@ -322,6 +322,7 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     title: "Turn on the Orchestrator",
     keywords: "router one box route prompt project model account subchat board church",
   },
+  { page: "orchestrator-settings", title: "Name", group: "Name", keywords: "rename orchestrator" },
   { page: "orchestrator-settings", title: "Mascot color", group: "Mascot", keywords: "pebble avatar" },
   { page: "orchestrator-settings", title: "Router model", group: "Routing", description: "Reads your prompt and the Project hints" },
   { page: "orchestrator-settings", title: "When no Project fits", group: "Routing", keywords: "ask me best guess" },

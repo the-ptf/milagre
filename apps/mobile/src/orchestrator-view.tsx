@@ -21,11 +21,11 @@ import { routableProjects, useOrchestratorProjects } from "./use-orchestrator-li
 
 type Carry = { id: number; text: string; from: number; to: number };
 
-function Header({ shown = true }: { shown?: boolean }) {
+function Header({ shown = true, title = "Orchestrator" }: { shown?: boolean; title?: string }) {
   const open = () => router.push("/orchestrator-settings");
   return (
     <>
-      <Stack.Screen options={{ title: "Orchestrator", headerShown: shown }} />
+      <Stack.Screen options={{ title, headerShown: shown }} />
       <Stack.Toolbar placement="right">
         {Platform.OS === "ios" ? (
           <Stack.Toolbar.Button icon="slider.horizontal.3" accessibilityLabel="Orchestrator settings" onPress={open} />
@@ -135,7 +135,7 @@ export function OrchestratorView() {
   const touring = !!settings?.enabled && !settings.tourDone;
   return (
     <View style={styles.screen}>
-      <Header shown={!touring} />
+      <Header shown={!touring} title={settings?.name} />
       <PageScroll keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: space.section }}>
         {error ? <ErrorNotice message={error} /> : null}
         {!settings ? (
