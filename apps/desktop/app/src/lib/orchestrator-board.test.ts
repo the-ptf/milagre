@@ -96,7 +96,7 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
       ["t2", "needs", "needs-you"],
       ["t3", "review", "done"],
       ["t4", "done", "done"],
-      ["t5", "review", "done"],
+      ["t5", "done", "done"],
     ],
   );
   assert.equal(cards[0]!.detail, "Building for the simulator");
