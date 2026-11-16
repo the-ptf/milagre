@@ -1,4 +1,5 @@
-# Signed macOS build for the Publish workflow. It stages the installers-macos artifact; Publish uploads it.
+# Signed macOS build for the Publish workflow. Each architecture builds and notarizes in its own job and stages
+# installers-macos-<arch> plus its own feed as macos-feed-<arch>; Publish merges the feeds and uploads.
 name: Build macOS
 on:
   workflow_call:
@@ -30,11 +31,21 @@ jobs:
   package-macos:
     runs-on: macos-latest
     timeout-minutes: 120
+    strategy:
+      matrix:
+        arch: [arm64, x64]
     steps:
       - name: Check out released commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.ref }}
+      # Notarizing and feed scripts come from this workflow's commit: a stable rebuilds an older beta, whose own copy can
+      # predate how this workflow calls them.
+      - name: Check out this workflow's release scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: .release-tools
+          sparse-checkout: scripts
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -93,6 +104,7 @@ jobs:
         run: npm ci
       - name: Build macOS installers
         env:
+          ARCH: ${{ matrix.arch }}
           VERSION: ${{ inputs.version }}
           CHANNEL: ${{ inputs.channel }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -100,8 +112,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node scripts/with-apple-credentials.cjs npm run package:mac -- --x64 --arm64 --config.extraMetadata.version="${VERSION}" --config.publish.channel="${CHANNEL}" --config.forceCodeSigning=true --config.dmg.sign=true
-      - name: Notarize and staple disk images
+        run: node scripts/with-apple-credentials.cjs npm run package:mac -- --"${ARCH}" --config.extraMetadata.version="${VERSION}" --config.publish.channel="${CHANNEL}" --config.forceCodeSigning=true --config.dmg.sign=true --config.mac.notarize=false
+      - name: Notarize and staple the disk image and app
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -109,9 +121,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           node scripts/with-apple-credentials.cjs bash -e -o pipefail <<'NOTARIZE'
-          for dmg in release/*.dmg; do
-            node scripts/notarize-dmg.cjs "$dmg"
-          done
+          node .release-tools/scripts/notarize-dmg.cjs release/*.dmg release/mac*/Milagre.app
           NOTARIZE
       - name: Verify macOS signatures, notarization and disk images
         shell: bash
@@ -126,23 +136,34 @@ jobs:
             xcrun stapler validate "$dmg"
             hdiutil verify "$dmg"
           done
-      - name: Exercise signed macOS app
+      - name: Check the update ZIP's app passes Gatekeeper
         run: |-
-          app=$(node -p 'process.arch === "arm64" ? "release/mac-arm64/Milagre.app" : "release/mac/Milagre.app"')
-          node scripts/test-desktop.cjs --packaged "$app"
-          node scripts/verify-packaged-simulator-helper.cjs "$app"
-      - name: Refresh feeds after DMG notarization
+          ditto -x -k release/*.zip "$RUNNER_TEMP/zip-app"
+          spctl --assess --type execute --verbose=4 "$RUNNER_TEMP/zip-app/Milagre.app"
+      - name: Exercise signed macOS app
+        if: matrix.arch == 'arm64'
+        run: |-
+          node scripts/test-desktop.cjs --packaged release/mac-arm64/Milagre.app
+          node scripts/verify-packaged-simulator-helper.cjs release/mac-arm64/Milagre.app
+      - name: Refresh feed after DMG notarization
         env:
+          ARCH: ${{ matrix.arch }}
           FEED_TAG: v${{ inputs.version }}
-        run: node scripts/finalize-update-feeds.cjs --tag "$FEED_TAG" --platform macos
+        run: NODE_PATH="$PWD/node_modules" node .release-tools/scripts/finalize-update-feeds.cjs --tag "$FEED_TAG" --platform macos --arch "$ARCH"
       - name: Stage signed macOS artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: installers-macos
+          name: installers-macos-${{ matrix.arch }}
           path: |-
             release/*.dmg
             release/*.zip
             release/*.blockmap
+          if-no-files-found: error
+      - name: Stage the architecture's feed
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-feed-${{ matrix.arch }}
+          path: |-
             release/latest-mac.yml
             release/beta-mac.yml
           if-no-files-found: error
