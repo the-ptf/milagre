@@ -3,7 +3,7 @@ import { ArrowUp02Icon } from "@hugeicons/core-free-icons";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
 import { caretPoint, type ScreenPoint } from "../../lib/orchestrator-board";
 import { sendOrchestratorTask } from "../../lib/orchestrator-store";
-import { IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 
 const MAX_HEIGHT = 160;
@@ -94,7 +94,7 @@ export function OrchestratorBox({
 
   return (
     <div ref={ref} data-orchestrator-box={size} className="flex flex-col gap-2" style={hidden ? { visibility: "hidden" } : undefined}>
-      <div className={`flex flex-col gap-2 rounded-window bg-surface shadow-raised ${large ? "px-4 pt-3 pb-2" : "px-3 pt-2.5 pb-2"}`}>
+      <div className="flex flex-col gap-2 rounded-window border border-line bg-surface p-3 shadow-raised">
         <div className="flex items-start gap-3">
           {leading}
           <textarea
@@ -126,16 +126,15 @@ export function OrchestratorBox({
           />
         </div>
         <div className="flex h-7 items-center justify-end">
-          <IconButton
-            size={28}
-            shape="pill"
-            variant="primary"
-            label="Send"
-            shortcut="Enter"
-            icon={ArrowUp02Icon}
+          <button
+            type="button"
+            aria-label="Send"
             disabled={empty || sending}
             onClick={() => void send()}
-          />
+            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ink text-on-ink transition-[opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Icon icon={ArrowUp02Icon} size={16} />
+          </button>
         </div>
       </div>
       <InlineError size={12} className="px-1">
