@@ -575,6 +575,7 @@ export function PromptComposer({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Keys during an IME composition belong to the IME: Enter commits the text, it doesn't pick or send.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (menu && rows.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {

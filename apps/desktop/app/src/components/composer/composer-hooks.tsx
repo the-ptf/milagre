@@ -33,6 +33,8 @@ function keptCheckpoints(api: CheckpointApi): CheckpointApi {
 }
 
 export function useComposerLayout(isNewChat: boolean, root: RefObject<HTMLDivElement | null>) {
+  // The band's grain tile is aligned by offset, not with a fixed background: Chromium would composite the band and
+  // everything over it.
   const topBandRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const band = topBandRef.current;
