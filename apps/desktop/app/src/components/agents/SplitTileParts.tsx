@@ -6,7 +6,6 @@ import { useControlsClearance } from "../../lib/window-chrome";
 import { IconButton } from "../primitives/Button";
 import { PROMPT_PLACEHOLDER } from "@milagre/shared/prompt-mentions";
 import { Icon } from "../primitives/Icon";
-import { CORNER_PITCH } from "./PanelToggles";
 import { TileTitle, type TileMenuControls } from "./TileFamilyMenu";
 
 /** A split pane header's hairline; the first pane's fades in from the sidebar. */
@@ -103,7 +102,7 @@ export function SplitHeader({
   onOpenRoutine?: (routineId: string) => void;
   onClose?: (key: string) => void;
 }) {
-  const { bar, inset } = useControlsClearance<HTMLElement>(top, CORNER_PITCH);
+  const { bar, inset } = useControlsClearance<HTMLElement>(top);
   return (
     <header
       ref={bar}
@@ -112,7 +111,7 @@ export function SplitHeader({
       className={`relative flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2 text-13 ${top ? "title-drag z-[55]" : ""}`}
     >
       <SplitRule first={first} />
-      <span className="no-drag flex min-w-0 shrink items-center">
+      <span className="no-drag flex min-w-0 max-w-full shrink items-center group-hover/tile:max-w-[calc(100%-96px)] has-[[aria-expanded=true]]:max-w-[calc(100%-96px)]">
         {menu ? (
           <TileTitle chatKey={chatKey} title={title} tiles={tiles} controls={menu} />
         ) : (
@@ -120,16 +119,18 @@ export function SplitHeader({
         )}
       </span>
       <span className="flex-1" />
-      {onOpenRoutine && <RoutineChip chatKey={chatKey} run={routine} place="tile" onOpen={onOpenRoutine} />}
-      {needsYou && !focused && <span className="shrink-0 font-medium text-orange-ink">Needs you</span>}
-      {waitingBelow > 0 && !focused && (
-        <span data-tile-waiting className="shrink-0 font-medium text-orange-ink">
-          {waitingBelow} {waitingBelow === 1 ? "needs" : "need"} you
-        </span>
-      )}
+      <span className="flex shrink-0 items-center gap-2 transition-opacity duration-fast group-hover/tile:invisible group-hover/tile:opacity-0">
+        {onOpenRoutine && <RoutineChip chatKey={chatKey} run={routine} place="tile" onOpen={onOpenRoutine} />}
+        {needsYou && !focused && <span className="shrink-0 font-medium text-orange-ink">Needs you</span>}
+        {waitingBelow > 0 && !focused && (
+          <span data-tile-waiting className="shrink-0 font-medium text-orange-ink">
+            {waitingBelow} {waitingBelow === 1 ? "needs" : "need"} you
+          </span>
+        )}
+      </span>
       <span
         style={{ right: inset.paddingRight }}
-        className="no-drag absolute top-0 bottom-px flex items-center gap-0.5 bg-[linear-gradient(90deg,transparent,var(--page)_24px)] pr-2 pl-8 opacity-0 transition-opacity duration-fast group-hover/tile:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100"
+        className="no-drag absolute top-0 bottom-px flex items-center gap-0.5 pr-2 opacity-0 transition-opacity duration-fast group-hover/tile:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100"
       >
         {focused ? (
           panelMenu

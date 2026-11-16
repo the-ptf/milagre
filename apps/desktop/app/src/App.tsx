@@ -2467,7 +2467,9 @@ function App() {
           />
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <PanelToggles right={12 + trailingCorner * CORNER_PITCH} changes={changesPanel} pullRequest={pullRequestPanel} hidden={splitOn} />
-          {canvasButtonShown && <CanvasButton active={view === "canvas"} onToggle={() => (view === "canvas" ? setView("chat") : openCanvas())} />}
+          {canvasButtonShown && (
+            <CanvasButton active={view === "canvas"} hidden={splitOn} onToggle={() => (view === "canvas" ? setView("chat") : openCanvas())} />
+          )}
           <div
             className={`flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink ${appEntered ? "" : "app-enter"}`}
             onAnimationEnd={(event) => {
@@ -2636,7 +2638,7 @@ function App() {
                     onTogglePin={toggleGridPin}
                     onClose={splitOn ? closeSplitTile : undefined}
                     menu={splitOn ? tileMenu : undefined}
-                    panelMenu={<PanelMenu changes={changesPanel} pullRequest={pullRequestPanel} />}
+                    panelMenu={<PanelMenu changes={changesPanel} pullRequest={pullRequestPanel} onCanvas={openCanvas} />}
                     onStop={stopTileRun}
                   >
                     <EditorLinks
