@@ -144,6 +144,9 @@ class CodexSession {
     tldrEnabled = true,
     sharedLink = false,
     analysisOnly = false,
+    sideChat = false,
+    forkSession = false,
+    ephemeral = false,
     executionAdvisor = false,
     linked = null,
     mcpExtras = null,
@@ -162,6 +165,9 @@ class CodexSession {
       tldrEnabled,
       sharedLink,
       analysisOnly,
+      sideChat,
+      forkSession,
+      ephemeral,
       executionAdvisor,
       linked,
       mcpExtras,
@@ -169,7 +175,7 @@ class CodexSession {
       interruptGraceMs,
       createRpc,
     });
-    this.state = { threadId: resumeId ?? null, turnId: null, lastItemId: null, hasText: false, steps: new Set() };
+    this.state = { threadId: forkSession ? null : (resumeId ?? null), turnId: null, lastItemId: null, hasText: false, steps: new Set() };
     this.rpc = null;
     this.starting = null;
     this.turnActive = false;
@@ -352,7 +358,13 @@ class CodexSession {
       ...(this.analysisOnly ? { environments: [] } : {}),
       config,
     };
-    const thread = this.resumeId ? await this.resume(threadParams) : (await this.requestThread("thread/start", threadParams)).thread;
+    const startParams = { ...threadParams, ...(this.ephemeral ? { ephemeral: true } : {}) };
+    const thread = this.resumeId
+      ? this.forkSession
+        ? await this.fork(startParams)
+        : await this.resume(threadParams)
+      : (await this.requestThread("thread/start", startParams)).thread;
+    this.forkSession = false;
     if (thread?.id && thread.id !== this.state.threadId) {
       this.state.threadId = thread.id;
       this.emit({ type: "session-started", nativeId: thread.id });
@@ -410,6 +422,10 @@ class CodexSession {
         throw Object.assign(new Error(RESUME_FAILED_MESSAGE), { resumeFailed: true });
       }
     }
+  }
+
+  async fork(threadParams) {
+    return (await this.requestThread("thread/fork", { ...threadParams, threadId: this.resumeId, excludeTurns: true })).thread;
   }
 
   handleNotification(method, params) {

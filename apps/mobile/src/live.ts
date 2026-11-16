@@ -1,5 +1,6 @@
-export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "token-usage" | "keybindings" | "pulls";
+export type LiveSignal = "btw" | "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "token-usage" | "keybindings" | "pulls";
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
+  type === "btw" ||
   type === "runs" ||
   type === "project" ||
   type === "accounts" ||

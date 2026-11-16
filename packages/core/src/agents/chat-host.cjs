@@ -1,3 +1,5 @@
+const { withoutDraft, sentMessage } = require("./chat-session-state.cjs");
+const { forkChat, freshChatBrief } = require("./chat-fork.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -55,16 +57,6 @@ const resumePrompt = (questions = []) =>
 
 const LIMIT_PROMPT =
   "Your last turn stopped because the account hit its plan's usage limit, and Milagre switched this chat to another account. Continue where you left off; if the last request has no answer yet, answer it now. Check what is already done before repeating any of it.";
-
-const withoutDraft = ({
-  handoverDraft: _handoverDraft,
-  resumeTurn: _resumeTurn,
-  limitResume: _limitResume,
-  limitTurn: _limitTurn,
-  suggestion: _suggestion,
-  suggestionTurnId: _suggestionTurn,
-  ...rest
-}) => rest;
 
 const withLead = (lead, prompt) => [lead, prompt].filter((part) => part?.trim()).join("\n\n");
 
@@ -137,6 +129,7 @@ function starterChat(latest, worktree) {
       !item.handoverPending &&
       item.handoverDraft === undefined &&
       !item.routine &&
+      !item.forkedFrom &&
       !hasMessages(latest, item),
   );
   if (existing) return { state: latest, session: existing };
@@ -345,6 +338,15 @@ class ChatHost {
     return sessionId;
   }
 
+  forkChat(projectPath, sessionId, options) {
+    return forkChat(this, projectPath, sessionId, options);
+  }
+
+  /**
+   * Names a Run's Chat from what the Run did: saves `generatedTitle` while the Chat is still `runId`'s (its `routine`) and
+   * has no title of its own, so a name the user gave it, or a Linear Run's issue title, always wins. Resolves true when
+   * it saved.
+   */
   async nameRunChat(projectPath, sessionId, runId, generatedTitle) {
     let named = false;
     const { state, changed } = await this.states.update(
@@ -1009,21 +1011,20 @@ class ChatHost {
           runProvider = session.provider ?? provider;
           runModel = this.runs[chatId]?.model || lastUserModel(withSession, session.id) || model;
         }
+        brief = freshChatBrief(withSession, session, { steering, handoff, firstMessage, brief });
         const next = withSession;
         originalSession = beforeQueue;
         if (handoff) dividerId = next.next_id;
-        const message = {
+        const message = sentMessage({
           id: handoff ? next.next_id + 1 : next.next_id,
-          session_id: session.id,
+          sessionId: session.id,
           body,
           images: storedImages,
-          ...(files.length ? { files } : {}),
-          ...(brief !== undefined ? { handoverBrief: brief } : {}),
-          context: request.context ?? null,
-          ...(request.operationId ? { operationId: request.operationId } : {}),
-          role: "user",
+          files,
+          brief,
+          request,
           model: runModel,
-        };
+        });
         pendingId = message.id;
         if (typeof request.clientMessageId === "string") message.clientMessageId = request.clientMessageId;
         if (compaction) {

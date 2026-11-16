@@ -69,6 +69,11 @@ test("a computer's events and results come back naming it", () => {
     chatId: `${ID}|/p#2`,
     event: { type: "turn-started" },
   });
+  assert.deepEqual(qualifyEvent(ID, "chat:btw-event", { chatId: "/p#2", btw: { chatId: "/p#2", text: "Answer" } }), {
+    chatId: `${ID}|/p#2`,
+    btw: { chatId: `${ID}|/p#2`, text: "Answer" },
+  });
+  assert.deepEqual(qualifyResult(ID, "chat:btw-read", { chatId: "/p#2", text: "Answer" }), { chatId: `${ID}|/p#2`, text: "Answer" });
   assert.deepEqual(qualifyEvent(ID, "terminal:changed", { chatId: "/p#2" }), { chatId: `${ID}|/p#2` });
   assert.deepEqual(qualifyEvent(ID, "worktree:renamed", { projectPath: "/p", path: "/w", from: "a", name: "b" }), {
     projectPath: `${ID}|/p`,

@@ -1,3 +1,4 @@
+import { COMMANDS, UNDO_COMMAND } from "./composer/prompt-commands";
 import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
@@ -36,7 +37,6 @@ import { DictationNotice } from "./DictationNotice";
 import { DownloadRing, DroppingArrow } from "./DownloadRing";
 import Tooltip from "./primitives/Tooltip";
 import { SpinnerRing } from "./primitives/SpinnerRing";
-import { STORAGE_COMMAND, STORAGE_COMMAND_HINT } from "@milagre/shared/storage";
 import { useDictationTake } from "./composer/use-dictation-take";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
@@ -46,24 +46,6 @@ function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
 }
 
 type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number; computer?: string };
-
-const UNDO_COMMAND = {
-  key: "undo",
-  name: "/undo",
-  desc: "Undo a task's file changes",
-};
-
-const COMMANDS = [
-  { key: STORAGE_COMMAND, name: `/${STORAGE_COMMAND}`, desc: STORAGE_COMMAND_HINT },
-  { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
-  {
-    key: "blockers",
-    name: "/blockers",
-    desc: "Find blockers across worktrees",
-  },
-  { key: "plan", name: "/plan", desc: "Draft the next steps" },
-  { key: "review", name: "/review", desc: "Review the current agent output" },
-];
 
 interface PromptComposerProps {
   offlineName?: string | null;

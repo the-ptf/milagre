@@ -1,3 +1,6 @@
+import { TranscriptDivider } from "./ui";
+import { GitForkIcon } from "@hugeicons/core-free-icons";
+import { MessageToolbar } from "./message-toolbar";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
@@ -269,41 +272,7 @@ function openMention(path: string, attached: string[], root: string) {
 
 export type ReplyChat = Pick<MentionChat, "id" | "title" | "available">;
 const NO_MENTION_CHATS: readonly ReplyChat[] = [];
-export const ChatReply = memo(function ChatReply({
-  chats = NO_MENTION_CHATS,
-  message,
-  run,
-  onActivity,
-  media,
-  basePath,
-  chatId,
-  designChoice,
-  designsMoved,
-  limitProjectPath,
-  limitPending,
-  limitResumeBlocked,
-  limitResumeAvailable,
-  highlighted = false,
-  onOpenChat,
-}: {
-  chats?: readonly ReplyChat[];
-  message?: ChatMessage;
-  onOpenChat?: (chatKey: string) => void;
-  highlighted?: boolean;
-  run?: AgentRun;
-  onActivity: (message: string, stepId?: string) => void;
-  media: MediaSource;
-  basePath?: string;
-  chatId?: string;
-  designChoice?: string;
-  designsMoved?: number;
-  limitProjectPath?: string;
-  limitPending?: LimitResume;
-  limitResumeBlocked?: boolean;
-  limitResumeAvailable?: boolean;
-}) {
-  const { colors, textPx } = useTheme();
-  const styles = useStyles();
+function useUserPrompt(message: ChatMessage | undefined, run: AgentRun | undefined, basePath: string | undefined, chats: readonly ReplyChat[]) {
   const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
   const userQuoted = useMemo(() => splitQuotes(message?.role === "user" ? (run?.text ?? message.body ?? "") : ""), [message?.role, run?.text, message?.body]);
   const userText = userQuoted.text;
@@ -320,6 +289,47 @@ export const ChatReply = memo(function ChatReply({
       }),
     [userText, skillNames, userFiles, basePath, userImages, chats],
   );
+  return { userQuoted, userText, userImages, userParts };
+}
+
+export const ChatReply = memo(function ChatReply({
+  chats = NO_MENTION_CHATS,
+  message,
+  run,
+  onActivity,
+  media,
+  basePath,
+  chatId,
+  designChoice,
+  designsMoved,
+  limitProjectPath,
+  limitPending,
+  limitResumeBlocked,
+  limitResumeAvailable,
+  highlighted = false,
+  onOpenChat,
+  onFork,
+}: {
+  chats?: readonly ReplyChat[];
+  message?: ChatMessage;
+  onOpenChat?: (chatKey: string) => void;
+  onFork?: (messageId: number) => void;
+  highlighted?: boolean;
+  run?: AgentRun;
+  onActivity: (message: string, stepId?: string) => void;
+  media: MediaSource;
+  basePath?: string;
+  chatId?: string;
+  designChoice?: string;
+  designsMoved?: number;
+  limitProjectPath?: string;
+  limitPending?: LimitResume;
+  limitResumeBlocked?: boolean;
+  limitResumeAvailable?: boolean;
+}) {
+  const { colors, textPx } = useTheme();
+  const styles = useStyles();
+  const { userQuoted, userText, userImages, userParts } = useUserPrompt(message, run, basePath, chats);
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = (stepId?: string) => onActivity(message ? String(message.id) : "run", stepId);
@@ -336,6 +346,10 @@ export const ChatReply = memo(function ChatReply({
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   const linked = linkedContext(message);
+  if (typeof message?.context === "object" && message.context?.kind === "chat-fork") {
+    const context = message.context;
+    return <TranscriptDivider icon={GitForkIcon} label={`Forked from ${context.title}`} onPress={() => onOpenChat?.(context.from)} />;
+  }
   if (advisor)
     return (
       <View style={{ paddingVertical: 8 }}>
@@ -454,6 +468,7 @@ export const ChatReply = memo(function ChatReply({
             </MessageActions>
           )
         )}
+        <MessageToolbar text={userText} message={message} onFork={onFork} align="end" />
       </View>
     );
   }
@@ -528,6 +543,7 @@ export const ChatReply = memo(function ChatReply({
           }
         </MessageActions>
       )}
+      <MessageToolbar text={reply.answer} message={message} run={run} onFork={onFork} />
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}

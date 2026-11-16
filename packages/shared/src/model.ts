@@ -223,6 +223,7 @@ export interface AgentSession {
    * so its card would otherwise stay answerable forever (subchat-escalation.cjs in core).
    */
   openSuggestions?: { id: string; fromTitle: string }[];
+  forkedFrom?: { sessionId: number; messageId?: number };
 }
 
 /**
@@ -748,6 +749,7 @@ export type CheckpointRestoreContext = {
 };
 
 export type ChatContext =
+  | { kind: "chat-fork"; from: string; title: string; messageId?: number }
   | AdvisorResultContext
   | WorktreeLinkedContext
   | LinkedContext
@@ -1282,14 +1284,6 @@ export interface TranscriptState {
 }
 export type LinkSendRequest = Omit<ChatSendRequest, "projectPath" | "worktreeId"> & { linkId: string; operationId: string };
 
-export type ProjectAccountScope = {
-  key: string;
-  name: string;
-  kind: "project" | "link";
-  projects: { id: string; path: string; name: string }[];
-  chatsHome?: true;
-};
-export type ProjectAccountsSnapshot = {
-  scopeKey: string;
-  providers: { provider: ModelProvider; accountId: string | null; effectiveId: string; defaultId: string; accounts: ProviderAccount[] }[];
-};
+export type { ProjectAccountScope, ProjectAccountsSnapshot } from "./account-model.js";
+
+export type { BtwState, BtwRequest } from "./btw.js";

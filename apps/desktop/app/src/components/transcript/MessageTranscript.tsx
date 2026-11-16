@@ -81,12 +81,14 @@ export const MessageTranscript = memo(function MessageTranscript({
   undoable,
   undoBlocked = false,
   onUndo,
+  onFork,
   highlightId = null,
   onCheckpointPreview,
 }: {
   undoable?: Map<number, { id: string; latest: boolean }>;
   undoBlocked?: boolean;
   onUndo?: (checkpointId: string) => void;
+  onFork?: (messageId: number) => void;
   highlightId?: number | null;
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
 } & Pick<
@@ -286,6 +288,7 @@ export const MessageTranscript = memo(function MessageTranscript({
               undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
               undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
               onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
+              onFork={message.id > 0 && message !== streamingMessage ? onFork : undefined}
               highlighted={message.id === highlightId}
               onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
             />

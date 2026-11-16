@@ -1268,6 +1268,11 @@ test("a live socket signals runs and state changes of its Project only, and /run
   assert.equal(mine.messages[3], "project");
   assert.ok(Date.now() - started < 400, "a turn's end is not held back like other Project changes");
   assert.deepEqual((await (await request("/runs?projectPath=" + encodeURIComponent(project))).json()).result.runs, {});
+  assert.equal((await rpc("chat:btw", [{ chatId: `${project}#${chat}`, prompt: "A side question", provider: "codex", model: "m" }])).status, 200);
+  await until(() => mine.messages.includes("btw"));
+  assert.equal(theirs.messages.includes("btw"), false);
+  await rpc("chat:btw-stop", [`${project}#${chat}`, { clear: true }]);
+  assert.deepEqual((await (await request("/runs?projectPath=" + encodeURIComponent(project))).json()).result.runs, {});
 });
 
 test("live sockets are pinged, capped, and the oldest gives way to a new one", async (t) => {

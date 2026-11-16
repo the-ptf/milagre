@@ -40,6 +40,7 @@ function createLocalMcpWiring({
 }) {
   const designAdapter = path.join(__dirname, "..", "design-mcp-tools.cjs");
   const localMcpHost = require("../local-mcp-host.cjs").createLocalMcpHost({
+    invoke: (channel, args) => handlers.get(channel)(null, ...args),
     projects: async () => [...withoutHomes(await projectRegistry().list()), ...(await chatsHomeEntries())],
     readProject,
     scopeStates,
