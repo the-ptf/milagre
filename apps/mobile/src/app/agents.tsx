@@ -13,10 +13,6 @@ import { CircleButton, EmptyState, ErrorNotice, IconButton, ListRow, PageScroll,
 import { useTheme } from "../theme";
 import { lineHeight, type } from "../design-tokens";
 
-/**
- * The Chat's subagents, like desktop's subagent popover: each row says what the subagent does now and how far it got;
- * tapping one shows its plan, task and outcome in the same sheet.
- */
 export default function AgentsSheet() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -36,7 +32,6 @@ export default function AgentsSheet() {
   const running = visible.filter(subagentRunning).length;
   const done = visible.filter(subagentFinished).length;
   const now = useClock(visible.some(subagentRunning));
-  // The QA fleet's personas come first, under their own header, as on desktop.
   const { fleet, others } = qaFleetFirst(visible);
 
   async function control(action: "stop" | "retry", agentId: string) {
@@ -150,7 +145,6 @@ export default function AgentsSheet() {
               }}
             >
               <SubagentRow agent={agent} provider={provider} now={now} onPress={() => setSelected(agent.id)} />
-              {/* As on desktop, an advisor's Stop or Retry stays on its row. */}
               {advisorAction(agent) && (
                 <IconButton
                   label={`${advisorAction(agent) === "stop" ? "Stop" : "Retry"} ${agent.title}`}

@@ -33,7 +33,6 @@ function Dots({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** A downloaded model's … menu: its one action frees the space it takes. */
 function confirmDelete(model: WhisperModel) {
   const title = `Delete download · ${megabytes(model.size)} MB`;
   const remove = () => void deleteWhisperModel(model.id);
@@ -109,7 +108,6 @@ function ModelRow({ model, state, selected, onPick }: { model: WhisperModel; sta
   );
 }
 
-/** Settings › Chat › Dictation › Speech model: the Whisper models this phone can run. Picking one uses it and downloads it. */
 export default function DictationModelScreen() {
   const styles = useStyles();
   const { colors } = useTheme();

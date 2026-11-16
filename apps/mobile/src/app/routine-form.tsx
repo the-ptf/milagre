@@ -124,7 +124,6 @@ function timezones(): string[] {
   }
   return zoneList;
 }
-/** A searchable picker's trigger: VoiceOver reads the row as "label: value", as it shows. */
 const shows = (value: string, disabled = false) => ({ systemImage: "chevron.right", title: value, disabled });
 const daysText = (days: number[]) => {
   if (days.length === 7) return "Every day";
@@ -136,12 +135,6 @@ const dateText = (at: number) => {
   return `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getMonth()]} ${date.getDate()}`;
 };
 
-/**
- * The New Routine sheet (and Edit, with `id`), the phone's side of desktop's in-place form: the name, how it starts (new
- * only), its settings as rows (the schedule or event, where each Run lands, the model and mode), the prompt, Stop after,
- * and Delete Routine at the bottom of Edit. Small fixed choices are pull-downs; Projects, Chats, teams, labels, states and
- * models open the searchable choice sheet.
- */
 export default function RoutineFormSheet() {
   const params = useLocalSearchParams<{ id?: string }>();
   const styles = useStyles();
@@ -150,7 +143,6 @@ export default function RoutineFormSheet() {
   const session = useSession();
   const { client } = session;
   const routines = useRoutines(client);
-  // A webhook Routine just created stays open on its URL, so it can be copied; from then on the sheet edits it.
   const [createdId, setCreatedId] = useState("");
   const id = params.id || createdId;
   const routine = id ? routines.routines.find((item) => item.id === id) : undefined;
@@ -162,10 +154,8 @@ export default function RoutineFormSheet() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [footerHeight, setFooterHeight] = useState(0);
-  // Whether the user changed anything (reads the sheet fills in itself don't count): closing it then asks to discard.
   const [dirty, setDirty] = useState(false);
   const [closing, setClosing] = useState(false);
-  // A new Routine runs one prompt or a flow of steps; an existing one keeps what it is.
   const [kind, setKind] = useState<"prompt" | "flow">("prompt");
   usePreventRemove(dirty && !closing, ({ repeat }) =>
     Alert.alert("Discard changes?", "Your changes to this Routine will not be saved.", [
@@ -173,7 +163,6 @@ export default function RoutineFormSheet() {
       {
         text: "Discard",
         style: "destructive",
-        // repeat() lifts the prevention before dispatching; dispatching the action again would be blocked again.
         onPress: () => {
           setClosing(true);
           repeat();
@@ -181,18 +170,15 @@ export default function RoutineFormSheet() {
       },
     ]),
   );
-  // Leaves after a save or a delete, which have nothing left to discard.
   const leave = () => {
     setClosing(true);
     setTimeout(() => router.back(), 0);
   };
-  // Editing starts from the stored Routine once the list has it.
   if (routine && loadedFor !== routine.id && !createdId) {
     setLoadedFor(routine.id);
     setForm(formFromRoutine(routine, deviceTimezone(), now));
   }
   const editing = !!routine;
-  // A flow's steps carry their prompts, models and modes: the form edits only how it starts and where it works.
   const flow = routine ? !!routine.flow : kind === "flow";
   const targets = useRpc<Targets>(client, "routines:targets", []).data;
   const linearOptions = useRpc<LinearOptions>(form.trigger === "linear" ? client : null, "routines:linear-options", [
@@ -200,18 +186,14 @@ export default function RoutineFormSheet() {
   ]).data;
   const hook = useRpc<Hook>(routine?.trigger.kind === "webhook" && client ? client : null, "routines:hook", [routine?.id ?? ""]);
   const url = hookUrl || hook.data?.url || "";
-  // The first workspace stands in until one is picked, so a single-workspace Mac never asks.
   const withWorkspace: RoutineFormState =
     form.trigger === "linear" && !form.linear.workspace && linearOptions?.workspaces[0]
       ? { ...form, linear: { ...form.linear, workspace: linearOptions.workspaces[0].id } }
       : form;
-  // A comment Routine's Runs go into the Chat linked to the issue, so the form asks for no Project or Each Run. The Mac
-  // still keeps a listed Project on it: the one open on the phone, else the first listed, filled in without showing it.
   const commentRoutine = isCommentRoutine(form);
   const currentProject = targets?.projects.find((item) => item.path === session.snapshot?.project.path)?.path ?? targets?.projects[0]?.path ?? "";
   const resolved: RoutineFormState =
     commentRoutine && !withWorkspace.projectPath && currentProject ? { ...withWorkspace, projectPath: currentProject } : withWorkspace;
-  // The signing header is read with the URL; it fills the form once, so switching signing off doesn't bring it back.
   const [headerFor, setHeaderFor] = useState("");
   if (hook.data && routine && loadedFor === routine.id && headerFor !== routine.id) {
     setHeaderFor(routine.id);
@@ -230,7 +212,6 @@ export default function RoutineFormSheet() {
   async function save() {
     if (!client || saving) return;
     setError("");
-    // A flow has no prompt of its own; the form's check for one is passed with a stand-in, and the stand-in is dropped.
     const checked = flow ? { ...resolved, prompt: resolved.prompt.trim() || "Flow" } : resolved;
     const made = routine ? formToUpdate(checked, routine, Date.now()) : formToInput(checked, Date.now());
     if (made.field) {
@@ -245,7 +226,6 @@ export default function RoutineFormSheet() {
         await routines.refresh();
         leave();
       } else if ("input" in made && made.input) {
-        // A flow starts as a draft with no steps: it stays off until its first revision is published.
         const input = flow ? { ...made.input, prompt: "", flow: { steps: [], publish: false } } : made.input;
         const result = await client.call<{ routine?: { id: string }; id?: string; hookUrl?: string }>("routines:create", [input]);
         await routines.refresh();
@@ -254,11 +234,9 @@ export default function RoutineFormSheet() {
           setCreatedId(result.routine?.id ?? result.id ?? "");
           setLoadedFor(result.routine?.id ?? result.id ?? "");
           setHookUrl(result.hookUrl);
-          // Saved: from here the sheet edits the new Routine, with nothing to discard yet.
           setDirty(false);
         } else {
           leave();
-          // A new flow opens on its empty Steps tab, once the sheet has gone.
           if (createdFlow) setTimeout(() => router.push({ pathname: "/routine", params: { id: createdFlow, tab: "steps" } }), 400);
         }
       }
@@ -274,7 +252,6 @@ export default function RoutineFormSheet() {
     try {
       if (!(await confirm(`Delete ${routine.name}?`, deleteWarning(routine), "Delete"))) return;
       await client.call("routines:delete", [routine.id]);
-      // The Routine's screen behind the sheet sees it gone and leaves too.
       leave();
       await routines.refresh();
     } catch (failure) {
@@ -299,7 +276,6 @@ export default function RoutineFormSheet() {
   const models = providers.flatMap((provider) => modelsFor(provider, session.models).map((model) => ({ ...model, provider })));
   const model = models.find((item) => item.provider === form.provider && item.id === form.model);
   const mode = PERMISSION_MODES.find((item) => item.id === form.permissionMode);
-  // The model a failed Run retries on, and its effort; automatic when none is picked (see fallbackApplies).
   const fallbackModel = models.find((item) => item.provider === form.fallbackProvider && item.id === form.fallbackModel);
   const fallbackName = fallbackModel?.name ?? (form.fallbackModel || "Another provider");
   const fallbackEfforts = fallbackModel?.efforts ?? [];
@@ -316,7 +292,6 @@ export default function RoutineFormSheet() {
   const team = linearOptions?.teams.find((item) => item.key === form.linear.team);
   const teamText = team ? `${team.key} · ${team.name}` : form.linear.team || "Any team";
   const heartbeat = form.runIn === "chat";
-  // A webhook checks an HMAC once signing is switched on (or a secret is typed); off clears the header and secret.
   const signed = form.webhook.signed === true || !!form.webhook.signingSecret.trim();
   const title = editing
     ? createdId
@@ -332,10 +307,8 @@ export default function RoutineFormSheet() {
 
   return (
     // Keep the form and its footer inside one native view. Flattening this root makes iOS treat its background as a
-    // full-height header beside the scroll view, leaving the fields with zero height (as in model-sheet.tsx).
     <View collapsable={false} style={styles.screen}>
       <Stack.Screen options={{ headerShown: false }} />
-      {/* A form sheet sizes its first scroll view to the sheet, so the header is its sticky first child (as in mcp-add.tsx). */}
       <PageScroll
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: footerHeight }}
@@ -354,7 +327,6 @@ export default function RoutineFormSheet() {
             </Text>
           ) : null}
           {routines.enabled === false ? <Text style={styles.caption}>{"Your computer can't run Routines yet. Saving this one allows it."}</Text> : null}
-          {/* The pencil sits inside the Field's edge, so focus outlines icon and text together. */}
           <Field
             label="Name"
             hideLabel
@@ -379,7 +351,6 @@ export default function RoutineFormSheet() {
                     setDirty(true);
                     setProblem(null);
                     setKind(item.id);
-                    // A flow starts a Chat of its own for each Run, so it can't check back on an existing Chat.
                     if (item.id === "flow" && form.runIn === "chat") setForm((current) => withRunIn(current, "worktree", Date.now()));
                   }}
                 />
@@ -388,7 +359,6 @@ export default function RoutineFormSheet() {
           )}
 
           {editing ? null : <SectionLabel>Starts</SectionLabel>}
-          {/* A Routine's trigger kind can't change, so Edit shows only its rows. */}
           <View style={{ display: editing ? "none" : "flex" }}>
             <Group role="radiogroup" accessibilityLabel="Starts">
               {TRIGGERS.map((item) => {
@@ -648,7 +618,6 @@ export default function RoutineFormSheet() {
                     label="Signing secret"
                     hideLabel
                     secureTextEntry
-                    // A stored secret never comes back; a new one replaces it.
                     placeholder={routine?.trigger.kind === "webhook" && routine.trigger.signed ? "Saved" : "Required"}
                     value={form.webhook.signingSecret}
                     onChangeText={(signingSecret) => change({ webhook: { ...form.webhook, signingSecret } })}
@@ -684,7 +653,6 @@ export default function RoutineFormSheet() {
                       id: item.id,
                       title: item.title,
                       checked: item.id === form.runIn,
-                      // Only a schedule checks back on a Chat; an edit can't move Runs between a Chat and new Chats.
                       disabled: (item.id === "chat" && (form.trigger !== "schedule" || flow)) || (editing && (item.id === "chat") !== heartbeat),
                     })),
                   },
@@ -771,7 +739,6 @@ export default function RoutineFormSheet() {
                     const provider = choice.slice(0, split) as ModelProvider;
                     const modelId = choice.slice(split + 1);
                     const efforts = models.find((item) => item.provider === provider && item.id === modelId)?.efforts ?? [];
-                    // Another model drops an effort it doesn't take.
                     change({
                       fallbackProvider: provider,
                       fallbackModel: modelId,
@@ -853,7 +820,6 @@ export default function RoutineFormSheet() {
               sections={[
                 {
                   items: [
-                    // A Heartbeat always ends.
                     { id: "never", title: "Never", checked: form.stop.kind === "never", disabled: heartbeat },
                     { id: "runs", title: "A number of Runs", checked: form.stop.kind === "runs" },
                     { id: "date", title: "A date", checked: form.stop.kind === "date" },
@@ -936,7 +902,6 @@ export default function RoutineFormSheet() {
   );
 }
 
-/** The Project a Chat key belongs to: the part before its `#`. */
 function chatProject(chatId: string, projects: Targets["projects"]) {
   return projects.find((item) => item.chats.some((chat) => chat.chatId === chatId))?.path ?? chatId.slice(0, chatId.lastIndexOf("#"));
 }
@@ -944,12 +909,10 @@ function chatProject(chatId: string, projects: Targets["projects"]) {
 const inlineField = (colors: ReturnType<typeof useTheme>["colors"]) =>
   ({ color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 120, fontSize: type.body }) as const;
 
-/** A card of rows split by hairlines: the shared Group, taking conditional children. */
 function Card({ children }: { children: React.ReactNode }) {
   return <Group>{Children.toArray(children)}</Group>;
 }
 
-/** One setting, a ListRow: its icon and name, then its value (ink3) and a chevron, or an inline input in place of both. */
 function FormRow({
   icon,
   label,
@@ -960,7 +923,6 @@ function FormRow({
   icon: IconData;
   label: string;
   value?: string;
-  /** Shown, not chosen: no chevron. */
   readOnly?: boolean;
   children?: React.ReactNode;
 }) {
@@ -975,7 +937,6 @@ function FormRow({
   );
 }
 
-/** A field's problem, under the card it belongs to. */
 function Problem({ text }: { text: string }) {
   return <InlineError message={text} />;
 }

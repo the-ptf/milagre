@@ -6,10 +6,6 @@ import { useTheme } from "../../theme";
 
 const closeButton = () => <HeaderButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />;
 
-/**
- * The PR sheet: one bottom sheet over the Chat with a Stack of its own, as Settings is, so comments, a diff or a picker
- * slide in inside it, back pops them, and a swipe down closes the whole sheet.
- */
 export default function PullRequestLayout() {
   const { colors } = useTheme();
   return (

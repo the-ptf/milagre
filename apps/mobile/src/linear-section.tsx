@@ -15,13 +15,9 @@ import { useFocusEffect } from "expo-router";
 import { useSession } from "./session";
 import { InlineError, Toggle, useStyles } from "./ui";
 
-/** Settings › Connections › Linear: the connected Mac's Linear switch and workspaces, like desktop's Connections section. Only the Mac connects. */
 export function LinearSection() {
   const styles = useStyles();
   const session = useSession();
-  // The Mac's Linear switch and connection; null until the Mac answers (an older Mac never does). Re-read on focus:
-  // the phone gets no event when the Mac connects or disconnects.
-  // `moveToStarted` is on when a Mac that predates the switch sends none.
   const [linear, setLinear] = useState<{
     enabled: boolean;
     moveToStarted: boolean;
@@ -34,7 +30,6 @@ export function LinearSection() {
       if (!client) return;
       let live = true;
       Promise.all([client.call<{ enabled: boolean; moveToStarted?: boolean }>("linear:enabled:read", []), client.call<LinearStatus>("linear:status", [])]).then(
-        // An older Mac answers null for commands it lacks: no Linear card.
         ([value, status]) =>
           live &&
           setLinear(

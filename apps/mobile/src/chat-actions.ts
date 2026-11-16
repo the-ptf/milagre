@@ -15,22 +15,15 @@ import { promptText } from "./text-prompt";
  * section (chat-links.ts `linkMenuSection`), which goes after the pins when the Chat can be linked. `beside` leads with
  * "Open beside", which a wide iPad offers for another Chat on a computer that answers (split-chats.ts).
  */
-/**
- * `project` false: a Chat without a Project, whose Worktree is the Chats home's own, internal to Milagre: no path or
- * branch to copy.
- */
 export function chatMenu(
   chat: AgentSession,
   worktree?: { path?: string; name?: string },
   links?: MenuSection | null,
   beside = false,
   project = true,
-  /** The Chat's Mac keeps Done; an older one gets no Mark Done or Reopen. */
   doneable = true,
-  /** This phone's default snooze in minutes (snooze-setting.ts); without it the menu offers no Snooze. */
   snoozeMinutes?: number,
 ): MenuSection[] {
-  // Snooze came after Done, so a Mac too old for Done has no Snooze either.
   const snooze = doneable && snoozeMinutes !== undefined ? snoozeMenuSection(chat, snoozeMinutes) : null;
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
@@ -50,7 +43,6 @@ export function chatMenu(
         chat.unread ? { id: "read", title: "Mark as read", systemImage: "checkmark" } : { id: "unread", title: "Mark as unread", systemImage: "circle" },
       ],
     },
-    // Desktop drags pinned chats into order; here they move one place at a time.
     {
       items: chat.pinned
         ? [
@@ -61,7 +53,6 @@ export function chatMenu(
         : [{ id: "pin", title: "Pin", systemImage: "pin" }],
     },
     ...(links ? [links] : []),
-    // A subchat, nested under the Chat that delegated to it: desktop's "Detach from parent".
     ...(chat.parent !== undefined && !chat.archived ? [{ items: [{ id: "detach", title: "Detach from parent", systemImage: "minus.circle" }] }] : []),
     ...(snooze ? [snooze] : []),
     {
@@ -79,10 +70,6 @@ export function chatMenu(
   ];
 }
 
-/**
- * Runs a choice from `chatMenu` against the Chat's Project. Delete acts immediately and stops a running Chat. `onConfirm` runs once the archive goes ahead: a screen showing
- * the Chat leaves then, not when the archive ends, by which time the phone may be somewhere else.
- */
 export async function runChatAction({
   action,
   chat,
@@ -106,14 +93,8 @@ export async function runChatAction({
   projectPath: string;
   state: ArchiveRequest["state"];
   link?: OpenLink;
-  /** The Chat has no Project. */
   chatsHome?: boolean;
-  /** The Computer the Chat is on, so its deletion hides and undoes only its own row. */
   hostId?: string;
-  /**
-   * This phone's pins on the Chat's computer and how to change one (chat-pins-store.ts). Pins stay on the phone, so
-   * without them a pin choice does nothing.
-   */
   pins?: { saved: DevicePins; set: (sessions: AgentSession[], id: number, order: number | null) => Promise<void> };
   onConfirm?: () => void;
   refresh: () => Promise<unknown>;
@@ -160,14 +141,11 @@ export async function runChatAction({
     const mine = Object.values(sessionsWithPins(state.sessions, projectPath, pins.saved));
     const patch = pinPatch(action, mine.find((session) => session.id === chat.id) ?? chat, mine);
     if (patch) await pins.set(Object.values(state.sessions), chat.id, patch.pinned ? (patch.pin_order ?? 0) : null);
-    // Pinning a hidden Run Chat is still the user taking it over, which its computer keeps (runtime.cjs chat:patch).
     if (action === "pin" && keepsOnPin(chat)) await client.call("chat:patch", [projectPath, chat.id, { kept: true }]).catch(() => {});
   }
   if (action === "read" || action === "unread") await client.call("chat:patch", [projectPath, chat.id, { unread: action === "unread" }]);
-  // The Mac stamps when it went Done, so the countdown follows its clock, not the phone's.
   if (action === "done") await client.call("chat:patch", [projectPath, chat.id, { done: true, unread: false }]);
   if (action === "reopen") await client.call("chat:patch", [projectPath, chat.id, { done: false }]);
-  // A settled Snooze ("snooze-at:<ms>", snooze-actions.ts) or a Wake. The computer wakes it at that time on its own.
   const snooze = snoozePatch(action);
   if (snooze) await client.call("chat:patch", [projectPath, chat.id, snooze]);
   if (action === "detach") notify(await client.call<string>("chat:detach", [projectPath, chat.id]));

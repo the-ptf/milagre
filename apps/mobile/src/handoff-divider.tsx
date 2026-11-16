@@ -7,7 +7,6 @@ import { lineHeight, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { TranscriptDivider } from "./ui";
 
-/** A provider switch inside the Chat, as on desktop. Tapping it opens the brief the new provider was sent. */
 export function HandoffDivider({
   context,
   models,

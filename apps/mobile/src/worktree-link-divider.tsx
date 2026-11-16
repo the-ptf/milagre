@@ -9,7 +9,6 @@ import { TranscriptDivider } from "./primitives/transcript-divider";
 import { ProjectIcon } from "./project-icon";
 import { fonts, useTheme } from "./theme";
 
-/** A Link on the canvas that reached this Chat, as on desktop. Tapping it opens the linked summary the Chat's next turn gets. */
 export function WorktreeLinkDivider({
   context,
   client,

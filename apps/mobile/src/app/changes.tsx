@@ -7,7 +7,6 @@ import { ChangeSections, diffTarget } from "../change-tree";
 import { LinkChangesView } from "../link-changes";
 import { PageScroll, useStyles } from "../ui";
 
-/** Desktop's ChangesPanel as a page; the side panels show the same view over a Chat. */
 export default function Changes() {
   const { worktreeId } = useLocalSearchParams<{ worktreeId: string }>();
   const session = useSession();
@@ -29,7 +28,6 @@ export function ChangesView(props: { worktreeId: number; header?: React.ReactNod
   );
 }
 
-/** The Worktree's changed files as folder trees, not committed then on this branch; a file opens its diff, as a page unless `onOpen` shows it. */
 function ProjectChangesView({ worktreeId, header, onOpen }: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
   const styles = useStyles();
   const session = useSession();

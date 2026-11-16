@@ -23,8 +23,6 @@ export function notificationTarget(value: unknown, hosts: SavedHost[]): Notifica
   const host = hosts.find((host) => host.id === data.hostId);
   return host ? { host, projectPath: data.projectPath, sessionId: Number(data.sessionId), eventId: data.eventId } : null;
 }
-// The routes app/_layout.tsx presents as a sheet or a transparent modal: the Chat they open over stays on screen behind
-// them. A full-screen modal or a pushed page hides it.
 export const SHEETS_OVER_CHAT = new Set([
   "update-sheet",
   "update-notes",
@@ -50,8 +48,6 @@ export const SHEETS_OVER_CHAT = new Set([
   "routine-form",
   "viewer",
 ]);
-// Every page inside the Settings sheet (app/(settings)): the group is one sheet in the layout, so its pages share the
-// sheet's rule. A sheet that opens over the Chat leaves it viewed.
 const SETTINGS_SHEET_PAGES = new Set([
   "settings",
   "computers",
@@ -75,9 +71,7 @@ const SETTINGS_SHEET_PAGES = new Set([
   "project-settings",
   "published-pages",
 ]);
-// Sheets the layout presents over a full-screen page (the designs), which already hides the Chat: they don't keep it viewed.
 export const SHEETS_OVER_PAGES = new Set(["design-share-sheet", "flow-step", "flow-add-step", "flow-publish"]);
-/** The Chat on screen: the one at /chat (`chat`), or the one a sheet opened over (`previous`), while its computer is connected. */
 export function viewedChat(path: string, chat: PushView, previous: PushView, connected: string | undefined): PushView {
   if (path === "/chat") return chat;
   return previous && previous.hostId === connected && (SHEETS_OVER_CHAT.has(path.slice(1)) || SETTINGS_SHEET_PAGES.has(path.slice(1))) ? previous : null;
@@ -110,7 +104,6 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
     const state = await store.read();
     for (const host of state.pending) {
       if (host.forgotten) await forgetHost(host);
-      // Re-pairing can rotate the bridge credential while keeping the same address.
       const current = (await hosts()).find((item) => item.id === host.id) || host;
       try {
         await call(current, "push:unregister", [{ deviceId: state.deviceId }]);
@@ -130,7 +123,6 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
       const removed = forgotten.get(host.id);
       if (removed && removed.token === host.token && removed.lastUsed === host.lastUsed) continue;
       if (state.pending.some((item) => item.id === host.id)) continue;
-      // Save before sending: a timeout can mean the daemon accepted registration but its reply was lost.
       await store.registered(host);
       if (current !== version) return;
       try {
@@ -207,7 +199,6 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
     forget(host: SavedHost) {
       version++;
       forgotten.set(host.id, host);
-      // Secure storage is ordered separately. Local Forget must never wait on a network call.
       return store.forget(host);
     },
     focus(view: PushView) {

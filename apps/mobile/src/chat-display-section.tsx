@@ -23,10 +23,8 @@ import {
 import { CheckRow, ListRow, Toggle, showActions, useStyles } from "./ui";
 import { radius, space } from "./design-tokens";
 
-// What a Chat row can show under its title; the computer is always on the phone's rows.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
 
-/** Settings › Chat: desktop's Chat page, kept on this phone, plus the Mac's Done retention and this phone's Snooze for. Each choice shows a sketch of how it looks. */
 export function ChatDisplaySection() {
   const styles = useStyles();
   const [expandReasoning, setExpandReasoning] = useExpandReasoning();
@@ -91,7 +89,6 @@ export function ChatDisplaySection() {
   );
 }
 
-/** How long a row's "Snooze for" snoozes a Chat. Kept on this phone; the Snooze until choices stay in the row menu. */
 function SnoozeFor() {
   const styles = useStyles();
   const [minutes, setMinutes] = useSnoozeMinutes();
@@ -114,7 +111,6 @@ function SnoozeFor() {
   );
 }
 
-/** Host-kept, like desktop's: a message sent while a turn runs steers it or waits in the queue. */
 function FollowUpSetting() {
   const styles = useStyles();
   const host = useContextSettings();

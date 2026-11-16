@@ -5,7 +5,6 @@ import { SectionLabel } from "../../ui";
 import { PublishedPagesSection } from "../../published-pages-section";
 import { MacFeatureRow } from "../../mac-feature-row";
 
-/** Settings › Phone & sharing: what the connected Mac shares, its published pages and Simlock devices, like desktop's page. */
 export default function PhoneSharingScreen() {
   return (
     <>

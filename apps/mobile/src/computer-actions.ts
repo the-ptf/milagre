@@ -13,7 +13,6 @@ import { promptText } from "./text-prompt";
 
 export type Reachability = "online" | "checking" | "offline";
 
-/** Whether the computer answers right now; a failure of any kind counts as offline. */
 export async function pingComputer(host: SavedHost): Promise<Reachability> {
   try {
     await createClient(host, fetch, 5000, relayRuntime).call("daemon:status");
@@ -23,16 +22,13 @@ export async function pingComputer(host: SavedHost): Promise<Reachability> {
   }
 }
 
-/** Desktops get the monitor icon, laptops the laptop. */
 export const isDesktopComputer = (name: string) => /studio|mini|imac/i.test(name);
 
-/** How the phone reaches the computer: the local network when that route is up, else the relay or the address. */
 export function routeLabel(host: SavedHost, reachability: Reachability): string {
   if (reachability === "online" && lanRoutes.kind(host.id) === "lan") return "Local network";
   return host.relay ? host.relay.url.replace(/^wss:\/\//, "") : host.address.replace(/^https?:\/\//, "");
 }
 
-/** The second line of a computer row: its route while it answers, else when this phone last saw it. */
 export function statusLine(host: SavedHost, reachability: Reachability, now = Date.now()): string {
   if (reachability === "online") return `Connected · ${routeLabel(host, reachability)}`;
   if (reachability === "checking") return "Checking…";
@@ -43,10 +39,6 @@ export function statusLine(host: SavedHost, reachability: Reachability, now = Da
 type Session = Pick<ReturnType<typeof useSession>, "cancelNavigation" | "client" | "disconnect">;
 type Push = Pick<ReturnType<typeof usePush>, "forget">;
 
-/**
- * Asks, then forgets the computer: its push registration and Live Activity end, its saved pairing goes, and so do the
- * relay and local-network routes the phone learned. A computer the phone is connected to is disconnected first.
- */
 export function forgetComputer(
   host: SavedHost,
   { session, push, onForgotten, onError }: { session: Session; push: Push; onForgotten?: () => unknown; onError: (message: string) => void },
@@ -82,7 +74,6 @@ export function forgetComputer(
   ]);
 }
 
-/** Asks for a new name and saves it. */
 export function renameComputer(host: SavedHost, { onRenamed, onError }: { onRenamed?: () => unknown; onError: (message: string) => void }) {
   const save = async (name: string) => {
     try {

@@ -7,12 +7,6 @@ import { tap } from "./tap";
 import { useHover } from "./hover";
 import { pressStyle } from "./press-style";
 
-/**
- * A pill chip: 32pt tall (44 with its hitSlop), 13/18 medium in both states (the fill marks it, so the width holds):
- * ink fill with an onInk label when selected, the surface with a 1px edge and an ink2 label otherwise. With `selected`
- * it's a radio in a `radiogroup` (a checkbox with `multiple`, a tab in a `tablist` with `role="tab"`); without
- * `onPress` it's a static label (a static tag is `Tag`). `leading` takes a dot or a 12/16 icon, `trailing` a dot or a count.
- */
 export function Chip({
   label,
   selected,

@@ -12,7 +12,6 @@ type Native = {
   transcribe(data: ArrayBufferLike, language: string, contextualStrings?: string): Promise<{ segments: { text: string }[] }>;
 };
 
-// The spec file calls `getEnforcing` on import, which logs a red error in dev before it throws when the build lacks the module
 // (Expo Go, a build from before dictation). `get` asks without that, so the spec is only required once the module exists.
 function loadNative(): Native | null {
   if (!TurboModuleRegistry.get("NativeAppleTranscription")) return null;
@@ -20,7 +19,6 @@ function loadNative(): Native | null {
     const spec = require("@react-native-ai/apple/src/NativeAppleTranscription").default as Native;
     return {
       ...spec,
-      // The patched JSI function takes the words as a third argument; the spec's wrapper passes two.
       transcribe: (data, language, contextualStrings = "") =>
         (globalThis as unknown as Record<string, Native["transcribe"]>)["__apple__llm__transcribe__"]!(data, language, contextualStrings),
     };

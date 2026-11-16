@@ -8,19 +8,12 @@ export type TurnPreferences = {
   effort: string;
   fastMode: boolean;
   ultracode?: boolean;
-  /** The Chat's provider when `provider` was picked as a switch; the pick only holds while the Chat is still on it. */
   pickedOn?: ModelProvider;
   permissionMode: PermissionMode;
-  /** A mode picked here, and the Chat's saved mode when it was picked: it shows until the Mac's copy moves on. */
   permissionPick?: { mode: PermissionMode; over?: PermissionMode };
 };
 export const defaultPreferences: TurnPreferences = { provider: "codex", model: "", effort: "high", fastMode: false, permissionMode: "ask" };
 
-/**
- * A Chat's preferences. Its permission mode is the one the Mac saved on the Chat (the last pick or message, from this
- * phone, desktop or another Chat), so every device shows the same; a pick made here shows until that copy catches up.
- * A Chat from before the Mac saved one shows the mode its turn runs in, then this phone's choice.
- */
 export function chatPreferences(
   saved: TurnPreferences | undefined,
   defaults: TurnPreferences,
@@ -47,8 +40,6 @@ export function selectedModel(provider: ModelProvider, wanted: string, reported?
   }
   const known = models.find((model) => model.id === wanted);
   if (known) return known;
-  // Antigravity's and Kiro's availability belongs to the signed-in Account. A stale choice follows that Account's
-  // list, as desktop does, instead of becoming an unsupported extra row in the picker.
   const available = models.find((model) => model.recommended) ?? models[0];
   if ((provider === "antigravity" || provider === "kiro") && available) return available;
   const saved = { provider, id: wanted, name: wanted, description: "Previously used in this Chat" };
@@ -66,11 +57,6 @@ export function sendOptions(model: MobileModel, preferences: Pick<TurnPreference
   };
 }
 
-/**
- * Which provider and model the next send uses. A picked provider is an override that only holds while the Chat is still
- * on the provider it was picked against; once the Chat moves (a switch done elsewhere) or the pick is spent, the Chat
- * decides. A Chat with no provider yet (new) follows the saved preferences.
- */
 export function turnTarget(
   saved: TurnPreferences | undefined,
   chatProvider: ModelProvider | undefined,
@@ -81,10 +67,6 @@ export function turnTarget(
   const provider = picked ? saved.provider : chatProvider;
   return { provider, model: saved && saved.provider === provider ? saved.model : "", picked };
 }
-/**
- * Preferences after a send: a pick that was carried is spent, so the Chat follows its own provider from here. A send
- * that steered a running turn spends nothing: the turn keeps its provider, so the pick still waits for the next one.
- */
 export function afterSend(
   saved: TurnPreferences,
   target: { provider: ModelProvider; picked: boolean },
@@ -97,7 +79,6 @@ export function afterSend(
   if (target.picked && chatProvider) return { ...rest, provider: chatProvider, model: "" };
   return { ...rest, provider: target.provider, model };
 }
-/** Preferences after the model sheet's Done: the provider is recorded as a pick only when it differs from the Chat's. */
 export function afterSheet(draft: TurnPreferences, chatProvider: ModelProvider | undefined): TurnPreferences {
   const { pickedOn: _old, ...rest } = draft;
   return chatProvider && draft.provider !== chatProvider ? { ...rest, pickedOn: chatProvider } : rest;

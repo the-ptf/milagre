@@ -13,10 +13,6 @@ import { lineHeight, radius, space, type } from "../design-tokens";
 import { ErrorNotice, PillButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-/**
- * The Publish sheet: the revision it makes, what changed since the last one, and (when a Run is in progress) that the Run
- * keeps the revision it started on. The first publish also turns the flow on.
- */
 export default function FlowPublishSheet() {
   const params = useLocalSearchParams<{ id: string }>();
   const styles = useStyles();
@@ -40,7 +36,6 @@ export default function FlowPublishSheet() {
     setPublishing(true);
     try {
       await draft.flush();
-      // The first revision turns the flow on: until then it had nothing to run.
       await routines.update(routine.id, revision === 0 ? { publishFlow: true, enabled: true } : { publishFlow: true });
       router.back();
     } catch (caught) {

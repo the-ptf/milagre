@@ -1,6 +1,5 @@
 import type { QuestionAnswers } from "@milagre/shared/model";
 
-// Navigation handoff only. Daemon owns the draft and validates its request identity.
 const drafts = new Map<string, { requestId: string; answers: QuestionAnswers }>();
 const key = (hostId: string, projectPath: string, sessionId: number) => JSON.stringify([hostId, projectPath, sessionId]);
 export function holdActivityDraft(hostId: string, projectPath: string, sessionId: number, requestId: string, answers: QuestionAnswers) {

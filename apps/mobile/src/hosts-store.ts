@@ -1,7 +1,6 @@
 import { localEndpoint, relayAddress, validAccess, validRelay, type Access, type RelayLink } from "./client.ts";
 import { validLanRoute, type LanRoute } from "./lan-route.ts";
 
-/** A paired computer. A relay computer's `address` and `id` are `relay://<hostId>`; it has no URL of its own. */
 export type SavedHost = {
   id: string;
   name: string;
@@ -10,7 +9,6 @@ export type SavedHost = {
   access?: Access;
   relay?: RelayLink;
   routes?: { lan?: LanRoute };
-  /** Left out of the sidebar's Chat list (Settings › Computers); the pairing stays. */
   hidden?: boolean;
   lastUsed: number;
 };
@@ -50,7 +48,6 @@ function validate(value: unknown): SavedHost {
 }
 const sorted = (hosts: SavedHost[]) => [...hosts].sort((a, b) => b.lastUsed - a.lastUsed);
 
-/** Every computer the phone has paired with, newest first. One entry per address; the token lives only in secure storage. */
 export function createHostsStore(storage: SecureStorage, now = () => Date.now()) {
   // A late native write must finish before a later Forget removes its token.
   let pending: Promise<unknown> = Promise.resolve();
@@ -62,7 +59,6 @@ export function createHostsStore(storage: SecureStorage, now = () => Date.now())
   async function read(): Promise<SavedHost[]> {
     const value = await storage.getItemAsync(hostsKey);
     if (value === null) {
-      // Before multiple computers, one connection was stored on its own.
       const legacy = await storage.getItemAsync(legacyKey);
       if (legacy === null) return [];
       try {
@@ -77,7 +73,6 @@ export function createHostsStore(storage: SecureStorage, now = () => Date.now())
     } catch {
       entries = [];
     }
-    // A damaged entry is dropped instead of locking every saved computer, and pairing, behind it.
     return sorted(
       (Array.isArray(entries) ? entries : []).flatMap((entry) => {
         try {
@@ -99,12 +94,10 @@ export function createHostsStore(storage: SecureStorage, now = () => Date.now())
         const hosts = await read();
         const saved = validate({ ...host, lastUsed: now() });
         const known = hosts.find((item) => item.id === saved.id);
-        // Pairing again keeps what the phone learned about the computer and whether the list hides it.
         const next = { ...saved, ...(known?.routes ? { routes: known.routes } : {}), ...(known?.hidden ? { hidden: true } : {}) };
         await write([next, ...hosts.filter((item) => item.id !== saved.id)]);
         return next;
       }),
-    /** Remembers (or, with undefined, forgets) how to reach this computer on the local network. */
     learn: (id: string, lan: LanRoute | undefined) =>
       ordered(async () => {
         await write(
@@ -121,7 +114,6 @@ export function createHostsStore(storage: SecureStorage, now = () => Date.now())
         if (!trimmed) throw new Error("Give this computer a name.");
         await write((await read()).map((item) => (item.id === id ? { ...item, name: trimmed.slice(0, 80) } : item)));
       }),
-    /** Hides a computer's Chats from the sidebar, or shows them again. */
     setHidden: (id: string, hidden: boolean) =>
       ordered(async () => {
         await write(

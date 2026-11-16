@@ -30,7 +30,6 @@ export function ProviderUpdateNotice() {
               if (result.ok) void refreshRef.current();
               return result;
             },
-            // Saved on the phone: a reconnect builds a new client, which would otherwise bring the card back.
             dismissals: {
               load: () => savedProviderUpdateDismissals.load(client.url),
               add: (key: string) => savedProviderUpdateDismissals.add(client.url, key),

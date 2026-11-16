@@ -93,7 +93,6 @@ export function subscribeTheme(listener: () => void): () => void {
 
 function saveTheme(next: ThemeIo) {
   const raw = JSON.stringify(state);
-  // Keep rapid changes in order, even when the underlying write is asynchronous.
   saves = saves.then(() => next.save(raw)).catch(() => {});
   return saves;
 }

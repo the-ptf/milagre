@@ -21,20 +21,16 @@ import { lineHeight, space, type } from "./design-tokens";
 import { Group, PillButton, pressStyle, SectionLabel, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
-/** Day groups shown at first, and how many more each Show earlier days adds, as on desktop. */
 const FIRST_DAYS = 4;
 const MORE_DAYS = 7;
 
-/** The first line of a Run's error that has something on it. */
 const firstLine = (text: string | undefined) =>
   text
     ?.split("\n")
     .find((line) => line.trim())
     ?.trim();
 
-/** A Run that did something: its icon (none while it runs: a spinner), its tone, and its words (a failed one says why). */
 function runLook(run: RoutineRun, routineName: string): { icon?: IconData; tone: Tone; text: string; failed?: boolean } {
-  // A Run that ran on its fallback says so after its words, as on desktop.
   const note = retryNote(run);
   const noted = (text: string) => (note ? `${text} · ${note}` : text);
   if (run.status === "running") return { tone: "ink3", text: noted(runTitle(run, routineName)) };
@@ -42,7 +38,6 @@ function runLook(run: RoutineRun, routineName: string): { icon?: IconData; tone:
     const error = firstLine(run.error);
     return { icon: Alert02Icon, tone: "red", text: noted(error ? `Failed: ${error}` : "Failed"), failed: true };
   }
-  // A flow Run that stopped without failing (an approval rejected or expired, or ended by hand) reads as neutral.
   if (run.status === "ended") {
     const reason = firstLine(run.error);
     return {
@@ -54,7 +49,6 @@ function runLook(run: RoutineRun, routineName: string): { icon?: IconData; tone:
   return { icon: CheckmarkCircle02Icon, tone: "ink3", text: noted(runTitle(run, routineName)) };
 }
 
-/** A folded Run as its line says it: a quiet one its summary, a skipped one that its Chat was busy, and so on. */
 function foldedLine(run: RoutineRun): { icon: IconData; text: string } {
   if (run.rejected) return { icon: UnavailableIcon, text: firstLine(run.error) ?? "Refused" };
   if (run.status === "quiet") {
@@ -66,12 +60,6 @@ function foldedLine(run: RoutineRun): { icon: IconData; text: string } {
   return { icon: Clock01Icon, text: "This computer missed its time" };
 }
 
-/**
- * A Routine's Runs, newest first, by day as desktop's Runs log: a small heading per day (Today, Yesterday, Thu, Oct 16) over
- * a card of rows. A Run that did something has a row; a stretch of Runs that didn't folds into one line that expands in
- * place; a day before yesterday is one summary line until opened. Show earlier days adds days. A row opens the Run's Chat
- * when `canOpen` says it can (canOpenRunChat: still there, archived or not, or in a Project not held).
- */
 export function RunList({
   runs,
   routineName,
@@ -83,9 +71,7 @@ export function RunList({
   runs: RoutineRun[];
   routineName: string;
   now: number;
-  /** The keys of hidden Run Chats nobody opened: their rows show the unread dot. */
   unreadChats: ReadonlySet<string>;
-  /** Whether a Run's Chat can be opened (canOpenRunChat). */
   canOpen: (chatKey: string) => boolean;
   onOpenChat: (chatKey: string) => void;
 }) {
@@ -93,8 +79,6 @@ export function RunList({
   const { colors } = useTheme();
   const days = useMemo(() => runDays(runs, now), [runs, now]);
   const [shownDays, setShownDays] = useState(FIRST_DAYS);
-  // Open folds by their oldest Run (new Runs join a stretch at its newest end, so the key holds while it grows), and open
-  // older days by their key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (key: string) =>
     setExpanded((current) => {
@@ -102,11 +86,9 @@ export function RunList({
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  // The time keeps its width, wide enough for a fold's range ("13:29–13:30") on one line; the words give way first.
   const time = [styles.footnote, { fontVariant: ["tabular-nums" as const], width: 92, flexShrink: 0 }];
   const openable = (run: RoutineRun) => (run.chatId && canOpen(run.chatId) ? run.chatId : undefined);
 
-  /** One row: the time column, an icon, the words, then the unread dot and a chevron when it opens a Chat. */
   const row = ({
     key,
     when,
@@ -146,7 +128,6 @@ export function RunList({
         {when}
       </Text>
       <View style={{ width: 20, alignItems: "center" }}>{icon}</View>
-      {/* The words take all the room the others leave, and truncate only where they meet them. */}
       <Text
         numberOfLines={1}
         style={[
@@ -163,7 +144,6 @@ export function RunList({
       >
         {text}
       </Text>
-      {/* The mark is a 20 pt box round an 8 pt dot: its 6 pt of padding each side is not the words' to give up. */}
       {unread ? (
         <View style={{ marginHorizontal: -6 }}>
           <ChatMarkIcon mark="unread" />
@@ -173,7 +153,6 @@ export function RunList({
     </Pressable>
   );
 
-  // The attempts a Run retried after: a muted line each, under it, that opens its own Chat while it is there.
   const attempts = (run: RoutineRun) =>
     (run.attempts ?? []).map((attempt) => {
       const chat = attempt.chatId && canOpen(attempt.chatId) ? attempt.chatId : undefined;
@@ -192,7 +171,6 @@ export function RunList({
     if (item.kind === "run") {
       const { run } = item;
       const look = runLook(run, routineName);
-      // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
       const chat = openable(run);
       return [
         row({
@@ -267,7 +245,6 @@ export function RunList({
         return (
           <View key={day.key} style={{ gap: space.md }}>
             <SectionLabel>{day.label}</SectionLabel>
-            {/* The rows start with their time, so the separators run from the text's edge. */}
             <Group inset={0}>{rows}</Group>
           </View>
         );

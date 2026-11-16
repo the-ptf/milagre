@@ -7,10 +7,6 @@ import { useTheme } from "./theme";
 import { Icon } from "./icons";
 import { lineHeight, radius, type } from "./design-tokens";
 
-/**
- * Comments sent from a Browser panel page (desktop or this phone), shown as what they were instead of the text the agent
- * reads: each comment with the element it is on, and the agent's note once it resolved it.
- */
 export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: ParsedPageComment[]; chatId?: string; moved?: number }) {
   const { colors } = useTheme();
   const { client } = useSession();

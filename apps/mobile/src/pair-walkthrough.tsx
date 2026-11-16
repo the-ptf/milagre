@@ -15,7 +15,6 @@ const STEPS = [
   { title: "Scan it with this phone", detail: "Or open the code with the Camera app" },
 ];
 
-/** The light behind the walkthrough: desktop's onboarding sky, a faint wash of the intro's day over the page. */
 function Sky() {
   const { colors, scheme } = useTheme();
   // oxlint-disable-next-line milagre-design/no-raw-color -- artwork: the intro sky's dusk and day blues, the same in desktop's onboarding
@@ -30,11 +29,6 @@ function Sky() {
   );
 }
 
-/**
- * The phone's first screen with no computer paired (desktop onboarding's phone half): how to get a pairing code, and the
- * way to scan it. Scan opens Add computer; "Enter address instead" opens it on its manual form. The light runs under the
- * transparent header; `topInset` keeps the content below it, and `children` (an error) sits above the mark.
- */
 export function PairWalkthrough({ topInset, children }: { topInset: number; children?: ReactNode }) {
   const { colors } = useTheme();
   return (

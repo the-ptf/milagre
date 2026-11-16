@@ -12,8 +12,6 @@ import { useComposer, useSession } from "./session";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { chatPreferences } from "./turn-options";
 
-/** The composer's model chip: provider logo, model name, the effort ("· Medium", or Ultra while Ultracode is on) and a bolt while fast
- * mode is on. All of them change in the model sheet. */
 export function AgentControls({
   model,
   effort,
@@ -24,7 +22,6 @@ export function AgentControls({
   onToggle,
 }: {
   model: MobileModel;
-  /** The Chat's picks; each shows only when the model accepts it. */
   effort?: string;
   fastMode?: boolean;
   ultracode?: boolean;
@@ -36,7 +33,6 @@ export function AgentControls({
   const level = effortFor(model, effort ?? "");
   const ultracodeOn = model.ultracode && !!ultracode;
   const fast = model.fastMode && !!fastMode;
-  // Ultracode and the ultra level both hand work to parallel agents: they share Ultracode's purple.
   const orchestrating = ultracodeOn || level === "ultra";
   const label = ultracodeOn ? "Ultra" : level ? effortCopy(level).name : undefined;
   return (
@@ -52,7 +48,6 @@ export function AgentControls({
         {
           minHeight: 32,
           maxWidth: 230,
-          // The composer row also holds the plan pill, the context ring and Send; the model label truncates so Send stays on screen.
           flexShrink: 1,
           paddingHorizontal: 6,
           flexDirection: "row",
@@ -81,7 +76,6 @@ export function AgentControls({
   );
 }
 
-/** A Chat's permission mode as its agent runs it: the running turn's, else the saved Chat's, else this device's pick. */
 export function useChatPermissionMode(chatId: string): PermissionMode {
   const composer = useComposer();
   const session = useSession();
@@ -122,7 +116,6 @@ export function PermissionChip({ mode, disabled, onPress }: { mode: PermissionMo
 }
 const PERMISSION_ICONS = { shield: Shield01Icon, "security-check": SecurityCheckIcon, "shield-alert": ShieldAlertIcon } as const;
 
-/** A permission mode's glyph (permissionPresentation): 16 on the chip, 20 in the sheet; Full is the only orange one. */
 export function PermissionIcon({ mode, size }: { mode: PermissionMode; size: 16 | 20 }) {
   const { icon, tone } = permissionPresentation(mode);
   return <Icon icon={PERMISSION_ICONS[icon]} tone={tone} size={size} />;

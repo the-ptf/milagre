@@ -13,14 +13,12 @@ function utf8Length(text: string): number {
   return bytes;
 }
 
-/** SecureStore keys allow letters, digits, ".", "-" and "_": a computer's id (a URL) becomes a short hash. */
 function keyFor(hostId: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < hostId.length; i++) hash = Math.imul(hash ^ hostId.charCodeAt(i), 0x01000193) >>> 0;
   return `${keyPrefix}${hash.toString(16)}`;
 }
 
-/** The most recently hidden paths whose saved form fits MAX_BYTES; older ones show again next launch. */
 export function boundedHidden(hostId: string, paths: string[]): string[] {
   const kept: string[] = [];
   let bytes = utf8Length(JSON.stringify({ h: hostId, p: [] }));
@@ -32,7 +30,6 @@ export function boundedHidden(hostId: string, paths: string[]): string[] {
   return kept;
 }
 
-/** `projects` with this phone's visibility applied, ignoring any `hidden` flag from the computer's own sidebar. */
 export function applyHiddenProjects<T extends { path: string; hidden?: boolean }>(hidden: ReadonlySet<string>, projects: T[]): T[] {
   return projects.map((project) => {
     const { hidden: _hidden, ...rest } = project;
@@ -50,14 +47,9 @@ function parse(raw: string | null, hostId: string): string[] {
   }
 }
 
-/**
- * The Projects and Links hidden from the phone's Projects list, per paired computer. Visibility stays on this phone
- * rather than mutating the computer's own sidebar.
- */
 export function createHiddenProjectsStore(storage: Storage) {
   const hidden = new Map<string, ReadonlySet<string>>();
   const loading = new Map<string, Promise<ReadonlySet<string>>>();
-  // Serialize writes so a slow save cannot put an older set back on the next launch.
   let pending = Promise.resolve();
   const save = (hostId: string, paths: ReadonlySet<string>) => {
     pending = pending
@@ -89,14 +81,11 @@ export function createHiddenProjectsStore(storage: Storage) {
     return work;
   };
   return {
-    /** The hidden paths; none until `load` or `apply` has read them. */
     hidden: (hostId: string): ReadonlySet<string> => hidden.get(hostId) ?? NONE,
     load,
-    /** Applies this phone's visibility for `hostId` to `projects`, replacing any `hidden` flags from the computer. */
     async apply<T extends { path: string; hidden?: boolean }>(hostId: string, projects: T[]): Promise<T[]> {
       return applyHiddenProjects(await load(hostId), projects);
     },
-    /** Hides or shows a Project or Link on this phone for `hostId`. */
     setHidden(hostId: string, path: string, hide: boolean) {
       const next = new Set(hidden.get(hostId) ?? NONE);
       if (hide) next.add(path);

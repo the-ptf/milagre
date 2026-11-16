@@ -9,7 +9,6 @@ import { lineHeight, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 import { confirm } from "../../confirm-store";
 
-/** One server: a switch per account, and Edit and Remove for URL servers added in Milagre or a provider's user config. */
 export default function McpServerScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const mcp = useMcp();
@@ -53,7 +52,6 @@ export default function McpServerScreen() {
         </Text>
         <Group inset={0}>
           {row.chips.map((chip) => {
-            // While the write runs the switch shows the value it was flipped to, and ignores taps.
             const pending = mcp.pending(chip, row.name);
             const on = pending ?? chip.state !== "disabled";
             return (
@@ -61,7 +59,6 @@ export default function McpServerScreen() {
                 <Toggle
                   title={`${providerName(chip.provider)} · ${chip.label}`}
                   selected={on}
-                  // Off in the provider's own config: Milagre's switch can't turn it on.
                   disabled={pending !== undefined || chip.disabledBy === "provider"}
                   onPress={() => {
                     setError("");
@@ -94,8 +91,6 @@ export default function McpServerScreen() {
   );
 }
 
-/** An account's line, cut at three lines (Codex errors run long) with Show more / Show less. A hidden copy without the
- * limit measures the full text, so the button only appears when three lines really cut it. */
 function ChipLine({ text, style }: { text: string; style: StyleProp<TextStyle> }) {
   const { colors } = useTheme();
   const [lines, setLines] = useState(0);

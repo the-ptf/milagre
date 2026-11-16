@@ -25,9 +25,6 @@ import { lineHeight, radius, type } from "./design-tokens";
 import { fonts, useTheme } from "./theme";
 import { pressStyle, SectionLabel, useStyles } from "./ui";
 
-// Desktop's subagent panel on the phone (SubagentTrack.tsx): a row says what each subagent does now and how far it got,
-// and its detail shows its own plan (or what it said, step by step), its task and outcome, with the log behind Full log.
-
 const chipIcons: Record<ToolCategory, IconData> = {
   commands: CommandLineIcon,
   images: Image01Icon,
@@ -36,7 +33,6 @@ const chipIcons: Record<ToolCategory, IconData> = {
   edits: PencilEdit01Icon,
   other: WrenchIcon,
 };
-// The face's shapes by SVG element name; their props come from qa-personas.ts as SVG attributes.
 const faceShapes: Record<BloubShape["type"], ComponentType<Record<string, string | number>>> = {
   rect: Rect as ComponentType,
   circle: Circle as ComponentType,
@@ -52,10 +48,6 @@ export function elapsed(agent: Subagent, now: number) {
   return formatElapsed((agent.endedAt ?? now) - agent.startedAt);
 }
 
-/**
- * `agent` with its whole transcript, read with `read` when the host sent only its end, and read again (at most every two
- * seconds) as it grows. An older host that can't read it leaves the end.
- */
 function useWholeSubagent(agent: Subagent, read: () => Promise<Subagent>): Subagent {
   const [whole, setWhole] = useState<Subagent | null>(null);
   const partial = typeof agent.transcriptLength === "number" && agent.transcriptLength > agent.transcript.length;
@@ -81,16 +73,13 @@ function useWholeSubagent(agent: Subagent, read: () => Promise<Subagent>): Subag
     };
   }, [partial, length, agent.id]);
   if (!partial || !whole || whole.id !== agent.id) return agent;
-  // The live fields come from the update; the read brings the transcript the update leaves out.
   return { ...agent, transcript: whole.transcript.length >= agent.transcript.length ? whole.transcript : agent.transcript, transcriptLength: undefined };
 }
 
-/** The time, ticking each second while `running`. */
 export function useClock(running: boolean) {
   return useDisplayNow(1000, running);
 }
 
-/** Body text in the detail: subheadline 15/20. Section headers are SectionLabel's look (sentence case, no tracking). */
 const BODY = { fontSize: type.subheadline, lineHeight: lineHeight.subheadline } as const;
 const FOOTNOTE = { fontSize: type.footnote, lineHeight: lineHeight.footnote } as const;
 
@@ -99,7 +88,6 @@ function useText() {
   return { colors, label: [useStyles().footnote, { fontWeight: "500" as const }] };
 }
 
-/** A QA persona's face, as on desktop (qa-personas.ts): a solid blob with white eyes, the same in light and dark. */
 export function PersonaAvatar({ persona, size }: { persona: QaPersona; size: number }) {
   return (
     <Svg width={size} height={size} viewBox="-50 -50 100 100" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -119,7 +107,6 @@ function QaTag({ persona }: { persona: QaPersona }) {
   );
 }
 
-/** Who the persona plays, above its plan. */
 function PersonaCard({ persona }: { persona: QaPersona }) {
   const { colors } = useTheme();
   return (
@@ -143,7 +130,6 @@ function PersonaCard({ persona }: { persona: QaPersona }) {
                 paddingVertical: 2,
                 borderRadius: radius.chip,
                 overflow: "hidden",
-                // The persona card looks the same in light and dark, so its chips stay a light wash in both.
                 backgroundColor: withAlpha(colors.onMedia, 0.6),
               }}
             >
@@ -162,7 +148,6 @@ function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvi
   return <ProviderLogo provider={agent.provider ?? provider} size={16} />;
 }
 
-/** A list row: status, title, time, what it says now (or its outcome), and how far it got. */
 export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent; provider: ModelProvider; now: number; onPress: () => void }) {
   const { colors } = useTheme();
   const running = subagentRunning(agent);
@@ -370,7 +355,6 @@ function StepList({ steps, title }: { steps: SubagentStep[]; title: string }) {
   );
 }
 
-/** Text cut to a few lines, with Show all once it is cut. */
 function Clamped({ text, lines, style }: { text: string; lines: number; style: object }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
@@ -380,7 +364,6 @@ function Clamped({ text, lines, style }: { text: string; lines: number; style: o
       <Text selectable numberOfLines={open ? undefined : lines} style={[style, { alignSelf: "stretch" }]}>
         {text}
       </Text>
-      {/* An unclamped copy, never shown, says whether the text runs past the clamp. */}
       <Text
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
@@ -398,7 +381,6 @@ function Clamped({ text, lines, style }: { text: string; lines: number; style: o
   );
 }
 
-/** One subagent at a glance; the whole transcript sits behind Full log. */
 function SubagentDetail({ agent }: { agent: Subagent }) {
   const { colors, label } = useText();
   const [log, setLog] = useState(false);

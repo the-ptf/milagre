@@ -45,7 +45,6 @@ export function planPanelFrame({
   };
 }
 
-/** The surface part way through the morph: 0 is the pill, 1 the panel. Runs on the UI thread. */
 export function morphRect(from: MorphRect, to: MorphRect, progress: number): MorphRect {
   "worklet";
   const mix = (a: number, b: number) => a + (b - a) * progress;

@@ -1,12 +1,10 @@
 import { Alert, Platform } from "react-native";
 
-/** A question with a text answer; `answer` runs once, with the text saved or null when cancelled or dismissed. */
 type TextPrompt = { title: string; message?: string; value: string; action: string; plain: boolean; answer: (text: string | null) => void };
 
 let current: TextPrompt | null = null;
 let present: (() => void) | null = null;
 
-/** The app's root wires this to open the prompt sheet; a route can't carry callbacks, so the question waits here. */
 export function setPromptPresenter(open: () => void) {
   present = open;
 }

@@ -44,7 +44,6 @@ const FILTERS: Array<{ id: CanvasFilter; label: string; dot?: "orange" | "accent
   { id: "running", label: "Running", dot: "accent" },
 ];
 
-/** The other end of each Link that `matches`, named the way the sidebar names it. */
 function linkLabels(links: readonly CanvasLink[], matches: (end: LinkEnd) => boolean, names: ReturnType<typeof endNamer>) {
   return links.flatMap((link) => {
     if (matches(link.a)) return [linkedEndLabel(link.b, names(link.b))];
@@ -58,10 +57,6 @@ const toneColor = (colors: Palette, tone: CanvasTone) => (tone === "accent" ? co
 type Row = CanvasChat & { sharedLinkId?: string };
 type Section = { path: string; name: string; worktrees: Array<CanvasWorktree & { rows: Row[]; linked: string[] }>; linked: string[] };
 
-/**
- * The phone's Projects canvas: the chats the sidebar lists, by Project, a card per Worktree, each chat with what it's
- * doing now, and the Links between them written out on the cards (desktop draws them as lines).
- */
 export default function CanvasScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -87,7 +82,6 @@ export default function CanvasScreen() {
     (path: string) => (path === currentPath && session.snapshot ? session.snapshot : cachedProject(path)),
     [currentPath, session.snapshot, cachedProject],
   );
-  // The sidebar's Projects, hidden ones out; a named Link's conversation shows on its member Projects' cards.
   const listed = useMemo(() => session.recent.filter((item) => !item.hidden && !item.link), [session.recent]);
   const load = useCallback(
     () =>
@@ -101,7 +95,6 @@ export default function CanvasScreen() {
       ),
     [listed, previewProject],
   );
-  // The live socket refreshes Links on reconnect, including when Canvas opened before its first Project read succeeded.
   useEffect(() => {
     setError("");
     void load();
@@ -157,7 +150,6 @@ export default function CanvasScreen() {
   const counts = useMemo(() => canvasFilterCounts(sections.flatMap((section) => section.worktrees)), [sections]);
   const loading = !sections.length && listed.some((item) => !copyOf(item.path));
 
-  // A chat opens the way the sidebar opens one: as the screen the phone goes back to the sidebar from.
   const open = (projectPath: string, id: number) => {
     if (!session.client) return;
     const href: Href = { pathname: "/chat", params: { projectPath, hostId: session.client.url, id: String(id) } };
@@ -269,7 +261,6 @@ export default function CanvasScreen() {
   );
 }
 
-/** A Link written out on a card or header: a neutral Tag. */
 function LinkChip({ label, wide = false }: { label: string; wide?: boolean }) {
   return <Tag icon={Link04Icon} label={label} accessibilityLabel={`Linked to ${label}`} style={{ maxWidth: wide ? "100%" : 200 }} />;
 }

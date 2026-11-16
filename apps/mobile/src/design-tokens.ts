@@ -38,7 +38,6 @@ export const radius = {
   full: 999,
 } as const;
 
-/** The 4pt grid (2 and 6 only inside dense rows). `gutter` is every screen's side padding, `section` the gap between sections. */
 export const space = {
   xxs: 2,
   xs: 4,
@@ -52,14 +51,9 @@ export const space = {
   section: 24,
 } as const;
 
-/** Motion, as desktop's --duration-* and --ease-*: hover and press `fast`, things appearing `base`, panels and sheets
- * `slow`. Durations in ms go through scaledTiming/springTo (motion.ts) for the Animations setting; curves are
- * `Easing.bezier(...easing.enter)`. Artwork (Ultracode, the splash, the fatality) keeps its own timing. */
 export const duration = { fast: 120, base: 180, slow: 280 } as const;
 export const easing = {
-  /** Everything that appears or settles. */
   enter: [0.23, 1, 0.32, 1],
-  /** Panels and sheets travelling a long way. */
   slide: [0.32, 0.72, 0, 1],
 } as const;
 

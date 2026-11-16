@@ -4,12 +4,6 @@ import { lineHeight } from "../design-tokens";
 import { useTheme } from "../theme";
 import { useStyles } from "./styles";
 
-/**
- * A labelled text field: field fill with a 1px lineStrong edge that turns accent while focused and redInk when
- * `invalid` (focus wins while typing). Put an `InlineError` under it to say why. `bare` drops the fill and edge, for an
- * input inside a row that already draws them. `leading` / `trailing` (a search icon, a suffix, a button) sit inside the
- * edge, so focus outlines the whole field and never the text alone.
- */
 export function Field({
   label,
   hideLabel = false,
@@ -74,5 +68,4 @@ export function Field({
   );
 }
 
-/** The text inside an adorned Field: its frame draws the fill and edge. */
 const INNER = { flex: 1, borderWidth: 0, borderRadius: 0, backgroundColor: "transparent", paddingHorizontal: 0 } as const;

@@ -7,12 +7,6 @@ import { tap } from "./tap";
 import { useHover } from "./hover";
 import { pressStyle } from "./press-style";
 
-/**
- * The 40pt round outlined button of sheets and panels (close, back, done, a viewer's tools): surface fill, 1px lineStrong
- * edge, 20pt ink glyph. `filled` is the primary (ink fill, onInk glyph); `selected` an on toggle (hover2 fill, ink glyph);
- * `badge` a count on its corner. `disabled` (or no `onPress`) keeps the button role and label, dims it to 40% and reads
- * as dimmed; `asTrigger` draws it enabled with no `onPress`, as a PullDown's child (the menu takes the tap).
- */
 export function CircleButton({
   label,
   icon,

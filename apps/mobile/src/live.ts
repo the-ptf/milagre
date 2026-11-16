@@ -1,6 +1,4 @@
-/** What the bridge's live socket says: fetch the runs, or the whole Project, again. It never carries state. */
 export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "token-usage" | "keybindings" | "pulls";
-/** Whether a live message names a signal this app knows; a newer bridge may send others, which are ignored. */
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "runs" ||
   type === "project" ||
@@ -21,7 +19,6 @@ export type LiveSocket = {
 export type Timers = { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (id: unknown) => void };
 export type LiveOptions = {
   onSignal: (signal: LiveSignal) => void;
-  /** True when the socket opens, false when an open one is lost (it then reconnects). */
   onStatus: (open: boolean) => void;
   create?: (url: string, headers: Record<string, string>) => LiveSocket;
   timers?: Timers;
@@ -32,9 +29,7 @@ export type Live = { close(): void };
 /** React Native's WebSocket always sends an Origin; the bridge accepts this one and refuses every web page's. */
 export const LIVE_ORIGIN = "milagre-app://phone";
 const BACKOFF = [1000, 2000, 5000, 10000, 30000];
-// An older bridge answers the upgrade with a 404; there is nothing to gain from asking it every few seconds.
 const UNSUPPORTED = 5 * 60_000;
-// The bridge sends a ping every 25 s; a socket silent for longer than two is dead (a network change leaves no close).
 const SILENCE = 60_000;
 const defaultTimers: Timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>) };
 // React Native's WebSocket takes headers as a third argument; a browser's does not.
@@ -43,7 +38,6 @@ const nativeSocket = (url: string, headers: Record<string, string>) =>
     headers,
   });
 
-/** A live socket that reconnects with backoff until closed. */
 export function openLive(
   url: string,
   headers: Record<string, string>,
@@ -75,7 +69,6 @@ export function openLive(
     const wait = unsupported ? UNSUPPORTED : (BACKOFF[Math.min(failures, BACKOFF.length - 1)] ?? 30000);
     failures++;
     unsupported = false;
-    // Jitter, so a Mac coming back is not met by every socket at once.
     retry = timers.setTimeout(connect, wait * (0.8 + 0.4 * random()));
   }
   function connect() {
@@ -107,7 +100,6 @@ export function openLive(
       }
       if (isLiveSignal(type)) onSignal(type);
     });
-    // Both platforms put the refused upgrade's status in the message ("…101… but was '404 Not Found'").
     next.addEventListener("error", (event) => {
       if (/\b404\b/.test(event?.message ?? "")) unsupported = true;
       lost(next);
@@ -127,40 +119,27 @@ export function openLive(
   };
 }
 
-/** The first wait before a failed Project fetch is tried again with the socket open, doubling up to the cap. */
 const PROJECT_RETRY_MS = 1000;
 const PROJECT_RETRY_MAX_MS = 8000;
-/** How long after a failed first fetch back in the foreground it is tried again, before any error shows. */
 const RESUME_RETRY_MS = 1500;
 
 export type SyncOptions = {
-  /** Opens the Project's live socket. */
   connect: (options: Pick<LiveOptions, "onSignal" | "onStatus">) => Live;
   snapshot: () => Promise<void>;
   runs: () => Promise<void>;
-  /** Local detail selection changes share the live signals' serialized pull path. */
   watchRuns?: (listener: () => void) => () => void;
   accounts?: () => void;
-  /** A Link was made or removed on the computer. */
   links?: () => void;
-  /** A host-wide setting also travels over confined Project sockets. */
   designs?: () => void;
-  /** The Mac's PR poll found a change in a Project's PRs. */
   pulls?: () => void;
   liveStatus?: (open: boolean) => void;
   onError: (error: Error) => void;
   active: () => boolean;
-  /** Calls back with whether the app is in the foreground; returns an unsubscribe. */
   watchActive: (listener: (active: boolean) => void) => () => void;
-  /** How long until the next poll while the socket is down. */
   pollDelay: () => number;
   timers?: Timers;
 };
 
-/**
- * Keeps one Project fresh: fetches when the live socket says something changed, and polls only while it is down (an
- * older bridge, or a network that drops WebSockets). The socket closes in the background and opens again on return.
- */
 export function syncProject({
   connect,
   snapshot,
@@ -181,17 +160,12 @@ export function syncProject({
   let open = false;
   let live: Live | null = null;
   let poll: unknown;
-  // One fetch at a time, so a slow response never lands over a newer one; "project" covers "runs".
   let pending: LiveSignal | null = null;
   let fetching = false;
-  // A Project fetch that failed with the socket open is tried again: no signal may come until the turn ends, and until
-  // then a send the computer took keeps the composer waiting for the saved copy (a busy Mac's 429, a dropped answer).
   let retry: unknown;
   let failures = 0;
   // Counts the trips to the background: iOS closes the phone's sockets there, so a fetch on its way when the app left
-  // fails without the computer being gone. That failure is not shown; the fetch on return catches up.
   let departures = 0;
-  // The first fetch back in the foreground may run before the network has woken; its failure is tried again once, quietly.
   let resumed = false;
   let resumeRetry: unknown;
   function retryLater() {
@@ -250,17 +224,14 @@ export function syncProject({
         else if (signal === "links") links?.();
         else if (signal === "designs") designs?.();
         else if (signal === "pulls") pulls?.();
-        // The Routines screen and the Chat header read Routines on their own socket (use-routines.ts).
         else if (signal === "runs" || signal === "project") void pull(signal);
       },
-      // On opening, catch up on what changed while it was down; on losing it, poll until it is back.
       onStatus: (next) => {
         if (stopped) return;
         open = next;
         liveStatus?.(open);
         if (open) timers.clearTimeout(poll);
         void pull("project");
-        // A Link made or removed while the socket was down sent its signal to nobody.
         if (open) links?.();
         if (!open) schedule();
       },

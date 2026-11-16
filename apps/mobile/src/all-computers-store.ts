@@ -3,63 +3,44 @@ import type { Client, OpenProject, ProjectPreview, RecentProject, Snapshot } fro
 import type { SavedHost } from "./hosts-store";
 import { PROJECTS_EVERY, REQUESTS_AT_ONCE, createLimiter, nextDelay } from "./all-computers-schedule.ts";
 
-/** A computer's reachability as the sidebar shows it. */
 export type Reach = "online" | "checking" | "offline";
-/** A Project's Chats as a computer last answered: a preview, or the full snapshot of a Link. */
 export type ProjectCopy = Snapshot | ProjectPreview;
-/** What the store reads from a computer's client. */
 export type StoreClient = Pick<Client, "url" | "call" | "recentScopes" | "preview" | "open" | "chatLists"> &
   Partial<Pick<Client, "retire" | "chatsHome" | "chatMessages">>;
-/** A Chat the store lists, with what says how recent it is and which message it ends on. */
 export type RecentChat = { projectPath: string; chatId: number; lastAt: number; lastId: number };
 
-/** Sidebar data is immutable; lastSuccess alone is a live timestamp that does not invalidate rows. */
 export type HostView = {
   hostId: string;
   name: string;
   state: Reach;
-  /** Live time of the last successful read (ms since epoch); changes without a view notification. */
   lastSuccess: number;
-  /** Whether the computer has answered with its Project list yet: an empty list before that is not "no Projects". */
   loaded: boolean;
   projects: RecentProject[];
   copies: ReadonlyMap<string, ProjectCopy>;
-  /** The Projects whose last read failed, with why. */
   errors: ReadonlyMap<string, string>;
-  /**
-   * Where the computer keeps its Chats without a Project: undefined before it answered, null when it has none (an
-   * older daemon). Never one of `projects`; its Chats are in `copies` under its path once it exists.
-   */
   home?: ChatsHome | null;
 };
 
-/** The session's own client and Project list, shared with the store instead of opening a second client. */
 export type CurrentHost = {
   hostId: string;
   client: StoreClient;
-  /** Undefined until this session has read the computer's list; keep any list the sidebar already holds. */
   projects: RecentProject[] | undefined;
   reload: () => Promise<void>;
-  /** Hands the session a Project's Chat list the store just read from its own client, so opening that Project is warm. */
   seed?: (client: StoreClient, path: string, copy: ProjectCopy) => void;
 };
 
-/** What one mounted sidebar or page needs read: whether it is shown, whether it lists every Project, and which Projects it folds. */
 export type ViewPolicy = { visible: boolean; expandAll: boolean; isFolded: (hostId: string, path: string) => boolean };
 
 export type StoreDeps = {
   createClient: (host: SavedHost) => StoreClient;
-  /** A computer's hidden Projects and saved order applied to what `recentScopes` answered. */
   applyProjects: (hostId: string, projects: RecentProject[]) => Promise<RecentProject[]>;
   now: () => number;
   random: () => number;
   setTimer: (run: () => void, ms: number) => unknown;
   clearTimer: (handle: unknown) => void;
-  /** After a read, copies the computer's most recent Chats to the phone, each request through `limit` (chat-pages.ts). */
   warm?: (client: StoreClient, chats: RecentChat[], limit: <T>(work: () => Promise<T>) => Promise<T>) => Promise<void>;
 };
 
-/** Every listed Chat that isn't archived, from each Project's copy. */
 export function recentChats(copies: ReadonlyMap<string, ProjectCopy>): RecentChat[] {
   const chats: RecentChat[] = [];
   for (const copy of copies.values())
@@ -71,21 +52,14 @@ export function recentChats(copies: ReadonlyMap<string, ProjectCopy>): RecentCha
 }
 
 const BATCH = 20;
-/** The Mac's answers for a Project it hasn't opened yet, and for a Link, which the batch read doesn't list. */
 const OPEN_FIRST = /open the project before reading/i;
 const LINK_ERROR = /chats of a link are not listed/i;
-/** A Project the Mac refused to list is asked again after this long, not every read. */
 const STUCK_FOR = 5 * 60 * 1000;
 const STALE = new Error("This computer was replaced.");
 const SKIPPED = new Error("This computer is not answering.");
 const isLink = (path: string) => path.startsWith("milagre-link:");
-/**
- * What identifies the credentials and route a client was made with: a client made for other ones must not outlive them.
- * Every field that authenticates or addresses the computer counts (the learned LAN route does not: it is not part of the pairing).
- */
 const credentials = (host: SavedHost) =>
   JSON.stringify([host.token, host.address, host.relay?.hostId, host.relay?.key, host.relay?.url, host.relay?.direct, host.access?.id, host.access?.secret]);
-/** A refusal that comes from this Project or this request, not the network: asking again at once would only get it again. */
 const deterministic = (error: unknown) => {
   const status = (error as { status?: unknown } | null)?.status;
   return typeof status === "number" && status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429;
@@ -96,7 +70,6 @@ type Entry = {
   host: SavedHost;
   credentials: string;
   client: StoreClient;
-  /** The session's own client, which the session replaces when it connects again. */
   shared: boolean;
   reload?: () => Promise<void>;
   seed?: CurrentHost["seed"];
@@ -109,10 +82,8 @@ type Entry = {
   copies: Map<string, ProjectCopy>;
   errors: Map<string, string>;
   home: ChatsHome | null | undefined;
-  /** Whether a chats:home ask is queued or out, so a read that follows doesn't ask a second time. */
   askingHome: boolean;
   canonical: Map<string, string>;
-  /** Projects the Mac refused to list, and until when they are left alone. */
   stuck: Map<string, number>;
   noBatch: boolean;
   projectsAt: number;
@@ -124,24 +95,13 @@ type Entry = {
   view: HostView;
 };
 
-/**
- * Every saved computer's Chats for the sidebar. One entry per computer holds its client, its request limit, its poller
- * and its last answers. Whatever an entry's read returns is kept only while that entry is still the computer's: the
- * session swapping its client, a computer being forgotten or hidden, or a re-pair with another token drops the entry, so
- * a late answer can neither revive it nor reach the new one. Reads only run while a sidebar is shown and the app is in
- * the foreground; one poller serves however many sidebars are mounted.
- */
 export function createAllComputersStore(deps: StoreDeps) {
   const entries = new Map<string, Entry>();
-  // One limit per computer for as long as any of its requests is out: a new entry for the same computer (its client or
-  // credentials changed) must not open three more while the old one's still run, so a slot frees only when its request settles.
   const limiters = new Map<string, ReturnType<typeof createLimiter>>();
   let order: string[] = [];
-  // Every mounted consumer's own requirements; what is read is their union (see `effective`).
   const consumers = new Set<{ policy: ViewPolicy }>();
   let foreground = true;
   // Counts the app's trips out of the foreground: iOS closes its sockets there, so a read on its way when the app left
-  // fails without the computer being gone. Such a read counts as skipped, not failed.
   let departures = 0;
   let expandAll = false;
   let isFolded: (hostId: string, path: string) => boolean = () => false;
@@ -150,10 +110,6 @@ export function createAllComputersStore(deps: StoreDeps) {
   let views: HostView[] = [];
 
   const active = () => foreground && [...consumers].some((consumer) => consumer.policy.visible);
-  /**
-   * The union of the shown consumers' requirements: any wants every Project read, or a Project is read unless every one
-   * of them folds it. With none shown, the hidden ones still decide how a read the user asked for goes.
-   */
   function effective() {
     const all = [...consumers].map((consumer) => consumer.policy);
     const shown = all.filter((policy) => policy.visible);
@@ -178,7 +134,6 @@ export function createAllComputersStore(deps: StoreDeps) {
   function publish(entry?: Entry) {
     if (entry) {
       const previous = entry.view;
-      // Keep unchanged Project copies stable even when another Project on this computer changed.
       if (entry.copies !== previous.copies) {
         const copies = new Map(entry.copies);
         for (const [path, copy] of copies) {
@@ -208,7 +163,6 @@ export function createAllComputersStore(deps: StoreDeps) {
     }
     const present = order.flatMap((id) => entries.get(id) ?? []);
     const nextKey = present.map((item) => `${item.id}:${item.version}`).join(",");
-    // sync also runs on session renders; equal membership and versions do not notify.
     if (nextKey === key && present.every((item, index) => item.view === views[index])) return;
     key = nextKey;
     views = present.map((item) => item.view);
@@ -226,16 +180,13 @@ export function createAllComputersStore(deps: StoreDeps) {
     }
     return limiter;
   }
-  /** Ends an entry that is no longer the computer's: no timer, and a client of its own starts no request from now on. */
   function retire(entry: Entry) {
     dispose(entry);
     if (!entry.shared) entry.client.retire?.();
   }
-  /** Gives the session a fresh copy of a Project it is the one to open: only from its own client, and only while that client is the entry's. */
   function seedSession(entry: Entry, client: StoreClient, path: string, copy: ProjectCopy) {
     if (entry.shared && alive(entry, client)) entry.seed?.(client, path, copy);
   }
-  /** Forgets what the computer's Project list no longer names, so a Project that left it stops being kept. */
   function prune(entry: Entry) {
     if (!entry.loaded) return;
     const known = new Set(entry.projects.map((item) => item.path));
@@ -253,10 +204,6 @@ export function createAllComputersStore(deps: StoreDeps) {
     }
   }
 
-  /**
-   * Runs `work` in the entry's limit; its answer counts only if the entry still owns `client` afterwards. Work that
-   * starts after the entry was replaced, or for which `skip` says no, is never issued.
-   */
   function guarded<T>(entry: Entry, client: StoreClient, weight: number, work: () => Promise<T>, skip?: () => boolean): Promise<T> {
     return entry.limiter
       .run(weight, async () => {
@@ -274,21 +221,11 @@ export function createAllComputersStore(deps: StoreDeps) {
     const paths = entry.projects
       .filter((item) => !item.hidden && item.path && (entry.stuck.get(item.path) ?? 0) <= deps.now() && (expandAll || !isFolded(entry.id, item.path)))
       .map((item) => item.path);
-    // The drawer's Chats group isn't folded per computer, so a home that exists is always read.
     const home = entry.home?.exists ? entry.home.path : "";
     return home && !paths.includes(home) && (entry.stuck.get(home) ?? 0) <= deps.now() ? [...paths, home] : paths;
   }
-  /**
-   * Opens a Project for its canonical path before its first read. The home opens with chats:ensure, which leaves the
-   * computer's shown Project alone: listing Chats must not move what a desktop window shows.
-   */
   const openFor = (entry: Entry, client: StoreClient, path: string) =>
     path === entry.home?.path ? client.call<OpenProject>("chats:ensure", []) : client.call<OpenProject>("project:open", [path]);
-  /**
-   * Asks where the computer's Chats home is, queued behind its Project list and never waited on: the drawer's first
-   * Projects don't sit behind it. It counts neither way for the computer's health (a failed ask keeps what was known), and
-   * a home that changed is read by the cycle that follows.
-   */
   async function askHome(entry: Entry, client: StoreClient, idle: () => boolean) {
     const chatsHome = client.chatsHome;
     if (!chatsHome) {
@@ -307,10 +244,8 @@ export function createAllComputersStore(deps: StoreDeps) {
     }
     if (!keepHome(entry, found)) return;
     publish(entry);
-    // Only a home that now exists has Chats to read; one not made yet changes nothing to read.
     if (found?.exists && active()) void cycle(entry);
   }
-  /** Records the computer's home as it answered, publishing only a change. */
   function keepHome(entry: Entry, home: ChatsHome | null) {
     if (entry.home === home || (entry.home && home && entry.home.path === home.path && entry.home.exists === home.exists)) return false;
     entry.home = home;
@@ -318,7 +253,6 @@ export function createAllComputersStore(deps: StoreDeps) {
     return true;
   }
 
-  /** One Project's Chats the way the sidebar always read them: open it (once) for its path, then its Chat list. */
   async function previewOne(
     entry: Entry,
     client: StoreClient,
@@ -341,10 +275,8 @@ export function createAllComputersStore(deps: StoreDeps) {
       entry.again = true;
       return entry.running;
     }
-    // A scheduled read this one replaces: left set, it would start a second read right behind this one.
     dispose(entry);
     const client = entry.client;
-    // A read the user asked for goes on while no sidebar shows; the poller's stops issuing requests once none does.
     const idle = () => !force && !active();
     const run = (async () => {
       let succeeded = 0;
@@ -352,7 +284,6 @@ export function createAllComputersStore(deps: StoreDeps) {
       const departed = departures;
       const dead = () => succeeded === 0 && failed >= 2;
       const skipped = () => dead() || idle();
-      // Counts the requests that worked and failed in this read; a skipped one is neither.
       const tracked = async <T>(weight: number, work: () => Promise<T>): Promise<T> => {
         try {
           const value = await guarded(entry, client, weight, work, skipped);
@@ -369,7 +300,6 @@ export function createAllComputersStore(deps: StoreDeps) {
         const listDue = force || !entry.projectsAt || deps.now() - entry.projectsAt >= PROJECTS_EVERY;
         if (listDue) {
           try {
-            // The Project list costs three requests on the Mac.
             if (entry.shared) {
               if (entry.reload) await tracked(3, entry.reload);
             } else {
@@ -386,8 +316,6 @@ export function createAllComputersStore(deps: StoreDeps) {
             if (error === STALE) return;
           }
         }
-        // A home not known yet is asked on every read, not only with the Project list: the session's computer comes with
-        // its list already read (right after pairing too), and its No project choice must not wait a minute for the next one.
         if (listDue || entry.home === undefined) void askHome(entry, client, idle);
         const paths = wanted(entry);
         const updates = new Map<string, ProjectCopy>();
@@ -405,7 +333,6 @@ export function createAllComputersStore(deps: StoreDeps) {
           failedPaths.clear();
           publish(entry);
         };
-        // A Project the Mac refused is left alone for a while; a dropped connection or a busy Mac is not the Project's fault.
         const cool = (path: string) => entry.stuck.set(path, deps.now() + STUCK_FOR);
         const accept = (path: string, copy: ProjectCopy) => {
           cleared.add(path);
@@ -414,8 +341,6 @@ export function createAllComputersStore(deps: StoreDeps) {
         };
         const single = paths.filter((path) => isLink(path) || entry.noBatch || !client.chatLists);
         const batched = paths.filter((path) => !single.includes(path));
-        // One batch read of up to 20 Projects. A Project the Mac hasn't opened yet is opened once for this computer
-        // (opening moves it in the Mac's recent list, so never again) and read in a second batch.
         const readBatch = async (chunk: string[], mayOpen: boolean): Promise<void> => {
           const answer = await tracked(1, () => client.chatLists(chunk));
           const unopened: string[] = [];
@@ -425,7 +350,6 @@ export function createAllComputersStore(deps: StoreDeps) {
             else if (!found || LINK_ERROR.test(found.error)) single.push(path);
             else if (OPEN_FIRST.test(found.error) && mayOpen && !entry.canonical.has(path)) unopened.push(path);
             else {
-              // Anything else (confinement, a bad path) keeps the last good data and is not asked again for a while.
               cool(path);
               failedPaths.set(path, found.error);
             }
@@ -453,7 +377,6 @@ export function createAllComputersStore(deps: StoreDeps) {
             await readBatch(chunk, true);
           } catch (error) {
             if (error === STALE) return;
-            // A Mac without the route is asked per Project, now and from here on.
             if ((error as { code?: string })?.code === "unsupported") {
               entry.noBatch = true;
               single.push(...chunk);
@@ -476,7 +399,6 @@ export function createAllComputersStore(deps: StoreDeps) {
         );
         if (!alive(entry, client)) return;
         flush();
-        // A read the app's trip to the background cut off says nothing about the computer; the read on return will.
         const cutOff = departed !== departures && succeeded === 0;
         if (!cutOff && failed > 0 && succeeded === 0) {
           entry.failures++;
@@ -487,7 +409,6 @@ export function createAllComputersStore(deps: StoreDeps) {
           entry.lastSuccess = deps.now();
         }
         publish(entry);
-        // In the background, through the same limit: a sidebar read never waits on it.
         if (deps.warm && entry.state === "online" && !idle())
           void deps.warm(client, recentChats(entry.copies), (work) => guarded(entry, client, 1, work, skipped)).catch(() => {});
       } finally {
@@ -516,7 +437,6 @@ export function createAllComputersStore(deps: StoreDeps) {
     );
   }
 
-  /** Starts every computer's reads when the sidebar shows, and stops them when it doesn't. */
   function reconcile() {
     for (const entry of entries.values()) {
       if (active()) {
@@ -525,10 +445,6 @@ export function createAllComputersStore(deps: StoreDeps) {
     }
   }
 
-  /**
-   * A sidebar or page registers what it needs read. What is read is the union of everyone registered, so one closing
-   * gives back exactly what the others asked for. `update` changes this consumer's requirements; `release` ends them.
-   */
   function register(policy: ViewPolicy) {
     const consumer = { policy };
     consumers.add(consumer);
@@ -590,11 +506,6 @@ export function createAllComputersStore(deps: StoreDeps) {
   }
 
   return {
-    /**
-     * Matches the entries to the saved computers that aren't hidden, and to the session's client. A computer that
-     * left the list is dropped; one whose credentials or client changed gets a new entry, so work started for the old
-     * one is discarded when it lands. Cheap to call on every change.
-     */
     sync(hosts: SavedHost[], current: CurrentHost | null) {
       const listed = hosts.filter((host) => !host.hidden);
       order = listed.map((host) => host.id);
@@ -632,7 +543,6 @@ export function createAllComputersStore(deps: StoreDeps) {
           continue;
         }
         if (existing) retire(existing);
-        // Another pairing of the same computer's id shares nothing with the old one: not its Projects, nor its answers.
         const entry = makeEntry(host, client, shared, existing?.credentials === credentials(host) ? existing : undefined, existing?.version);
         if (shared) {
           entry.reload = current.reload;
@@ -652,7 +562,6 @@ export function createAllComputersStore(deps: StoreDeps) {
       if (changed) reconcile();
     },
     register,
-    /** A sidebar is shown; returns what ends that. Any number may be shown at once, and the reads run once. */
     show: () => register({ visible: true, expandAll: false, isFolded: () => false }).release,
     setForeground(next: boolean) {
       if (foreground === next) return;
@@ -660,15 +569,12 @@ export function createAllComputersStore(deps: StoreDeps) {
       if (!next) departures++;
       reconcile();
     },
-    /** Reads every computer now, its Project list too: pull to refresh. */
     refreshAll(): Promise<void> {
       return Promise.all([...entries.values()].map((entry) => cycle(entry, true))).then(() => undefined);
     },
-    /** Reads just these computers now, their Project lists too: Retry on the offline line. */
     refreshHosts(ids: string[]): Promise<void> {
       return Promise.all(ids.map((id) => entries.get(id)).flatMap((entry) => (entry ? [cycle(entry, true)] : []))).then(() => undefined);
     },
-    /** Hides or shows one of a computer's Projects in what the sidebar lists, as Choose projects saved it. */
     setProjectHidden(hostId: string, path: string, hidden: boolean) {
       const entry = entries.get(hostId);
       if (!entry || !entry.projects.some((item) => item.path === path && !!item.hidden !== hidden)) return;
@@ -679,17 +585,12 @@ export function createAllComputersStore(deps: StoreDeps) {
       });
       publish(entry);
     },
-    /**
-     * The phone made a computer's Chats home (picking No project there): it shows as made at once and its Chats are read
-     * from now on, without waiting for the next read of the computer's Project list.
-     */
     setHome(hostId: string, home: ChatsHome) {
       const entry = entries.get(hostId);
       if (!entry || !keepHome(entry, home)) return;
       publish(entry);
       if (active()) void cycle(entry);
     },
-    /** Reads one Project again, after a Chat action changed it. */
     async refreshProject(hostId: string, path: string) {
       const entry = entries.get(hostId);
       if (!entry) return;
@@ -707,12 +608,10 @@ export function createAllComputersStore(deps: StoreDeps) {
         if (error !== STALE) throw error;
       }
     },
-    /** The client that talks to this computer now, for an action on one of its Chats. Null once it is gone. */
     clientFor: (hostId: string): Client | null => (entries.get(hostId)?.client as Client | undefined) ?? null,
     hostFor: (hostId: string): SavedHost | undefined => entries.get(hostId)?.host,
     views: () => views,
     viewOf: (hostId: string): HostView | undefined => entries.get(hostId)?.view,
-    /** Changes whenever any computer's data does; the sidebar's one subscription. */
     versions: () => key,
     subscribe(listener: () => void) {
       listeners.add(listener);

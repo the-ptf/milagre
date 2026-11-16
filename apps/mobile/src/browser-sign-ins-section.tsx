@@ -7,10 +7,6 @@ import { useTheme } from "./theme";
 import { ErrorNotice, pressStyle, useStyles } from "./ui";
 import { hitSlopFor, lineHeight, space, type } from "./design-tokens";
 
-/**
- * Settings › Browser: the connected computer's Browser panel sign-ins, its own Chats' and each paired computer's, each
- * signed out on its own (desktop Settings › Browser). Hidden on a computer too old to list them.
- */
 export function BrowserSignInsSection() {
   const styles = useStyles();
   const session = useSession();
@@ -73,7 +69,6 @@ function SignOutRow({ computerId, name, onError }: { computerId: string; name: s
     }
   }
   const label = state === "busy" ? SIGNING_OUT : state === "done" ? SIGNED_OUT : SIGN_OUT;
-  // A plain row, not settings-list's Row: that one is a Pressable, which VoiceOver reads as one element, hiding Sign out.
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: 52 }}>
       <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>

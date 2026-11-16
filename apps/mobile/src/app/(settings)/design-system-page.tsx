@@ -4,7 +4,6 @@ import { EmptyState, PageScroll } from "../../ui";
 import { designPlatform, designSection } from "../../design-system-catalogue";
 import { DesignSystemPage } from "../../design-system-specimens";
 
-/** One page of Settings › Design system, by its `section`, with the notes for the `platform` the index's switch picked. */
 export default function DesignSystemPageScreen() {
   const params = useLocalSearchParams<{ section?: string; platform?: string }>();
   const section = designSection(params.section);

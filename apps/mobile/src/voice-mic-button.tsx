@@ -24,15 +24,11 @@ import type { DictationPhase } from "@milagre/shared/voice-dictation";
 
 export const MIC_SIZE = 44;
 const SIZE = 32;
-/** The capsule's two controls: smaller than 44pt on purpose, with `hitSlop` making up the target. */
 const CONTROL = 28;
-/** The capsule is a little shorter than the mic's 44pt box, so it sits centred in the composer's control row. */
 const CAPSULE_HEIGHT = 36;
-// The level halo swells inside the capsule and no further: 22 at rest, 35.2 at full voice, under CAPSULE_HEIGHT.
 const HALO = 22;
 const HALO_SWELL = 0.6;
 
-/** The mic at the trailing edge of the composer: tap to record. While a take runs the capsule stands in its place. */
 export function VoiceMicButton({ onPress, processing = null }: { onPress: () => void; processing?: string | null }) {
   const { colors } = useTheme();
   const busy = processing !== null;
@@ -64,7 +60,6 @@ export function VoiceMicButton({ onPress, processing = null }: { onPress: () => 
   );
 }
 
-/** The ring a model download fills, from the top, clockwise: 0..1. */
 export function DownloadRing({ size, stroke, progress, children }: { size: number; stroke: number; progress: number; children?: ReactNode }) {
   const { colors } = useTheme();
   const arc = (size - stroke) / 2;
@@ -96,7 +91,6 @@ export function DownloadRing({ size, stroke, progress, children }: { size: numbe
 const ARROW = 18;
 const WELL = 22;
 
-/** The arrow that keeps dropping through the ring: it falls in, rests, and drops out below. With motion off it holds still. */
 function DroppingArrow() {
   const { colors, motionScale } = useTheme();
   const drop = useSharedValue(0);
@@ -132,7 +126,6 @@ function DroppingArrow() {
   );
 }
 
-/** The mic while the take's speech model downloads: tap to cancel. The take records once it lands. */
 function DictationDownload({ progress, onCancel }: { progress: number; onCancel: () => void }) {
   return (
     <Pressable
@@ -149,10 +142,6 @@ function DictationDownload({ progress, onCancel }: { progress: number; onCancel:
   );
 }
 
-/**
- * The take's own control, in the mic's place: discard it, or stop it. Nothing else in the composer changes, so the words
- * in the field stay where they are. The stop is a red square, never the agent's dark Stop circle.
- */
 export function DictationCapsule({
   phase,
   level,
@@ -162,7 +151,6 @@ export function DictationCapsule({
 }: {
   phase: DictationPhase;
   level: SharedValue<number>;
-  /** How far the take's model download is, 0..1, while it downloads; the mic shows the ring then, not the capsule. */
   download: number | null;
   onDiscard: () => void;
   onStop: () => void;
@@ -175,7 +163,6 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
   const { colors, motionScale } = useTheme();
   const recording = phase === "recording";
   const halo = useAnimatedStyle(() => {
-    // With motion off the halo holds still at a middling size: recording still reads, nothing moves.
     if (motionScale <= 0) return { transform: [{ scale: 1.25 }] };
     return {
       transform: [{ scale: withTiming(1 + level.value * HALO_SWELL, { duration: Math.round(80 * motionScale), reduceMotion: ReduceMotion.System }) }],
@@ -232,7 +219,6 @@ function Capsule({ phase, level, onDiscard, onStop }: { phase: DictationPhase; l
   );
 }
 
-/** A loading border. Reduced motion keeps a stepped fade without rotation. */
 function MicLoadingRing({ size = 20, stroke = 2, color }: { size?: number; stroke?: number; color?: string }) {
   const { colors, motionScale } = useTheme();
   const reducedMotion = useReducedMotion();

@@ -38,8 +38,6 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  // The page reads like the reply around it: the phone's text size and the theme's colors. It is transparent, so the
-  // transcript's own background (and its dot grid) shows through.
   const theme = useMemo<HtmlRenderTheme>(
     () => ({
       scheme,
@@ -66,7 +64,6 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
     }),
     [colors, scheme, textPx],
   );
-  // The file starts in the current theme; later changes are sent to the running page instead of reloading it.
   const latestTheme = useRef(theme);
   useEffect(() => {
     latestTheme.current = theme;
@@ -84,7 +81,6 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
   useEffect(() => {
     let live = true;
     ready.current = false;
-    // Each effect owns a different file: refresh/Strict Mode cleanup must not delete its replacement.
     const next = new File(Paths.cache, `html-reply-${id}-${Date.now()}-${Math.random().toString(36).slice(2)}.html`);
     void Promise.resolve().then(() => {
       if (!live) return null;
@@ -100,9 +96,7 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
       live = false;
       try {
         if (next.exists) next.delete();
-      } catch {
-        /* Cache may already be gone. */
-      }
+      } catch {}
     };
   }, [html, id, attempt]);
   const sendTheme = () => {
@@ -150,7 +144,6 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
         useExpoModulesBridge={false}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
-        // The reply is as tall as its page: the transcript scrolls, the page never does.
         scrollEnabled={false}
         bounces={false}
         showsVerticalScrollIndicator={false}
@@ -160,7 +153,6 @@ function HtmlWebView({ html, onHeight, onEscape }: { html: string; onHeight?: (h
             ready.current = true;
             sendTheme();
           }
-          // The initial layout proves the page's scripts ran. `load` can wait longer for remote images or fonts.
           if (message?.type === "size") {
             setLaidOutFile(file.uri);
             onHeight?.(message.height);
@@ -195,8 +187,6 @@ export function HtmlReply({ chatId, page }: { chatId?: string; page: ArtifactRef
       live = false;
     };
   }, [client, chatId, page.id, page.version, key]);
-  // No frame, title or toolbar: the page sits in the reply like its text. Loading keeps the measured height so the
-  // transcript doesn't jump; only a failure shows words.
   return (
     <View accessibilityLabel={page.title} style={{ marginBottom: 8 }}>
       {state.page ? (

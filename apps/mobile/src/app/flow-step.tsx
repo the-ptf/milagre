@@ -80,11 +80,6 @@ const WAITS: { id: FlowWaitStep["until"]["kind"]; title: string }[] = [
 ];
 const shows = (value: string) => ({ systemImage: "chevron.right", title: value });
 
-/**
- * The step editor: a step's name and the settings its type has (an agent's prompt, model, Chat, retries and output fields;
- * an If's test; an approval's message and time limit; a wait; a pull request; a Linear comment), then Move up, Move down
- * and Delete. Each change goes into the draft at once and is written once typing rests; the step's problems show on top.
- */
 export default function FlowStepSheet() {
   const params = useLocalSearchParams<{ id: string; step: string }>();
   const styles = useStyles();
@@ -204,7 +199,6 @@ export default function FlowStepSheet() {
 
 const fieldTypeName = (kind: FlowField["type"]) => FIELD_TYPES.find((item) => item.id === kind)?.title.toLowerCase() ?? kind;
 
-/** The sheet's sticky header: Close on the leading edge, the step type in the middle. */
 function Header({ title }: { title: string }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -234,7 +228,6 @@ function Label({ text, trailing }: { text: string; trailing?: ReactNode }) {
   );
 }
 
-/** A card of rows split by hairlines. */
 function Card({ children }: { children: ReactNode }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -252,7 +245,6 @@ function Card({ children }: { children: ReactNode }) {
   );
 }
 
-/** One setting: its icon and name, then its value and a chevron, or an input in their place. */
 function Row({ icon, label, value, children }: { icon: IconData; label: string; value?: string; children?: ReactNode }) {
   const { colors } = useTheme();
   return (
@@ -277,12 +269,10 @@ function Row({ icon, label, value, children }: { icon: IconData; label: string; 
   );
 }
 
-/** A whole number typed in place; an empty or partial entry stays on screen and isn't written until it is a number. */
 function NumberField({ label, value, onChange, min, max }: { label: string; value: number; onChange: (value: number) => void; min: number; max: number }) {
   const { colors } = useTheme();
   const [text, setText] = useState(String(value));
   const [shownFor, setShownFor] = useState(value);
-  // A change from elsewhere (Move, a reload) shows the stored value again.
   if (shownFor !== value && Number(text) !== value) {
     setShownFor(value);
     setText(String(value));
@@ -307,7 +297,6 @@ function NumberField({ label, value, onChange, min, max }: { label: string; valu
   );
 }
 
-/** "Insert field": the fields this step can read, searchable; a pick appends `{{ref}}` to the text. */
 function InsertField({ fields, onInsert }: { fields: FlowReadable[]; onInsert: (ref: string) => void }) {
   const { colors } = useTheme();
   if (!fields.length) return null;

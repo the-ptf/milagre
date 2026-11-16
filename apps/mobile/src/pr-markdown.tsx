@@ -5,9 +5,6 @@ import type { Client } from "./client";
 import { Markdown } from "./markdown";
 import type { MediaValue } from "./viewer-store";
 
-// Uploads and repository screenshots in a private PR need GitHub authentication: the Mac reads them with gh's
-// token (pr:image). Kept while recent so
-// reopening the PR or a refresh doesn't read them again; a read that failed is asked again next time.
 const MAX_KEPT = 32;
 const kept = new Map<string, Promise<{ uri: string }>>();
 
@@ -35,7 +32,6 @@ function attachmentReader(client: Client, cwd: string) {
   };
 }
 
-/** A PR's description or comment: GitHub's image tags show as images, read through the Mac. */
 export const PrMarkdown = memo(function PrMarkdown({ text, client, cwd, tone }: { text: string; client: Client; cwd: string; tone?: "ink" | "ink2" }) {
   const remote = useMemo(() => attachmentReader(client, cwd), [client, cwd]);
   return <Markdown text={useMemo(() => githubHtmlToMarkdown(text), [text])} remote={remote} tone={tone} />;

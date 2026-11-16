@@ -1,4 +1,3 @@
-/** "seen 5m ago" from the last time this phone opened the computer; empty when it never has. */
 export function seenAgo(lastUsed: number, now = Date.now()): string {
   if (!(lastUsed > 0)) return "";
   const minutes = Math.max(0, Math.round((now - lastUsed) / 60_000));

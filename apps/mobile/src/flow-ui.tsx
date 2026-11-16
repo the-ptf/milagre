@@ -3,7 +3,6 @@ import { Icon } from "./icons";
 import type { StepLook } from "./flow-looks";
 import { useTheme } from "./theme";
 
-/** A step type's icon on its tinted square, as the editor's cards and the Add step sheet show it. */
 export function StepTile({ look, size = 36 }: { look: StepLook; size?: number }) {
   const { colors } = useTheme();
   return (

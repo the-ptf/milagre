@@ -119,11 +119,7 @@ export function AccountsForComputer() {
                 .filter(Boolean)
                 .join(" · ");
               return (
-                <View
-                  key={account.id}
-                  // The tick marks the chosen account (D2): no fill.
-                  style={{ borderTopWidth: index ? StyleSheet.hairlineWidth : 0, borderColor: colors.line }}
-                >
+                <View key={account.id} style={{ borderTopWidth: index ? StyleSheet.hairlineWidth : 0, borderColor: colors.line }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <Pressable
                       accessibilityRole="radio"

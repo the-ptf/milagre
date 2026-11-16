@@ -30,25 +30,16 @@ const STEPS: Record<BabysitStep, { icon: IconData; name: string }> = {
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const options = (values: readonly number[], title: (value: number) => string) => values.map((value) => ({ value: String(value), title: title(value) }));
-// Six segments share a phone's width, so the interval reads "5 min" where desktop's menu says "5 minutes".
 const INTERVALS = options(INTERVAL_OPTIONS, (value) => `${value} min`);
-// An off rule keeps its number, shown dimmed, so turning it back on restores it.
 const dimmed = (on: boolean) => (on ? null : { opacity: DISABLED_OPACITY.control });
 const DAYS = options(DAYS_OPTIONS, (value) => plural(value, "day", "days"));
 const FAILURES = options(FAILURE_OPTIONS, (value) => plural(value, "time", "times"));
 
-/**
- * A typed field that saves itself shortly after typing stops and when it loses focus or the screen closes. `reset` (Reset
- * all to defaults) drops what was typed, leaves the field and shows the default.
- */
 function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save, input: RefObject<TextInputInstance | null>) {
   const [value, setValue] = useState(saved);
-  // Text the Mac already holds counts as saved until it is edited.
   const [state, setState] = useState<SaveState>(saved ? "saved" : "idle");
   const focused = useRef(false);
-  // Typed but not yet saved: a value from the Mac does not replace it (a failed save keeps the text).
   const dirty = useRef(false);
-  // One saver per Mac: a reconnect flushes the old one (the cleanup below) and starts a new one.
   const saver = useMemo(() => createDebouncedSave(save, 500, setState), [save]);
   useEffect(() => {
     if (state === "saved") dirty.current = false;
@@ -58,7 +49,6 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
     setValue(saved);
     setState((current) => (current === "saving" ? current : saved ? "saved" : "idle"));
   }, [saved]);
-  // Leaving the screen saves what was typed last.
   useEffect(() => () => void saver.flush(), [saver]);
   return {
     value,
@@ -73,7 +63,6 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
     },
     onChangeText: (next: string) => {
       setValue(next);
-      // Typing takes the Saved mark away until this text has saved.
       setState("idle");
       dirty.current = true;
       saver.edit({ [key]: next });
@@ -88,10 +77,6 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
   };
 }
 
-/**
- * Settings › Integrations › Babysit PRs: the one configuration every Chat's babysitting follows, kept by the connected
- * Mac (desktop's BabysitPrsSettings). Re-read on focus: it may have changed on the Mac while the phone was elsewhere.
- */
 export function BabysitSection() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -115,8 +100,6 @@ export function BabysitSection() {
   if (state.unsupported) return <Text style={styles.muted}>Update Milagre on your computer to use Babysit PRs.</Text>;
   const error = state.error ? <ErrorNotice message={state.error} /> : null;
   if (!settings) return error;
-  // Switches, choices and chips save at once; a failure shows in the error above the groups.
-  // Values that build on the current ones (chips, number rules) are worked out from the latest settings, changes still on their way included.
   const change = (patch: BabysitChange) => void save(patch).catch(() => {});
   const toggleWake = (kind: BabysitWake) =>
     change((current) => {
@@ -199,7 +182,6 @@ export function BabysitSection() {
                     gap: space.lg,
                     borderRadius: radius.card,
                     borderCurve: "continuous",
-                    // The 2pt ink edge marks the choice; padding gives back the extra point so the card doesn't move.
                     borderWidth: selected ? 2 : 1,
                     borderColor: selected ? colors.ink : colors.lineStrong,
                     padding: selected ? space.lg - 1 : space.lg,
@@ -244,7 +226,6 @@ export function BabysitSection() {
                     ))}
                   </View>
                 </View>
-                {/* CheckRow's tick, at the end. */}
                 {selected && <Icon icon={Tick02Icon} tone="ink" size={18} />}
               </Pressable>
             );

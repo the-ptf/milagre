@@ -4,7 +4,6 @@ import { markdownTokens } from "./chat-presentation.ts";
 
 type Token = ReturnType<typeof markdownTokens>[number];
 
-/** A run of text with one look. Links only change color: the selection view selects them, it never opens them. */
 type SelectionSpan = { text: string; bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean; link?: boolean };
 
 /**
@@ -14,7 +13,6 @@ type SelectionSpan = { text: string; bold?: boolean; italic?: boolean; strike?: 
  */
 export type SelectionParagraph = {
   kind: "body" | "heading" | "code";
-  /** Points a heading adds to the body size. */
   grow: number;
   markers: string[];
   showMarker: boolean;
@@ -23,19 +21,13 @@ export type SelectionParagraph = {
   spans: SelectionSpan[];
 };
 
-/** Gaps of the formatted message: 12 between top-level blocks, 8 inside lists and quotes. */
 const BLOCK_GAP = 12;
 const INNER_GAP = 8;
 
-/** A plain message (the user's own) as one paragraph; its line breaks stay. */
 export function plainSelection(text: string): SelectionParagraph[] {
   return text ? [{ kind: "body", grow: 0, markers: [], showMarker: false, quote: 0, spaceBefore: 0, spans: [{ text }] }] : [];
 }
 
-/**
- * A reply as the phone draws it, for selecting in place: the marks go, bold, italics, code and links keep their look,
- * lists keep their markers and indents. Diagrams, generated UI and images are not text and are left out.
- */
 export function markdownSelection(text: string): SelectionParagraph[] {
   const paragraphs: SelectionParagraph[] = [];
   const lists: { ordered: boolean; next: number }[] = [];
@@ -43,7 +35,6 @@ export function markdownSelection(text: string): SelectionParagraph[] {
   let quote = 0;
   let pendingMarker = false;
   let gap = BLOCK_GAP;
-  // The size step of the heading being read (h1 +2, h2 +1, others 0), or null outside a heading.
   let heading: number | null = null;
   let row: SelectionSpan[] | null = null;
   let header = false;

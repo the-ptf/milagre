@@ -5,7 +5,6 @@ import { useSession } from "./session";
 
 const catalogs = new Map<string, Promise<string[]>>();
 
-/** The skill names of a Project, for chips in sent messages. One request per Mac and Project, shared by every message. */
 export function useSkillNames(projectPath: string | undefined) {
   const { client } = useSession();
   const [loaded, setLoaded] = useState<{ key: string; names: string[] } | null>(null);

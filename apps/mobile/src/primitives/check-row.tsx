@@ -10,12 +10,6 @@ import { pressStyle } from "./press-style";
 import { CheckboxBox } from "./checkbox";
 import { rowHover, rowMetrics } from "./row-metrics";
 
-/**
- * A choice row with ListRow's metrics (52 one line, 56 with a subtitle, 48 `compact`). `kind="radio"` (one of a list: a
- * mode, a model) shows an 18pt ink tick at the end when checked; `kind="checkbox"` (any of a list: Projects to link)
- * leads with a CheckboxBox. `accessory` sits after the title (a context badge), `trailing` before the tick. Put the
- * rows in a `radiogroup` (Group `role="radiogroup"`) for radios.
- */
 export function CheckRow({
   title,
   subtitle,
@@ -42,7 +36,6 @@ export function CheckRow({
   accessory?: React.ReactNode;
   trailing?: React.ReactNode;
   titleLines?: number;
-  /** Unlimited by default; 1 keeps a path's start and end (middle ellipsis). */
   subtitleLines?: number;
   destructive?: boolean;
 }) {

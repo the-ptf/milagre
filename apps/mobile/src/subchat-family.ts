@@ -1,5 +1,3 @@
-// What the bookmark over an open Subchat and its family menu say (subchat-bookmark.tsx, chat.tsx). Pure: the Chats come
-// from the Project's sessions, the live state from its runs, the same read the Subchats pill makes (subchat-view.ts).
 import { chatTitle } from "@milagre/shared/chats";
 import type { AgentSession } from "@milagre/shared/model";
 import { chatBookmark, type FamilySession } from "@milagre/shared/subchats";
@@ -9,15 +7,10 @@ import { subchatStates, type HeartbeatRoutine } from "./subchat-view.ts";
 
 type Sessions = Record<number, AgentSession | undefined>;
 
-/** The capsule over an open Subchat: the Chat above it, and whether that Chat is waiting on the user. */
 export type Bookmark = { parent: string; title: string; needsYou: boolean; running: boolean };
 
 const sessionOf = (sessions: Sessions, key: string) => sessions[Number(key.slice(key.lastIndexOf("#") + 1))];
 
-/**
- * The bookmark of the Chat `key`: its nearest listed ancestor, or null for a top-level Chat. `attention` is the Chats
- * waiting on the user in every Project; the open Project's runs answer for its own Chats without waiting for the poll.
- */
 export function bookmarkOf(input: {
   sessions: Sessions | undefined;
   key: string;
@@ -73,7 +66,6 @@ export function familyMenu(input: {
     }).map((state) => [state.key, state.label]),
   );
   const role = (index: number) => (index === above.length - 1 ? "Parent" : index === 0 ? "Top Chat" : undefined);
-  // An idle ancestor has no state worth a word: "Done" would read as if it finished.
   const live = (key: string) => {
     const label = states.get(key);
     return label === "Done" || label === "Stopped" ? undefined : label;

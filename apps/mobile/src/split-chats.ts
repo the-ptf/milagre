@@ -6,10 +6,8 @@ import { useSyncExternalStore } from "react";
  */
 export type BesideChat = { hostId: string; projectPath: string; chatId: number };
 
-/** Where the routed Chat is: its computer and Project, and its id (none for a New Chat). */
 type Open = { hostId?: string; projectPath?: string; chatId?: number };
 
-/** Whether a sidebar row offers "Open beside": a wide window, a Chat open, and the row another Chat on a computer that answers. */
 export function canOpenBeside(
   row: { hostId: string; projectPath: string; chatId: number; archived?: boolean; offline?: boolean },
   open: Open & { wide: boolean },
@@ -25,12 +23,6 @@ export function canOpenBeside(
   );
 }
 
-/**
- * What becomes of the Chat beside: `shown`, `hidden` while it can't show (a narrow window, no computer open, the open
- * Project it shares still loading), or `ended` once the pair is over (the routed Chat became it, or it is gone from the
- * open Project). A Chat of another Project is checked by its own pane, which closes it once it is gone. A window that
- * narrows keeps it, so it comes back when the window widens again.
- */
 export function besideState(
   beside: BesideChat | null,
   at: Open & { wide: boolean; loadedPath?: string; exists: (chatId: number) => boolean },
@@ -47,7 +39,6 @@ function sameChat(beside: BesideChat | null, row: { hostId: string; projectPath:
   return !!beside && beside.hostId === row.hostId && beside.projectPath === row.projectPath && beside.chatId === row.chatId;
 }
 
-// Outside the Chat screen, so it survives the sidebar replacing that screen with another Chat.
 let current: BesideChat | null = null;
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((listener) => listener());

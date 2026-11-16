@@ -11,12 +11,6 @@ import { pressStyle } from "./primitives/press-style";
 
 const TITLE_LIMIT = 160;
 
-/**
- * A Milagre bug report waiting for the user (bug-reports.cjs), as desktop's BugReportCard: the exact title and text that
- * go to Milagre's public tracker, placeholders marked, editable before Post. An edit with more private details comes back
- * from the host redacted, as a new card. "card" sits in the Chat like the question card; "inline" goes inside an inbox
- * card, which brings its own frame.
- */
 export function BugReportQuestion({
   request,
   busy,

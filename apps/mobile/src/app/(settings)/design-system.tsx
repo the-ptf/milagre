@@ -47,10 +47,6 @@ const ICONS: Record<DesignSectionId, IconData> = {
 
 const noop = () => {};
 
-/**
- * Settings › Design system: the catalogue of what the phone draws with. The switch picks which platform's notes its
- * pages show; the specimens on them always draw with this device's own primitives.
- */
 export default function DesignSystemScreen() {
   const styles = useStyles();
   const [platform, setPlatform] = useState<DesignPlatform>(() => designPlatform(undefined, Platform.OS));
@@ -89,7 +85,6 @@ export default function DesignSystemScreen() {
   );
 }
 
-/** The Colors row's preview: ink, accent and the three status colours of the current theme, then the chevron. */
 function ColorDots() {
   const { colors } = useTheme();
   return (
@@ -104,7 +99,6 @@ function ColorDots() {
   );
 }
 
-/** The Buttons row's preview: a real small PillButton, shown only; the row takes the tap. */
 function SendPreview() {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>

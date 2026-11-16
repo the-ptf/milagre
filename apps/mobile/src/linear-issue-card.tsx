@@ -5,7 +5,6 @@ import { lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { pressStyle } from "./ui";
 
-/** A Chat started from a Linear issue, shown as the issue instead of the prompt the agent read. Tapping opens it in Linear. */
 export function LinearIssueCard({ issue }: { issue: LinearIssueContext }) {
   const { colors } = useTheme();
   return (
@@ -13,7 +12,6 @@ export function LinearIssueCard({ issue }: { issue: LinearIssueContext }) {
       <Pressable
         accessibilityRole={issue.url ? "link" : undefined}
         accessibilityLabel={issue.url ? `Open Linear issue ${issue.key}: ${issue.title}` : `Linear issue ${issue.key}: ${issue.title}`}
-        // A Routine Run's card has no link when the issue's URL wasn't Linear's own.
         disabled={!issue.url}
         onPress={() => void Linking.openURL(issue.url).catch(() => {})}
         style={({ pressed }) => pressStyle({ pressed })}

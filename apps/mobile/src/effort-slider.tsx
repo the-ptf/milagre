@@ -93,7 +93,6 @@ export function EffortSlider({
   );
 }
 
-/** Drag anywhere or tap a stop; the handle follows the finger and springs to the nearest stop on release. */
 function sliderGesture({
   x,
   last,

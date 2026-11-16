@@ -23,16 +23,13 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "triggers", label: "Triggers" },
   { id: "paused", label: "Paused" },
 ];
-/** The spec keeps the lid-close limit to this help line and the switched-off state. */
 export const LID_HELP = "Routines run while your computer is awake. Closing the lid on battery pauses them.";
 
 const newRoutine = () => router.push("/routine-form");
 const openRoutine = (routine: RoutineWithRuns) => router.push({ pathname: "/routine", params: { id: routine.id } });
 
-/** The Projects the Routines open Run Chats in, for their rows' unread dots. */
 const runProjects = (routines: RoutineWithRuns[]) => routines.flatMap((routine) => (routine.target.kind === "new-chat" ? [routine.target.projectPath] : []));
 
-/** The Chat a Routine's action opens: a heartbeat's own Chat, else the Chat its newest Run started. */
 function chatOf(routine: RoutineWithRuns) {
   if (routine.target.kind === "chat") return routine.target.chatId;
   let last: RoutineWithRuns["runs"][number] | undefined;
@@ -40,17 +37,14 @@ function chatOf(routine: RoutineWithRuns) {
   return last?.chatId;
 }
 
-/** The connected Mac's Routines: heartbeats and triggers, each with its switch and actions. */
 export default function RoutinesScreen() {
   const styles = useStyles();
   const { client } = useSession();
   const routines = useRoutines(client);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState("");
-  // "2 h ago" moves on with the app's shared half-minute clock.
   const now = useActivityClock(true);
   const all = routines.routines;
-  // A Routine with a hidden Run Chat nobody opened shows a dot; each new Run reads its Project again.
   const states = useProjectStates(runProjects(all), all.map((routine) => routine.runs?.[0]?.id ?? "").join(","));
   const unread = useMemo(() => unreadRunRoutines(states), [states]);
   const empty = client && routines.enabled !== null && !routines.loading && !all.length && !routines.error && !routines.unavailable && !error;
@@ -109,7 +103,6 @@ export default function RoutinesScreen() {
 
   return (
     <>
-      {/* Stack.Toolbar takes its buttons as direct children (a Fragment is refused), so each slot picks its own element. */}
       <Stack.Toolbar placement="right">
         {Platform.OS === "ios" ? (
           <Stack.Toolbar.Button icon="plus" accessibilityLabel="New Routine" disabled={!client || !!routines.unavailable} onPress={newRoutine} />
@@ -169,10 +162,6 @@ export default function RoutinesScreen() {
   );
 }
 
-/**
- * One Routine: a tap on its icon, name and meta opens its page (the chevron at the end says so), a long press its actions (Pause or Resume first, as
- * desktop's ⋯ menu). A dot by the name says one of its hidden Run Chats is unread.
- */
 function RoutineRow({
   routine,
   now,
@@ -195,7 +184,6 @@ function RoutineRow({
   const heartbeat = isHeartbeat(routine);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-      {/* The label is what VoiceOver reads for the row: its name, unread Runs, meta and any paused reason or error. */}
       <PullDown
         label={label}
         title={routine.name}
@@ -204,11 +192,8 @@ function RoutineRow({
         sections={[
           {
             items: [
-              // On and off live here and on the Routine's page, as on desktop; the meta line already says Off.
               { id: "flip", title: routine.enabled ? "Pause" : "Resume", systemImage: routine.enabled ? "pause.circle" : "play.circle" },
-              // A babysit Heartbeat follows the Babysit PRs settings: no form edits it.
               ...(canEditRoutine(routine) ? [{ id: "edit", title: "Edit", systemImage: "pencil" }] : []),
-              // Linear and webhook Routines run only on their event (a babysit Heartbeat on its PR's); the scheduler refuses Run now for them.
               ...(canRunNow(routine) ? [{ id: "run", title: "Run now", systemImage: "play", disabled: !routine.enabled }] : []),
               { id: "open", title: heartbeat ? "Open Chat" : "Open last Chat", systemImage: "bubble.left", disabled: !hasChat },
               ...(unread ? [{ id: "read", title: "Mark as read", systemImage: "checkmark" }] : []),
@@ -238,7 +223,6 @@ function RoutineRow({
               {meta}
             </Text>
           </View>
-          {/* A tap opens the Routine's page, as a Settings row opens its screen. */}
           <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
         </View>
       </PullDown>

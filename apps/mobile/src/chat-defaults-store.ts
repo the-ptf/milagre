@@ -16,7 +16,6 @@ function targetKey(scope: string) {
   return `milagre.chat-target.v1.${hash.toString(16)}`;
 }
 
-/** Only explicit new-Chat choices are saved. Linear issues and provider-switch markers never become defaults. */
 export function createChatDefaultsStore(storage: Storage) {
   const cache = new Map<string, string>();
   let pending = Promise.resolve();
@@ -73,15 +72,10 @@ export function createChatDefaultsStore(storage: Storage) {
     saveModel(value: ModelDefaults) {
       return write(modelKey, modelDefaults(value));
     },
-    /** The Project the last new Chat was started in, which the next New Chat opens in. */
     readLastProject,
     saveLastProject(hostId: string, projectPath: string) {
       return write(lastProjectKey, { hostId, projectPath });
     },
-    /**
-     * The computer the last new Chat was started on, with or without a Project: where No project starts. A phone from
-     * before this was kept has only its last Project's.
-     */
     readLastComputer(): string | null {
       const saved = read(lastComputerKey);
       return typeof saved?.hostId === "string" ? saved.hostId : (readLastProject()?.hostId ?? null);
@@ -89,7 +83,6 @@ export function createChatDefaultsStore(storage: Storage) {
     saveLastComputer(hostId: string) {
       return write(lastComputerKey, { hostId });
     },
-    /** The computer a repository's new Chat was last started on, where picking that Project again opens. */
     readOriginComputer(origin: string): string | null {
       const saved = read(originComputersKey);
       return typeof saved?.[origin] === "string" ? saved[origin] : null;

@@ -26,7 +26,6 @@ const TARGETS: { value: McpTarget; title: string }[] = [
 ];
 const asTarget = (value: string | undefined): McpTarget => (value === "claude" || value === "codex" ? value : "everywhere");
 
-/** Settings › MCP › add or edit a URL server. With `name` and `target` it edits that server; stored header values arrive masked. */
 export default function McpAddSheet() {
   const params = useLocalSearchParams<{ name?: string; target?: string }>();
   const editing = !!params.name;
@@ -102,7 +101,6 @@ export default function McpAddSheet() {
     setError("");
     try {
       await mcp.saveUrl(def, target, params.name ? { name: params.name, target: asTarget(params.target) } : undefined);
-      // A renamed server leaves the detail screen under this sheet pointing at a name that no longer exists.
       if (params.name && def.name !== params.name) router.dismissTo("/mcp");
       else router.back();
     } catch (cause) {
@@ -113,10 +111,8 @@ export default function McpAddSheet() {
   }
 
   const canSave = !choosing && !saving && !loading && !(editing && !url);
-  // A form sheet sizes its first scroll view to the sheet, so the header lives inside it, pinned as its sticky first
   // child: the keyboard rises from the bottom of the sheet, so Save stays reachable however the scroll view's keyboard
   // inset works out inside the sheet. A sticky header's own style moves to the wrapper RN draws around it, so the row
-  // sits in a plain outer View (as in model-sheet.tsx).
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0 }} stickyHeaderIndices={[0]} automaticallyAdjustKeyboardInsets>
       <View style={{ backgroundColor: colors.page }}>
@@ -136,7 +132,6 @@ export default function McpAddSheet() {
       </View>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={{ padding: space.gutter, paddingTop: space.md, gap: space.section }}>
-        {/* Next to Save, so a refused save is seen without scrolling. */}
         {error ? (
           <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
             {error}

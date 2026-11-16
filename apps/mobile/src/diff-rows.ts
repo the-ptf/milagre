@@ -3,7 +3,6 @@ import { splitRows, wordChanges, type Range } from "@milagre/shared/diff-layout"
 
 export type DiffRow = { type: "hunk"; key: string; header: string } | { type: "line"; key: string; line: DiffLine; words: Range[] };
 
-/** A file's patch as flat list rows: each hunk header, then its lines with the words that changed against their pair. */
 export function diffRows(patch: string): DiffRow[] {
   const rows: DiffRow[] = [];
   parsePatch(patch).forEach((hunk, hunkIndex) => {
@@ -20,7 +19,6 @@ export function diffRows(patch: string): DiffRow[] {
   return rows;
 }
 
-/** The line's text cut at the changed-word edges, so the changed pieces can carry their own highlight. */
 export function wordSegments(text: string, words: Range[]): { text: string; changed: boolean }[] {
   const segments: { text: string; changed: boolean }[] = [];
   let at = 0;
@@ -33,5 +31,4 @@ export function wordSegments(text: string, words: Range[]): { text: string; chan
   return segments;
 }
 
-/** Desktop's rule: a file with more changed lines than this waits for "Show diff". */
 export const LARGE_DIFF_LINES = 3000;

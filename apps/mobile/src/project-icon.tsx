@@ -7,8 +7,6 @@ import { lineHeight, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 
-// Desktop's project avatars: the repository's own icon or favicon, else its GitHub owner's avatar. Read once per
-// computer and Project for the app's life; a Mac without project:image, or a Project without one, keeps its initial.
 const images = new Map<string, Promise<string | null>>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -19,7 +17,6 @@ const subscribe = (listener: () => void) => {
   };
 };
 
-/** Shows the icon the computer now returns, after one is chosen or reset in Settings. */
 export function setProjectImage(client: Client, path: string, uri: string | null) {
   images.set(`${client.url}|${path}`, Promise.resolve(uri));
   version++;
@@ -39,7 +36,6 @@ function projectImage(client: Client, path: string) {
   return image;
 }
 
-/** A tile's frame and its glyph sizes (projectAvatarRadius): caption2 initials up to 24, footnote to 40, title1 above. */
 function tile(size: number) {
   const frame = { width: size, height: size, borderRadius: projectAvatarRadius(size), borderCurve: "continuous" } as const;
   const text = size <= 24 ? "caption2" : size <= 40 ? "footnote" : "title1";
@@ -47,7 +43,6 @@ function tile(size: number) {
   return { frame, text, glyph } as const;
 }
 
-/** A Project's tile: its image, else desktop's ink square with its on-ink initial (`name`, or the folder's). */
 export function ProjectIcon({ client, path, name, size = 28 }: { client: Client | null; path: string; name?: string; size?: number }) {
   const { colors } = useTheme();
   const [source, setSource] = useState<{ key: string; uri: string | null } | null>(null);
@@ -76,8 +71,6 @@ export function ProjectIcon({ client, path, name, size = 28 }: { client: Client 
   );
 }
 
-/** The mark of Chats without a Project, in a Project icon's place: the same ink tile with a bubble, since there is no
- * repository to show. */
 export function ChatsHomeIcon({ size = 28 }: { size?: number }) {
   const { colors } = useTheme();
   const { frame, glyph } = tile(size);
@@ -88,7 +81,6 @@ export function ChatsHomeIcon({ size = 28 }: { size?: number }) {
   );
 }
 
-/** A Link's mark: its first three Projects' tiles, fanned out. `size` is one tile's (the step between them scales with it). */
 export function ProjectIcons({ client, projects, size = 28 }: { client: Client | null; projects: { id: string; path: string }[]; size?: number }) {
   const visible = projects.slice(0, 3);
   const step = Math.round((size * 10) / 28);

@@ -5,10 +5,6 @@ import { currentBrief } from "../handoff-brief-store";
 import { Markdown } from "../markdown";
 import { CircleButton, PageScroll, SheetHeader, useStyles } from "../ui";
 
-/**
- * The brief the new provider was sent when a Chat switched providers, the linked summary a Link gave it, or a message
- * another Chat sent, read-only, as desktop's brief dialog shows it. A Chat's message also offers to open that Chat.
- */
 export default function HandoffBriefSheet() {
   const styles = useStyles();
   const brief = currentBrief();

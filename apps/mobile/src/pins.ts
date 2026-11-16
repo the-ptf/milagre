@@ -1,7 +1,6 @@
 import type { AgentSession } from "@milagre/shared/model";
 import { comparePins, pinOrderAt } from "@milagre/shared/chats";
 
-/** The patch a pin choice sends: pin at the end of the pinned Chats, unpin, or move one place up or down. Null when it changes nothing. */
 export function pinPatch(action: string, chat: AgentSession, sessions: AgentSession[]) {
   if (action === "unpin") return { pinned: false };
   const others = sessions.filter((session) => session.pinned && !session.archived && session.id !== chat.id).sort(comparePins);

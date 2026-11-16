@@ -37,7 +37,6 @@ const NO_CLIPBOARD = "Could not read the clipboard.";
 function ColorRow({ name, value, swatches, onCommit }: { name: string; value: string; swatches: string[]; onCommit: (hex: string) => void }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  // The field keeps what is typed until it is submitted or a full hex color arrives.
   const [draft, setDraft] = useState<{ source: string; text: string } | null>(null);
   const [invalid, setInvalid] = useState(false);
   const text = draft && draft.source === value ? draft.text : value;
@@ -141,7 +140,6 @@ function Preview({ theme, scheme }: { theme: CustomTheme; scheme: Scheme }) {
   );
 }
 
-/** The Custom theme editor, shown under its switch in Settings › Appearance. Edits select the Custom theme. */
 export function CustomThemeSection() {
   const { colors, scheme: onScreen, settings, set } = useTheme();
   const styles = useStyles();

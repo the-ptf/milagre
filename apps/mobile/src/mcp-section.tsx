@@ -13,7 +13,6 @@ import { useTheme } from "./theme";
 
 const openServer = (row: McpRow) => router.push({ pathname: "/mcp-server", params: { name: row.name } });
 
-/** Settings › MCP servers for the connected Mac: every account's servers, checked now. */
 export function McpSection() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -21,8 +20,6 @@ export function McpSection() {
   const mcp = useMcp();
   const [open, setOpen] = useState(false);
   const { attention, user, other } = mcp.groups;
-  // Sign-in rows from a project or plugin sit with their source; the top list is for the servers you add yourself.
-  // Your own servers that need sign-in are listed in Your servers too (user holds every editable row).
   const signIn = attention.filter((row) => !row.source);
   const groups = new Map<string, McpRow[]>();
   for (const group of other) groups.set(group.source, [...group.rows]);
@@ -55,7 +52,6 @@ export function McpSection() {
       {signIn.length ? (
         <Group title="Needs sign-in" inset={0}>
           {signIn.map((row) => (
-            // Tappable like any row: the detail screen has the switches, and Edit and Remove for your own servers.
             <ListRow
               key={row.name}
               title={row.name}
@@ -122,7 +118,6 @@ export function McpSection() {
   );
 }
 
-/** A server: its name, how it runs and where it loads (redInk when a provider failed to load it). */
 function ServerRow({ row }: { row: McpRow }) {
   const failed = row.chips.find((chip) => chip.state === "failed");
   const kind = row.everywhere ? "Everywhere" : row.transport === "command" ? "Command" : row.transport === "url" ? "URL" : "claude.ai";

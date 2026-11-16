@@ -5,7 +5,6 @@
  */
 export type SettingsStackRoute = { key?: string; name: string; params?: object };
 
-/** The page a wide sheet opens on when nothing else was asked for. */
 const FIRST_SETTINGS_PAGE = "appearance";
 const LIST = "settings";
 
@@ -20,7 +19,6 @@ export function narrowSettingsRoutes(routes: readonly SettingsStackRoute[]): Set
   return [{ name: LIST }, ...routes];
 }
 
-/** The sidebar row that stands for what the Stack shows: its first page, and for a Project, which one. */
 export function selectedSettingsRow(routes: readonly SettingsStackRoute[]): string | undefined {
   const first = routes[0];
   if (!first || first.name === LIST) return undefined;

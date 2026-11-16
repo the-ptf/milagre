@@ -2,7 +2,6 @@ import { useEffect, useSyncExternalStore } from "react";
 import * as SecureStore from "expo-secure-store";
 import { PHONE_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
 
-// What the project list's Chat rows show under their titles, chosen in its Filters menu. This phone's own choice.
 const KEY = "milagre.chat-row-show.v1";
 let current: ChatRowShow = PHONE_CHAT_ROW_SHOW;
 let loaded = false;
@@ -34,8 +33,6 @@ export function useChatRowShow(): ChatRowShow {
   return useSyncExternalStore(subscribe, () => current);
 }
 
-// One clock for the rows' last activity, so "5m" moves on without a timer per list. A read refreshes a stale value,
-// so a list shown long after the last tick starts right.
 const TICK = 30_000;
 let clockNow = Date.now();
 const clockListeners = new Set<() => void>();
@@ -59,7 +56,6 @@ function subscribeClock(listener: () => void) {
   };
 }
 const NO_CLOCK = () => () => {};
-/** Now, to the half minute, while `on`; 0 otherwise, so a list that doesn't show the time never re-renders for it. */
 export function useActivityClock(on: boolean): number {
   return useSyncExternalStore(on ? subscribeClock : NO_CLOCK, () => (on ? readClock() : 0));
 }

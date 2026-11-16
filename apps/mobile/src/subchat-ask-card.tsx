@@ -4,11 +4,6 @@ import { lineHeight, radius, space, type } from "./design-tokens";
 import { pressStyle } from "./ui";
 import { useTheme } from "./theme";
 
-/**
- * The Subchats pill while one Subchat waits on the user (subchat-pill.tsx): "<title> needs you" and the other counts,
- * then what it asks. The title is the part that truncates, so the verdict is always readable; the question wraps and the
- * card grows with Dynamic Type. Tinted orange, ink for the words, as the status colors keep the -ink shade for text.
- */
 export const SubchatAskCard = memo(function SubchatAskCard({ title, rest, ask, onOpen }: { title: string; rest: string; ask: string; onOpen: () => void }) {
   const { colors } = useTheme();
   return (

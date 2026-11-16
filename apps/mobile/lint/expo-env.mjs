@@ -1,6 +1,4 @@
 // The two env rules from eslint-plugin-expo, as an Oxlint JS plugin. Expo inlines
-// EXPO_PUBLIC_* only for static `process.env.NAME` reads, so a destructured or
-// computed read is undefined in the built app.
 
 function isProcessEnv(node) {
   return (

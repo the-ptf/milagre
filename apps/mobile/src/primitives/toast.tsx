@@ -6,23 +6,7 @@ import { radius, type } from "../design-tokens";
 import { pressStyle } from "./press-style";
 import { useTheme } from "../theme";
 
-/**
- * Every toast's look, matching desktop's sidebar toast (SidebarToast.tsx): one line on the strongest ink, its icon, text
- * and the Undo or Redo label all in onInk. Status colours and the accent fall under 3:1 on ink in some themes, so the
- * icon says what happened by its shape alone; Done's check sits in a solid badge so it reads at a glance.
- */
-export function ToastPill({
-  text,
-  icon,
-  badge,
-  action,
-}: {
-  text: string;
-  icon?: IconData;
-  /** Shows `icon` inside a solid onInk circle (Done's check). */
-  badge?: boolean;
-  action?: { label: string; onPress: () => void };
-}) {
+export function ToastPill({ text, icon, badge, action }: { text: string; icon?: IconData; badge?: boolean; action?: { label: string; onPress: () => void } }) {
   const { colors } = useTheme();
   return (
     <View
@@ -57,7 +41,6 @@ export function ToastPill({
           accessibilityLabel={action.label}
           hitSlop={12}
           onPress={action.onPress}
-          // A thumb-sized target: a missed Undo leaves the Chat deleted or Done.
           style={({ pressed }) => ({
             minWidth: 56,
             minHeight: 44,
@@ -75,7 +58,6 @@ export function ToastPill({
   );
 }
 
-/** A brief confirmation over the current screen, gone after a few seconds. Mount for each new action. */
 export function Toast({ text }: { text: string }) {
   const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(true);

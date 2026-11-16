@@ -27,9 +27,7 @@ import { STATUS_PILL, StatusPill, StatusPillFace } from "./status-pill";
 import { useTheme } from "./theme";
 import { IconButton, PageScroll, SectionLabel } from "./ui";
 
-// Desktop's morph: 300 ms on this curve, the hidden face fading in 100 ms and the shown one in 180 ms after 60 ms.
 const EASE = Easing.bezier(0.16, 1, 0.3, 1);
-// A downward drag on the header this long, or this fast, closes the panel.
 const DRAG_CLOSE = 72;
 const FLING_CLOSE = 900;
 // An iOS overscroll this far past the top of the body closes it too.
@@ -51,13 +49,11 @@ export function usePillPanel(available: boolean, chatId: string) {
   const [room, setRoom] = useState<Span | null>(null);
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [keyboard, setKeyboard] = useState(0);
-  // Each opening draws a fresh phase graph, so its Now is the moment the panel opened.
   const [opening, setOpening] = useState(0);
   const chip = useRef<ViewInstance | null>(null);
   const column = useRef<ViewInstance | null>(null);
   const overlay = useRef<ViewInstance | null>(null);
   const refocus = useRef(false);
-  // What the pill shows goes with its Chat: when it is gone, or this is another Chat, the panel is closed at once.
   const stale = state.phase !== "closed" && (!available || state.chatId !== chatId);
   if (stale) setState({ phase: "closed", chatId });
   const phase = stale ? "closed" : state.phase;
@@ -101,7 +97,6 @@ export function usePillPanel(available: boolean, chatId: string) {
     refocus.current = true;
     setState((current) => (current.phase === "closing" ? { ...current, phase: "closed" } : current));
   }, []);
-  // The open panel follows the pill wherever the composer takes it: a rotation (once the screen has laid out again), the
   // keyboard rising or falling (the composer rides it; these events come once it has landed), or the row relaying out.
   useEffect(() => {
     if (phase !== "open") return;
@@ -132,13 +127,11 @@ export function usePillPanel(available: boolean, chatId: string) {
     });
     return () => back.remove();
   }, [phase, close]);
-  // Landing back in the composer, the pill takes the screen reader's focus again.
   useEffect(() => {
     if (phase !== "closed" || !refocus.current) return;
     refocus.current = false;
     if (chip.current) AccessibilityInfo.sendAccessibilityEvent(chip.current, "focus");
   }, [phase]);
-  // The same object until something here changes, so the memoized pill and panel skip the Chat's other renders (typing).
   return useMemo(
     () => ({ phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout }),
     [phase, pill, room, origin, keyboard, opening, attachChip, attachRoom, attachOverlay, show, close, settle, relayout],
@@ -147,7 +140,6 @@ export function usePillPanel(available: boolean, chatId: string) {
 
 export type PillPanelState = ReturnType<typeof usePillPanel>;
 
-/** The Tasks pill's state: the shared panel state, with the plan it shows. */
 export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   const label = planPillLabel(plan);
   const panel = usePillPanel(!!label, chatId);
@@ -156,17 +148,11 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
 
 export type PlanPanelState = ReturnType<typeof usePlanPanel>;
 
-/**
- * Desktop's Tasks pill: done/total (or the current phase) in the status pills above the composer; a tap grows it into
- * the panel. Hidden without a plan.
- */
 export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelState }) {
   const { label, plan, phase, show, close, attachChip, relayout } = panel;
-  // The row gives way to a question card: the panel folds away with it rather than covering the question.
   useEffect(() => close, [close]);
   if (!label || !plan) return null;
   const { done, total } = taskCounts(plan.tasks);
-  // While the surface is out, it is the pill: this one keeps its place in the row, invisible.
   const away = phase !== "closed";
   return (
     <StatusPill
@@ -178,7 +164,6 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
       expanded={away}
       hidden={away}
       onPress={show}
-      // A new label (1/2 to 2/2) resizes the pill; an open panel keeps growing from its new frame.
       onLayout={relayout}
     />
   );
@@ -221,7 +206,6 @@ export function PillPanel({
   const panelFace = useSharedValue(0);
   const heading = useRef<TextInstance>(null);
   const { phase, close, settle, attachOverlay, keyboard, room, origin } = panel;
-  // Before the first opening the pill is unmeasured; the panel still lays out at its real width so its height is known.
   const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 96, width: 48, height: STATUS_PILL.height };
   const { from, to } = planPanelFrame({ window, insets, pill, room: room ?? undefined, content: header + body, keyboard, origin });
   const surfaceStyle = useAnimatedStyle(() => {
@@ -256,7 +240,6 @@ export function PillPanel({
       panelFace.set(0);
     }
   }, [phase, reduced, scale, settle, progress, drag, pillFace, panelFace]);
-  // Opening moves the screen reader into the panel, onto its heading, as desktop focuses the dialog.
   useEffect(() => {
     if (phase === "open" && heading.current) AccessibilityInfo.sendAccessibilityEvent(heading.current, "focus");
   }, [phase]);
@@ -299,12 +282,10 @@ export function PillPanel({
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
-      {/* The pill's own body, solid with its hairline, so the morph starts on the pill exactly as it stands in the row. */}
       <Animated.View
         pointerEvents="none"
         style={[{ position: "absolute", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderCurve: "continuous" }, surfaceStyle]}
       />
-      {/* The card over it: its stronger border and shadow fade in as it leaves the pill. */}
       <Animated.View
         pointerEvents="none"
         style={[
@@ -321,7 +302,6 @@ export function PillPanel({
         ]}
       />
       <Animated.View testID={`${testId}-surface`} style={[{ position: "absolute", overflow: "hidden", borderCurve: "continuous" }, surfaceStyle]}>
-        {/* Anchored to the surface's bottom-right at its final size, so the growing surface uncovers it. */}
         <Animated.View
           testID={`${testId}-panel`}
           role="dialog"
@@ -340,7 +320,6 @@ export function PillPanel({
               <IconButton label={`Collapse ${noun}`} icon={ArrowShrink02Icon} tone="ink3" size={36} onPress={close} />
             </View>
           </GestureDetector>
-          {/* The tree and the graph scroll as one body under the fixed header. */}
           <PageScroll
             nestedScrollEnabled
             contentInsetAdjustmentBehavior="never"
@@ -357,7 +336,6 @@ export function PillPanel({
           </PageScroll>
         </Animated.View>
       </Animated.View>
-      {/* The pill face stays at the pill's spot and fades as the surface grows out of it. */}
       <Animated.View {...inert} style={[{ position: "absolute", left: from.x, top: from.y, width: from.width, height: from.height }, pillStyle]}>
         {face}
       </Animated.View>
@@ -365,7 +343,6 @@ export function PillPanel({
   );
 }
 
-/** The Tasks panel: the task tree and the phase graph, as one body. */
 export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelState }) {
   const { plan, label, opening } = panel;
   if (!plan || !label) return null;

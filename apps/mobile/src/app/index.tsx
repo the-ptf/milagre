@@ -31,7 +31,6 @@ export default function ComputersScreen() {
   const push = usePush();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<Record<string, Reachability>>({});
-  // Messages waiting on this phone for a computer: its row says so, since its Chats can't open until it is back.
   const outboxItems = useOutbox().items;
   const waitingFor = (hostId: string) => outboxItems.filter((item) => item.computerId === hostId && item.status !== "sent").length;
   const [error, setError] = useState("");
@@ -80,7 +79,6 @@ export default function ComputersScreen() {
     return () => unsubscribe.forEach((stop) => stop());
   }, [session.hosts]);
   useEffect(() => {
-    // Resume the last computer (or the only pairing) once, unless a deep link takes over.
     if (autoOpened.current || !session.booted) return;
     const target =
       DEMO && process.env.EXPO_PUBLIC_DAEMON_URL && process.env.EXPO_PUBLIC_DAEMON_TOKEN
@@ -91,7 +89,6 @@ export default function ComputersScreen() {
     if (!target || !session.claimAutoOpen()) return;
     autoOpened.current = true;
     const version = session.navigationVersion();
-    // A hosts refresh can render again immediately. It must not cancel an already claimed auto-open.
     void Promise.resolve().then(() => {
       if (session.navigationVersion() === version) void open(target, true);
     });
@@ -100,10 +97,8 @@ export default function ComputersScreen() {
     if (action === "rename") renameComputer(host, { onRenamed: load, onError: setError });
     if (action === "forget") forgetComputer(host, { session, push, onForgotten: load, onError: setError });
   }
-  // The shared presence palette (desktop's too): offline is neutral, not an error.
   const dot = (state?: Reachability) => colors[presenceTone(state)];
   const label = (state?: Reachability) => (state === "online" ? "Online" : state === "offline" ? "Offline" : "Checking…");
-  // No computer yet: the walkthrough, after the Dawn intro on a first launch (desktop's onboarding, phone half).
   const unpaired = session.booted && session.hosts.length === 0 && !DEMO;
   const intro = useFirstLaunchIntro(unpaired);
   return (

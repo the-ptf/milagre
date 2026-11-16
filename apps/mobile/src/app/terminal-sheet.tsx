@@ -1,7 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { TerminalSheet, type TerminalPlace } from "../terminal";
 
-/** `places` is the JSON list of a shared Chat's Worktrees, so a new Terminal can ask which one. */
 function parsePlaces(value: string | undefined): TerminalPlace[] | undefined {
   if (!value) return undefined;
   try {

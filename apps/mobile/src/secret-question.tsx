@@ -10,13 +10,8 @@ import { useDisplayNow, useScreenActive } from "./display-clock";
 import { lineHeight, radius, type } from "./design-tokens";
 import { pressStyle } from "./primitives/press-style";
 
-/** The last minute reads in the attention tone, so a running-out request is noticed before it closes. */
 const URGENT_MS = 60_000;
 
-/**
- * A secret never enters the inbox's saved drafts or the ordinary answer summary.
- * "card" sits in the Chat like the question card; "inline" goes inside an inbox card, which brings its own frame.
- */
 export function SecretQuestion({
   request,
   busy,

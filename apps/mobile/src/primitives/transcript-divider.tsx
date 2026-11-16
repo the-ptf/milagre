@@ -6,12 +6,6 @@ import { useTheme } from "../theme";
 import { tap } from "./tap";
 import { pressStyle } from "./press-style";
 
-/**
- * A transcript event between two rules, as on desktop: an icon and a caption 12 label in ink3, 12 from each rule, on one
- * line (a long label keeps its start and end). `label` is what a screen reader reads and the default text; `children`
- * replace the text (styled parts; mono figures at caption2 11), `leading` the icon (a spinner), `trailing` sits after it
- * (an action button, which keeps its own role). With `onPress` the whole divider is a button (a handoff, a Link).
- */
 export function TranscriptDivider({
   label,
   icon,
@@ -26,7 +20,6 @@ export function TranscriptDivider({
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
   onPress?: () => void;
-  /** What pressing does, for VoiceOver ("Opens the handoff brief"); only with `onPress`. */
   hint?: string;
   children?: React.ReactNode;
 }) {

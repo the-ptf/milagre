@@ -13,25 +13,18 @@ import { useTheme } from "./theme";
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/**
- * The Heartbeat an agent set in this reply (its heartbeat_create step): its name, how often and until when, and Stop,
- * which deletes it. A Heartbeat that ended on its own says Ended; one that was deleted says Stopped.
- */
 export function HeartbeatCard({ step }: { step: ChatStep }) {
   const { colors } = useTheme();
   const { client } = useSession();
   const routines = useRoutines(client);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
-  // Only "ends 18:00" (today) against "ends Oct 24" reads the time, so the time the card first showed is enough.
   const [now] = useState(Date.now);
   const ref = step.routine;
   if (!ref) return null;
   const found = routines.routines.find((item) => item.id === ref.id);
-  // A Heartbeat that ran out (its end, its Runs, its Chat archived) is kept a while as completed: it Ended.
   const ended = !!found?.completedAt;
   const routine = ended ? undefined : found;
-  // Until the list is read the card can't tell a live Heartbeat from a stopped one, so it says neither.
   const known = !routines.loading && !routines.unavailable && !routines.error;
   const end = routine ? heartbeatEnd(routine, now) : "";
   const meta = routine ? [capital(triggerText(routine.trigger)), end].filter(Boolean).join(" · ") : ended ? "Ended" : known ? "Stopped" : "";

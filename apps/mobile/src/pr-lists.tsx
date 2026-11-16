@@ -35,7 +35,6 @@ import { agoLabel, commentItems, fileName, filesByFolder, openThreadsOf, withLab
 
 type Base = { client: Client; cwd: string; number: number };
 
-/** While the PR is being read for the first time, or couldn't be. */
 function Waiting({ error, retry }: { error: string; retry: () => void }) {
   return error ? (
     <View style={{ padding: space.xl }}>
@@ -48,7 +47,6 @@ function Waiting({ error, retry }: { error: string; retry: () => void }) {
   );
 }
 
-/** The ring around a reviewer's avatar: their verdict at a glance. */
 export const VERDICT = {
   APPROVED: { label: "Approved", tone: "green" },
   CHANGES_REQUESTED: { label: "Changes requested", tone: "red" },
@@ -57,7 +55,6 @@ export const VERDICT = {
   DISMISSED: { label: "Dismissed", tone: "ink3" },
 } as const satisfies Record<PullRequestReviewer["state"], { label: string; tone: string }>;
 
-/** A GitHub user's picture; their initial on a colour when it can't load (bots, offline). A team has no picture: an icon. */
 export function Avatar({ login, size = 18, ring, team = false }: { login: string; size?: number; ring?: string; team?: boolean }) {
   const { colors } = useTheme();
   const [failed, setFailed] = useState(false);
@@ -115,7 +112,6 @@ const OUTCOME = {
   neutral: { icon: CircleIcon, tone: "ink3", label: "Neutral" },
 } as const;
 
-/** Every check on the PR's head with its outcome; one with a log opens it. */
 export function CheckList({ checks }: { checks: PullRequestCheck[] }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -192,7 +188,6 @@ function cardStyle(colors: ReturnType<typeof useTheme>["colors"], accent = false
   } as const;
 }
 
-/** A comment on the PR itself. */
 function CommentCard({ comment, client, cwd }: { comment: PullRequestComment; client: Client; cwd: string }) {
   const { colors } = useTheme();
   return (
@@ -203,7 +198,6 @@ function CommentCard({ comment, client, cwd }: { comment: PullRequestComment; cl
   );
 }
 
-/** One review thread: its place, its comments, then Reply and Resolve. Draft comments say so and can be deleted. */
 export function ThreadCard({
   thread,
   pr,
@@ -217,7 +211,6 @@ export function ThreadCard({
   pr: PullRequestDetail;
   showPath?: boolean;
   onOpenFile?: () => void;
-  /** Fix in Chat, as desktop's diff offers it on an open thread; the PR overview leaves it out. */
   onFix?: () => void;
 }) {
   const styles = useStyles();
@@ -236,7 +229,6 @@ export function ThreadCard({
     return result.ok;
   }
   return (
-    // A resolved thread reads quieter in ink2 at full strength, not faded.
     <View style={cardStyle(colors, drafts)}>
       {thread.comments.map((comment, index) => (
         <View key={comment.id} style={{ gap: space.sm }}>
@@ -253,7 +245,6 @@ export function ThreadCard({
               ) : null
             }
           />
-          {/* The place goes under the first comment's author, as on desktop. */}
           {index === 0 && showPath && (
             <Pressable accessibilityRole="button" accessibilityLabel={`Open ${thread.path}`} disabled={!onOpenFile} onPress={onOpenFile}>
               <Text
@@ -341,7 +332,6 @@ export function ThreadCard({
   );
 }
 
-/** Comments on the PR and its review threads as cards, newest or oldest first; resolved threads behind a toggle. */
 export function PrComments({
   pr,
   client,
@@ -379,7 +369,6 @@ export function PrComments({
   );
 }
 
-/** The comments on their own page: where the composer's review pill lands. */
 export function PrThreads({ onOpenFile, ...base }: Base & { onOpenFile: (path: string) => void }) {
   const { pr, error, refresh } = usePrDetail(base.client, base.cwd, base.number);
   if (!pr) return <Waiting error={error} retry={refresh} />;
@@ -390,7 +379,6 @@ export function PrThreads({ onOpenFile, ...base }: Base & { onOpenFile: (path: s
   );
 }
 
-/** The PR's files under their folders, each with its counts and open threads; a file opens its diff. */
 export function FileList({ pr, onOpenFile }: { pr: PullRequestDetail; onOpenFile: (file: PullRequestFile) => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -458,10 +446,6 @@ const PickSeparator = () => <Separator inset={40} />;
 
 type PickItem = { id: string; title: string; subtitle?: string; color?: string; team?: boolean; checked: boolean; disabled?: boolean };
 
-/**
- * Labels or reviewers, searchable, each a toggle written to GitHub at once: the PR shows the change straight away and the
- * read after the write confirms it.
- */
 export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" | "reviewers" }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -484,7 +468,6 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
             color: label.color,
             checked: pr.labels.some((entry) => entry.name === label.name),
           })),
-          // A label on the PR the repository's list no longer has still shows, to take it off.
           ...pr.labels
             .filter((label) => !known.some((entry) => entry.name === label.name))
             .map((label) => ({ id: label.name, title: label.name, color: label.color, checked: true })),
@@ -496,7 +479,6 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
             subtitle: VERDICT[reviewer.state].label,
             team: reviewer.team,
             checked: true,
-            // GitHub can only take back a request; a review once given stays.
             disabled: reviewer.state !== "REQUESTED",
           })),
           ...(people.data?.ok ? people.data.logins : [])
@@ -592,7 +574,6 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
   );
 }
 
-/** Submit the review: a verdict (the author can only comment), a summary, and the draft comments already added. */
 export function PrReviewForm({ client, cwd, number, onDone }: Base & { onDone: () => void }) {
   const styles = useStyles();
   const { pr, error: readError, refresh } = usePrDetail(client, cwd, number);

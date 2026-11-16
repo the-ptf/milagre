@@ -7,7 +7,6 @@ import { ChoiceCards, DictationPreview } from "./chat-display-choices";
 import { ListRow, Toggle, showActions, useStyles } from "./ui";
 import { radius, space } from "./design-tokens";
 
-/** Settings › Voice: dictation, kept on this phone (desktop's Voice page). */
 export function VoiceSection() {
   const styles = useStyles();
   const [dictation] = useDictationLanguage();
@@ -75,7 +74,6 @@ export function VoiceSection() {
   );
 }
 
-/** The fix-up's model, picked from a sheet: Automatic first, then each agent's small model. */
 function pickFixModel(current: DictationFixModel, onPick: (model: DictationFixModel) => void) {
   showActions({
     title: "Fix-up model",

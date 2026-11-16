@@ -18,12 +18,10 @@ export const PageScroll = React.forwardRef<ScrollViewInstance, ScrollViewProps &
   const current = React.useRef({ top: false, bottom: false, height: 0 });
   const [edges, setEdges] = React.useState({ top: false, bottom: false, height: 0 });
   const fading = fadeEdges && !props.horizontal;
-  // Register horizontal scrolling with the panel recognizer, so dragging a table or code stays in its scroll view.
   const NativeScroll = props.horizontal ? GestureScrollView : ScrollView;
   const update = () => {
     const { offset, height, content } = metrics.current;
     const next = { top: content > height && offset > 1, bottom: height > 0 && offset + height < content - 1, height };
-    // Scrolling only renders when an edge is crossed, never for every scroll frame.
     if (next.top === current.current.top && next.bottom === current.current.bottom && next.height === current.current.height) return;
     current.current = next;
     setEdges(next);

@@ -17,7 +17,6 @@ const PEEK = 16;
 const SPRING = { duration: duration.slow, dampingRatio: 0.85, overshootClamping: true, reduceMotion: ReduceMotion.System };
 type Edge = 0 | 1 | 2;
 type Position = { x: number; y: number; edge: Edge };
-// Keep the placement while moving between Chats. Coordinates are fractions, so rotation stays reachable.
 let placement: Position = { x: 1, y: 0, edge: 0 };
 
 export function floatingInboxStatus(agents: { status: InboxStatus }[]): InboxStatus | undefined {
@@ -29,7 +28,6 @@ function clamp(value: number, low: number, high: number) {
   return Math.max(low, Math.min(high, value));
 }
 
-/** A slow move stays where released; only a side flick or a drop at a side edge tucks it away. */
 function landInboxButton(x: number, y: number, vx: number, vy: number, width: number, height: number): Position {
   "worklet";
   const maxX = Math.max(0, width - SIZE),
@@ -50,7 +48,6 @@ function landInboxButton(x: number, y: number, vx: number, vy: number, width: nu
 function StatusBadge({ status, small = false }: { status?: InboxStatus; small?: boolean }) {
   const { colors } = useTheme();
   if (!status) return null;
-  // The ring pulses instead of spinning under Reduce Motion, so it stays the one working mark.
   if (status === "working") return <SpinnerRing size={12} stroke={1.5} tone="accentInk" />;
   const color = status === "approval" ? colors.orange : status === "failed" ? colors.red : status === "completed" ? colors.green : colors.accentInk;
   return <View style={{ width: small ? 6 : 8, height: small ? 6 : 8, borderRadius: radius.full, backgroundColor: color }} />;
@@ -60,7 +57,6 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
   const { colors } = useTheme();
   const frame = useSafeAreaFrame(),
     insets = useSafeAreaInsets();
-  // 8 under the header, as the attention pill and the top Toast.
   const top = insets.top + chrome.header + space.md;
   const width = Math.max(SIZE + GAP * 2, frame.width - insets.left - insets.right);
   const height = Math.max(SIZE + GAP * 2, frame.height - top - (bottom ?? Math.max(insets.bottom, 16) + 120));

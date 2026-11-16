@@ -33,16 +33,12 @@ export function SplitShell({ children }: { children: React.ReactNode }) {
   const { colors } = useTheme();
   const { pinned, dockable, available } = useSplit();
   const { open, show } = usePanelScreen();
-  // Once pinned, the sidebar stays mounted (hidden when the window narrows) while a computer is open: a Chat it is
-  // opening on another computer still arrives when the window drops below the pinned width mid-switch.
   const [kept, setKept] = useState(false);
   if (pinned && !kept) setKept(true);
   if (!available && kept) setKept(false);
-  // Turned to landscape with the sidebar sliding over, it gives way to the pinned one.
   useEffect(() => {
     if (dockable && open === "left") show(null);
   }, [dockable, open, show]);
-  // The screen keeps its place in the tree as the sidebar comes and goes, so the navigator is never remounted.
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
       {(pinned || kept) && <PinnedSidebar shown={pinned} />}
@@ -52,7 +48,6 @@ export function SplitShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The room the pinned sidebar takes beside the Chat: its card and the gap to its left. */
 const SLOT = SIDEBAR_WIDTH + CARD_MARGIN;
 /** iOS's own sidebar timing: quick off the mark, settling gently. */
 const SLIDE = { duration: duration.slow, easing: Easing.bezier(...easing.slide), reduceMotion: ReduceMotion.System };
@@ -62,10 +57,7 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
   const insets = useSafeAreaInsets();
   const top = useCardTop();
   const scale = useMotionScale();
-  // Hiding, the slot narrows as the card slides out past the left edge, and the Chat widens into the room it leaves.
   const progress = useSharedValue(shown ? 1 : 0);
-  // The list wakes (reloads its Projects, reads every computer) once it has slid in, and sleeps once it has slid out:
-  // the renders that follow would otherwise land on the slide's frames and stutter it.
   const [awake, setAwake] = useState(shown);
   useEffect(() => {
     progress.set(
@@ -81,8 +73,6 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
   const { chatId } = usePanelScreen();
   const hostId = session.client?.url;
   const projectPath = session.snapshot?.project.path;
-  // A Chat replaces the screen beside the sidebar, closing any sheet first; secondary pages and sheets open over it.
-  // The open Chat, picked from a page pushed over it (Canvas, Routines), is reached by closing the page alone.
   const navigate = useCallback(
     (href: Href, secondary: boolean | "sheet" = false) => {
       if (secondary) {
@@ -94,8 +84,6 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
     },
     [hostId, projectPath, chatId],
   );
-  // Made once per change of what it shows, so showing or hiding the sidebar doesn't render the list again on the slide's
-  // first frame.
   const activeChatId = pathname === "/chat" ? chatId : undefined;
   const list = useMemo(() => <ProjectNavigation docked visible={awake} activeChatId={activeChatId} onNavigate={navigate} />, [awake, activeChatId, navigate]);
   return (
@@ -117,18 +105,12 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
           slide,
         ]}
       >
-        {/* The card sits clear of the status bar already, so the list inside keeps only below a window's controls. */}
         <SafeAreaInsetsContext.Provider value={top.content}>{list}</SafeAreaInsetsContext.Provider>
       </Animated.View>
     </Animated.View>
   );
 }
 
-/**
- * The right panel docked beside the screen. It slides in from the right edge as its slot widens and the screen narrows
- * into the room it leaves, and out the same way; it stays mounted, showing what it showed, until it is all the way out.
- * The grabber in the gutter on its left resizes it, as iPadOS's split view divider does; a double tap puts it back.
- */
 function RightDock() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -156,20 +138,16 @@ function RightDock() {
   const start = useSharedValue(target);
   const preview = useSharedValue(target);
   const dragging = useSharedValue(false);
-  // Rotation, accessibility actions and reset also lay out once, without animating an expensive content width.
   useEffect(() => {
     width.set(target);
     preview.set(target);
     dragging.set(false);
   }, [target, width, preview, dragging]);
-  // Widths the drag settles into, as iPadOS's divider does: the panel's own default and half the window.
   const detents = useMemo(() => [CHANGES_WIDTH, Math.round(window.width / 2)].filter((at) => at > PANEL_MIN_WIDTH && at < max), [window.width, max]);
   const resize = useMemo(() => resizeGesture(width, preview, start, dragging, max, detents), [width, preview, start, dragging, max, detents]);
   const slot = useAnimatedStyle(() => ({ width: progress.get() * (DOCK_GUTTER + width.get() + CARD_MARGIN) }));
   const sized = useAnimatedStyle(() => ({ width: width.get() }));
   const divider = useAnimatedStyle(() => ({ transform: [{ translateX: dragging.get() ? start.get() - preview.get() : 0 }] }));
-  // While dragging, as in iPadOS's Split View, the panel gives way to a plain card that follows the finger. The card holds
-  // only an icon, so sizing it every frame costs nothing; the panel itself lays out once, at the width it is let go at.
   const standIn = useAnimatedStyle(() => ({ width: preview.get(), opacity: withTiming(dragging.get() ? 1 : 0, { duration: dragging.get() ? 100 : 200 }) }));
   const real = useAnimatedStyle(() => ({ opacity: withTiming(dragging.get() ? 0 : 1, { duration: dragging.get() ? 100 : 200 }) }));
   const grip = useAnimatedStyle(() => ({ transform: [{ scaleY: withTiming(dragging.get() ? 1.6 : 1, { duration: duration.base }) }] }));
@@ -183,7 +161,6 @@ function RightDock() {
       importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
       style={[s.dockSlot, slot]}
     >
-      {/* Held at the slot's left edge, the card rides it in from the window's edge while the slot widens. */}
       <Animated.View
         style={[
           s.card,
@@ -242,7 +219,6 @@ function RightDock() {
   );
 }
 
-/** A drag on the panel's grabber: left makes it wider, right narrower, saved once the finger lifts; a double tap resets it. */
 function resizeGesture(
   width: SharedValue<number>,
   preview: SharedValue<number>,
@@ -263,7 +239,6 @@ function resizeGesture(
       const raw = Math.round(Math.min(max, Math.max(PANEL_MIN_WIDTH, start.get() - event.translationX)));
       const near = detents.find((at) => Math.abs(at - raw) <= SNAP);
       const next = near ?? raw;
-      // A tick each time it settles into a width it holds: a detent, or either end of its range.
       const holds = (at: number) => at === PANEL_MIN_WIDTH || at === max || detents.includes(at);
       if (next !== preview.get() && holds(next)) scheduleOnRN(tick);
       preview.set(next);
@@ -285,12 +260,10 @@ function resizeGesture(
   return Gesture.Race(drag, reset);
 }
 
-/** How close a drag comes to a detent before it settles there. */
 const SNAP = 16;
 function tick() {
   void Haptics.selectionAsync();
 }
-/** A light knock as the grabber is picked up, or as a double tap puts the panel back. */
 function pickUp() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 }
@@ -322,7 +295,6 @@ export function HardwareShortcuts() {
         else if (panels.attached) panels.show(panels.open === "left" ? null : "left");
         return;
       }
-      // New Chat, search and the Chat jumps go to the Chats list on screen, showing it first where it is hidden or slides over.
       const index = chatShortcutIndex(command);
       if (command !== "chat.new" && command !== "commandPalette.toggle" && index === null) return;
       requestNavigation(
@@ -338,7 +310,6 @@ export function HardwareShortcuts() {
   return null;
 }
 
-/** The corners of the pinned sidebar's and the docked panel's cards, which the panel's stand-in matches while it is dragged. */
 const CARD_CORNERS = { borderRadius: radius.sheet, borderCurve: "continuous" } as const;
 
 const s = StyleSheet.create({

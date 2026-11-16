@@ -11,7 +11,6 @@ import { overrides, useSkillCatalog } from "../../use-skills";
 
 const scopeLabel = (scope: string) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
 
-/** One skill: where it lives, the same-named skills it hides and its SKILL.md. Editor and Finder stay on the Mac. */
 export default function SkillScreen() {
   const styles = useStyles();
   const { name } = useLocalSearchParams<{ name: string }>();

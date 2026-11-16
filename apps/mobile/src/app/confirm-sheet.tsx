@@ -4,10 +4,6 @@ import { router } from "expo-router";
 import { currentConfirmation } from "../confirm-store";
 import { PillButton, SheetBody, useStyles } from "../ui";
 
-/**
- * A confirmation as a bottom sheet: the question, then its buttons, Cancel last. The choice runs once the sheet has
- * gone, so whatever it does next (leaving the Chat, another sheet) never fights the sheet's own dismissal.
- */
 export default function ConfirmSheet() {
   const styles = useStyles();
   const [entry] = useState(currentConfirmation);
@@ -34,7 +30,6 @@ export default function ConfirmSheet() {
       <View style={{ gap: 12 }}>
         {order.map(({ button, index }) => {
           const cancel = button.style === "cancel";
-          // As desktop's Dialog: the confirm is the ink primary (a red fill when destructive), Cancel a plain ink2 label.
           return (
             <PillButton
               key={index}

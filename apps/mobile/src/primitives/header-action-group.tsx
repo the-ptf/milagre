@@ -16,7 +16,6 @@ export function HeaderActionGroup({ children }: { children: ReactNode }) {
   );
 }
 
-/** Tint the pressed target; fading an ancestor would disable its shared Liquid Glass. */
 export function HeaderAction({ label, icon, iconSize = 20, onPress }: { label: string; icon: IconData; iconSize?: number; onPress?: () => void }) {
   const { colors } = useTheme();
   const style = { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.full, borderCurve: "continuous" } as const;

@@ -1,4 +1,3 @@
-/** Local sources belong to the connected computer, never the phone's filesystem. */
 export function resolveMarkdownImage(source: string, basePath?: string): { url: string } | { path: string } | null {
   try {
     const text = source.trim();

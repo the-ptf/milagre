@@ -11,11 +11,9 @@ const add = () => router.push("/mcp-add");
 
 export default function McpScreen() {
   const mcp = useMcp();
-  // The page draws its own large title under the bar, so the bar carries only Refresh and Add.
   return (
     <>
       <Stack.Screen options={{ title: "" }} />
-      {/* Stack.Toolbar takes its buttons as direct children (a Fragment is refused), so each slot picks its own element. */}
       <Stack.Toolbar placement="right">
         {Platform.OS === "ios" ? (
           <Stack.Toolbar.Button icon="arrow.clockwise" accessibilityLabel="Refresh" disabled={mcp.checking} onPress={() => void mcp.refresh()} />

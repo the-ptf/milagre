@@ -5,7 +5,6 @@ import { SettingsScroll } from "../../settings-find";
 import { LinearSection } from "../../linear-section";
 import { MacFeatureRow } from "../../mac-feature-row";
 
-/** Settings › Integrations: services the Mac signs in to and Babysit PRs, like desktop's Integrations page. */
 export default function ConnectionsScreen() {
   return (
     <>

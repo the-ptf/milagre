@@ -46,18 +46,12 @@ export type PrOverviewProps = {
   cwd: string;
   number: number;
   chatKey?: string;
-  /** Opens a page of the PR: the comments, the review form, a file's diff, the labels or reviewers picker. */
   onOpen: (page: PrPage, extra?: Record<string, string>) => void;
-  /** After a message waits in the Chat's composer: the sheet closes so the Chat shows. */
   onChat: () => void;
-  /** Closes the panel or sheet: the X in the top row. */
   onClose?: () => void;
-  /** The Chat's PRs; with more than one, the ⋯ menu switches between them. */
   choices?: PrChoice[];
   onPick?: (key: string) => void;
-  /** A Link Chat's PR names the Project it belongs to. */
   project?: { name: string; path: string };
-  /** Shows the Worktree's changes that aren't in the PR yet; without it there is no such line. */
   onChanges?: () => void;
 };
 
@@ -66,7 +60,6 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   const styles = useStyles();
   const { colors } = useTheme();
   const { pr, error, loading, refresh } = usePrDetail(client, cwd, number);
-  // A Mac from before the PR panel has no pr:* commands; the branch's PR (and its address) still comes from the older call.
   const oldMac = !pr && isOldMacError(error);
   const { data: branchPr } = useRpc<{ number: number; url: string } | null>(oldMac ? client : null, "worktree:pull-request", [cwd]);
   const [notice, setNotice] = useState("");
@@ -76,18 +69,15 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   const [newestFirst, setNewestFirst] = useState(true);
   const [method, setMethod] = useState<MergeMethod>("squash");
   const [busy, setBusy] = useState(false);
-  // Merge asks again on the button itself, as on desktop: the first tap turns it into "Confirm merge" for a few seconds.
   const [confirming, setConfirming] = useState<"merge" | "admin" | null>(null);
   useEffect(() => {
     if (!confirming) return;
     const timer = setTimeout(() => setConfirming(null), 4000);
     return () => clearTimeout(timer);
   }, [confirming]);
-  // The Worktree's uncommitted files: changes the PR doesn't have yet.
   const local = useRpc<DiffFilesResult>(onChanges ? client : null, "git:diff-files", [{ cwd, mode: "uncommitted" }]);
   const [localCount, setLocalCount] = useState(0);
   const counted = local.data?.isRepo ? local.data.files.length : null;
-  // A refresh reads the list again; the line keeps the last count meanwhile.
   if (counted !== null && counted !== localCount) setLocalCount(counted);
   const close = onClose ? <RoundButton label="Close" icon={Cancel01Icon} onPress={onClose} /> : null;
 
@@ -127,7 +117,6 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   const progress = checksProgress(pr.checks);
   const description = pr.body.trim();
   const commentCount = pr.comments.length + pr.threads.filter((thread) => !thread.resolved).length;
-  // The commits made here that the open PR's head doesn't have, with the uncommitted files.
   const localLine = onChanges && isOpen ? notInPrLine(localCount, pr.localCommits ?? 0) : "";
   const openGitHub = () => void Linking.openURL(pr.url).catch(() => {});
 
@@ -144,15 +133,12 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
     void run({ method, admin });
   }
 
-  // GitHub can't merge a branch that conflicts, even when asked to merge it once ready.
   const conflicts = pr.mergeStateStatus === "DIRTY";
-  // The one action the PR is waiting for: nothing once it is merged or closed, or while it conflicts.
   const action = !isOpen ? null : pr.isDraft ? (
     <ActionButton title="Ready for review" busy={busy} onPress={() => void run({ draft: false }, "pr:ready")} />
   ) : confirming === "admin" ? (
     <ActionButton title="Confirm merge anyway" icon={GitMergeIcon} danger busy={busy} onPress={() => merge(true)} />
   ) : now ? (
-    // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the green button.
     <ActionButton
       title={confirming === "merge" ? "Confirm merge" : "Merge"}
       icon={GitMergeIcon}
@@ -210,7 +196,6 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
                 items: choices.map((choice, index) => ({
                   id: `pr:${index}`,
                   title: `#${choice.number} ${choice.title}`,
-                  // A Link Chat's PRs come from different Projects: each says which.
                   subtitle: choice.project,
                   checked: choice.number === number && (!choice.cwd || choice.cwd === cwd),
                 })),
@@ -436,7 +421,6 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
   );
 }
 
-/** The line under the branch: what stops an open PR, or how a merged or closed one ended. Desktop words it the same. */
 const STATUS_LINE: Partial<Record<ReturnType<typeof mergeStatus>["tone"], { icon: IconData; tone: Tone; title: Tone }>> = {
   blocked: { icon: AlertCircleIcon, tone: "red", title: "redInk" },
   draft: { icon: GitPullRequestDraftIcon, tone: "ink3", title: "ink" },
@@ -444,7 +428,6 @@ const STATUS_LINE: Partial<Record<ReturnType<typeof mergeStatus>["tone"], { icon
   closed: { icon: GitPullRequestClosedIcon, tone: "redInk", title: "redInk" },
 };
 
-/** Draft, Merged or Closed before the author, as GitHub and desktop show it; an open PR has none. */
 const STATE_PILL = {
   draft: { label: "Draft", icon: GitPullRequestDraftIcon, tone: "ink2", tint: "hover" },
   MERGED: { label: "Merged", icon: GitMergeIcon, tone: "purpleInk", tint: "purpleTint" },
@@ -477,11 +460,9 @@ function StatePill({ pr }: { pr: PullRequestDetail }) {
 
 const PROGRESS_ICON = { pass: CheckmarkCircle02Icon, fail: CancelCircleIcon } as const;
 
-/** "13 of 18 done" and the split bar under it: passed, skipped, failed, still running. */
 function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> }) {
   const { colors } = useTheme();
   const tone: Tone = progress.tone === "fail" ? "red" : progress.tone === "pass" ? "green" : "ink2";
-  // ponytail: the running part is dim, not pulsing; animate it if it reads as stuck.
   const parts = [
     { key: "passed", count: progress.passed, color: colors.greenInk, opacity: 1 },
     { key: "skipped", count: progress.skipped, color: colors.lineStrong, opacity: 1 },
@@ -508,7 +489,6 @@ function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> 
   );
 }
 
-/** A label as GitHub colours it: its colour as a tint behind the name. */
 function LabelChip({ name, color }: { name: string; color: string }) {
   const { colors } = useTheme();
   return (
@@ -530,7 +510,6 @@ function LabelChip({ name, color }: { name: string; color: string }) {
   );
 }
 
-/** Reviewers or Labels: what the PR has, and on an open PR the row opens the picker to change it. */
 function PropertyRow({
   icon,
   title,
@@ -572,7 +551,6 @@ function PropertyRow({
   );
 }
 
-/** A section that folds: Description, Checks, Comments. */
 function Section({
   title,
   value,
@@ -625,7 +603,6 @@ function Section({
   );
 }
 
-/** The header's action: Merge (then Confirm merge), Merge when ready, Ready for review. */
 function ActionButton({
   title,
   icon,
@@ -638,7 +615,6 @@ function ActionButton({
   icon?: IconData;
   onPress: () => void;
   green?: boolean;
-  /** Merging past the rules that block it. */
   danger?: boolean;
   busy?: boolean;
 }) {
@@ -662,7 +638,6 @@ function ActionButton({
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        // greenInk, not green: the page-colored label needs 4.5:1 on it in light mode.
         backgroundColor: green ? colors.greenInk : danger ? colors.redTint : colors.surface,
         borderWidth: green ? 0 : StyleSheet.hairlineWidth,
         borderColor: colors.lineStrong,

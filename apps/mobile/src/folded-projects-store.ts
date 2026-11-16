@@ -13,14 +13,12 @@ function utf8Length(text: string): number {
   return bytes;
 }
 
-/** SecureStore keys allow letters, digits, ".", "-" and "_": a computer's id (a URL) becomes a short hash. */
 function keyFor(hostId: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < hostId.length; i++) hash = Math.imul(hash ^ hostId.charCodeAt(i), 0x01000193) >>> 0;
   return `${keyPrefix}${hash.toString(16)}`;
 }
 
-/** The most recently folded paths whose saved form fits MAX_BYTES; older ones open again next launch. */
 export function boundedFolded(hostId: string, paths: string[]): string[] {
   const kept: string[] = [];
   let bytes = utf8Length(JSON.stringify({ h: hostId, f: [] }));
@@ -42,17 +40,11 @@ function parse(raw: string | null, hostId: string): string[] {
   }
 }
 
-/**
- * The Project groups folded in the phone's sidebar, per paired computer. Every other group is open: going back to
- * the sidebar, or relaunching, shows a group folded only if it was folded by hand. Held in memory as well, so a
- * sidebar that mounts again reads it at once.
- */
 export function createFoldedProjectsStore(storage: Storage) {
   const folded = new Map<string, ReadonlySet<string>>();
   const loading = new Map<string, Promise<void>>();
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach((listener) => listener());
-  // Serialize writes so a slow save cannot put an older set back on the next launch.
   let pending = Promise.resolve();
   const save = (hostId: string, paths: ReadonlySet<string>) => {
     pending = pending.then(() => storage.setItemAsync(keyFor(hostId), JSON.stringify({ h: hostId, f: boundedFolded(hostId, [...paths]) }))).catch(() => {});
@@ -65,10 +57,8 @@ export function createFoldedProjectsStore(storage: Storage) {
         listeners.delete(listener);
       };
     },
-    /** The folded paths; none until `load` has read them. */
     folded: (hostId: string): ReadonlySet<string> => folded.get(hostId) ?? NONE,
     loaded: (hostId: string) => folded.has(hostId),
-    /** Reads this computer's folded groups once. A fold made before the read ends wins over what was saved. */
     load(hostId: string): Promise<void> {
       if (folded.has(hostId)) return Promise.resolve();
       let work = loading.get(hostId);
@@ -86,7 +76,6 @@ export function createFoldedProjectsStore(storage: Storage) {
       }
       return work;
     },
-    /** Folds an open group, or opens a folded one. */
     toggle(hostId: string, path: string) {
       const next = new Set(folded.get(hostId) ?? NONE);
       if (next.has(path)) next.delete(path);

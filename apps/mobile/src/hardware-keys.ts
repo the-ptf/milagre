@@ -13,7 +13,6 @@ import {
 } from "@milagre/shared/keybindings";
 import { undoHistory } from "./undo-history";
 
-// UIKeyCommand's inputs for the keys that aren't a character.
 const INPUTS: Record<string, string> = {
   arrowleft: "UIKeyInputLeftArrow",
   arrowright: "UIKeyInputRightArrow",
@@ -56,7 +55,6 @@ function hardwareShortcuts(rules: readonly KeybindingRule[]): Shortcut[] {
   });
 }
 
-/** The command of a shortcut id. */
 const commandOf = (id: string) => id.split("#")[0] as KeybindingCommandId;
 
 type Shortcut = { id: string; input: string; modifiers: readonly string[]; title: string };
@@ -70,16 +68,11 @@ type HardwareKeysModule = {
 // Builds older than the iPad one have no module: Return keeps adding a line and there are no shortcuts.
 const native = Platform.OS === "ios" ? requireOptionalNativeModule<HardwareKeysModule>("MilagreHardwareKeys") : null;
 
-/** The Chat a `chat.jump.N` command opens, from 0, or null for the others. */
 export function chatShortcutIndex(command: KeybindingCommandId) {
   const match = /^chat\.jump\.([1-9])$/.exec(command);
   return match ? Number(match[1]) - 1 : null;
 }
 
-/**
- * Offers `rules`' shortcuts while mounted, again each time they change, and hands each press's command to
- * `onShortcut`; mount it once, at the root.
- */
 export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcut: (command: KeybindingCommandId) => void) {
   const latest = useRef(onShortcut);
   const history = useUndoShortcuts();

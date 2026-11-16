@@ -8,7 +8,6 @@ import { chatPullRequestChoices, prChoiceKey, showChatChanges } from "../../pr-c
 import { space } from "../../design-tokens";
 import { useStyles } from "../../ui";
 
-/** The PR sheet's first page: the PR the Chat's branch opened, and its other PRs in the ⋯ menu. */
 export default function PullRequestSheet() {
   const styles = useStyles();
   const { route, cwd, number, client, valid, waiting } = usePrRoute();
@@ -26,9 +25,6 @@ export default function PullRequestSheet() {
       </View>
     );
   return (
-    // Not collapsable: a form sheet lays out a ScrollView with at most one view beside it; a flattened root hands it every
-    // row, and a PR already read (the Chat reads it for its Review pill) opened to a blank sheet. 24 above the first row:
-    // its pill buttons sat cramped under the grabber at the 16 a centred sheet title uses.
     <View collapsable={false} style={[styles.screen, { paddingTop: top + space.xxl }]}>
       <PrOverview
         key={`${cwd}#${number}`}
@@ -45,7 +41,6 @@ export default function PullRequestSheet() {
         }}
         onChanges={() => {
           close();
-          // The Chat's Changes slide in once the sheet is down.
           setTimeout(() => showChatChanges(route.chat), 350);
         }}
         onChat={close}

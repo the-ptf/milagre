@@ -8,7 +8,6 @@ type ImagePasteModule = {
   attachAsync: (target: number) => Promise<boolean>;
   detachAsync: (target: number) => Promise<void>;
 };
-// Older binaries retain the explicit Paste image action until the new build is installed.
 const nativePaste = requireOptionalNativeModule<ImagePasteModule>("MilagreImagePaste");
 
 export function useImagePaste(onPaste?: (image: PastedImage) => void) {

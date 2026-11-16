@@ -10,13 +10,10 @@ import { useTheme } from "./theme";
  */
 export function EdgeFade({ edge, height, width }: { edge: "top" | "bottom"; height: number; width?: number }) {
   const page = useTheme().colors.page;
-  // Gradients run from the open side toward the screen edge.
   const flip = edge === "top" ? { start: { x: 0, y: 1 }, end: { x: 0, y: 0 } } : {};
   // A fixed `width` keeps the fade its size while the view under it grows or shrinks (the iPad's Chat as the sidebar
-  // slides): resized, the blur and gradient are redrawn on the CPU every frame of the slide.
   const across = width === undefined ? { right: 0 } : { width };
   // Android has no progressive blur, so the tint alone must hide the copy: it turns solid for the last stretch, where a
-  // header title or the floating controls sit.
   if (Platform.OS !== "ios")
     return (
       <View pointerEvents="none" style={{ position: "absolute", left: 0, ...across, [edge]: 0, height }}>

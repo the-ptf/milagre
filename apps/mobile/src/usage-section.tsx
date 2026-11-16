@@ -159,7 +159,6 @@ function ProviderRows({
   );
 }
 
-/** Plan usage, sourced only from the currently connected computer. Also used outside the router in the navigation panel. */
 export function UsageSection({ header = false, navigation }: { header?: boolean; navigation?: ReactNode }) {
   const { colors } = useTheme();
   const styles = useStyles();

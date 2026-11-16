@@ -16,10 +16,6 @@ import { useTheme } from "../theme";
 import { showArchiveNotice } from "../archive";
 import { confirmLinkDelete, linkDeleteError } from "../link-delete";
 
-/**
- * Creates a Link, or with `linkId` edits that Link's name and member Projects. Chats already started keep their Worktrees.
- * Editing, Delete Link at the bottom asks first, as desktop's Edit Link dialog does.
- */
 export default function LinkProjects() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -32,7 +28,6 @@ export default function LinkProjects() {
     current.current = session.client;
   }, [session.client]);
   const { data, loading, error: loadError } = useRpc<RegisteredProject[]>(session.client, "project:registry", []);
-  // A member whose folder is gone is still listed, so it can be removed.
   const projects = [
     ...(data ?? []),
     ...(data
@@ -76,13 +71,11 @@ export default function LinkProjects() {
       setBusy(false);
     }
   }
-  // A deleted Link that was open leaves for the Projects list; one deleted from elsewhere closes this sheet.
   async function remove() {
     const client = session.client;
     if (!client || !linkId || !editing || busy) return;
     setBusy(true);
     setError("");
-    // The saved name, not one typed here and not saved yet.
     const linkName = editing.link?.name ?? editing.name ?? "this Link";
     try {
       if (!(await confirmLinkDelete(client.call, linkId, linkName))) return;

@@ -3,7 +3,6 @@ import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
 import { linkChatWorktreesLabel } from "@milagre/shared/worktree-link";
 import type { OpenProject, Runs, Snapshot } from "./client.ts";
 
-/** A view adapter for the existing Chat renderer. Its Worktree IDs never go to host Git or Worktree commands. */
 export function phoneSnapshot(value: Snapshot | { link: OpenLink; runs: Runs }): Snapshot {
   if ("project" in value) return value;
   const { link, runs } = value;
@@ -32,7 +31,6 @@ export function phoneSnapshot(value: Snapshot | { link: OpenLink; runs: Runs }):
   return { project: { path: scopeKey({ kind: "link", linkId: link.link.id }), name: link.link.name, state, link }, runs };
 }
 
-/** Only an explicit member can supply a shared Chat's Git root. */
 export function memberForDiff(project: OpenProject | undefined, chatId: number, memberId?: string) {
   if (!project) return undefined;
   if (!project.link) return project.state.worktrees[chatId];

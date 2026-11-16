@@ -14,11 +14,6 @@ const FILTERS: { id: FlowRunFilter; label: string }[] = [
   { id: "stopped", label: "Stopped" },
 ];
 
-/**
- * A flow's Runs, newest first: each with its state's icon, its issue or name, and where it stands ("Run 15, stopped at
- * Implement after 3 tries"), in orange while it waits for you and red once it stopped. A paused Run has Resume beside it.
- * All, Needs you and Stopped filter them; a filter shows once a Run is in it.
- */
 export function FlowRunList({
   routine,
   onOpen,
@@ -28,7 +23,6 @@ export function FlowRunList({
   routine: RoutineWithRuns;
   onOpen: (run: RoutineRun) => void;
   onResume: (run: RoutineRun) => void;
-  /** The Run whose Resume is being sent. */
   resuming: string;
 }) {
   const styles = useStyles();
@@ -40,7 +34,6 @@ export function FlowRunList({
     you: runs.filter((run) => flowRunMatches(run, "you")).length,
     stopped: runs.filter((run) => flowRunMatches(run, "stopped")).length,
   };
-  // A filter whose last Run left it falls back to All.
   const shown = filter !== "all" && counts[filter] === 0 ? "all" : filter;
   const filters = FILTERS.filter((item) => item.id === "all" || counts[item.id] > 0);
   const list = runs.filter((run) => flowRunMatches(run, shown));
