@@ -207,6 +207,7 @@ export function chatPaneMenu({
           {
             items: [
               { id: "rename", title: "Rename", systemImage: "pencil" },
+              { id: "fork", title: UI_COPY.forkChat, systemImage: "arrow.triangle.branch", disabled: busy },
               { id: "reload", title: "Reload chat", systemImage: "arrow.clockwise", disabled: busy },
               { id: "report-bug", title: UI_COPY.reportMilagreBug, systemImage: "ladybug" },
               ...(canLink

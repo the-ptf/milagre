@@ -90,12 +90,23 @@ function executionAdvisorInstructions(tldrEnabled = true, workspaceInstructions 
     .filter(Boolean)
     .join("\n\n");
 }
-const sessionInstructions = ({ analysisOnly, executionAdvisor, tldrEnabled, workspaceInstructions, sharedLink, linked }) =>
-  analysisOnly
-    ? advisorInstructions(tldrEnabled, linked?.tools ?? [])
-    : executionAdvisor
-      ? executionAdvisorInstructions(tldrEnabled, workspaceInstructions)
-      : milagreInstructions(tldrEnabled, workspaceInstructions, { sharedLink });
+function sideChatInstructions(tldrEnabled = true, tools = []) {
+  const names = tools.map((tool) => tool.name);
+  return [
+    INTRO_INSTRUCTIONS,
+    ...(tldrEnabled ? [TLDR_INSTRUCTIONS] : []),
+    `This is an ephemeral /btw side question alongside the main Chat. Answer the user's question directly and concisely without changing the main Chat's plan.${names.length ? ` Your tools are the read-only milagre tools ${names.join(", ")}.` : ""}`,
+    ANALYSIS_INSTRUCTIONS,
+  ].join("\n\n");
+}
+const sessionInstructions = ({ analysisOnly, sideChat, executionAdvisor, tldrEnabled, workspaceInstructions, sharedLink, linked }) =>
+  sideChat
+    ? sideChatInstructions(tldrEnabled, linked?.tools ?? [])
+    : analysisOnly
+      ? advisorInstructions(tldrEnabled, linked?.tools ?? [])
+      : executionAdvisor
+        ? executionAdvisorInstructions(tldrEnabled, workspaceInstructions)
+        : milagreInstructions(tldrEnabled, workspaceInstructions, { sharedLink });
 const RESUME_FAILED_MESSAGE =
   "Couldn't resume this chat's earlier agent session; it may have been deleted. Send your message again to continue in a fresh session.";
 
@@ -542,6 +553,7 @@ module.exports = {
   hostNetworkInstructions,
   milagreInstructions,
   sessionInstructions,
+  sideChatInstructions,
   RESUME_FAILED_MESSAGE,
   cliBrokenMessage,
   failedWith,

@@ -69,6 +69,23 @@ const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "askBtw" | "stopBtw" | "readBtw" | "onBtwEvent" | "forkChat" | "deleteChat">}
+ */
+function makeSideQuestionBridge(invoke, listen) {
+  return {
+    deleteChat: (projectPath, sessionId) => invoke("chat:delete", projectPath, sessionId),
+    forkChat: (projectPath, sessionId, options) => invoke("chat:fork", projectPath, sessionId, options),
+
+    askBtw: (request) => invoke("chat:btw", request),
+    stopBtw: (chatId, options) => invoke("chat:btw-stop", chatId, options),
+    readBtw: (chatId) => invoke("chat:btw-read", chatId),
+    onBtwEvent: (callback) => listen("chat:btw-event", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
  */
 function hostSettingsBridge(invoke, listen) {
@@ -401,8 +418,9 @@ function makeBridge(invoke, listen, send) {
     scheduleLimitResume: (projectPath, sessionId, sourceMessageId) => invoke("chat:limit-resume", projectPath, sessionId, sourceMessageId),
     cancelLimitResume: (projectPath, sessionId, sendId) => invoke("chat:limit-resume:cancel", projectPath, sessionId, sendId),
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
-    deleteChat: (projectPath, sessionId) => invoke("chat:delete", projectPath, sessionId),
+
     detachChat: (projectPath, sessionId) => invoke("chat:detach", projectPath, sessionId),
+    ...makeSideQuestionBridge(invoke, listen),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),
     archiveFinishedSubagents: (projectPath, sessionId) => invoke("chat:archive-finished-subagents", projectPath, sessionId),
     addGitNote: (chatId, body) => invoke("chat:git-note", chatId, body),

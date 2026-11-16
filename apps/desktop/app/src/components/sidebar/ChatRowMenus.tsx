@@ -13,6 +13,7 @@ import {
   Copy01Icon,
   FolderOpenIcon,
   GitBranchIcon,
+  GitForkIcon,
   GitPullRequestIcon,
   Link04Icon,
   PencilEdit02Icon,
@@ -225,6 +226,16 @@ function chatEntries(
       onSelect: run(onRename),
       disabled: !actions.onRename,
     },
+    ...(actions.onFork && !item.pending
+      ? [
+          {
+            key: "fork",
+            label: UI_COPY.forkChat,
+            icon: GitForkIcon,
+            onSelect: run(() => actions.onFork?.(item.id)),
+          },
+        ]
+      : []),
     {
       key: "reload",
       label: UI_COPY.reloadChat,

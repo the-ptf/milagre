@@ -59,7 +59,9 @@ function renderTranscript(state, sessionId, { after } = {}) {
   const parts = [`# Chat transcript: ${chatTitle(session, all)}`, `Provider: ${providerName(session.provider)} · Worktree: ${workspace}`];
   if (after != null) parts.push("Earlier messages are left out: you already know them.");
   for (const message of messages) {
-    if (message.context?.kind === "handoff") {
+    if (message.context?.kind === "chat-fork") {
+      parts.push(`## Forked from ${message.context.title}`);
+    } else if (message.context?.kind === "handoff") {
       const failed = message.context.status === "failed" ? " (failed)" : "";
       parts.push(`## Handoff${failed}: ${providerName(message.context.from.provider)} → ${providerName(message.context.to.provider)}`);
     } else if (["worktree-linked", "account-switch", "limit-reset", "reload", "checkpoint-restore", "babysit-stopped"].includes(message.context?.kind)) {

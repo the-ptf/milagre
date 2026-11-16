@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
-import Svg, { Circle, Ellipse, Polygon, Rect } from "react-native-svg";
+import { useEffect, useRef, useState } from "react";
 import { useDisplayNow } from "./display-clock";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import { Pressable, Text, View } from "react-native";
@@ -18,7 +17,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { subagentActivityLabel, subagentRoleLabel } from "@milagre/shared/agent-activity";
 import type { AgentTask, ModelProvider, Subagent, ToolCategory } from "@milagre/shared/model";
-import { qaPersona, type BloubShape, type QaPersona } from "@milagre/shared/qa-personas";
+import { qaPersona, qaPersonaMood, type QaPersona } from "@milagre/shared/qa-personas";
+import { PersonaAvatar } from "./persona-avatar";
 import { lastSaid, planCounts, plainTitle, subagentOutcome, subagentSteps, toolChips, toolSummary, type SubagentStep } from "@milagre/shared/subagent-glance";
 import { Icon, ProviderLogo, SpinnerRing, type IconData } from "./icons";
 import { lineHeight, radius, type } from "./design-tokens";
@@ -32,12 +32,6 @@ const chipIcons: Record<ToolCategory, IconData> = {
   searches: Search01Icon,
   edits: PencilEdit01Icon,
   other: WrenchIcon,
-};
-const faceShapes: Record<BloubShape["type"], ComponentType<Record<string, string | number>>> = {
-  rect: Rect as ComponentType,
-  circle: Circle as ComponentType,
-  ellipse: Ellipse as ComponentType,
-  polygon: Polygon as ComponentType,
 };
 const PHASES = new Set(["Responding", "Thinking", "Finished"]);
 const entries = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
@@ -86,17 +80,6 @@ const FOOTNOTE = { fontSize: type.footnote, lineHeight: lineHeight.footnote } as
 function useText() {
   const { colors } = useTheme();
   return { colors, label: [useStyles().footnote, { fontWeight: "500" as const }] };
-}
-
-export function PersonaAvatar({ persona, size }: { persona: QaPersona; size: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="-50 -50 100 100" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {persona.face.map((shape, index) => {
-        const Shape = faceShapes[shape.type];
-        return <Shape key={index} {...shape.props} />;
-      })}
-    </Svg>
-  );
 }
 
 function QaTag({ persona }: { persona: QaPersona }) {
@@ -171,7 +154,7 @@ export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent
       style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12 }, pressStyle({ pressed, kind: "row" })]}
     >
       {persona ? (
-        <PersonaAvatar persona={persona} size={36} />
+        <PersonaAvatar persona={persona} size={36} mood={qaPersonaMood(agent)} />
       ) : (
         <View style={{ width: 18, height: 22, alignItems: "center", justifyContent: "center" }}>
           <StatusIcon agent={agent} provider={provider} />

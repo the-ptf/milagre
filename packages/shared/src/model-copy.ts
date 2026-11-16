@@ -24,6 +24,7 @@ export const UI_COPY = {
   queue: "Queue message",
   stop: "Stop agent",
   renameChat: "Rename Chat",
+  forkChat: "Fork Chat",
   newChat: "New Chat",
   currentChat: "Current Chat",
   findInChat: "Find in Chat",

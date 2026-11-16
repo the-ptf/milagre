@@ -585,6 +585,11 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     }
     console.log("PASS: a host that crashed is started again, the window says so, and the draft stays");
     if (!expectTheme) {
+      await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
+      await waitFor(
+        () => evaluate(`document.querySelector('[data-chat-pane]')?.textContent.includes("Existing conversation survives the move.")`),
+        "Project Chat open before removing its Project",
+      );
       await evaluate(`(() => {
         window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "grouped" }));
         window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));

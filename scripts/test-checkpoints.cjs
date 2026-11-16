@@ -9,6 +9,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { BtwOverlay } from "/src/components/BtwOverlay";
 import { StepOutput } from "/src/components/agents/StepOutput";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
@@ -46,10 +47,12 @@ window.milagre = {
   },
 };
 const noop = () => {};
-const user = (id, body) => ({ id, session_id: 1, role: "user", context: null, body });
+const user = (id, body) => ({ id, clientMessageId: "receipt-" + id, session_id: 1, role: "user", context: null, body });
 const reply = (id, body) => ({ id, session_id: 1, role: "assistant", context: null, body,
   steps: [{ id: "s" + id, kind: "edit", title: "src/auth/login.ts", status: "done" }] });
 function Fixture() {
+  const [btw, setBtw] = useState(null);
+  window.setBtw = setBtw;
   const [copyOutput, setCopyOutput] = useState(null);
   window.setCopyOutput = setCopyOutput;
   const draft = useDraftText(draftStore);
@@ -79,6 +82,7 @@ function Fixture() {
   ];
   if (copyOutput !== null) return <div id="copy-output"><StepOutput step={{ id: "long-output", kind: "shell", status: "done", title: "Output", detail: copyOutput }} /></div>;
   return <div style={{ height: "100%", padding: 12 }}>
+    {btw && <BtwOverlay state={btw} onDismiss={() => setBtw(null)} onStop={noop} onBringBack={noop} />}
     <ChatComposer messages={messages} agentChatId="/Projects/storefront#1" messageScope="/Projects/storefront"
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/Projects/storefront" store={draftStore} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
@@ -168,6 +172,23 @@ async function browserChecks() {
     );
 
     // Copy uses raw message text, the final Markdown answer, and the entire recommendation.
+    assert.equal(
+      await evaluate('!!document.querySelector("#message-11 [data-fork-message]")'),
+      true,
+      "persisted user messages with send receipts can be forked",
+    );
+    await evaluate(
+      'window.setBtw({requestId:"side",chatId:"/Projects/storefront#1",question:"Why?",text:"A side answer",steps:[],status:"completed",provider:"codex",model:"m",startedAt:1})',
+    );
+    await wait('!!document.querySelector("[data-btw-overlay]")');
+    await evaluate('document.body.dispatchEvent(new Event("scroll",{bubbles:true})); window.dispatchEvent(new Event("blur"))');
+    assert.equal(
+      await evaluate('!!document.querySelector("[data-btw-overlay]")'),
+      true,
+      "side answers stay open as the main transcript scrolls or focus moves",
+    );
+    await evaluate("window.setBtw(null)");
+    await wait('!document.querySelector("[data-btw-overlay]")');
     const raw = "  Reuse @mentions as typed.\n\n- **Keep Markdown**  ";
     const answer = "1. **Keep this list**\n2. [Keep the link](https://example.com)\n\n```ts\nconst answer = 42;\n```";
     const { pageCommentsMessage } = await import("../packages/shared/src/page-comments.mjs");

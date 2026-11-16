@@ -913,7 +913,7 @@ function App() {
     setNotice,
     receiveState,
     refreshLinearIssues,
-    handlers: { openGitDialog, archiveChat, markChatDone, reportMilagreBug },
+    handlers: { openGitDialog, archiveChat, markChatDone, reportMilagreBug, openCanvasChat, openChat },
   });
   function markChatDone(sessionId: number, path: string | undefined) {
     if (!selectedLinkRef.current && selectedSessionRef.current === sessionId) startNewChat();
