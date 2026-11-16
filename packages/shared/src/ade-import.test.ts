@@ -40,17 +40,17 @@ test("the onboarding card and the default selection count only threads that can 
   assert.deepEqual(defaultSelection(scan), { projects: ["t3code:/code/acme-web"], threads: ["open"] });
 });
 
-test("the toast names the Project and groups what stayed behind by reason", () => {
+test("the toast is one short line naming the Project and counting what was skipped", () => {
   const project = { path: "/code/acme-web", name: "acme-web", source: "t3code" as const };
   const skipped = (reason: string) => ({ title: "x", reason, message: "" });
   assert.equal(importSummary({ projects: [project], chats: 2, skipped: [] }), "Imported 2 Chats into acme-web.");
   assert.equal(
     importSummary({ projects: [project], chats: 0, skipped: [skipped("no-transcript"), skipped("no-transcript")] }),
-    "Imported acme-web. 2 Chats stayed behind: their conversation isn't on this computer.",
+    "Imported acme-web. 2 skipped.",
   );
   assert.equal(
     importSummary({ projects: [project, { ...project, path: "/b", name: "b" }], chats: 1, skipped: [skipped("unsupported")] }),
-    "Imported 1 Chat into 2 Projects. 1 Chat stayed behind: Milagre doesn't run their agent.",
+    "Imported 1 Chat into 2 Projects. 1 skipped.",
   );
   assert.equal(importSummary({ projects: [], chats: 0, skipped: [] }), "Nothing new to import.");
 });
