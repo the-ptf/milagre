@@ -85,7 +85,7 @@ function warmPatterns(engine: RegexEngine, grammar: LanguageRegistration | undef
         const pattern = patterns.pop();
         if (pattern === undefined) return resolve();
         try {
-          engine.createScanner([pattern]).findNextMatchSync("a", 0, 0);
+          engine.createScanner([pattern]);
         } catch {}
       } while (performance.now() < until);
       setTimeout(slice, 0);
