@@ -3810,10 +3810,10 @@ function App() {
     <BridgeContext.Provider value={projectBridge}>
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
+          <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag">
+            <ProviderUpdateNotice onSettings={openAccounts} onUpdated={handleProvidersUpdated} />
+          </div>
           <PersistenceNotices scopes={globalUnsavedScopes}>
-            <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag">
-              <ProviderUpdateNotice onSettings={openAccounts} onUpdated={handleProvidersUpdated} />
-            </div>
             {hostConnection.connected && hostConnection.hostOutdated && (
               <NoticeCard
                 data-host-outdated

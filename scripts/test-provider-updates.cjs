@@ -7,6 +7,8 @@ const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ProviderUpdateNotice } from '/src/components/ProviderUpdateNotice';
+import { DotBackground } from '/src/components/DotBackground';
+import { PersistenceNotices } from '/src/components/PersistenceNotice';
 import '/src/styles.css';
 window.release = 'unavailable'; window.available = false; window.reads = 0; window.installed = false; window.calls = []; window.fail = true;
 window.milagre = {
@@ -16,7 +18,7 @@ window.milagre = {
 window.settings = 0;
 document.documentElement.classList.add('dark');
 const root=createRoot(document.getElementById('root'));
-window.mount=()=>root.render(<div data-update-fixture style={{display:'flex',padding:40,justifyContent:'flex-end'}}><ProviderUpdateNotice key={window.release} onSettings={()=>window.settings++} /></div>);
+window.mount=()=>root.render(<DotBackground><div data-update-fixture className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag"><ProviderUpdateNotice key={window.release} onSettings={()=>window.settings++} /></div><PersistenceNotices scopes={[]} /></DotBackground>);
 window.mount();
 `;
 
@@ -49,6 +51,16 @@ async function browserChecks() {
     assert.equal(await run("!!document.querySelector('[data-provider-update]')"), false);
     await run("window.available=true;window.release='0.163.0';window.mount()");
     await wait("document.body.textContent.includes('Codex v0.163.0')");
+    const geometry = await run(`(() => {
+      const card = document.querySelector('[data-provider-update]');
+      const rect = card.getBoundingClientRect();
+      return { top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight,
+        visible: document.elementFromPoint(rect.left + 20, rect.top + 20)?.closest('[data-provider-update]') === card };
+    })()`);
+    assert.ok(geometry.top >= 0, "The entire provider update card stays below the window top");
+    assert.equal(geometry.right, geometry.width - 20);
+    assert.equal(geometry.bottom, geometry.height - 20);
+    assert.equal(geometry.visible, true, "The update heading is visible and reachable");
     await shot("available");
     await click("Settings");
     assert.equal(await run("window.settings"), 1);
