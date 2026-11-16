@@ -12,6 +12,7 @@ import {
 } from "@milagre/shared/linear";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { NEW_CHAT_STATS_HINT, NEW_CHAT_STATS_LABEL } from "@milagre/shared/new-chat-glance";
+import { ORCHESTRATOR_DESCRIPTION } from "./orchestrator-copy.ts";
 import type { SettingsSearchEntry } from "@milagre/shared/settings-search";
 import type { SettingsSection } from "../components/Settings";
 import { computerNoun } from "./shortcut-hints.ts";
@@ -56,7 +57,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   connections: "linear issues integrations babysit pull requests",
   mcp: "servers tools model context protocol milagre mcp",
   devices: "phone pairing computers remote qr published pages share simlock simulators reset access",
-  experimental: "church experimental beta labs",
+  experimental: "church experimental beta labs orchestrator",
   about: "version update privacy support",
 };
 
@@ -647,6 +648,38 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   },
 
   { page: "experimental", title: "Beta" },
+  {
+    page: "experimental",
+    title: "Orchestrator",
+    group: "Beta",
+    description: ORCHESTRATOR_DESCRIPTION,
+    keywords: "router board tasks mascot pebble autopilot memory roles",
+  },
+  { page: "experimental", title: "Color", group: "Orchestrator", keywords: "mascot pebble" },
+  { page: "experimental", title: "Account", group: "Orchestrator", keywords: "least used project account" },
+  { page: "experimental", title: "Memory", group: "Orchestrator", keywords: "notes" },
+  { page: "experimental", title: "Board", group: "Orchestrator", keywords: "task chats sidebar" },
+  { page: "experimental", title: "Turn on the Orchestrator", group: "Orchestrator", keywords: "enable" },
+  { page: "experimental", title: "Mascot and shortcut", group: "Orchestrator", keywords: "pebble color shortcut" },
+  { page: "experimental", title: "Open from anywhere", group: "Orchestrator", keywords: "shortcut quick box" },
+  { page: "experimental", title: "Routing", group: "Orchestrator", keywords: "route project" },
+  { page: "experimental", title: "Router model", group: "Orchestrator", keywords: "route model" },
+  { page: "experimental", title: "When no Project fits", group: "Orchestrator", keywords: "ask best guess" },
+  { page: "experimental", title: "Use other computers", group: "Orchestrator", keywords: "load balancing computers prefer" },
+  { page: "experimental", title: "Autopilot", group: "Orchestrator", keywords: "answer approvals questions" },
+  { page: "experimental", title: "Answer threads for me", group: "Orchestrator", keywords: "autopilot approvals" },
+  { page: "experimental", title: "Time to veto", group: "Orchestrator", keywords: "autopilot wait" },
+  { page: "experimental", title: "What it knows about you", group: "Orchestrator", keywords: "memory notes import" },
+  { page: "experimental", title: "Forget everything", group: "Orchestrator", keywords: "memory reset" },
+  { page: "experimental", title: "Projects it can route to", group: "Orchestrator", keywords: "hints" },
+  {
+    page: "experimental",
+    title: "Roles and models",
+    group: "Orchestrator",
+    keywords: "build design security test research architecture effort delegation instructions",
+  },
+  { page: "experimental", title: "Keep Orchestrator task Chats out of the sidebar", group: "Orchestrator", keywords: "hidden board" },
+  { page: "experimental", title: "Notify me when a task needs me", group: "Orchestrator", keywords: "notifications" },
   {
     page: "experimental",
     title: "Floating inbox",
