@@ -7,7 +7,7 @@
 - [macOS (Apple Silicon)](https://milagre.cloud/download/mac-arm64): DMG of the latest release
 - [macOS (Intel)](https://milagre.cloud/download/mac-x64): DMG of the latest release
 - [Linux AppImage](https://milagre.cloud/download/linux-appimage), [.deb](https://milagre.cloud/download/linux-deb), [.rpm](https://milagre.cloud/download/linux-rpm)
-- [iPhone beta (TestFlight)](https://testflight.apple.com/join/K9ExV7bV)
+- [iOS (App Store)](https://apps.apple.com/app/milagre/id6818804252)
 - [Android beta (APK)](https://milagre.cloud/download/android)
 
 ## Project

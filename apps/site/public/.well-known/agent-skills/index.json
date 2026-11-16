@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Install Milagre, what it needs, and how to pair the phone app.",
       "url": "https://milagre.cloud/.well-known/agent-skills/milagre/SKILL.md",
-      "digest": "sha256:e73eb5ce60ad63bc19b7c2cd37b18c97311843b353963161bb778a57e681e803"
+      "digest": "sha256:af1e1e66e429c342fbbdc5bf7316339f8ca99016c72e666c3e462762162a0308"
     }
   ]
 }
