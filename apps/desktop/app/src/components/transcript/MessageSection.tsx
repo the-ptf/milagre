@@ -77,15 +77,10 @@ const NO_WAITING_STEPS: string[] = [];
 
 const AttachmentPreview = lazyView(() => import("../AttachmentPreview").then((module) => module.AttachmentPreview));
 
-/**
- * A reply: its activity (thinking, tool steps and the text between them) folded into one block, the images it generated, then its answer.
- * A reply with no answer that ended or stopped to ask shows its last thinking instead, dimmed.
- */
 const NO_FILES: readonly string[] = [];
 
 const NO_IMAGES: NonNullable<AppChatMessage["images"]> = [];
 
-/** The skills a sent message names (lowercase name to description) and the attached files and images it mentions inline as chips. */
 function usePromptMentions(message: AppChatMessage, isUser: boolean) {
   const root = useFilesRoot() ?? "";
   const scope = useScope();
@@ -98,7 +93,6 @@ function usePromptMentions(message: AppChatMessage, isUser: boolean) {
   return { root, files, images, described, isFile, inline };
 }
 
-/** What the user typed, as typed, with skills, mentioned files and inline images as chips; only closed ``` fences render as code (diff comments send their snippets in them). */
 function UserBody({
   body,
   skills,
@@ -114,7 +108,6 @@ function UserBody({
   attached: readonly string[];
   images?: NonNullable<AppChatMessage["images"]>;
 }) {
-  // Passages quoted in the composer lead the message as blockquotes; they show as quotes over what was typed.
   const quoted = useMemo(() => splitQuotes(body), [body]);
   const parts = useMemo(() => splitFences(quoted.text), [quoted.text]);
   const [opened, setOpened] = useState<string | null>(null);
@@ -210,7 +203,6 @@ function ReplyContent({
 }) {
   const { setup, activity, images, viewedImages, artifacts, heartbeats, desktop, answer, answerAt } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
-  // Calls made after the text read after it: "I'll run the checks next", then the command waiting on its approval.
   const before = answer.trim() ? activity.slice(0, answerAt) : activity;
   const after = answer.trim() ? activity.slice(answerAt) : [];
   return (
@@ -239,7 +231,6 @@ function ReplyContent({
         </div>
       )}
       {after.length > 0 && <ActivityBlock entries={after} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />}
-      {/* Reserve the footer while streaming so completion and hover keep the transcript still. */}
       {copyable && answer.trim() && (
         <div className="h-7" data-message-copy-footer>
           {!streaming && (
@@ -260,42 +251,29 @@ function ReplyContent({
 
 type MessageSectionProps = {
   message: AppChatMessage;
-  /** Quiet heartbeats folded into this one: how many, and the last. */
   merged?: { count: number; last: RoutineRunContext };
-  /** A back-and-forth with another Chat folded into this message's line. */
   exchange?: LinkedExchange;
   isUser: boolean;
   models: ModelOption[];
-  /** The checkpoint of the task this message started, when it changed files: the hover button opens its preview. */
   undoId?: string;
-  /** It is the newest such task, the one Esc Esc lists first. */
   undoLatest?: boolean;
-  /** A turn is running: undo waits for it. */
   undoDisabled?: boolean;
   onUndo?: (checkpointId: string) => void;
-  /** The task in the undo panel's view: its message is outlined. */
   highlighted?: boolean;
-  /** Opens the preview behind an undo line's Redo. */
   onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
   onRecommendationSelect: (option: string) => void;
   onUpdateCli?: (provider: ModelProvider) => void;
   updatingCli?: ModelProvider | null;
   cliStatus?: AgentCliStatus | null;
   streaming?: boolean;
-  /** The running turn is waiting on the user's answer to a question. */
   asking?: boolean;
-  /** Steps whose approval card is open. */
   waitingStepIds?: string[];
-  /** Fade in on arrival; messages already there when the chat opened skip it, so a long chat doesn't animate all at once. */
   animate?: boolean;
-  /** Opens another Chat by key, from a message it sent across a Link. */
   onOpenChat?: (chatKey: string) => void;
-  /** The usage-limit card may offer account switches: this is the Chat's last message and no turn runs. */
   limitInteractive?: boolean;
   limitPending?: LimitResume;
   limitSourceMessageId?: number;
   limitResumeBlocked?: boolean;
-  /** Opens Settings > Accounts, from the limit card. */
   onOpenAccounts?: () => void;
 };
 
@@ -330,7 +308,6 @@ function linkedLineArticle(
   linked: Linked,
   { exchange, onOpenChat }: Pick<MessageSectionProps, "exchange" | "onOpenChat">,
 ): ReactNode {
-  // A Subchat's finished report is one line, its text opening on a tap.
   const marker = linked ? reportMarker(linked) : null;
   if (marker && linked)
     return (
@@ -338,14 +315,12 @@ function linkedLineArticle(
         <DelegationReportLine marker={marker} body={message.body} chat={linkedHeading(linked).chat} onOpenChat={onOpenChat} />
       </article>
     );
-  // A back-and-forth with one Chat is one line for the whole run, the exchange opening in a dialog.
   if (exchange)
     return (
       <article id={`message-${message.id}`} data-slot="message" data-linked={linked?.kind} className="flex min-w-0 w-full flex-col">
         <LinkedExchangeLine exchange={exchange} onOpenChat={onOpenChat} />
       </article>
     );
-  // So is a message another Chat's agent sent here: a line like a model switch, its text opening in a dialog.
   const line = isUser ? linkedLine(linked) : null;
   if (line)
     return (
@@ -358,16 +333,10 @@ function linkedLineArticle(
 
 function userCards(message: AppChatMessage, isUser: boolean, linked: Linked) {
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
-  // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.
   const prAction = isUser && isPullRequestAction(message.context) ? message.context : null;
-  // So does a Chat's first message when it was started from a Linear issue.
   const issue = isUser && isLinearIssueContext(message.context) ? message.context : null;
-  // A message another Chat sent sits apart from the user's own: left-aligned, with its sender over it.
-  // Feedback sent from the design canvas shows as a card, not as the text the agent reads.
   const feedback = isUser && !linked && !advisor && !prAction && !issue ? parseDesignFeedback(message.body) : null;
-  // So do comments sent from a Browser panel page.
   const pageFeedback = isUser && !linked && !advisor && !prAction && !issue && !feedback ? parsePageComments(message.body) : null;
-  // So do the answers to the agent's questions.
   const answered = isUser && !linked && !advisor && !feedback && !pageFeedback && message.answered?.length ? message.answered : null;
   const bubble = isUser && !linked && !advisor && !feedback && !pageFeedback && !answered && !prAction && !issue;
   const card = Boolean(feedback || pageFeedback || answered || prAction || issue);
@@ -457,7 +426,6 @@ function MessageBody({
   if (feedback) return <DesignFeedbackCard feedback={feedback} messageId={message.id} />;
   if (pageFeedback) return <PageCommentsCard comments={pageFeedback} images={message.images} />;
   if (answered) return <AnswerCard answered={answered} />;
-  // A send that is only its images shows them above, without an "Image #1" bubble.
   if (isUser)
     return message.body.trim() && !onlyImageMentions(message.body, message.images?.length ?? 0) ? (
       <UserBody
@@ -618,7 +586,6 @@ export const MessageSection = memo(function MessageSection({
         </div>
       )}
       <div className={bodyClass(cards, isUser, highlighted)}>
-        {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
         {bubble && (copyUser || (undoId && onUndo)) && (
           <BubbleActions message={message} copyUser={Boolean(copyUser)} undoId={undoId} undoLatest={undoLatest} undoDisabled={undoDisabled} onUndo={onUndo} />
         )}

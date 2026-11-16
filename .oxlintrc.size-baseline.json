@@ -323,23 +323,15 @@
     {
       "files": ["apps/desktop/app/src/components/ChatComposer.tsx"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 956,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 741,
+            "max": 615,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 177]
+        "complexity": ["error", 149]
       }
     },
     {

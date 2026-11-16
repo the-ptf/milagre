@@ -14,13 +14,10 @@ import { type UndoIntent } from "../checkpoints/UndoPanel";
 import { foldLinkedExchanges } from "@milagre/shared/linked-message";
 import { MessageFollowContext, TRANSCRIPT_END_EVENT, TRANSCRIPT_SHOWN_EVENT } from "../agents/message-scroller";
 import { MessageSection } from "./MessageSection";
-import type { ChatComposerProps } from "../ChatComposer";
+import type { ChatComposerProps } from "../composer/chat-composer-props";
 
-// A Chat's first render mounts only its last few messages, so the window paints them at once; the rest of the page
-// follows in a transition (TAIL_FIRST is enough to fill a tall window's viewport).
 const TAIL_FIRST = 6;
 
-// The messages a Chat mounts at first, and each Show earlier adds.
 const PAGE = 40;
 
 function useTailFirst(chatId: number | string, length: number, following: ContextType<typeof MessageFollowContext>) {
@@ -40,8 +37,6 @@ function useTailFirst(chatId: number | string, length: number, following: Contex
       }
       const anchor = tailMarker.current?.nextElementSibling ?? null;
       const top = anchor ? anchor.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop : 0;
-      // A tail too short to fill the window would paint at its top and then drop to the bottom when the rest
-      // arrives: then the whole page renders now, before paint, as it did before.
       const short = viewport.scrollHeight <= viewport.clientHeight;
       expanding.current = { viewport, anchor, top, short };
       if (short) setFullChat(chatId);
@@ -51,19 +46,15 @@ function useTailFirst(chatId: number | string, length: number, following: Contex
     expanding.current = null;
     if (!pending) return;
     const { viewport, anchor, top, short } = pending;
-    // The earlier messages went in above at the placeholder size and measure now.
     viewport.dispatchEvent(new Event(TRANSCRIPT_SHOWN_EVENT));
-    // A reader still at the end stays there through the scroller (TRANSCRIPT_END_EVENT), however much they grow.
     if (short || following?.current !== false) viewport.dispatchEvent(new Event(TRANSCRIPT_END_EVENT));
     else if (anchor?.isConnected) {
-      // One who scrolled away meanwhile keeps that spot on screen: move by the height that went in above.
       viewport.scrollTop += anchor.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - top;
     }
   }, [cut, chatId, following]);
   return { cut, tailMarker };
 }
 
-// Background turns and draft edits must not rebuild a long, unchanged transcript.
 export const MessageTranscript = memo(function MessageTranscript({
   messages,
   pendingMessageId,
@@ -93,7 +84,6 @@ export const MessageTranscript = memo(function MessageTranscript({
   highlightId = null,
   onCheckpointPreview,
 }: {
-  /** Message id → the checkpoint of the task it started, for tasks that changed files; `latest` is the newest. */
   undoable?: Map<number, { id: string; latest: boolean }>;
   undoBlocked?: boolean;
   onUndo?: (checkpointId: string) => void;
@@ -126,13 +116,11 @@ export const MessageTranscript = memo(function MessageTranscript({
   | "models"
 >) {
   const chatId = messages[0]?.session_id ?? "new";
-  // The messages a chat opens with don't animate in; later ones do. A new chat's first message counts as later.
   const openingMessages = useRef<{ chat: number | string; ids: Set<number> } | null>(null);
   if (!openingMessages.current) openingMessages.current = { chat: chatId, ids: new Set(messages.map((message) => message.id)) };
   if (openingMessages.current.chat !== chatId) {
     openingMessages.current = { chat: chatId, ids: openingMessages.current.chat === "new" ? new Set() : new Set(messages.map((message) => message.id)) };
   }
-  // Keep the same recent-history page size as mobile. New messages extend the page without dropping its first row.
   const [page, setPage] = useState(() => ({ chat: chatId, firstId: messages[Math.max(0, messages.length - PAGE)]?.id }));
   let firstId = page.chat === chatId ? page.firstId : messages[Math.max(0, messages.length - PAGE)]?.id;
   if (findOpen) firstId = messages[0]?.id;
@@ -163,13 +151,11 @@ export const MessageTranscript = memo(function MessageTranscript({
     const restore = () => {
       if (!saved.element.isConnected) return;
       saved.viewport.scrollTop += saved.element.getBoundingClientRect().top - saved.top;
-      // content-visibility replaces estimated heights as the newly exposed rows enter the viewport.
       if (remaining-- > 0) frame = requestAnimationFrame(restore);
     };
     restore();
     return () => cancelAnimationFrame(frame);
   }, [page]);
-  // Messages the host still holds before the ones here (chat-pages-v1); find in chat reads them all.
   const remote = earlier?.count ?? 0;
   const loadAll = earlier?.loadAll;
   useEffect(() => {
@@ -207,9 +193,6 @@ export const MessageTranscript = memo(function MessageTranscript({
   const loadOnScroll = useEvent(() => {
     if (!historyError) void showEarlier();
   });
-  // A Chat followed at its bottom as new messages arrive lets go of the history it showed, as on the phone: past twice a
-  // page its rows unmount back to one, and its window keeps its last turns (trimHistory), so a Chat open for hours costs
-  // what a fresh one does. Scrolling up reads them again. Not while Find searches the whole Chat or earlier messages load.
   const following = useContext(MessageFollowContext);
   const canTrim = useEvent(() => !findOpen && following?.current === true && !historyRead.current && !anchor.current);
   const seen = useRef({ chat: chatId, count: messages.length });
@@ -232,17 +215,13 @@ export const MessageTranscript = memo(function MessageTranscript({
     viewport.addEventListener("scroll", onScroll);
     return () => viewport.removeEventListener("scroll", onScroll);
   }, [chatId, start, remote, findOpen, loadOnScroll]);
-  // Read here, not passed down from the window: a streamed batch that only grows the reply renders this list alone.
   const liveText = useRunText(isSending ? streamingKey : undefined);
   const streamingText = streamingKey ? liveText : heldText;
   const streamingMessage: AppChatMessage | undefined =
     isSending && (streamingText || streamingSteps?.length)
       ? { id: -1, session_id: messages.at(-1)?.session_id ?? -1, body: streamingText ?? "", context: null, role: "assistant", steps: streamingSteps }
       : undefined;
-  // Quiet heartbeats fold away; grouped over the whole Chat so a page boundary doesn't strand a hidden reply.
-  // So does a back-and-forth with another Chat: one line, its latest reply under it.
   const grouped = useMemo(() => foldLinkedExchanges(groupQuietRuns(messages)), [messages]);
-  // Subchat escalation notes: some are drawn in place, some elsewhere or by their card (lib/subchat-transcript.ts).
   const hiddenNotes = useMemo(() => hiddenSubchatNotes(messages), [messages]);
   const suggestionResults = useMemo(() => suggestionOutcomes(messages), [messages]);
   const transcript = grouped.slice(start).filter((entry) => !entry.hidden);
@@ -251,14 +230,10 @@ export const MessageTranscript = memo(function MessageTranscript({
     transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, { message: streamingMessage });
   }
 
-  // Markdown parses as each message mounts, so a long first page would hold the window until all of it has. The
-  // tail renders now and the rest in a transition that yields to the browser; the scroller, already at the bottom,
-  // stays there as the earlier messages appear above, and measures them once so they keep their real heights.
   const { cut, tailMarker } = useTailFirst(chatId, transcript.length, following);
   const shown = cut ? transcript.slice(-TAIL_FIRST) : transcript;
 
   const openingIds = openingMessages.current.ids;
-  // Only the Chat's last message, once its turn is over, can still switch accounts.
   const limitMessageId = isSending || offlineName ? undefined : (limitSourceMessageId ?? messages.at(-1)?.id);
   return (
     <>
@@ -270,7 +245,6 @@ export const MessageTranscript = memo(function MessageTranscript({
       )}
       {cut && <span ref={tailMarker} hidden />}
       {shown.map(({ message, merged, exchange }) => {
-        // A Linear Run's first message is its issue card carrying the Run: the divider comes first, then the card.
         const issueRun = isRoutineRun(message) ? null : routineRunOf(message);
         if (hiddenNotes.has(message.id)) return null;
         if (subchatNote(message))
@@ -308,7 +282,6 @@ export const MessageTranscript = memo(function MessageTranscript({
               limitResumeBlocked={message.id === limitSourceMessageId ? limitResumeBlocked : undefined}
               onOpenAccounts={onOpenAccounts}
               models={models}
-              // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
               undoId={message.role === "user" ? undoable?.get(message.id)?.id : undefined}
               undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
               undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}

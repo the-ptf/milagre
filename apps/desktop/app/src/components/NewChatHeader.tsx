@@ -15,7 +15,7 @@ import { rememberProjectComputer, shortPath, type ProjectCopy } from "../lib/pro
 import { newChatLook } from "../lib/new-chat-look";
 import { useDismiss } from "../lib/use-dismiss";
 import { ThisComputer } from "../lib/shortcut-hints";
-import type { ChatComposerProps } from "./ChatComposer";
+import type { ChatComposerProps } from "./composer/chat-composer-props";
 
 type IconData = IconSvgElement;
 
@@ -34,7 +34,6 @@ function ChipButton({
   onClick,
 }: {
   icon?: IconData;
-  /** Drawn instead of `icon`, e.g. a brand mark. */
   leading?: ReactNode;
   label: string;
   open: boolean;
@@ -61,11 +60,8 @@ type NewChatHeaderProps = Pick<
   | "onStartFromIssue"
   | "noGit"
 > & {
-  /** A Chats home draft: the tray holds only the computer chip and its label, nothing about Git. */
   chats?: boolean;
-  /** A named Link's new Chat: its agent makes a Worktree in each Project it changes, so only the Linear issue chip shows. */
   link?: boolean;
-  /** The open Project's copies on every computer with its repository; the computer chip shows once there are two. */
   copies?: ProjectCopy[];
   currentKey?: string;
   onComputerChange?: (key: string) => void;
@@ -97,14 +93,12 @@ export function NewChatHeader({
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"computer" | "isolation" | "branch" | "issue" | null>(null);
   const copy = copies.find((item) => item.key === currentKey);
-  // Shown for every Project, on one computer or several, so the heading never has to name the computer.
   const chooseComputer = copy && onComputerChange;
   const [query, setQuery] = useState("");
   const [popover, setPopover] = useState({ left: 0, maxHeight: 480, up: true });
   const selected = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktrees[0];
   const isolationOption = ISOLATIONS.find((option) => option.id === isolation) ?? ISOLATIONS[0];
   const search = query.trim().toLowerCase();
-  // Local runs in an existing checkout; a new worktree branches from any local branch.
   const branchRows =
     isolation === "local"
       ? worktrees
@@ -125,7 +119,6 @@ export function NewChatHeader({
     lastTrigger.current = trigger;
     const row = trigger.parentElement?.getBoundingClientRect();
     const button = trigger.getBoundingClientRect();
-    // The chips sit right above the composer, so their pickers open upward into the room above, unless there's more below.
     const above = button.top - 24;
     const below = window.innerHeight - button.bottom - 24;
     setPopover({ left: button.left - (row?.left ?? button.left), maxHeight: Math.max(above, below), up: above >= below });
@@ -155,7 +148,6 @@ export function NewChatHeader({
   const popoverEdge = popover.up ? "bottom-[calc(100%+0.375rem)]" : "top-[calc(100%+0.375rem)]";
 
   return (
-    // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-2.5 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}>
       {!chats && !link && noGit && selected && (
         <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-13 text-ink-2">
@@ -164,7 +156,6 @@ export function NewChatHeader({
         </p>
       )}
       {(chats || (link ? linearActive && onStartFromIssue : !noGit && selected)) && (
-        // One row, never wrapped: a narrow composer truncates the chips' names instead.
         <div data-new-chat-pickers className="relative mb-1 flex min-w-0 items-center gap-1">
           {chooseComputer && (
             <Tooltip label="Choose the computer" className="min-w-0">
@@ -211,7 +202,6 @@ export function NewChatHeader({
                   key={item.key}
                   icon={<Icon icon={ComputerIcon} size={14} />}
                   label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · ${ThisComputer}` : item.computer}
-                  // A Chats home's folder is Milagre's own, not a place the user picked.
                   description={chats ? undefined : shortPath(item.key)}
                   trailing={item.online ? undefined : "Offline"}
                   selected={item.key === currentKey}
