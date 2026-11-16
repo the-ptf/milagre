@@ -48,7 +48,7 @@ export function boardItem(task: OrchestratorTask, chat: TaskChat | undefined, pu
       done,
       needsYou: NEEDS_YOU.has(mark),
       pullRequest,
-      finished: !chat.run && Boolean(chat.chat.summary?.lastOutcome) && chat.chat.summary?.lastOutcome !== "failed",
+      finished: state.kind === "done" || state.kind === "stopped",
     }),
     kind: "chat",
     mark,
