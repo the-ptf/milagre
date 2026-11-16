@@ -3,7 +3,19 @@ import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import type { TileMenuControls } from "../components/agents/TileFamilyMenu";
 import { projectOfKey, sessionIdFromKey, type RunStatuses } from "../lib/agent-runs";
 import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "../lib/chat-grid";
-import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "../lib/grid-drop";
+import {
+  dropSide,
+  gridDrop,
+  placeDropped,
+  readGridPins,
+  readSplitChats,
+  readSplitStacked,
+  saveGridPins,
+  saveSplitChats,
+  saveSplitStacked,
+  type GridDropTarget,
+} from "../lib/grid-drop";
+import { canStack, placeInSplit, removeFromSplit, swapStacked } from "../lib/split-columns";
 import { useEvent } from "../lib/stable";
 import { chatFamily } from "../lib/subchat-rows";
 import { besideParent, familySplit, swapTile } from "../lib/subchat-split";
@@ -28,9 +40,25 @@ function useLayoutState() {
     });
   const [splitKeys, setSplitKeys] = useState<readonly string[]>(() => readSplitChats(localStorage));
   useEffect(() => saveSplitChats(localStorage, splitKeys), [splitKeys]);
+  const [stacked, setStacked] = useState<readonly string[]>(() => readSplitStacked(localStorage));
+  useEffect(() => saveSplitStacked(localStorage, stacked), [stacked]);
   const [closingTile, setClosingTile] = useState<string | null>(null);
   const [splitTarget, setSplitTarget] = useState<string | null>(null);
-  return { layout, setLayout, layoutRef, gridPins, changeGridPins, splitKeys, setSplitKeys, closingTile, setClosingTile, splitTarget, setSplitTarget };
+  return {
+    layout,
+    setLayout,
+    layoutRef,
+    gridPins,
+    changeGridPins,
+    splitKeys,
+    setSplitKeys,
+    stacked,
+    setStacked,
+    closingTile,
+    setClosingTile,
+    splitTarget,
+    setSplitTarget,
+  };
 }
 
 type LayoutState = ReturnType<typeof useLayoutState>;
@@ -59,7 +87,7 @@ function useGridTiles(state: LayoutState, gridOn: boolean, gridFocusKey: string 
 }
 
 function useSplit(state: LayoutState, chatView: boolean, gridFocusKey: string | null, gridStates: States) {
-  const { layout, setLayout, splitKeys, setSplitKeys, closingTile, setClosingTile, splitTarget, setSplitTarget } = state;
+  const { layout, setLayout, splitKeys, setSplitKeys, stacked, setStacked, closingTile, setClosingTile, splitTarget, setSplitTarget } = state;
   const [splitFocus, setSplitFocus] = useState(gridFocusKey);
   const leftForDraft =
     chatView && splitFocus !== gridFocusKey && splitFocus !== null && !isDraftTileKey(splitFocus) && gridFocusKey !== null && isDraftTileKey(gridFocusKey);
@@ -92,6 +120,7 @@ function useSplit(state: LayoutState, chatView: boolean, gridFocusKey: string | 
   ) {
     setLayout("single");
     if (splitKeys !== NO_KEYS) setSplitKeys(NO_KEYS);
+    if (stacked !== NO_KEYS) setStacked(NO_KEYS);
   } else if (split !== splitKeys) setSplitKeys(split);
   return { splitOn: splitShown && chatView, liveSplit };
 }
@@ -116,6 +145,7 @@ function useDropTarget(
   shownTilesRef: RefObject<readonly string[]>,
   focusedChatKeyRef: RefObject<string | null>,
   drop: (key: string, target: GridDropTarget) => void,
+  stackable: (tile: string | null) => boolean,
 ) {
   const { viewRef, linkOpenRef, projectRef } = inputs;
   useEffect(
@@ -127,12 +157,12 @@ function useDropTarget(
           const tile = under?.closest<HTMLElement>("[data-chat-tile]");
           if (tile) {
             const tileKey = tile.dataset.chatTile ?? "";
-            return tileKey === key ? null : { tile: tileKey, ...dropSide(tile.getBoundingClientRect(), x, 12) };
+            return tileKey === key ? null : { tile: tileKey, ...dropSide(tile.getBoundingClientRect(), x, 12, stackable(tileKey) ? y : undefined) };
           }
           const focused = focusedChatKeyRef.current;
           if (shownTilesRef.current.length || !focused || focused === key) return null;
           const pane = under?.closest<HTMLElement>("[data-chat-pane]");
-          return pane ? { tile: null, ...dropSide(pane.getBoundingClientRect(), x, 0) } : null;
+          return pane ? { tile: null, ...dropSide(pane.getBoundingClientRect(), x, 0, y) } : null;
         },
         drop,
       }),
@@ -172,7 +202,9 @@ function useTileMenu(inputs: ChatLayoutInputs, endSplit: () => void, swapSplitTi
 export function useChatLayout(inputs: ChatLayoutInputs) {
   const { view, projectPath, linkOpen, linkOpenRef, focusedChatKey, gridStates, openLinkedChat } = inputs;
   const state = useLayoutState();
-  const { layout, setLayout, layoutRef, changeGridPins, setSplitKeys, setClosingTile, setSplitTarget } = state;
+  const { layout, setLayout, layoutRef, changeGridPins, setSplitKeys, setClosingTile, setSplitTarget, stacked, setStacked } = state;
+  const stackedRef = useRef(stacked);
+  stackedRef.current = stacked;
   const toggleLayout = () => setLayout((current) => (current === "grid" ? "single" : "grid"));
   const gridOn = layout === "grid" && view === "chat";
   const gridFocusKey = focusedChatKey ?? (projectPath !== undefined && !linkOpen ? draftTileKey(projectPath) : null);
@@ -192,13 +224,20 @@ export function useChatLayout(inputs: ChatLayoutInputs) {
       setGridTiles((tiles) => placeDropped(tiles, key, target, focused));
       return;
     }
-    setSplitKeys(placeDropped(shownTilesRef.current, key, target, focused));
+    const placed = placeInSplit({ keys: shownTilesRef.current, stacked: stackedRef.current }, key, target, focused);
+    setSplitKeys(placed.keys);
+    setStacked(placed.stacked);
     setLayout("split");
   });
+  const stackable = useEvent(
+    (tile: string | null) =>
+      layoutRef.current !== "grid" && canStack({ keys: shownTilesRef.current, stacked: stackedRef.current }, tile, focusedChatKeyRef.current),
+  );
   const closeSplitTile = useEvent((key: string) => {
     const tiles = shownTilesRef.current;
     const next = tiles.filter((item) => item !== key);
     const at = tiles.indexOf(key);
+    setStacked(removeFromSplit({ keys: tiles, stacked: stackedRef.current }, key).stacked);
     const neighbour = [...next.slice(at), ...next.slice(0, at).toReversed()].find((item) => !isDraftTileKey(item));
     if (key !== gridFocusKeyRef.current || !neighbour) {
       setSplitKeys(next);
@@ -213,24 +252,28 @@ export function useChatLayout(inputs: ChatLayoutInputs) {
   );
   const endSplit = useEvent(() => {
     setSplitKeys(NO_KEYS);
+    setStacked(NO_KEYS);
     setLayout("single");
   });
   const openBeside = useEvent((parent: string) => {
     const open = gridFocusKeyRef.current;
     if (!open || linkOpenRef.current) return;
     setSplitKeys(besideParent(parent, open));
+    setStacked(NO_KEYS);
     setLayout("split");
   });
   const showFamily = useEvent(() => {
     if (!focusedFamily) return;
     setSplitKeys(familySplit(focusedFamily, gridFocusKeyRef.current));
+    setStacked(NO_KEYS);
     setLayout("split");
   });
-  useDropTarget(inputs, shownTilesRef, focusedChatKeyRef, dropOnGrid);
+  useDropTarget(inputs, shownTilesRef, focusedChatKeyRef, dropOnGrid, stackable);
   const swapSplitTile = useEvent((tile: string, next: string) => {
     const swapped = swapTile(shownTilesRef.current, tile, next);
     if (swapped === shownTilesRef.current) return;
     setSplitKeys(swapped);
+    setStacked((current) => swapStacked(current, tile, next));
     if (tile === gridFocusKeyRef.current) {
       setSplitTarget(next);
       openLinkedChat(next);
@@ -247,6 +290,7 @@ export function useChatLayout(inputs: ChatLayoutInputs) {
     shownTiles,
     shownTilesRef,
     splitOn,
+    stackedTiles: stacked,
     pinnedTiles,
     toggleGridPin,
     closeSplitTile,

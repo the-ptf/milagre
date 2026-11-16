@@ -145,7 +145,7 @@
         "max-lines": [
           "error",
           {
-            "max": 2870,
+            "max": 2859,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -153,12 +153,12 @@
         "max-lines-per-function": [
           "error",
           {
-            "max": 2659,
+            "max": 2648,
             "skipBlankLines": true,
             "skipComments": true
           }
         ],
-        "complexity": ["error", 417]
+        "complexity": ["error", 410]
       }
     },
     {
@@ -319,7 +319,7 @@
     {
       "files": ["apps/desktop/app/src/components/ChatGrid.tsx"],
       "rules": {
-        "complexity": ["error", 54]
+        "complexity": ["error", 53]
       }
     },
     {

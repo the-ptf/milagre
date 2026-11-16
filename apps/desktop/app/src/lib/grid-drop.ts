@@ -2,9 +2,11 @@ import { useSyncExternalStore } from "react";
 
 export type GridDropTarget = {
   tile: string | null;
+  /** x drops beside the tile, y above or below it in its column (a split only). */
+  axis: "x" | "y";
   side: "before" | "after";
   area: { left: number; top: number; width: number; height: number };
-  bar: { left: number; top: number; height: number };
+  bar: { left: number; top: number; width: number; height: number };
 };
 
 type GridDropHandle = {
@@ -17,7 +19,8 @@ let shown: GridDropTarget | null = null;
 const listeners = new Set<() => void>();
 
 const same = (a: GridDropTarget | null, b: GridDropTarget | null) =>
-  a === b || (a !== null && b !== null && a.tile === b.tile && a.side === b.side && a.area.left === b.area.left && a.area.width === b.area.width);
+  a === b ||
+  (a !== null && b !== null && a.tile === b.tile && a.axis === b.axis && a.side === b.side && a.area.left === b.area.left && a.area.width === b.area.width);
 
 /**
  * The bridge between the sidebar's Chat drag (SidebarNav) and the Chat view (App), which knows the grid. The sidebar asks
@@ -52,20 +55,35 @@ export function useGridDropTarget() {
 }
 
 /**
- * Which side of a box a point is on, and the half it would take: a drop on the left half goes before, on the right
- * half after. Pure, so the hit test is testable without a DOM.
+ * Which edge of a box a point is nearest, and the half it would take: the left half drops before, the right half after.
+ * Given `y`, a point nearer the top or bottom edge than a side drops above or below instead. Pure, so the hit test is
+ * testable without a DOM.
  */
 export function dropSide(
   box: { left: number; top: number; width: number; height: number },
   x: number,
   gap: number,
-): Pick<GridDropTarget, "side" | "area" | "bar"> {
+  y?: number,
+): Pick<GridDropTarget, "axis" | "side" | "area" | "bar"> {
+  const fromSide = Math.min(x - box.left, box.left + box.width - x) / box.width;
+  const fromEdge = y === undefined ? Infinity : Math.min(y - box.top, box.top + box.height - y) / box.height;
+  if (y !== undefined && fromEdge < fromSide) {
+    const above = y < box.top + box.height / 2;
+    const half = box.height / 2;
+    return {
+      axis: "y",
+      side: above ? "before" : "after",
+      area: { left: box.left, top: above ? box.top : box.top + half, width: box.width, height: half },
+      bar: { left: box.left + 16, top: above ? box.top - gap / 2 - 2 : box.top + box.height + gap / 2 - 2, width: Math.max(0, box.width - 32), height: 4 },
+    };
+  }
   const before = x < box.left + box.width / 2;
   const half = box.width / 2;
   return {
+    axis: "x",
     side: before ? "before" : "after",
     area: { left: before ? box.left : box.left + half, top: box.top, width: half, height: box.height },
-    bar: { left: before ? box.left - gap / 2 - 2 : box.left + box.width + gap / 2 - 2, top: box.top + 16, height: Math.max(0, box.height - 32) },
+    bar: { left: before ? box.left - gap / 2 - 2 : box.left + box.width + gap / 2 - 2, top: box.top + 16, width: 4, height: Math.max(0, box.height - 32) },
   };
 }
 
@@ -104,4 +122,14 @@ export function readSplitChats(storage: Pick<Storage, "getItem">) {
 
 export function saveSplitChats(storage: Pick<Storage, "setItem">, keys: readonly string[]) {
   storage.setItem(SPLIT_KEY, JSON.stringify(keys.filter((key) => !key.endsWith("#0"))));
+}
+
+const STACKED_KEY = "milagre.chatSplitStacked";
+
+export function readSplitStacked(storage: Pick<Storage, "getItem">) {
+  return readKeys(storage, STACKED_KEY);
+}
+
+export function saveSplitStacked(storage: Pick<Storage, "setItem">, keys: readonly string[]) {
+  storage.setItem(STACKED_KEY, JSON.stringify(keys.filter((key) => !key.endsWith("#0"))));
 }

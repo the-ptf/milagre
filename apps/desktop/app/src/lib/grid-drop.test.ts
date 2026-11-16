@@ -7,11 +7,23 @@ test("dropSide: the left half drops before, the right half after, with the bar o
   const before = dropSide(box, 150, 12);
   assert.equal(before.side, "before");
   assert.deepEqual(before.area, { left: 100, top: 40, width: 200, height: 300 });
-  assert.deepEqual(before.bar, { left: 92, top: 56, height: 268 });
+  assert.equal(before.axis, "x");
+  assert.deepEqual(before.bar, { left: 92, top: 56, width: 4, height: 268 });
   const after = dropSide(box, 450, 12);
   assert.equal(after.side, "after");
   assert.deepEqual(after.area, { left: 300, top: 40, width: 200, height: 300 });
   assert.equal(after.bar.left, 504);
+});
+
+test("dropSide: given y, a point nearer the top or bottom edge than a side drops above or below", () => {
+  const box = { left: 100, top: 40, width: 400, height: 300 };
+  const above = dropSide(box, 300, 12, 60);
+  assert.deepEqual([above.axis, above.side], ["y", "before"]);
+  assert.deepEqual(above.area, { left: 100, top: 40, width: 400, height: 150 });
+  assert.deepEqual(above.bar, { left: 116, top: 32, width: 368, height: 4 });
+  const below = dropSide(box, 300, 12, 330);
+  assert.deepEqual([below.axis, below.side, below.area.top], ["y", "after", 190]);
+  assert.deepEqual([dropSide(box, 110, 12, 190).axis, dropSide(box, 300, 12).axis], ["x", "x"]);
 });
 
 test("placeDropped: beside a tile, moved when already there, and beside the one Chat on screen", () => {
