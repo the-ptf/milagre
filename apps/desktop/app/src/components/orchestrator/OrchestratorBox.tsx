@@ -3,8 +3,10 @@ import { ArrowUp02Icon } from "@hugeicons/core-free-icons";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
 import { caretPoint, type ScreenPoint } from "../../lib/orchestrator-board";
 import { sendOrchestratorTask } from "../../lib/orchestrator-store";
+import { Attachments } from "../Attachments";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
+import { useOrchestratorImages } from "./useOrchestratorImages";
 
 const MAX_HEIGHT = 160;
 
@@ -43,8 +45,9 @@ export function OrchestratorBox({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+  const attached = useOrchestratorImages();
   const large = size === "large";
-  const empty = !text.trim();
+  const empty = !text.trim() && !attached.images.length;
 
   useLayoutEffect(() => {
     const node = field.current;
@@ -80,8 +83,9 @@ export function OrchestratorBox({
     setSending(true);
     setError(null);
     try {
-      const task = await sendOrchestratorTask(text.trim());
+      const task = await sendOrchestratorTask(text.trim(), attached.images);
       setText("");
+      attached.clear();
       onCaret?.(null);
       node.blur();
       onSent?.(task, from);
@@ -94,7 +98,11 @@ export function OrchestratorBox({
 
   return (
     <div ref={ref} data-orchestrator-box={size} className="flex flex-col gap-2" style={hidden ? { visibility: "hidden" } : undefined}>
-      <div className="flex flex-col gap-2 rounded-window border border-line bg-surface p-3 shadow-raised">
+      <div
+        className="flex flex-col gap-2 rounded-window border border-line bg-surface p-3 shadow-raised"
+        onDragOver={attached.onDragOver}
+        onDrop={attached.onDrop}
+      >
         <div className="flex items-start gap-3">
           {leading}
           <textarea
@@ -108,6 +116,7 @@ export function OrchestratorBox({
               setText(event.target.value);
               requestAnimationFrame(look);
             }}
+            onPaste={attached.onPaste}
             onKeyUp={look}
             onClick={look}
             onFocus={look}
@@ -125,6 +134,11 @@ export function OrchestratorBox({
             className={`min-w-0 flex-1 resize-none border-0 bg-transparent p-0 text-ink outline-none placeholder:text-ink-3 ${large ? "min-h-11 text-15" : "min-h-5 text-13"}`}
           />
         </div>
+        {attached.images.length > 0 && (
+          <div className="-mb-2">
+            <Attachments images={attached.images} removeImage={sending ? undefined : attached.remove} />
+          </div>
+        )}
         <div className="flex h-7 items-center justify-end">
           <button
             type="button"
@@ -138,7 +152,7 @@ export function OrchestratorBox({
         </div>
       </div>
       <InlineError size={12} className="px-1">
-        {error}
+        {error || attached.error || null}
       </InlineError>
     </div>
   );

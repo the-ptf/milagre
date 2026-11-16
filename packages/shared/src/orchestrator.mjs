@@ -19,6 +19,7 @@ const INSTRUCTIONS_MAX = 4000;
 const NOTE_MAX = 300;
 const TASKS_KEPT = 200;
 const NOTES_KEPT = 200;
+export const ORCHESTRATOR_MAX_IMAGES = 10;
 
 export const DEFAULT_ROLES = Object.freeze(
   [
@@ -185,6 +186,7 @@ export function normalizeOrchestratorTask(raw) {
     createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : 0,
     permissionMode: oneOf(raw.permissionMode, ["ask", "auto", "full"], "auto"),
     answered: Array.isArray(raw.answered) ? raw.answered.filter(isObject).slice(-50) : [],
+    images: Number.isInteger(raw.images) && raw.images > 0 ? Math.min(raw.images, ORCHESTRATOR_MAX_IMAGES) : 0,
   };
 }
 

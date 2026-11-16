@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createOrchestratorStore } = require("./store.cjs");
 const { createOrchestrator } = require("./service.cjs");
+const { createTaskImages } = require("./images.cjs");
 const { routeTask } = require("./router.cjs");
 const { normalizeOrchestratorSettings } = require("@milagre/shared/orchestrator");
 
@@ -22,6 +23,7 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
   const calls = { sent: [], emptyChats: [], hidden: [], archived: [], stopped: [] };
   let nextSession = 7;
   const ports = {
+    images: createTaskImages({ dir: path.join(dir, "orchestrator-images") }),
     projects: async () => PROJECTS,
     selectedAccount: () => "default",
     accountUsage: async () => [
@@ -47,7 +49,7 @@ function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
     wait: async () => {},
   };
   const orchestrator = createOrchestrator({ store, ports, now: () => 1000 });
-  return { orchestrator, store, calls, events };
+  return { orchestrator, store, calls, events, ports, dir };
 }
 
 async function until(check) {
@@ -90,6 +92,37 @@ test("with no matching Project the task waits for the owner, then starts where t
   await until(() => store.task(task.id).state === "started");
   assert.equal(store.task(task.id).projectPath, "/p/rdfood");
   assert.equal(store.read().memory.trust.project.corrected, 1, "picking the Project is a correction the memory learns");
+});
+
+const PNG = `data:image/png;base64,${Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]).toString("base64")}`;
+
+test("images sent with a task wait on disk through Pick a Project and reach the task Chat", async (t) => {
+  const { orchestrator, store, calls, ports, dir } = setup(t, {
+    reply: { project: null, role: "build", title: "Fix this screen", reason: "Nothing matched", confidence: 0.2 },
+  });
+  const task = await orchestrator.send("", { images: [{ id: "a", name: "Screen.png", dataUrl: PNG }] });
+  await settled(orchestrator, task.id);
+  assert.equal(store.task(task.id).images, 1);
+  assert.equal(store.task(task.id).state, "needs-project");
+  const restarted = createOrchestrator({
+    store,
+    ports: { ...ports, images: createTaskImages({ dir: path.join(dir, "orchestrator-images") }) },
+    now: () => 1000,
+  });
+  await restarted.pickProject(task.id, "/p/rdfood");
+  await until(() => calls.sent.length === 1);
+  assert.deepEqual(calls.sent[0].images, [{ id: "a", name: "Screen.png", dataUrl: PNG }]);
+  assert.equal(calls.sent[0].body, "Look at the attached images.");
+  restarted.dismiss(task.id);
+  assert.equal(ports.images.load(task.id), null, "dismissing drops the task's images");
+});
+
+test("a bad or excess image fails the send before a task is made", async (t) => {
+  const { orchestrator, store } = setup(t);
+  await assert.rejects(() => orchestrator.send("look", { images: [{ id: "a", name: "x.png", dataUrl: "data:text/plain;base64,aGk=" }] }), /PNG, JPEG/);
+  const many = Array.from({ length: 11 }, (_, index) => ({ id: String(index), name: "x.png", dataUrl: PNG }));
+  await assert.rejects(() => orchestrator.send("look", { images: many }), /at most 10/);
+  assert.equal(store.read().tasks.length, 0);
 });
 
 test("sending is refused while the Orchestrator is off", async (t) => {

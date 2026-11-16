@@ -146,6 +146,9 @@ test("tasks and memory drop malformed entries", () => {
   const task = normalizeOrchestratorTask({ id: "t", prompt: "please fix the rest timer. it skips" });
   assert.equal(task.title, "Fix the rest timer");
   assert.equal(task.state, "routing");
+  assert.equal(task.images, 0);
+  assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "x", images: 3 }).images, 3);
+  assert.equal(normalizeOrchestratorTask({ id: "t", prompt: "x", images: -2 }).images, 0);
   const memory = normalizeOrchestratorMemory({
     notes: [
       { id: "a", text: "  Short replies  ", group: "work" },

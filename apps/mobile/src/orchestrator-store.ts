@@ -173,7 +173,7 @@ export function createOrchestratorStore(client: OrchestratorClient, appState: Ap
         throw failure;
       }
     },
-    async send(prompt: string, options: { permissionMode?: "ask" | "auto" | "full" } = {}) {
+    async send(prompt: string, options: { permissionMode?: "ask" | "auto" | "full"; images?: { id: string; name: string; dataUrl: string }[] } = {}) {
       const task = await run<OrchestratorTask>("orchestrator:send", [prompt, options]);
       if (task?.id && !confirmed?.tasks.some((known) => known.id === task.id)) {
         sent = [...sent, task];

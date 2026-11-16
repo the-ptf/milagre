@@ -5,6 +5,7 @@ const { createOrchestratorStore } = require("../orchestrator/store.cjs");
 const { createOrchestrator } = require("../orchestrator/service.cjs");
 const { createAutopilot } = require("../orchestrator/autopilot.cjs");
 const { createMemorySync } = require("../orchestrator/memory-sync.cjs");
+const { createTaskImages } = require("../orchestrator/images.cjs");
 const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
 const { claudeModel, codexModel } = require("../git-text.cjs");
 
@@ -82,6 +83,7 @@ function registerOrchestrator(
   const orchestrator = createOrchestrator({
     store,
     ports: {
+      images: createTaskImages({ dir: path.join(dataDir, "orchestrator-images") }),
       projects: async () => (await projectRegistry().list()).map((project) => ({ path: project.path, name: project.name || projectName(project.path) })),
       selectedAccount: (provider, projectPath) => accounts.selected(provider, projectPath) ?? null,
       accountUsage: async () => {

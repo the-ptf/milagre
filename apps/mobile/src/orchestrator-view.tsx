@@ -10,6 +10,7 @@ import { projectName } from "./orchestrator-board";
 import { BoardList, BoardTabs } from "./orchestrator-board-view";
 import { CarriedNote, StartedToast } from "./orchestrator-overlays";
 import { OrchestratorPrompt } from "./orchestrator-prompt";
+import type { OrchestratorImage } from "./orchestrator-images";
 import { OrchestratorTour } from "./orchestrator-tour";
 import { useSession } from "./session";
 import { readPermission } from "./hosts-native";
@@ -117,18 +118,20 @@ export function OrchestratorView() {
     );
   const settings = snapshot?.settings;
   const color = settings?.mascotColor ?? "";
-  const send = (prompt: string) => {
-    if (!store) return;
+  const send = (prompt: string, images: OrchestratorImage[]) => {
+    if (!store) return Promise.resolve(false);
     setSendError("");
     setSending(true);
     setMood("thinking");
     setTab("running");
-    setCarry({ id: Date.now(), text: prompt, from: frames.current.prompt + frames.current.box, to: frames.current.board });
-    void readPermission()
-      .then((permissionMode) => store.send(prompt, permissionMode ? { permissionMode } : {}))
+    setCarry({ id: Date.now(), text: prompt || "Photos", from: frames.current.prompt + frames.current.box, to: frames.current.board });
+    return readPermission()
+      .then((permissionMode) => store.send(prompt, { ...(permissionMode ? { permissionMode } : {}), ...(images.length ? { images } : {}) }))
+      .then(() => true)
       .catch((failure: Error) => {
         setMood("idle");
         setSendError(failure.message || "Couldn't send that. Try again.");
+        return false;
       })
       .finally(() => setSending(false));
   };

@@ -1,6 +1,7 @@
 const { pickComputer } = require("@milagre/shared/orchestrator");
+const { checkedImages } = require("./images.cjs");
 
-function createPlacement({ store, ports, settings, projectList, addTask, start }) {
+function createPlacement({ store, ports, settings, projectList, addTask, imagesOf, start }) {
   async function placeElsewhere(taskId, route) {
     const config = settings();
     const remote = ports.remote;
@@ -24,7 +25,15 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
     }
     const task = store.task(taskId);
     const started = await remote.invoke(pick.id, "orchestrator:start-here", [
-      { prompt: task.prompt, title: route.title, origin, role: route.role, reason: route.reason ?? null, permissionMode: task.permissionMode },
+      {
+        prompt: task.prompt,
+        title: route.title,
+        origin,
+        role: route.role,
+        reason: route.reason ?? null,
+        permissionMode: task.permissionMode,
+        images: imagesOf(task),
+      },
     ]);
     const computerReason = `${pick.name} has the most room (${Math.round((1 - (pick.cpu ?? 0)) * 100)}% CPU free)`;
     store.updateTask(taskId, () => ({
@@ -43,7 +52,16 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
     for (let attempt = 0; attempt < 40; attempt += 1) {
       const remoteTask = (await ports.remote.invoke(computerId, "orchestrator:read", []).catch(() => null))?.tasks?.find((entry) => entry.id === remoteTaskId);
       if (remoteTask && remoteTask.state !== "routing") {
-        const { id: _id, prompt: _prompt, createdAt: _createdAt, computer: _computer, remoteComputerId: _from, remoteTaskId: _task, ...fields } = remoteTask;
+        const {
+          id: _id,
+          prompt: _prompt,
+          createdAt: _createdAt,
+          computer: _computer,
+          remoteComputerId: _from,
+          remoteTaskId: _task,
+          images: _images,
+          ...fields
+        } = remoteTask;
         store.updateTask(taskId, () => ({ ...fields, reason: { ...fields.reason, computer: computerReason } }));
         return;
       }
@@ -59,12 +77,13 @@ function createPlacement({ store, ports, settings, projectList, addTask, start }
       projects: projects.map((project, index) => ({ path: project.path, name: project.name, origin: origins[index] })).filter((entry) => entry.origin),
     };
   }
-  async function startHere({ prompt, title, origin, role, reason, permissionMode }) {
+  async function startHere({ prompt, title, origin, role, reason, permissionMode, images }) {
+    const checked = checkedImages(images);
     const projects = await projectList();
     const origins = await Promise.all(projects.map((project) => ports.originOf(project.path).catch(() => null)));
     const project = projects.find((_, index) => origins[index] === origin);
     if (!project) throw new Error("That Project isn't on this computer.");
-    const taskId = addTask(String(prompt), permissionMode);
+    const taskId = addTask(String(prompt), permissionMode, checked);
     void start(taskId, { projectPath: project.path, role, title, reason }).catch((error) =>
       store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) })),
     );

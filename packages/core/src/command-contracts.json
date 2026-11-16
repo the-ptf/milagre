@@ -4409,6 +4409,9 @@
         "mascotColor": {
           "type": "string"
         },
+        "name": {
+          "type": "string"
+        },
         "boardHidden": {
           "enum": [false, true]
         },

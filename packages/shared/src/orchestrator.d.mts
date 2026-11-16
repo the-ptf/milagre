@@ -64,6 +64,7 @@ export interface OrchestratorTask {
   createdAt: number;
   permissionMode: "ask" | "auto" | "full";
   answered: OrchestratorAnswer[];
+  images: number;
 }
 
 export interface OrchestratorMemoryNote {
@@ -117,6 +118,7 @@ export const ORCHESTRATOR_MASCOT: {
   readonly eyes: { readonly x: number; readonly y: number; readonly spacing: number; readonly scale: number };
 };
 export const MASCOT_COLORS: readonly string[];
+export const ORCHESTRATOR_MAX_IMAGES: number;
 export const AUTOPILOT_MODES: readonly AutopilotMode[];
 export const COMPUTER_PREFERENCES: readonly ComputerPreference[];
 export const VETO_SECONDS: readonly number[];

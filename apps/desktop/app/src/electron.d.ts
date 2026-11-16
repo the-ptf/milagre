@@ -458,7 +458,10 @@ export type MilagreBridge = {
   readOrchestratorProjects: () => Promise<OrchestratorProject[]>;
   readOrchestratorComputers: () => Promise<OrchestratorComputer[]>;
   saveOrchestratorSettings: (patch: Partial<OrchestratorSettings>) => Promise<OrchestratorSettings>;
-  sendToOrchestrator: (prompt: string, options?: { permissionMode?: PermissionMode }) => Promise<OrchestratorTask>;
+  sendToOrchestrator: (
+    prompt: string,
+    options?: { permissionMode?: PermissionMode; images?: { id: string; name: string; dataUrl: string }[] },
+  ) => Promise<OrchestratorTask>;
   pickOrchestratorProject: (taskId: string, projectPath: string) => Promise<OrchestratorTask | null>;
   showOrchestratorTaskInSidebar: (taskId: string, shown: boolean) => Promise<OrchestratorTask | null>;
   undoOrchestratorTask: (taskId: string) => Promise<null>;

@@ -4,7 +4,8 @@ import { ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Mascot, type MascotMood } from "./mascot";
 import { useTheme } from "./theme";
-import { IconButton } from "./ui";
+import { OrchestratorAttachButton, OrchestratorImageStrip, useOrchestratorImages, type OrchestratorImage } from "./orchestrator-images";
+import { IconButton, InlineError } from "./ui";
 
 /** Pebble and the one box: what you type goes to `onSend`, and Pebble's eyes follow the text as it grows. */
 export function OrchestratorPrompt({
@@ -17,18 +18,23 @@ export function OrchestratorPrompt({
   color: string;
   mood: MascotMood;
   busy: boolean;
-  onSend: (prompt: string) => void;
+  onSend: (prompt: string, images: OrchestratorImage[]) => Promise<boolean>;
   onBoxLayout?: (frame: LayoutRectangle) => void;
 }) {
   const { colors } = useTheme();
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
-  const empty = !text.trim();
+  const attached = useOrchestratorImages();
+  const empty = !text.trim() && !attached.items.length;
   const gaze = focused ? { x: Math.min(1, -0.2 + text.length / 48), y: 0.6 } : null;
   const send = () => {
     if (empty || busy) return;
-    onSend(text.trim());
+    const kept = attached.items;
+    void onSend(text.trim(), attached.images()).then((sent) => {
+      if (!sent) attached.restore(kept);
+    });
     setText("");
+    attached.clear();
   };
   return (
     <View style={{ gap: space.lg }}>
@@ -68,10 +74,13 @@ export function OrchestratorPrompt({
           onSubmitEditing={send}
           style={{ minHeight: 44, maxHeight: 160, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, paddingRight: space.md }}
         />
-        <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+        <OrchestratorImageStrip items={attached.items} disabled={busy} onRemove={attached.remove} />
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <OrchestratorAttachButton disabled={busy} onAttach={(kind) => void attached.attach(kind)} />
           <IconButton label="Send" icon={ArrowUp01Icon} filled size={36} loading={busy} disabled={empty} onPress={send} />
         </View>
       </View>
+      {attached.error ? <InlineError message={attached.error} /> : null}
     </View>
   );
 }

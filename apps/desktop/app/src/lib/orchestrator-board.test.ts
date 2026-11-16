@@ -39,6 +39,7 @@ function task(id: string, patch: Partial<OrchestratorTask> = {}): OrchestratorTa
     createdAt: NOW,
     permissionMode: "auto",
     answered: [],
+    images: 0,
     ...patch,
   };
 }

@@ -26,6 +26,7 @@ const task = (patch: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
   createdAt: 1000,
   permissionMode: "auto",
   answered: [],
+  images: 0,
   ...patch,
 });
 const run = (patch: Partial<AgentRun> = {}) =>

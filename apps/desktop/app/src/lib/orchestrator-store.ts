@@ -61,8 +61,11 @@ export async function saveOrchestratorSettings(patch: Partial<OrchestratorSettin
   return settings;
 }
 
-export async function sendOrchestratorTask(prompt: string) {
-  const task = await window.milagre.sendToOrchestrator(prompt, { permissionMode: getSettings().defaultPermissionMode });
+export async function sendOrchestratorTask(prompt: string, images: { id: string; name: string; dataUrl: string }[] = []) {
+  const task = await window.milagre.sendToOrchestrator(prompt, {
+    permissionMode: getSettings().defaultPermissionMode,
+    ...(images.length ? { images } : {}),
+  });
   sentHere.add(task.id);
   withTask(task);
   return task;

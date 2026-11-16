@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Alert02Icon, CheckmarkCircle02Icon, GitMergeIcon, GitPullRequestIcon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, CheckmarkCircle02Icon, GitMergeIcon, GitPullRequestIcon, Image01Icon } from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { AgentModels } from "@milagre/shared/model";
 import { lineHeight, radius, space, type } from "./design-tokens";
@@ -70,7 +70,7 @@ export function TaskCard({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${task.title}. ${item.detail}`}
+      accessibilityLabel={`${task.title}. ${item.detail}${task.images ? `. ${task.images === 1 ? "1 photo" : `${task.images} photos`}` : ""}`}
       onPress={onPress}
       style={({ pressed }) => [styles.card, { gap: space.sm, paddingVertical: space.lg }, pressStyle({ pressed, kind: "row" })]}
     >
@@ -79,6 +79,12 @@ export function TaskCard({
           <TaskMark item={item} />
         </View>
         <Text style={{ flex: 1, color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>{task.title}</Text>
+        {task.images > 0 ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.xxs }}>
+            <Icon icon={Image01Icon} tone="ink3" size={12} />
+            <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.callout }}>{task.images}</Text>
+          </View>
+        ) : null}
         <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.callout }}>{relativeAge(task.createdAt, now)}</Text>
       </View>
       {item.detail ? (

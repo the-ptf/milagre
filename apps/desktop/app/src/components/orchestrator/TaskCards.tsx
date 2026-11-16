@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CheckmarkCircle02Icon, ComputerIcon, GitPullRequestIcon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { CheckmarkCircle02Icon, ComputerIcon, GitPullRequestIcon, Image01Icon, PanelLeftOpenIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { roleById, type OrchestratorRole, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import type { ModelProvider } from "../../model";
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
@@ -81,11 +81,21 @@ export function ModelLabel({ route }: { route: Route }) {
   );
 }
 
-function CardTitle({ lead, title }: { lead: ReactNode; title: string }) {
+function CardTitle({ lead, title, images = 0 }: { lead: ReactNode; title: string; images?: number }) {
   return (
     <div className="flex items-start gap-2 pr-7">
       <span className="mt-0.5 flex shrink-0">{lead}</span>
       <span className="min-w-0 text-13 font-medium text-ink">{title}</span>
+      {images > 0 && (
+        <span
+          role="img"
+          aria-label={images === 1 ? "1 image" : `${images} images`}
+          className="mt-0.5 flex shrink-0 items-center gap-0.5 text-11 leading-4 text-ink-3"
+        >
+          <Icon icon={Image01Icon} size={12} />
+          {images}
+        </span>
+      )}
     </div>
   );
 }
@@ -107,7 +117,7 @@ export function ChatCard({ card, env, onOpen }: { card: TaskCard; env: CardEnv; 
       }}
       className={`${CARD} cursor-pointer hover:border-line-strong`}
     >
-      <CardTitle lead={<StatusMark card={card} />} title={task.title} />
+      <CardTitle lead={<StatusMark card={card} />} title={task.title} images={task.images} />
       {card.column === "needs" && <span className="self-start rounded-chip bg-orange-tint px-2 py-0.5 text-12 text-orange-ink">{card.detail}</span>}
       {card.column === "running" && card.detail && <span className={`${META} ${failed(card) ? "text-red-ink" : "text-ink-2"}`}>{card.detail}</span>}
       <div className={META}>
@@ -146,7 +156,7 @@ export function PickProjectCard({ card, env }: { card: TaskCard; env: CardEnv })
   const { task } = card;
   return (
     <div data-task-card={task.id} className={CARD}>
-      <CardTitle lead={<StatusMark card={card} />} title={task.title} />
+      <CardTitle lead={<StatusMark card={card} />} title={task.title} images={task.images} />
       <span className="self-start rounded-chip bg-orange-tint px-2 py-0.5 text-12 text-orange-ink">{card.detail}</span>
       <div className="flex items-center gap-1.5">
         <Select
@@ -177,7 +187,7 @@ export function FailedCard({ card }: { card: TaskCard }) {
   const { task } = card;
   return (
     <div data-task-card={task.id} className={CARD}>
-      <CardTitle lead={<StatusMark card={card} />} title={task.title} />
+      <CardTitle lead={<StatusMark card={card} />} title={task.title} images={task.images} />
       <InlineError size={12}>{card.detail}</InlineError>
       <div className="flex items-center gap-1.5">
         <Button variant="secondary" size={24} onClick={() => void rerouteTask(task.id, {})}>

@@ -5,9 +5,11 @@ const { normalizeOrchestratorSettings, roleById, pickAccount, titleFromPrompt, r
 const { routeTask } = require("./router.cjs");
 const { importMemory } = require("./memory-import.cjs");
 const { createPlacement } = require("./placement.cjs");
+const { checkedImages, savedImages } = require("./images.cjs");
 
 const HINT_FILES = ["AGENTS.md", "CLAUDE.md", "README.md"];
 const HINT_CHARS = 400;
+const IMAGES_ONLY_PROMPT = "Look at the attached images.";
 
 function readHints(projectPath) {
   for (const name of HINT_FILES) {
@@ -53,11 +55,24 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       });
   }
 
-  function addTask(prompt, permissionMode) {
-    const task = { id: randomUUID(), prompt, title: titleFromPrompt(prompt), state: "routing", permissionMode, createdAt: now(), answered: [] };
+  function addTask(prompt, permissionMode, images = []) {
+    const task = {
+      id: randomUUID(),
+      prompt,
+      title: titleFromPrompt(prompt),
+      state: "routing",
+      permissionMode,
+      createdAt: now(),
+      answered: [],
+      images: images.length,
+    };
+    if (images.length) ports.images.save(task.id, images);
     store.update((current) => ({ ...current, tasks: [...current.tasks, task] }));
+    ports.images.prune(store.read().tasks.map((entry) => entry.id));
     return task.id;
   }
+
+  const imagesOf = (task) => savedImages(ports.images, task);
 
   async function chooseAccount(provider, projectPath) {
     const projectAccountId = ports.selectedAccount(provider, projectPath);
@@ -72,6 +87,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
     const config = settings();
     const role = roleById(config.roles, route.role);
     if (!role) throw new Error("No role has a model. Pick one in Settings › Church › Orchestrator.");
+    const images = imagesOf(store.task(taskId));
     const account = await chooseAccount(role.provider, route.projectPath);
     let worktreeId = null;
     try {
@@ -111,7 +127,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       permissionMode: task.permissionMode,
       body: task.prompt,
       prompt: withRole(task.prompt, role),
-      images: [],
+      images,
       files: [],
     });
     return store.task(taskId);
@@ -143,7 +159,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
     }
   }
 
-  const placement = createPlacement({ store, ports, settings, projectList, addTask, start: (taskId, route) => start(taskId, route) });
+  const placement = createPlacement({ store, ports, settings, projectList, addTask, imagesOf, start: (taskId, route) => start(taskId, route) });
 
   let importing = null;
 
@@ -209,9 +225,10 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       return store.read().settings;
     },
     async send(prompt, options = {}) {
-      if (typeof prompt !== "string" || !prompt.trim()) throw new Error("Type what you need first.");
+      const images = checkedImages(options?.images);
+      if (typeof prompt !== "string" || (!prompt.trim() && !images.length)) throw new Error("Type what you need first.");
       if (!settings().enabled) throw new Error("Turn the Orchestrator on in Settings › Church first.");
-      const taskId = addTask(prompt.trim(), options?.permissionMode);
+      const taskId = addTask(prompt.trim() || IMAGES_ONLY_PROMPT, options?.permissionMode, images);
       void routeAndStart(taskId);
       return store.task(taskId);
     },
@@ -236,6 +253,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       if (task.remoteTaskId) await ports.remote.invoke(task.remoteComputerId, "orchestrator:task:undo", [task.remoteTaskId]).catch(() => {});
       else await dropChat(task);
       store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
+      ports.images.drop(taskId);
       return null;
     },
     async reroute(taskId, change = {}) {
@@ -257,6 +275,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
     },
     dismiss(taskId) {
       store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
+      ports.images.drop(taskId);
       return null;
     },
     importMemory() {

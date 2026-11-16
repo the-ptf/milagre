@@ -171,6 +171,7 @@ function useDemoTask(t: number): OrchestratorTask {
       createdAt: 0,
       permissionMode: "auto",
       answered: [],
+      images: 0,
     }),
     [routing, project],
   );
