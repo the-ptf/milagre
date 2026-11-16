@@ -1,3 +1,4 @@
+import { lockAllToBeat } from "./beat";
 import { useState, useSyncExternalStore } from "react";
 import { createDisplayClock } from "@milagre/shared/display-clock";
 
@@ -36,7 +37,11 @@ export function useDisplayValue<T extends string | number>(intervalMs: number, c
 
 /** Each renderer owns its visibility, including floating inbox windows. No focus check: visible unfocused UI stays live. */
 export function followDisplayVisibility() {
-  const update = () => document.documentElement.toggleAttribute("data-display-hidden", document.visibilityState !== "visible");
+  const update = () => {
+    const hidden = document.visibilityState !== "visible";
+    document.documentElement.toggleAttribute("data-display-hidden", hidden);
+    if (!hidden) lockAllToBeat();
+  };
   update();
   document.addEventListener("visibilitychange", update);
   return () => document.removeEventListener("visibilitychange", update);
