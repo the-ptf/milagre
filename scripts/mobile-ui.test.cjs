@@ -20,6 +20,16 @@ function hookHost({ effects = false } = {}) {
   const slots = [];
   const queuedEffects = [];
   let cursor = 0;
+  // Off by default; when on, an effect runs during the render whose deps changed, after its previous cleanup.
+  const runEffect = (fn, deps) => {
+    if (!effects) return;
+    const index = cursor++;
+    const previous = slots[index];
+    // No dependency list runs every render, as in React.
+    if (previous && deps && deps.every((value, i) => value === previous.deps[i])) return;
+    previous?.cleanup?.();
+    slots[index] = { deps, cleanup: fn() };
+  };
   return {
     begin() {
       cursor = 0;
@@ -57,16 +67,8 @@ function hookHost({ effects = false } = {}) {
       if (!previous || deps.some((value, i) => value !== previous.deps[i])) slots[index] = { value: fn(), deps };
       return slots[index].value;
     },
-    // Off by default; when on, an effect runs during the render whose deps changed, after its previous cleanup.
-    useEffect(fn, deps) {
-      if (!effects) return;
-      const index = cursor++;
-      const previous = slots[index];
-      // No dependency list runs every render, as in React.
-      if (previous && deps && deps.every((value, i) => value === previous.deps[i])) return;
-      previous?.cleanup?.();
-      slots[index] = { deps, cleanup: fn() };
-    },
+    useEffect: runEffect,
+    useLayoutEffect: runEffect,
     // Like React, a context read with no Provider above gives the context's default value.
     createContext(defaultValue) {
       return { defaultValue };
@@ -396,7 +398,11 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
       // The Chat screen's parts (app/chat.tsx and its chat-*.ts[x] siblings in src/) load with the screen's fakes, named from src/.
-      if (file === "app/chat.tsx" && ["chat-header", "chat-transcript-rows", "chat-transcript-data", "chat-follow"].includes(relative) && !(id in modules)) {
+      if (
+        file === "app/chat.tsx" &&
+        ["chat-header", "chat-transcript-rows", "chat-transcript-data", "chat-follow", "chat-composer-dock", "new-chat-tray"].includes(relative) &&
+        !(id in modules)
+      ) {
         const fromSrc = { ...modules };
         for (const [key, value] of Object.entries(modules))
           if (key.startsWith("../") && !(`./${key.slice(3)}` in fromSrc)) fromSrc[`./${key.slice(3)}`] = value;
@@ -3000,7 +3006,30 @@ function sessionHost(
   };
   const react = hookHost({ effects });
   test.after(react.unmount);
-  const { useSessionState, PendingChatsProvider, ComposerProvider } = load(
+  const hostsNative = {
+    savedHosts: {
+      save: async (host) => {
+        saved.push(host);
+      },
+      list: async () => [],
+    },
+    savedNavigation: navigationStore ?? { read: async () => null, save: async () => {}, forgetProject: async () => {} },
+    savedProjectOrder: savedProjectOrder ?? { apply: async (_host, projects) => projects, save: async () => {} },
+    savedHiddenProjects: savedHiddenProjects ?? { hidden: () => new Set(), apply: async (_host, projects) => projects, setHidden: async () => {} },
+    readPermission: async () => permission,
+    savedChatDefaults:
+      chatDefaults ?? require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
+    savePermission: async () => {},
+  };
+  const composer = load("composer.tsx", {
+    react,
+    "react/jsx-runtime": { jsx },
+    "./hosts-native": hostsNative,
+    "./link-operations": require("../apps/mobile/src/link-operations.ts"),
+    "./turn-options": require("../apps/mobile/src/turn-options.ts"),
+  });
+  const { ComposerProvider } = composer;
+  const { useSessionState, PendingChatsProvider } = load(
     "session.tsx",
     {
       react,
@@ -3019,33 +3048,18 @@ function sessionHost(
       "./relay-native": { relayRuntime },
       "./routes-native": routesNative({ learned }),
       "./live": require("../apps/mobile/src/live.ts"),
-      "./hosts-native": {
-        savedHosts: {
-          save: async (host) => {
-            saved.push(host);
-          },
-          list: async () => [],
-        },
-        savedNavigation: navigationStore ?? { read: async () => null, save: async () => {}, forgetProject: async () => {} },
-        savedProjectOrder: savedProjectOrder ?? { apply: async (_host, projects) => projects, save: async () => {} },
-        savedHiddenProjects: savedHiddenProjects ?? { hidden: () => new Set(), apply: async (_host, projects) => projects, setHidden: async () => {} },
-        readPermission: async () => permission,
-        savedChatDefaults:
-          chatDefaults ?? require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
-        savePermission: async () => {},
-      },
-      "./turn-options": require("../apps/mobile/src/turn-options.ts"),
+      "./hosts-native": hostsNative,
+      "./composer": composer,
       "@milagre/shared/chats": require("@milagre/shared/chats"),
       "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
       "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
       "@milagre/shared/model": {},
-      "./link-operations": require("../apps/mobile/src/link-operations.ts"),
       "./chat-pages": { prefetchChatPage: () => {}, noteChatProjectOpening: () => {} },
       "./pr-status": { pullRequestsChanged: () => {} },
       "./use-links": { refreshLinks },
       "./use-designs": { useDesigns: () => designsOn },
     },
-    "\nexport { useSessionState, PendingChatsProvider, ComposerProvider };",
+    "\nexport { useSessionState, PendingChatsProvider };",
   );
   return Object.assign(
     () => {
@@ -3545,6 +3559,31 @@ function familyPullDown(title) {
   const menu = find(title, (node) => node.type?.name === "FamilyTitleMenu");
   return menu && menu.type(menu.props);
 }
+// The Chat's composer dock and New Chat tray (chat-composer-dock.tsx, new-chat-tray.tsx) draw in place, as React would, so a
+// test reaches the field, its controls and the tray's menus in the pane's tree.
+const CHAT_PARTS = new Set([
+  "ChatComposerDock",
+  "DockChips",
+  "DraftComposer",
+  "AttachmentStrip",
+  "ComposerControls",
+  "NewChatTray",
+  "ChatsTrayLabel",
+  "LinearIssueButton",
+]);
+function drawChatParts(node) {
+  if (Array.isArray(node)) return node.map(drawChatParts);
+  if (!node || typeof node !== "object" || !node.props) return node;
+  const props = { ...node.props };
+  if (typeof props.renderControls === "function") {
+    const renderControls = props.renderControls;
+    props.renderControls = (mic) => drawChatParts(renderControls(mic));
+  }
+  if (typeof node.type === "function" && CHAT_PARTS.has(node.type.name))
+    return { ...node, props: { ...props, children: drawChatParts(node.type(node.props)) } };
+  if ("children" in props) props.children = drawChatParts(props.children);
+  return { ...node, props };
+}
 function findAll(node, predicate, found = []) {
   if (!node || typeof node !== "object") return found;
   if (predicate(node)) found.push(node);
@@ -3657,6 +3696,7 @@ function chatHost({
     setDrafts(fn) {
       this.drafts = fn(this.drafts);
     },
+    readDrafts: () => session,
     refresh: async () => {
       session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex" };
     },
@@ -3835,6 +3875,7 @@ function chatHost({
       useSession: () => session,
       useMainSession: () => session,
       useComposer: () => session,
+      useComposerDrafts: () => session,
       usePendingChats: () => session,
       // The Chat's streaming turn, read live from the test's snapshot as the session's runs store would hand it out.
       useRun: (key) => (key ? session.snapshot?.runs?.runs[key] : undefined),
@@ -3907,7 +3948,7 @@ function chatHost({
     // The screen holds the routed Chat's pane, and on a wide iPad a second one beside it, which a phone never shows.
     const screen = ChatScreen();
     const pane = find(screen, (node) => typeof node.type === "function" && node.props.pane);
-    const tree = pane.type(asPane ? { ...pane.props, pane: asPane, onClose: () => (router.closed = (router.closed ?? 0) + 1) } : pane.props);
+    const tree = drawChatParts(pane.type(asPane ? { ...pane.props, pane: asPane, onClose: () => (router.closed = (router.closed ?? 0) + 1) } : pane.props));
     react.flush();
     return tree;
   };

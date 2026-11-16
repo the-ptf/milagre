@@ -23,20 +23,19 @@ import { RunShapeReader, type RunShape } from "./run-shape";
 import { visibleRunChats, watchVisibleRunChats } from "./visible-run-chats";
 import { refreshLinks } from "./use-links";
 import { useDesigns } from "./use-designs";
-import { readPermission, savedChatDefaults, savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
+import { savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder } from "./hosts-native";
 import type { ChatLocation } from "./navigation-store";
 import type { SavedHost } from "./hosts-store";
-import type { AgentCliStatus, AgentModels, ModelProvider, NamedLinkDeleted, PermissionMode } from "@milagre/shared/model";
+import type { AgentCliStatus, AgentModels, ModelProvider, NamedLinkDeleted } from "@milagre/shared/model";
 import { isLinkScopeKey, scopeKey as keyOfScope } from "@milagre/shared/chat-scopes";
 import { isDeletedLinkState, isLinkGone } from "@milagre/shared/worktree-link";
-import type { Attachment } from "./attachments";
-import type { ComposerQuote } from "@milagre/shared/prompt-parts";
-import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
-import { createLinkOperations } from "./link-operations";
 import { noteChatProjectOpening, prefetchChatPage } from "./chat-pages";
 import { pullRequestsChanged } from "./pr-status";
+import { ComposerProvider } from "./composer";
+
+export { useComposer, useComposerDrafts } from "./composer";
 
 const hostOf = (url: string) =>
   // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- url comes from a pairing payload that is not validated here (see the String(url || '') fallback), so it may be empty or missing
@@ -781,77 +780,6 @@ function useSessionState() {
     disconnect,
   };
 }
-/**
- * Drafts, attachments and turn settings change on every keystroke, so they live in their own context: typing re-renders
- * only the composer's screens, not every screen that reads the connection and snapshot.
- */
-function ComposerProvider({ children }: { children: React.ReactNode }) {
-  const [linkOperations] = useState(createLinkOperations);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [attachments, setAttachments] = useState<Record<string, Attachment[]>>({});
-  // Passages quoted from the transcript, kept beside each Chat's draft until it is sent.
-  const [quotes, setQuotes] = useState<Record<string, ComposerQuote[]>>({});
-  const [preferences, setPreferences] = useState<Record<string, TurnPreferences>>({});
-  // Compact now, pressed on the context sheet: the chat screen sends `/compact` when its counter moves (see chat.tsx).
-  const [compactRequests, setCompactRequests] = useState<Record<string, number>>({});
-  const requestCompact = useCallback((chatId: string) => setCompactRequests((current) => ({ ...current, [chatId]: (current[chatId] ?? 0) + 1 })), []);
-  // Like desktop's default permission mode: the last one picked starts every Chat, and survives a relaunch.
-  const [permission, setPermission] = useState<PermissionMode>("ask");
-  useEffect(() => {
-    void readPermission().then((saved) => {
-      if (saved) setPermission(saved);
-    });
-  }, []);
-  const [modelDefaults, setModelDefaults] = useState(() => savedChatDefaults.readModel());
-  const defaults = useMemo(() => ({ ...defaultPreferences, ...modelDefaults, permissionMode: permission }), [modelDefaults, permission]);
-  const setDefaultModel = useCallback((choice: TurnPreferences) => {
-    const { provider, model, effort, fastMode, ultracode } = choice;
-    setModelDefaults({ provider, model, effort, fastMode, ultracode });
-    void savedChatDefaults.saveModel(choice);
-  }, []);
-  const setDefaultPermission = useCallback((mode: PermissionMode) => {
-    setPermission(mode);
-    void savePermission(mode);
-  }, []);
-  const value = useMemo(
-    () => ({
-      drafts,
-      setDrafts,
-      attachments,
-      setAttachments,
-      quotes,
-      setQuotes,
-      preferences,
-      setPreferences,
-      defaults,
-      setDefaultPermission,
-      setDefaultModel,
-      linkOperations,
-      compactRequests,
-      requestCompact,
-    }),
-    [drafts, attachments, quotes, preferences, defaults, setDefaultPermission, setDefaultModel, linkOperations, compactRequests, requestCompact],
-  );
-  return <ComposerContext.Provider value={value}>{children}</ComposerContext.Provider>;
-}
-type Composer = {
-  linkOperations: ReturnType<typeof createLinkOperations>;
-  defaults: TurnPreferences;
-  setDefaultModel: (choice: TurnPreferences) => void;
-  setDefaultPermission: (mode: PermissionMode) => void;
-  drafts: Record<string, string>;
-  setDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  attachments: Record<string, Attachment[]>;
-  setAttachments: React.Dispatch<React.SetStateAction<Record<string, Attachment[]>>>;
-  quotes: Record<string, ComposerQuote[]>;
-  setQuotes: React.Dispatch<React.SetStateAction<Record<string, ComposerQuote[]>>>;
-  preferences: Record<string, TurnPreferences>;
-  setPreferences: React.Dispatch<React.SetStateAction<Record<string, TurnPreferences>>>;
-  /** How many times Compact now was pressed per chat key; the chat screen acts on each change. */
-  compactRequests: Record<string, number>;
-  requestCompact: (chatId: string) => void;
-};
-const ComposerContext = createContext<Composer | null>(null);
 export type MobilePendingChat = {
   preview: PendingChat;
   hostId: string;
@@ -910,11 +838,6 @@ export function usePendingChats() {
   const pending = useContext(PendingChatsContext);
   if (!pending) throw new Error("SessionProvider is required");
   return pending;
-}
-export function useComposer() {
-  const composer = useContext(ComposerContext);
-  if (!composer) throw new Error("SessionProvider is required");
-  return composer;
 }
 export type Session = ReturnType<typeof useSessionState>;
 const SessionContext = createContext<Session | null>(null);

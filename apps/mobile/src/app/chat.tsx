@@ -1,42 +1,31 @@
 import { UI_COPY } from "@milagre/shared/model-copy";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { BranchPolicySettings } from "@milagre/shared/branch-policy";
-import { chrome, lineHeight, radius, space, type } from "../design-tokens";
+import { chrome, lineHeight, space, type } from "../design-tokens";
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { compactionContext } from "@milagre/shared/compaction";
 import { CleanIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
-import { ComposerTray, OfflineTray } from "../offline-tray";
-import { ComposerGlass } from "../composer-glass";
 import { LINK_CHAT_WORKTREES_TEXT, linkDeletedElsewhereText } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { UltracodeGlow } from "../ultracode-glow";
+import { Keyboard, Linking, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Attachment01Icon,
   ArrowDown01Icon,
-  ArrowUp01Icon,
-  BubbleChatIcon,
   Globe02Icon,
   GitPullRequestIcon,
   Cancel01Icon,
-  File01Icon,
   GitBranchIcon,
-  GitForkIcon,
-  ComputerIcon,
   LaptopIcon,
   Link04Icon,
   MoreHorizontalIcon,
-  StopIcon,
-  Video01Icon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
@@ -57,14 +46,15 @@ import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-i
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ChatLinkProvider } from "../chat-link-context";
 import { composerQuote, quotedMessage, quoteSource, type ComposerQuote } from "@milagre/shared/prompt-parts";
-import { QuoteChips } from "../quote-chips";
 import type { QuoteFrom } from "../message-actions";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRunShape, useSession } from "../session";
+import { ChatComposerDock } from "../chat-composer-dock";
+import { ChatsTrayLabel, LinearIssueButton, NewChatTray } from "../new-chat-tray";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
-import { chatMentionChoices, shiftImageMentions, type MentionComputer } from "@milagre/shared/prompt-mentions";
+import { chatMentionChoices, type MentionComputer } from "@milagre/shared/prompt-mentions";
 import {
   addMention,
   appendAttachments,
@@ -74,18 +64,17 @@ import {
   prepareAnswerImages,
   prepareAttachments,
 } from "../attachments";
-import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "../status-indicators";
+import { BackgroundRing, HeaderPullRequestChip } from "../status-indicators";
 import { openPrPage, openPullRequest } from "../pr-nav";
 import { NewChatGlance } from "../new-chat-glance";
 import { onPullRequestRequest, prChoiceKey, registerPrChat, type PrChoice } from "../pr-chat";
 import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
-import { SimulatorChip } from "../simulator";
 import { useBrowserShortcut } from "../browser";
 import { useInternalBrowser } from "../browser-setting";
 import { openBrowserLink } from "../browser-link";
-import { PortsChip, useChatPorts } from "../ports";
-import { TerminalChip, TerminalDock, terminalPlaces } from "../terminal";
+import { useChatPorts } from "../ports";
+import { TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { ChatReply, type ReplyChat } from "../chat-reply";
 import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
@@ -103,7 +92,7 @@ import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
-import { UndoPanel, type UndoIntent } from "../undo-panel";
+import { type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
@@ -126,10 +115,8 @@ import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-lin
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
-import { ActivityQuestions, answersWithImages } from "../questions";
-import { QueuedMessages } from "../queued-messages";
+import { answersWithImages } from "../questions";
 import { followUpDelivery } from "@milagre/shared/queued-messages";
-import { AgentControls } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
@@ -138,15 +125,12 @@ import { READING_WIDTH } from "../split-width";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
-import { PersistenceNotice } from "../persistence-notice";
 import { HeaderAction, HeaderActionGroup } from "../primitives/header-action-group";
-import { DISABLED_OPACITY, ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, pressStyle, useStyles } from "../ui";
+import { ErrorNotice, GlassIconButton, PillButton, PullDown, pressStyle, useStyles } from "../ui";
 import { clearSentDraft } from "../draft-clear";
-import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
-import { ContextRing } from "../context-ring";
-import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
-import { SubchatAsk, SubchatPanel, SubchatPill, useSubchatPanel } from "../subchat-pill";
+import { PlanPanel, usePlanPanel } from "../plan-pill";
+import { SubchatPanel, useSubchatPanel } from "../subchat-pill";
 import { useTheme } from "../theme";
 import { ToastPill } from "../primitives/toast";
 import { undoHistory, useHistoryToast } from "../undo-history";
@@ -162,22 +146,13 @@ import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, chatsHomePath, useComputerViews, useNewChatProjects, useNoProjectChoice } from "../all-computers";
-import {
-  CHATS_PLACEHOLDER,
-  CHATS_TRAY_LABEL,
-  isChatsHomeProject,
-  JUST_CHAT_HEADING,
-  NO_PROJECT_FOLDER,
-  NO_PROJECT_LABEL,
-  NO_PROJECT_LINE,
-} from "@milagre/shared/chats-home";
+import { CHATS_PLACEHOLDER, isChatsHomeProject, JUST_CHAT_HEADING, NO_PROJECT_FOLDER, NO_PROJECT_LABEL, NO_PROJECT_LINE } from "@milagre/shared/chats-home";
 import { newChatLinks as linksOf, newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { chatBookmark, chatFamily } from "@milagre/shared/subchats";
 import { subchatNotes, isSilentNote } from "../subchat-notes";
-import { SubchatWaitingNote } from "../subchat-note";
 import { SubchatBookmarkHost } from "../subchat-bookmark";
 import { BESIDE_PARENT } from "../subchat-family";
 import { BesideSession, touchPane } from "../beside-session";
@@ -928,10 +903,10 @@ function ChatPane({
   const offline = !!session.error || allComputers.viewOf?.(client.url)?.state === "offline";
   const chat = params.id ? project.state.sessions[Number(params.id)] : null;
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
-  const draft = composer.drafts[chatId] || "";
-  const quotes = composer.quotes[chatId] || NO_QUOTES;
-  const outgoing = quotedMessage(quotes, draft);
-  const attachments = composer.attachments[chatId] || [];
+  const heldDraft = () => {
+    const held = composer.readDrafts();
+    return { draft: held.drafts[chatId] || "", quotes: held.quotes[chatId] || NO_QUOTES, attachments: held.attachments[chatId] || [] };
+  };
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
   const phase =
@@ -1000,25 +975,6 @@ function ChatPane({
   const newWorktree = !project.link && !params.id && isolation === "worktree";
   const startTray = !params.id && !project.link;
   const targetDisabled = busy || picking;
-  const issueButton = (labelled: boolean) => (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Start from a Linear issue"
-      disabled={targetDisabled}
-      onPress={() => void chooseIssue()}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        paddingHorizontal: space.md,
-        paddingVertical: 6,
-        ...pressStyle({ pressed, disabled: targetDisabled }),
-      })}
-    >
-      <LinearLogo size={13} />
-      {labelled && <Text style={styles.label}>Linear issue</Text>}
-    </Pressable>
-  );
   const branchDisabled = targetDisabled || (newWorktree && !branches?.items.length);
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
@@ -1229,6 +1185,7 @@ function ChatPane({
     pickingNow.current = true;
     setPicking(true);
     setError("");
+    const { attachments } = heldDraft();
     try {
       const added = await pickAttachments(kind);
       if (currentScrollKey.current !== scrollKey) return;
@@ -1249,7 +1206,7 @@ function ChatPane({
   function mentionFile(path: string) {
     const root = worktree?.path;
     if (!root) return;
-    const { error: refused } = addMention(attachments, root, path);
+    const { error: refused } = addMention(heldDraft().attachments, root, path);
     if (refused) setError(refused);
     else {
       composer.setAttachments((current) => ({ ...current, [chatId]: addMention(current[chatId] || [], root, path).next }));
@@ -1265,6 +1222,7 @@ function ChatPane({
     pickingNow.current = true;
     setPicking(true);
     setError("");
+    const { attachments } = heldDraft();
     try {
       const added = await preparePastedImage(image);
       if (currentScrollKey.current !== scrollKey) return;
@@ -1296,7 +1254,7 @@ function ChatPane({
         designSending.current = null;
       });
   };
-  startIssue.current = (issue) => void send(issueFirstMessage(issue, draft), true, undefined, issue);
+  startIssue.current = (issue) => void send(issueFirstMessage(issue, heldDraft().draft), true, undefined, issue);
   async function chooseIssue() {
     await pickLinearIssue("Start from a Linear issue", (issue) => startIssue.current(issue));
   }
@@ -1340,7 +1298,10 @@ function ChatPane({
       },
     });
   }
-  async function send(body = outgoing, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+  async function send(typedBody?: string, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+    const { draft, quotes, attachments } = heldDraft();
+    const outgoing = quotedMessage(quotes, draft);
+    const body = typedBody ?? outgoing;
     const messageDelivery = run && !prAction && !issue ? delivery : undefined;
     const own = body === outgoing;
     const typed = own ? draft : body;
@@ -1920,21 +1881,208 @@ function ChatPane({
       onActivity={openActivity}
     />
   ) : null;
-  const sendDisabled =
-    busy ||
-    picking ||
-    (newWorktree && !base) ||
-    (!draft.trim() && !quotes.length && !attachments.length) ||
-    !!chat?.archived ||
-    !!chat?.formerWorktree ||
-    !!chat?.readOnlyReason ||
-    (!offline && unavailable);
+  const sendBlocked =
+    busy || picking || (newWorktree && !base) || !!chat?.archived || !!chat?.formerWorktree || !!chat?.readOnlyReason || (!offline && unavailable);
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
   if (terminalShown && terminalMounted !== chatId) setTerminalMounted(chatId);
   const dockPadding = terminalShown ? 12 : Math.max(insets.bottom, 12);
   const terminalTyping = terminalShown && !composerFocused;
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
+  const tray =
+    startTray && chatsHomeOpen ? (
+      <ChatsTrayLabel />
+    ) : startTray ? (
+      <NewChatTray
+        computerName={computerName}
+        computers={computerCopies}
+        isOpenCopy={isOpenCopy}
+        disabled={targetDisabled}
+        onComputer={(hostId, path) => {
+          if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, hostId);
+          void switchProject(hostId, path);
+        }}
+        isolation={isolation}
+        onIsolation={(next) => chooseTarget({ isolation: next })}
+        newWorktree={newWorktree}
+        branchName={branchName}
+        branchDisabled={branchDisabled}
+        branches={branches?.items || []}
+        base={base}
+        worktrees={Object.values(project.state.worktrees)}
+        worktreeId={worktreeId}
+        onBranch={(id) => {
+          if (newWorktree) chooseTarget({ baseBranch: id });
+          else navigation.setParams({ worktreeId: id });
+        }}
+        linear={linearActive}
+        onIssue={() => void chooseIssue()}
+        labelIssue={trayRowWidth >= COMPACT_TRAY_ROW_WIDTH}
+        onRowWidth={setTrayRowWidth}
+      />
+    ) : !params.id && project.link && linearActive ? (
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <LinearIssueButton labelled disabled={targetDisabled} onPress={() => void chooseIssue()} />
+      </View>
+    ) : null;
+  const dock = (
+    <ChatComposerDock
+      column={column}
+      padding={dockPadding}
+      onRoom={attachPanelRooms}
+      onHeight={setDockHeight}
+      client={client}
+      project={project}
+      chat={chat}
+      chatId={chatId}
+      chatsHomeOpen={chatsHomeOpen}
+      disconnected={!!session.error}
+      subchatPanel={subchatPanel}
+      messages={messages}
+      onOpenChat={onOpenFamilyChat}
+      question={question}
+      answering={answering}
+      chips={{
+        savedId: params.id,
+        actionPr: prAction && prActionRequest ? prAction.pr : undefined,
+        actionDisabled: busy || !!run,
+        onAction: () => prActionRequest && void send(pullRequestActionBody(prActionRequest), false, prActionRequest),
+        pr,
+        mergeable: !prAction && pr?.state === "OPEN" && !!pr.readyToMerge,
+        openThreads: prOpenThreads,
+        onOpenPr: (page) => pr && openPr(pr.number, page),
+        terminalDocks,
+        terminalShown,
+        terminalCount,
+        onTerminal: () => setTerminalFor((current) => (current === chatId ? null : chatId)),
+        ports,
+        planPanel,
+        agents,
+        onAgents: () => headerAction("agents"),
+      }}
+      running={Boolean(run)}
+      canSteer={canSteer}
+      actionBusy={actionBusy}
+      onQueueSend={(id) => void action(() => client.call("chat:queue-send", [chatId, id]), true)}
+      onQueueRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
+      waiting={notes.waiting}
+      approvals={run?.approvals.map(renderToolApproval)}
+      sessionId={Number(params.id)}
+      dictationChat={
+        worktree?.path || !project.link
+          ? { client, cwd: worktree?.path || project.path, chatTitle: title, provider: chat?.provider ?? actualProvider, chatId: chat?.id }
+          : undefined
+      }
+      onAnswer={(answers, summary, images) => {
+        if (!question) return;
+        const answered = answeredQuestions(question, answers && answersWithImages(answers, images));
+        const photos = Object.values(images ?? {}).flatMap((list) => list.flatMap((item) => (item.image ? [item.image] : [])));
+        setSentAnswers({
+          requestId: question.requestId,
+          message: answered && {
+            id: -1,
+            session_id: Number(params.id),
+            body: summary,
+            context: null,
+            role: "user",
+            answered,
+            ...(photos.length ? { images: photos } : {}),
+          },
+          count: messages.length,
+        });
+        void action(async () => {
+          const uploaded = await prepareAnswerImages(client, projectOfKey(chatId), images);
+          const accepted = await client.call("agent:answer-question", [
+            { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}) },
+          ]);
+          if (!accepted) throw new Error("This question is no longer pending. Refresh the Chat.");
+        }, true).then((ok) => {
+          if (!ok) setSentAnswers((current) => (current?.requestId === question.requestId ? null : current));
+        });
+      }}
+      undo={undo}
+      undoIntent={undoIntent}
+      onOpenUndoFile={
+        project.link || !worktree
+          ? undefined
+          : (file) => router.push({ pathname: "/diff", params: { worktreeId: String(worktreeId), path: file.path, mode: "uncommitted" } })
+      }
+      start={startTray}
+      trayTarget={trayTarget}
+      tray={tray}
+      composer={{
+        fieldKey: params.id ? chatId : "new",
+        ultracodeOn,
+        picking,
+        busy,
+        sendBlocked,
+        running: Boolean(run),
+        offline,
+        actionBusy,
+        sendLabel: busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message",
+        chats: mentionChats,
+        computers: mentionComputers,
+        currentId: chat?.id,
+        client,
+        projectPath: worktree?.path || (project.link ? "" : project.path),
+        skillScope: project.link ? worktree?.path || project.path : undefined,
+        suggestion:
+          !run && !busy && !picking && activity?.activity === "idle" && chat?.provider === "claude" && actualProvider === "claude"
+            ? chat.suggestion?.text
+            : undefined,
+        chatTitle: title,
+        provider: chat?.provider ?? actualProvider,
+        onImagePaste: (image) => void pasteImage(image),
+        known: knownFiles.current,
+        onMention: worktree?.path ? mentionFile : undefined,
+        commands: chat && !chat.readOnlyReason ? CHAT_COMMANDS : STORAGE_COMMANDS,
+        placeholder: offline
+          ? `Queue a message for ${computerName || "this computer"}`
+          : run
+            ? queuesFollowUp
+              ? "Queue a message for the next turn"
+              : "Steer the agent"
+            : chatsHomeOpen && !params.id
+              ? CHATS_PLACEHOLDER
+              : undefined,
+        focusRequest: composerFocusRequest,
+        onSend: () => void send(),
+        onStop: () => void action(() => client.call("agent:interrupt", [chatId]), true),
+        onFocus: () => {
+          setComposerFocused(true);
+          onTyping();
+        },
+        onBlur: () => setComposerFocused(false),
+        onTouchStart: onTyping,
+      }}
+      controls={{
+        attachDisabled: attachmentDisabled,
+        onPick: (kind) => void pick(kind),
+        compactButton,
+        model,
+        preferences,
+        onModel: () =>
+          router.push({
+            pathname: "/model-sheet",
+            params: {
+              chatId,
+              model: model.id,
+              provider: actualProvider,
+              ...(chat?.provider ? { on: chat.provider } : {}),
+              ...(run ? { busy: "1" } : {}),
+            },
+          }),
+        quietContext,
+        compactionFeedback,
+        contextUsage,
+        showContextSize,
+        compactWarning: compactState.warning,
+        canCompact: supportsCompact,
+        threshold: contextSettings.buttonThreshold,
+        onContext: params.id ? () => router.push({ pathname: "/context-sheet", params: { id: params.id } }) : undefined,
+      }}
+    />
+  );
   return (
     <GenerativeUIProvider send={genuiSend}>
       <ChatLinkProvider reachable={reachable} openLink={openChatLink} ask={askAboutPassage} steps={history.steps} liveSteps={liveSteps}>
@@ -2310,584 +2458,7 @@ function ChatPane({
                   offset={{ closed: 0, opened: lift }}
                   style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
                 >
-                  <View
-                    ref={attachPanelRooms}
-                    collapsable={false}
-                    onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
-                    style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
-                  >
-                    <PersistenceNotice
-                      key={`${client.url}|${project.path}`}
-                      client={client}
-                      scope={project.path}
-                      name={chatsHomeOpen ? NO_PROJECT_LABEL : project.name}
-                      failure={project.state.persistence}
-                      offline={!!session.error}
-                    />
-                    {chat && !chatsHomeOpen && (!question || answering) && (
-                      <SubchatAsk panel={subchatPanel} messages={messages} onOpenChat={onOpenFamilyChat} />
-                    )}
-                    {(!question || answering) && (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        keyboardShouldPersistTaps="handled"
-                        style={{ marginHorizontal: -12, flexGrow: 0 }}
-                        contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
-                      >
-                        {chat && !chatsHomeOpen && <SubchatPill panel={subchatPanel} messages={messages} />}
-                        {prAction && prActionRequest && chat && !chatsHomeOpen && (
-                          <PullRequestAction
-                            pr={prAction.pr}
-                            disabled={busy || !!run}
-                            onRun={() => void send(pullRequestActionBody(prActionRequest), false, prActionRequest)}
-                          />
-                        )}
-                        {!prAction && chat && !chatsHomeOpen && pr?.state === "OPEN" && pr.readyToMerge && (
-                          <PullRequestMerge pr={pr} onOpen={() => openPr(pr.number)} />
-                        )}
-                        {chat && !chatsHomeOpen && pr && prOpenThreads > 0 && (
-                          <PullRequestReview count={prOpenThreads} onOpen={() => openPr(pr.number, "threads")} />
-                        )}
-                        <View style={{ flex: 1 }} />
-                        {params.id && Number(params.id) > 0 && chat && !chat.archived && (
-                          <TerminalChip
-                            key={`terminal-${chatId}`}
-                            chatId={chatId}
-                            places={terminalPlaces(chat)}
-                            onOpen={terminalDocks ? () => setTerminalFor((current) => (current === chatId ? null : chatId)) : undefined}
-                            docked={terminalDocks ? terminalShown : undefined}
-                            liveCount={terminalCount}
-                          />
-                        )}
-                        {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
-                        <PlanPill panel={planPanel} />
-                        {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
-                        {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
-                      </ScrollView>
-                    )}
-                    {chat?.queued?.length ? (
-                      <QueuedMessages
-                        items={chat.queued.filter((item) => !compactionContext(item) || chat.queueHeld)}
-                        held={Boolean(chat.queueHeld)}
-                        running={Boolean(run)}
-                        canSteer={canSteer}
-                        disabled={actionBusy}
-                        onSendNow={(id) => void action(() => client.call("chat:queue-send", [chatId, id]), true)}
-                        onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
-                      />
-                    ) : null}
-                    {notes.waiting && <SubchatWaitingNote note={notes.waiting} />}
-                    {run?.approvals.map(renderToolApproval)}
-                    {question && (
-                      <View style={answering ? { display: "none" } : undefined}>
-                        <ActivityQuestions
-                          hostId={client.url}
-                          projectPath={project.path}
-                          sessionId={Number(params.id)}
-                          key={question.requestId}
-                          request={question}
-                          busy={actionBusy || answering}
-                          dictationChat={
-                            worktree?.path || !project.link
-                              ? { client, cwd: worktree?.path || project.path, chatTitle: title, provider: chat?.provider ?? actualProvider, chatId: chat?.id }
-                              : undefined
-                          }
-                          submit={(answers, summary, images) => {
-                            const answered = answeredQuestions(question, answers && answersWithImages(answers, images));
-                            const photos = Object.values(images ?? {}).flatMap((list) => list.flatMap((item) => (item.image ? [item.image] : [])));
-                            setSentAnswers({
-                              requestId: question.requestId,
-                              message: answered && {
-                                id: -1,
-                                session_id: Number(params.id),
-                                body: summary,
-                                context: null,
-                                role: "user",
-                                answered,
-                                ...(photos.length ? { images: photos } : {}),
-                              },
-                              count: messages.length,
-                            });
-                            void action(async () => {
-                              const uploaded = await prepareAnswerImages(client, projectOfKey(chatId), images);
-                              const accepted = await client.call("agent:answer-question", [
-                                { chatId, requestId: question.requestId, answers, summary, ...(uploaded ? { images: uploaded } : {}) },
-                              ]);
-                              if (!accepted) throw new Error("This question is no longer pending. Refresh the Chat.");
-                            }, true).then((ok) => {
-                              if (!ok) setSentAnswers((current) => (current?.requestId === question.requestId ? null : current));
-                            });
-                          }}
-                        />
-                      </View>
-                    )}
-                    {undo.view !== "closed" && chat ? (
-                      <UndoPanel
-                        readOnly={!!chat.readOnlyReason}
-                        review={undo}
-                        intent={undoIntent}
-                        onOpenFile={
-                          project.link || !worktree
-                            ? undefined
-                            : (file) => router.push({ pathname: "/diff", params: { worktreeId: String(worktreeId), path: file.path, mode: "uncommitted" } })
-                        }
-                      />
-                    ) : (
-                      (!question || answering) && (
-                        <ComposerTray start={startTray} target={trayTarget}>
-                          {startTray && chatsHomeOpen ? (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: space.md, paddingVertical: 6 }}>
-                              <Icon icon={BubbleChatIcon} tone="ink2" size={12} />
-                              <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
-                            </View>
-                          ) : (
-                            startTray && (
-                              <View
-                                style={{ flexDirection: "row", alignItems: "center" }}
-                                onLayout={(event) => setTrayRowWidth(event.nativeEvent.layout.width)}
-                              >
-                                {
-                                  <PullDown
-                                    label="Choose computer"
-                                    style={{ flexShrink: 1 }}
-                                    nativeTrigger={{
-                                      title: computerName,
-                                      systemImage: "desktopcomputer",
-                                      icon: "computer",
-                                      disabled: targetDisabled,
-                                      maxWidth: 140,
-                                    }}
-                                    sections={[
-                                      {
-                                        title: "Run on",
-                                        items: computerCopies.map((item) => ({
-                                          id: `${item.hostId}\n${item.path}`,
-                                          title: item.hostName,
-                                          subtitle: item.offline ? "Offline" : item.path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"),
-                                          systemImage: "desktopcomputer",
-                                          icon: "computer",
-                                          checked: isOpenCopy(item),
-                                          disabled: targetDisabled || item.offline,
-                                        })),
-                                      },
-                                    ]}
-                                    onSelect={(id) => {
-                                      const [hostId = "", ...rest] = id.split("\n");
-                                      if (targetDisabled) return;
-                                      if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, hostId);
-                                      void switchProject(hostId, rest.join("\n"));
-                                    }}
-                                  >
-                                    <View
-                                      style={{
-                                        maxWidth: 140,
-                                        flexShrink: 1,
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                        gap: 6,
-                                        paddingHorizontal: space.md,
-                                        paddingVertical: 6,
-                                        opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
-                                      }}
-                                    >
-                                      <Icon icon={ComputerIcon} tone="ink2" size={12} />
-                                      <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                        {computerName}
-                                      </Text>
-                                      <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                                    </View>
-                                  </PullDown>
-                                }
-                                <PullDown
-                                  label="Choose isolation"
-                                  nativeTrigger={{
-                                    title: isolation === "local" ? "Local" : "New Worktree",
-                                    systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
-                                    icon: isolation === "local" ? "laptop" : "fork",
-                                    disabled: targetDisabled,
-                                  }}
-                                  sections={[
-                                    {
-                                      title: "Isolation",
-                                      items: [
-                                        {
-                                          id: "local",
-                                          title: "Local",
-                                          systemImage: "laptopcomputer",
-                                          icon: "laptop",
-                                          checked: isolation === "local",
-                                          disabled: targetDisabled,
-                                        },
-                                        {
-                                          id: "worktree",
-                                          title: "New Worktree",
-                                          systemImage: "arrow.triangle.branch",
-                                          icon: "fork",
-                                          checked: isolation === "worktree",
-                                          disabled: targetDisabled,
-                                        },
-                                      ],
-                                    },
-                                  ]}
-                                  onSelect={(id) => {
-                                    if (!targetDisabled) chooseTarget({ isolation: id === "worktree" ? "worktree" : "local" });
-                                  }}
-                                >
-                                  <View
-                                    style={{
-                                      flexShrink: 1,
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      gap: 6,
-                                      paddingHorizontal: space.md,
-                                      paddingVertical: 6,
-                                      opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
-                                    }}
-                                  >
-                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={12} />
-                                    <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                      {isolation === "local" ? "Local" : "New Worktree"}
-                                    </Text>
-                                    <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                                  </View>
-                                </PullDown>
-                                <PullDown
-                                  label="Choose branch"
-                                  style={{ flexShrink: 1 }}
-                                  searchable={{
-                                    placeholder: newWorktree ? "Search branches" : "Search Worktrees",
-                                    emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
-                                  }}
-                                  nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
-                                  sections={[
-                                    {
-                                      title: newWorktree ? "Branch from" : "Choose a Worktree",
-                                      items: newWorktree
-                                        ? (branches?.items || []).map((item) => ({
-                                            id: item,
-                                            title: item,
-                                            checked: item === base,
-                                            systemImage: "arrow.triangle.branch",
-                                            disabled: branchDisabled,
-                                          }))
-                                        : Object.values(project.state.worktrees).map((item) => ({
-                                            id: String(item.id),
-                                            title: item.name,
-                                            subtitle: item.path?.split("/").findLast(Boolean),
-                                            checked: item.id === worktreeId,
-                                            systemImage: "arrow.triangle.branch",
-                                            disabled: targetDisabled,
-                                          })),
-                                    },
-                                  ]}
-                                  onSelect={(id) => {
-                                    if (!branchDisabled) {
-                                      if (newWorktree) chooseTarget({ baseBranch: id });
-                                      else navigation.setParams({ worktreeId: id });
-                                    }
-                                  }}
-                                >
-                                  <View
-                                    style={{
-                                      maxWidth: 180,
-                                      flexShrink: 1,
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      gap: 6,
-                                      paddingHorizontal: space.md,
-                                      paddingVertical: 6,
-                                      opacity: branchDisabled ? DISABLED_OPACITY.control : 1,
-                                    }}
-                                  >
-                                    <Icon icon={GitBranchIcon} tone="ink2" size={12} />
-                                    <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                      {branchName}
-                                    </Text>
-                                    <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                                  </View>
-                                </PullDown>
-                                {linearActive && issueButton(trayRowWidth >= COMPACT_TRAY_ROW_WIDTH)}
-                              </View>
-                            )
-                          )}
-                          {!params.id && project.link && linearActive && (
-                            <View style={{ flexDirection: "row", alignItems: "center" }}>{issueButton(true)}</View>
-                          )}
-                          <OfflineTray target={trayTarget} chip={!startTray} />
-                          <View
-                            style={{
-                              backgroundColor: startTray ? colors.surface : "transparent",
-                              borderWidth: 1,
-                              borderColor: startTray ? colors.lineStrong : ultracodeOn ? colors.line : "transparent",
-                              borderRadius: radius.composer,
-                              borderCurve: "continuous",
-                              paddingTop: 8,
-                              paddingHorizontal: 8,
-                              paddingBottom: 6,
-                              gap: 4,
-                              // oxlint-disable-next-line milagre-design/shadow-token -- Ultracode's purple glow is brand artwork, not an elevation
-                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : colors.shadowRaised,
-                            }}
-                          >
-                            {!startTray && <ComposerGlass radius={radius.composer} />}
-                            {ultracodeOn && <UltracodeGlow radius={radius.composer} />}
-                            {picking && (
-                              <Text accessibilityRole="progressbar" accessibilityLabel="Preparing attachment" style={styles.caption}>
-                                Preparing attachment...
-                              </Text>
-                            )}
-                            <QuoteChips
-                              quotes={quotes}
-                              disabled={busy}
-                              onRemove={(id) =>
-                                composer.setQuotes((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((quote) => quote.id !== id) }))
-                              }
-                            />
-                            {!!attachments.length && (
-                              <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
-                                {attachments.map((item) => {
-                                  const imageIndex = item.image ? attachments.filter((attachment) => attachment.image).indexOf(item) + 1 : 0;
-                                  return (
-                                    <View
-                                      key={item.id}
-                                      style={{
-                                        backgroundColor: colors.field,
-                                        borderRadius: radius.card,
-                                        borderCurve: "continuous",
-                                        paddingLeft: item.image ? 4 : space.md,
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                        maxWidth: 220,
-                                      }}
-                                    >
-                                      {item.image ? (
-                                        <Image
-                                          source={{ uri: item.uri }}
-                                          accessibilityLabel={item.name}
-                                          style={{ width: 44, height: 44, borderRadius: radius.control }}
-                                        />
-                                      ) : (
-                                        <Pressable
-                                          accessibilityRole="button"
-                                          accessibilityLabel={`Preview ${item.name}`}
-                                          onPress={() =>
-                                            router.push({
-                                              pathname: "/file-preview",
-                                              params: item.path ? { path: item.path } : { uri: item.uri, name: item.name },
-                                            })
-                                          }
-                                          style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
-                                        >
-                                          <Icon icon={item.video ? Video01Icon : File01Icon} tone="ink2" size={18} />
-                                          <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                                            {item.name}
-                                          </Text>
-                                        </Pressable>
-                                      )}
-                                      {item.image && (
-                                        <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                                          {`#${imageIndex} ${item.name}`}
-                                        </Text>
-                                      )}
-                                      <IconButton
-                                        label={`Remove ${item.name}`}
-                                        icon={Cancel01Icon}
-                                        size={32}
-                                        disabled={busy || picking}
-                                        onPress={() => {
-                                          composer.setAttachments((currentAttachments) => ({
-                                            ...currentAttachments,
-                                            [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
-                                          }));
-                                          if (imageIndex > 0) {
-                                            composer.setDrafts((current) => ({
-                                              ...current,
-                                              [chatId]: shiftImageMentions(current[chatId] || "", imageIndex),
-                                            }));
-                                          }
-                                        }}
-                                      />
-                                    </View>
-                                  );
-                                })}
-                              </PageScroll>
-                            )}
-                            <PromptField
-                              // A draft keeps its native text input when its computer or Project changes, preserving
-                              // keyboard focus and the caret. Saved Chats still get an input of their own.
-                              key={params.id ? chatId : "new"}
-                              chats={mentionChats}
-                              computers={mentionComputers}
-                              currentId={chat?.id}
-                              client={client}
-                              projectPath={worktree?.path || (project.link ? "" : project.path)}
-                              skillScope={project.link ? worktree?.path || project.path : undefined}
-                              draft={draft}
-                              suggestion={
-                                !run &&
-                                !busy &&
-                                !picking &&
-                                !attachments.length &&
-                                activity?.activity === "idle" &&
-                                chat?.provider === "claude" &&
-                                actualProvider === "claude"
-                                  ? chat.suggestion?.text
-                                  : undefined
-                              }
-                              onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
-                              chatTitle={title}
-                              provider={chat?.provider ?? actualProvider}
-                              images={attachments.filter((item) => item.image).length}
-                              onImagePaste={(image) => void pasteImage(image)}
-                              known={knownFiles.current}
-                              onMention={worktree?.path ? mentionFile : undefined}
-                              commands={chat && !chat.readOnlyReason ? CHAT_COMMANDS : STORAGE_COMMANDS}
-                              placeholder={
-                                offline
-                                  ? `Queue a message for ${computerName || "this computer"}`
-                                  : run
-                                    ? queuesFollowUp
-                                      ? "Queue a message for the next turn"
-                                      : "Steer the agent"
-                                    : chatsHomeOpen && !params.id
-                                      ? CHATS_PLACEHOLDER
-                                      : undefined
-                              }
-                              onSubmit={() => {
-                                if (!sendDisabled) void send();
-                              }}
-                              onFocus={() => {
-                                setComposerFocused(true);
-                                onTyping();
-                              }}
-                              onBlur={() => setComposerFocused(false)}
-                              focusRequest={composerFocusRequest}
-                              onTouchStart={onTyping}
-                              onChangeText={(value) => {
-                                composer.setDrafts((current) => ({ ...current, [chatId]: value }));
-                              }}
-                              renderControls={(mic) => (
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                                  <PullDown
-                                    label="Attach photos or files"
-                                    nativeTrigger={{ systemImage: "paperclip", iconSize: 16, disabled: attachmentDisabled }}
-                                    sections={[
-                                      {
-                                        items: [
-                                          { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
-                                          { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
-                                          { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
-                                          { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
-                                        ],
-                                      },
-                                    ]}
-                                    onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
-                                  >
-                                    <View
-                                      style={{
-                                        width: 44,
-                                        height: 44,
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        opacity: attachmentDisabled ? DISABLED_OPACITY.control : 1,
-                                      }}
-                                    >
-                                      <Icon icon={Attachment01Icon} tone="ink2" size={18} />
-                                    </View>
-                                  </PullDown>
-                                  <AgentControls
-                                    compact={Boolean(compactButton)}
-                                    model={model}
-                                    effort={preferences.effort}
-                                    fastMode={preferences.fastMode}
-                                    ultracode={preferences.ultracode}
-                                    onToggle={() => {
-                                      router.push({
-                                        pathname: "/model-sheet",
-                                        params: {
-                                          chatId,
-                                          model: model.id,
-                                          provider: actualProvider,
-                                          ...(chat?.provider ? { on: chat.provider } : {}),
-                                          ...(run ? { busy: "1" } : {}),
-                                        },
-                                      });
-                                    }}
-                                  />
-                                  <View style={{ flex: 1 }} />
-                                  {!quietContext && compactionFeedback ? (
-                                    <Text
-                                      accessibilityRole="text"
-                                      accessibilityLiveRegion="polite"
-                                      style={{ fontSize: type.caption1, lineHeight: lineHeight.caption1, color: colors.greenInk, paddingHorizontal: 8 }}
-                                    >
-                                      ✓ {compactionFeedback.percent}% · {compactionFeedback.freed} freed
-                                    </Text>
-                                  ) : (
-                                    !quietContext &&
-                                    (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
-                                      <View style={{ flexDirection: "row", alignItems: "center" }}>
-                                        {compactState.warning && (
-                                          <View
-                                            pointerEvents="none"
-                                            style={{
-                                              position: "absolute",
-                                              left: 0,
-                                              right: 0,
-                                              top: "50%",
-                                              height: 34,
-                                              transform: [{ translateY: -17 }],
-                                              borderRadius: radius.full,
-                                              backgroundColor: colors.orangeTint,
-                                            }}
-                                          />
-                                        )}
-                                        {compactButton}
-                                        {contextUsage && contextUsage.size > 0 && params.id && (
-                                          <ContextRing
-                                            {...contextUsage}
-                                            canCompact={supportsCompact}
-                                            threshold={contextSettings.buttonThreshold}
-                                            showSize={showContextSize}
-                                            onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
-                                          />
-                                        )}
-                                      </View>
-                                    )
-                                  )}
-                                  {mic}
-                                  {run && !offline && !draft.trim() && !quotes.length && !attachments.length && (
-                                    <IconButton
-                                      label="Stop agent"
-                                      icon={StopIcon}
-                                      filled
-                                      size={36}
-                                      disabled={actionBusy}
-                                      onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
-                                    />
-                                  )}
-                                  {(offline || !run || !!draft.trim() || !!quotes.length || !!attachments.length) && (
-                                    <IconButton
-                                      label={
-                                        busy ? "Sending…" : offline ? "Queue message" : run ? (queuesFollowUp ? "Queue message" : "Send now") : "Send message"
-                                      }
-                                      icon={ArrowUp01Icon}
-                                      filled
-                                      size={36}
-                                      loading={busy}
-                                      disabled={sendDisabled}
-                                      onPress={() => void send()}
-                                    />
-                                  )}
-                                </View>
-                              )}
-                            />
-                          </View>
-                        </ComposerTray>
-                      )
-                    )}
-                  </View>
+                  {dock}
                   {showJumpToBottom && (
                     <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: dockHeight, height: 56, alignItems: "center" }}>
                       <GlassIconButton label="Go to bottom" systemImage="chevron.down" icon={ArrowDown01Icon} onPress={jumpToBottom} />
