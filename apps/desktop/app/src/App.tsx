@@ -2587,7 +2587,7 @@ function App() {
                 data-routine-split={runPaneOpen || undefined}
                 className={runPaneOpen ? "flex min-h-0 flex-1 gap-3 pt-[var(--window-chrome-height)]" : "contents"}
               >
-                <div className={runPaneOpen ? `flex min-h-0 ${view === "orchestrator" ? "w-[300px]" : "w-[420px]"} shrink-0 flex-col` : "contents"}>
+                <div className={runPaneOpen ? `flex min-h-0 ${view === "orchestrator" ? "" : "w-[420px]"} shrink-0 flex-col` : "contents"}>
                   {view === "routines" && (
                     <RoutinesPage
                       models={models}

@@ -1,6 +1,8 @@
 import { sinceLabel, type TaskCard } from "../../lib/orchestrator-board";
 import { modelName } from "../../lib/orchestrator-names";
+import { usePanelWidth } from "../agents/panel-width";
 import { ProjectAvatar } from "../primitives/ProjectAvatar";
+import { ResizeHandle } from "../primitives/ResizeHandle";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SectionLabel } from "../primitives/SectionLabel";
 import { COLUMNS } from "./OrchestratorBoard";
@@ -20,8 +22,19 @@ export function OrchestratorTaskList({
   onOpen: (key: string) => void;
   onBoard: () => void;
 }) {
+  const panel = usePanelWidth("orchestrator");
   return (
-    <div data-orchestrator-task-list className="flex min-h-0 flex-1 flex-col gap-2">
+    <div data-orchestrator-task-list className="relative flex min-h-0 flex-1 flex-col gap-2 pl-1" style={{ width: panel.width }}>
+      <ResizeHandle
+        label="Resize the task list"
+        side="right"
+        width={panel.width}
+        min={panel.min}
+        max={560}
+        reset={panel.reset}
+        onResize={panel.onResize}
+        onCommit={panel.onCommit}
+      />
       <OrchestratorBox size="compact" placeholder="Ask for something else…" />
       <ScrollArea className="min-h-0 flex-1 pb-3">
         {COLUMNS.map(({ id, name }) => {
