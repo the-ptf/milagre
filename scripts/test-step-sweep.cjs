@@ -61,6 +61,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`${motion}.length`), 2, "band and counter");
     assert.equal(await evaluate(`${titleMotion}.length`), 0, "the titles themselves do not animate");
     assert.equal(await evaluate(`${motion}.every(a => a.effect.getTiming().iterations === Infinity)`), true);
+    assert.equal(await evaluate(`${motion}.every(a => a.startTime === 0)`), true, "the band steps on the spinners' shared beat");
     assert.equal(
       await evaluate(
         `${motion}.every(a => a.effect.getKeyframes().every(k => Object.keys(k).every(p => ['offset', 'easing', 'composite', 'computedOffset', 'transform'].includes(p))))`,

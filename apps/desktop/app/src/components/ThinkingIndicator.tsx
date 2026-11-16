@@ -6,10 +6,11 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./primitives/Icon";
 import { useStepTitleSweep } from "../lib/step-sweep";
 import { SweepText } from "./primitives/SweepText";
+import { lockToBeat } from "../lib/beat";
 
 function RunningLogo() {
   return (
-    <span aria-hidden className="running-logo relative inline-block size-4 shrink-0">
+    <span ref={lockToBeat} data-beat aria-hidden className="running-logo relative inline-block size-4 shrink-0">
       <span className="running-logo-leg running-logo-leg-left">
         <svg viewBox="-4 -4 154 154" width="16" height="16">
           <path d="M49.6983 66.5562L21.6836 116.174C19.802 119.507 22.2098 123.632 26.0372 123.632H39.9727L54.9727 100.132L66.9727 119.632L51.9727 144.132H26.0372C6.24066 144.132 -6.29344 122.89 3.27837 105.561L30.9405 55.4819L49.6983 66.5562Z" />
