@@ -532,6 +532,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
       if (id === "@milagre/shared/orchestrator" && !(id in modules)) return require("@milagre/shared/orchestrator");
       if (base === "orchestrator-answer-line" && !(id in modules)) return { OrchestratorAnswerLine: () => null };
+      if (base === "orchestrator-mention-row" && !(id in modules)) return { OrchestratorMentionRow: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
