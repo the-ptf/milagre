@@ -1,18 +1,6 @@
 const net = require("node:net");
 const { Duplex } = require("node:stream");
 
-// TCP streams on a paired desktop's channel, beside its rpc / evt / part messages (peer-channel.cjs, peer-client.cjs).
-// The desktop opens a stream to a host and port as seen from the computer; the computer dials it and the bytes flow
-// both ways as base64 inside the sealed channel, like a part's. A remote Chat's Browser pages reach that computer's
-// localhost this way (#832).
-//   desktop → computer  { t: "tcp-open", id, host, port }
-//   computer → desktop  { t: "tcp-opened", id }
-//   either way          { t: "tcp", id, data }      data: base64 of at most CHUNK bytes
-//                       { t: "tcp-ack", id, n }     n bytes of the other side's data were taken
-//                       { t: "tcp-end", id }        no more data this way (half close)
-//                       { t: "tcp-close", id, code? }  the stream is gone; code says why it failed or was refused
-// Each side keeps at most WINDOW bytes unacknowledged per stream, so a slow reader slows its sender instead of filling
-// the channel: MAX_STREAMS × WINDOW in base64 stays well under a desktop's channel budget (peer-channel.cjs).
 const CHUNK = 32 * 1024;
 const WINDOW = 128 * 1024;
 const ACK_EVERY = 32 * 1024;
@@ -20,11 +8,9 @@ const MAX_STREAMS = 64;
 const DIAL_MS = 10_000;
 const MAX_DATA = Math.ceil(CHUNK / 3) * 4;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
-// A host name or an IP address, as a browser's SOCKS request names it.
 const HOST = /^(?:[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?\.?)+$|^[0-9A-Fa-f:.]+$/;
 const STREAM_MESSAGES = new Set(["tcp-open", "tcp-opened", "tcp", "tcp-ack", "tcp-end", "tcp-close"]);
 
-/** Why a dial failed, in words the desktop shows (refused, not-found, timeout, unreachable, busy, failed). */
 function dialCode(error) {
   switch (error?.code) {
     case "ECONNREFUSED":
@@ -62,7 +48,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
   let nextId = opener === "desktop" ? -1 : 0;
   let shut = false;
 
-  /** The Duplex for stream `id`: its writes go to the other side, the other side's data comes out of it. */
   function makeStream(id) {
     let unacked = 0;
     /** @type {(() => void) | null} */
@@ -91,7 +76,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
         if (!gone) send({ t: "tcp-end", id });
         callback();
       },
-      // The reader wants more: what it took is acknowledged, so the sender may go on.
       read() {
         ack();
       },
@@ -108,9 +92,7 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
       stream,
       take(data) {
         owed += data.length;
-        // A sender stops at one window unacknowledged (one write may overshoot it); twice that broke the protocol.
         if (owed > WINDOW * 2) throw new Error("A stream ran past its window");
-        // A full buffer holds its acks until read() asks for more: that is what slows the sender.
         if (stream.push(data) && owed >= ACK_EVERY) ack();
       },
       acked(n) {
@@ -134,7 +116,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
       },
     };
     streams.set(id, entry);
-    // A stream that fails with no one listening must not take the process down; its users listen for themselves.
     stream.on("error", () => {});
     stream.on("end", () => {
       if (stream.writableFinished) stream.destroy();
@@ -145,13 +126,11 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
     return stream;
   }
 
-  /** The computer: dials what the desktop asked for and joins the socket to the stream. */
   function accept(message) {
     const { id, host, port } = message;
     if (!validId(id) || streams.has(id)) throw new Error("Bad stream");
     if (!dial || !validTarget(host, port)) return send({ t: "tcp-close", id, code: "failed" });
     if (streams.size >= MAX_STREAMS) return send({ t: "tcp-close", id, code: "busy" });
-    // Held until the socket connects, so the slot counts against MAX_STREAMS and a close from the desktop finds it.
     let socket;
     try {
       socket = dial(host, port);
@@ -192,7 +171,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
 
   return {
     isStreamMessage,
-    /** Streams open or opening. */
     get size() {
       return streams.size + opening.size;
     },
@@ -212,7 +190,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
         case "tcp": {
           const { data } = message;
           if (typeof data !== "string" || data.length > MAX_DATA || data.length % 4 !== 0 || !BASE64.test(data)) throw new Error("Bad stream data");
-          // Data for a stream this side already closed is late, not wrong.
           streams.get(id)?.take(Buffer.from(data, "base64"));
           return;
         }
@@ -240,7 +217,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
           throw new Error("Unknown stream message");
       }
     },
-    /** The desktop: a stream to `host:port` as the computer sees them, once the computer has connected it. */
     open(host, port) {
       if (shut) return Promise.reject(new Error("The channel closed"));
       if (!validTarget(host, port)) return Promise.reject(new Error("Invalid address"));
@@ -252,7 +228,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
         send({ t: "tcp-open", id, host, port });
       });
     },
-    /** The channel went: every stream ends without a word to the other side. */
     close() {
       if (shut) return;
       shut = true;
@@ -266,7 +241,6 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, op
   };
 }
 
-/** Dials as the computer does: TCP, no Nagle delay, as a browser would. */
 const dialTcp = (host, port) => net.connect({ host, port, noDelay: true });
 
 module.exports = { createPeerStreams, dialTcp, isStreamMessage, CHUNK, WINDOW, MAX_STREAMS };

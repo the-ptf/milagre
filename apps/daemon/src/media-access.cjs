@@ -26,7 +26,6 @@ const realOrNull = async (file) => {
     return null;
   }
 };
-// Decide by content too, so a renamed non-image never leaves the Mac as an image.
 function sniffsAs(type, head) {
   if (type === "image/png") return head.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   if (type === "image/jpeg") return head[0] === 255 && head[1] === 216 && head[2] === 255;
@@ -35,18 +34,11 @@ function sniffsAs(type, head) {
   return head.subarray(4, 8).toString("latin1") === "ftyp" && HEIC_BRANDS.has(head.subarray(8, 12).toString("latin1"));
 }
 
-// A remote Chat's images are read together, one media:read each, and each asked for its scope's Worktrees: 30 images
-// were 30 project:worktree-paths (for a Link, 30 whole Link states). An answer is kept this long per daemon and scope;
-// a read it would refuse asks again first (openMedia), so a Worktree made meanwhile is never refused. Failures aren't kept.
 const ROOTS_TTL_MS = 5000;
 const MAX_KEPT_ROOTS = 64;
 /** @type {Map<string, { at: number; roots: Promise<string[]> }>} */
 const keptRoots = new Map();
 
-/**
- * A scope's Worktree folders, through any daemon call (`call(method, args)`): a Project's, or a Link's members'. Unknown
- * scopes give none. Kept for ROOTS_TTL_MS; `.fresh(scope)` reads them again.
- */
 function scopeRootsVia({ dataDir, call, now = Date.now }) {
   async function read(scope) {
     if (!isLinkScopeKey(scope)) return await call("project:worktree-paths", [scope]);
@@ -83,21 +75,12 @@ function scopeRootsVia({ dataDir, call, now = Date.now }) {
   return scopeRoots;
 }
 
-/**
- * An image a scope's chat shows, opened for reading, under the rules the phone's /media always had (moved here from
- * mobile-bridge.cjs so the phone and a paired desktop are served the same files): the scope's Worktrees, its persisted
- * attachments (<Project>/.milagre/images), files uploaded from the phone, the folders agents save generated images in,
- * or an image an assistant reply shared (`chatImage`, project:chat-image). Checked after realpath, so a symlink can't
- * lead out, by extension and by content; at most MAX_MEDIA. `check(scope, requested)` runs first (the phone's
- * confinement). The caller closes the returned handle.
- */
 async function openMedia({ scope, requested }, { dataDir, scopeRoots, chatImage, check }) {
   if (!validScope(scope) || typeof requested !== "string" || !path.isAbsolute(requested))
     throw failure(400, "Choose a valid Project or Link and absolute image path");
   await check?.(scope, requested);
   const type = MEDIA_TYPES[path.extname(requested).toLowerCase()];
   if (!type) throw failure(415, "Only png, jpeg, gif, webp and heic images are served");
-  // Only the worktree folders: a big Project's whole state would be read in pages for every image.
   const allowed = async (worktreePaths) => {
     const candidates = [
       ...(Array.isArray(worktreePaths) ? worktreePaths : []),
@@ -110,17 +93,13 @@ async function openMedia({ scope, requested }, { dataDir, scopeRoots, chatImage,
   };
   let { candidates, roots } = await allowed(await scopeRoots(scope));
   let real = await realOrNull(requested);
-  // Worktrees kept from a moment ago (scopeRootsVia) lack one made since: a path they don't hold is checked on fresh ones.
   if (typeof scopeRoots.fresh === "function" && (!real || !roots.some((root) => inside(root, real))))
     ({ candidates, roots } = await allowed(await scopeRoots.fresh(scope)));
   if (!real || !roots.some((root) => inside(root, real))) {
-    // A screenshot in /tmp must be explicitly shared in this scope's assistant reply.
-    // The runtime validates that reference and returns a durable Project attachment, never arbitrary bytes.
     const stored = await Promise.resolve(chatImage(scope, requested)).catch(() => null);
     if (stored) real = await realOrNull(stored);
   }
   if (!real) {
-    // Missing files are only reported as missing inside an allowed folder, so paths elsewhere are not probed.
     const lexical = path.resolve(requested);
     throw roots.some((root) => inside(root, lexical)) || candidates.some((root) => inside(path.resolve(root), lexical))
       ? failure(404, "Image not found")
@@ -145,17 +124,14 @@ async function openMedia({ scope, requested }, { dataDir, scopeRoots, chatImage,
   }
 }
 
-/** media:read for a paired desktop: the same image, whole, as base64 (a large one travels in result pages). */
 async function readMedia(request, options) {
   const { handle, type, size } = await openMedia({ scope: request?.scope, requested: request?.path }, options).catch((error) => {
-    // The phone's wording names the mobile app; a desktop is told the same refusal without it.
     if (error?.message === PHONE_REFUSAL) error.message = "This file is not available";
     throw error;
   });
   try {
     const bytes = Buffer.alloc(size);
     let read = 0;
-    // A read can return fewer bytes than asked; a file that shrank since stat ends early rather than padding zeros.
     while (read < size) {
       const { bytesRead } = await handle.read(bytes, read, size - read, read);
       if (!bytesRead) break;

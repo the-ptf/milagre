@@ -12,27 +12,14 @@ const { createComputersStore, lanRoutesFrom } = require("./computers-store.cjs")
 const { createComputerKeys } = require("./computer-keys.cjs");
 const { thisComputer } = require("@milagre/shared/host-computer");
 
-// Spec "Errors": amber ("Reconnecting…") while it comes back, grey ("Offline") once it has been gone this long.
 const OFFLINE_AFTER_MS = 30_000;
-// The route is checked again this often, and when this Mac's addresses change (looked at every NETWORK_MS).
 const CHECK_EVERY_MS = 60_000;
 const NETWORK_MS = 5_000;
-// A computer that can't be reached at launch is tried again after these waits; a runtime then retries on its own.
 const BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
-// Past those, a computer the relay says is offline (its Mac asleep or quit) is dialed less and less often, up to every
-// 5 min: each refused dial wakes that Mac's relay room, and a 30 s redial kept rooms awake all day (2026-11-10, the
-// relay's daily Durable Objects limit). Opening it or calling it here dials at once (wake).
 const OFFLINE_BACKOFF_MS = [60_000, 120_000, 300_000];
-// A call made while the runtime moves between the relay and the LAN waits this long for it to be back.
 const SWITCH_WAIT_MS = 10_000;
-// A call made while a computer is connecting or reconnecting (a dropped socket, a route check) waits this long for it
-// instead of failing at once: those blips last a second or two, and the computer still reads as connected meanwhile.
 const RECONNECT_WAIT_MS = 15_000;
-// A saved LAN address that doesn't answer (another network) is probed for up to PROBE_TIMEOUT, and every connect waited
-// that out before dialing the relay. A connect now waits this long for the LAN, then takes the relay; a LAN channel that
-// opens later takes over once nothing waits on the relay (moveToLan).
 const LAN_WAIT_MS = 500;
-// Problems worth a line under a computer while it keeps retrying; the rest read as Reconnecting… or Offline.
 const SHOWN = new Set(["full", "outdated", "kind", "bad-hello", "busy"]);
 const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Phone & sharing on the other computer.";
 const TUNNEL_LINK = "This link reaches its computer through a Cloudflare tunnel, which computers can't use yet.";
@@ -42,7 +29,6 @@ const TUNNEL_LINK = "This link reaches its computer through a Cloudflare tunnel,
 const isFinal = (error) => error instanceof PeerError && error.final;
 const keychainProblem = (error) => (error?.code === "keys" && !(error instanceof PeerError) ? error.message : null);
 
-// The bare IP of a ws://ip:port route, without brackets or port.
 const addressOf = (url) => {
   try {
     return new URL(url).hostname.replace(/^\[|\]$/g, "") || null;
@@ -50,7 +36,6 @@ const addressOf = (url) => {
     return null;
   }
 };
-/** Waits for `promise`, or `ms` at most. */
 function atMost(promise, ms) {
   let timer;
   const waited = new Promise((resolve) => {
@@ -65,7 +50,6 @@ const hostOf = (url) => {
     return url;
   }
 };
-/** What went wrong, for the log: the peer error's code, else the message. */
 const describe = (error) => (!error ? "" : error instanceof PeerError ? error.code : String(error.message ?? error).slice(0, 200));
 
 const defaultNetworkSignature = () =>
@@ -76,7 +60,6 @@ const defaultNetworkSignature = () =>
       .toSorted(),
   );
 
-// `endpoint`: the ws:// address a LAN route dialed, whose host the computer's dev servers answer on too.
 function adopt(entry, client, route, endpoint = null) {
   entry.client = client;
   entry.route = route;
@@ -87,20 +70,16 @@ function adopt(entry, client, route, endpoint = null) {
   return client;
 }
 
-/** The runtime is back, or won't be: calls waiting on a switch (invoke) go on. */
 function recovered(entry) {
   entry.recovery?.done();
   entry.recovery = null;
 }
 
-/** Releases every call waiting for the computer to be back (it is, or it won't be soon). */
 function released(entry) {
-  // Each done() leaves the set, so the loop walks a copy.
   // oxlint-disable-next-line unicorn/no-useless-spread
   for (const done of [...entry.waiting]) done();
 }
 
-/** Resolves once the computer is online, off, refused or offline for good (released), or after `ms`, whichever is first. */
 function whenOnline(entry, ms) {
   return new Promise((/** @type {(value?: any) => void} */ resolve) => {
     const done = () => {
@@ -113,18 +92,9 @@ function whenOnline(entry, ms) {
   });
 }
 
-/**
- * The runtime is on the relay while the supervisor holds a LAN channel no runtime took: the relay channel closes once no
- * call waits on it (calls already there finish there), and the runtime's reconnect then takes the LAN channel. Its brief
- * disconnect is a switch, not an outage: `down` lets the first disconnect after it go by, and a call made meanwhile
- * (invoke) waits for `recovery`.
- */
 function moveToLan(entry) {
   const client = entry.client;
   const route = entry.supervisor.current();
-  // Only a channel the runtime came online on: one still in its first calls could close on the answer to the last of
-  // them, and the runtime would read connected on a closed channel with no reconnect left (ComputerLink model). online()
-  // moves it once it is up.
   if (!client || client !== entry.live || entry.route !== "relay" || route.kind !== "lan" || route.transport.used || route.transport.client.closed) return;
   client.closeWhenIdle(() => {
     entry.switching = true;
@@ -192,7 +162,6 @@ function createComputers({
   networkSignature = defaultNetworkSignature,
   reconnectWaitMs = RECONNECT_WAIT_MS,
   log = () => {},
-  // A computer may open streams back to this Mac only where this lets it (peer-streams.cjs): the Browser pages' proxy.
   acceptStream,
 }) {
   const store = createComputersStore({ file: path.join(dataDir, "computers.json"), now, allowLocalRelay });
@@ -202,7 +171,6 @@ function createComputers({
   const pairingEndpoints = new WeakMap();
   let enabled = false;
   let closed = false;
-  // Whether this window is focused: every computer's daemon is told (its unread marks and notifications depend on it).
   let focused = false;
   /** @type {AbortController | null} */
   let adding = null;
@@ -220,7 +188,6 @@ function createComputers({
       relayHost: hostOf(computer.relay),
       state,
       route: state === "online" ? (entry?.route ?? null) : null,
-      // Where this Mac reaches the computer's own servers: the LAN or tailnet IP its route dialed. None over the relay.
       address: state === "online" && entry?.route === "lan" ? (entry.address ?? null) : null,
       lastSeen: computer.lastSeen,
       message: enabled ? (entry?.message ?? null) : null,
@@ -233,14 +200,10 @@ function createComputers({
   function changed() {
     try {
       onChange(list());
-    } catch {
-      /* a listener must not break the computers */
-    }
+    } catch {}
   }
-  // list() is empty until the saved computers are read; onChange then says they are there.
   void ready.then(changed, () => {});
 
-  /** Whether this address still answers as the Mac pinned at pairing (lan-host.cjs /v1/hello). No credentials go out. */
   async function probe(endpoint, hostId) {
     try {
       const response = await fetch(`${endpoint.replace(/^ws:/, "http:")}/v1/hello`, { signal: AbortSignal.timeout(PROBE_TIMEOUT) });
@@ -263,13 +226,11 @@ function createComputers({
       identity: await keys.identity(),
       name: name(),
       random,
-      // Turning the computer off or quitting cancels a hello in flight instead of waiting out its 15 s.
       signal: entry.abort.signal,
       ...socketOption,
     });
   }
 
-  /** A LAN channel as the route supervisor sees it; the runtime takes its client once (`used`). */
   async function openLan(entry, endpoint, onLost) {
     const client = await dial(entry, endpoint);
     client.once("close", onLost);
@@ -292,7 +253,6 @@ function createComputers({
       runtime: null,
       /** @type {any} */
       client: null,
-      /** The channel the runtime last came online on (online()); moveToLan closes no other. */
       /** @type {any} */
       live: null,
       route: null,
@@ -307,7 +267,6 @@ function createComputers({
       starting: null,
       retryTimer: null,
       offlineTimer: null,
-      /** Ends a redial wait early (a call or an open asks for the computer); null when nothing waits. */
       /** @type {(() => void) | null} */
       wake: null,
       attempts: 0,
@@ -317,7 +276,6 @@ function createComputers({
       switching: false,
       /** @type {{ promise: Promise<void>; done: () => void } | null} */
       recovery: null,
-      /** Calls waiting for the computer to be online again (whenOnline). */
       waiting: new Set(),
       abort: new AbortController(),
     };
@@ -331,8 +289,6 @@ function createComputers({
       openLan: (endpoint, _lan, onLost) => openLan(entry, endpoint, onLost),
       now,
     });
-    // A LAN route that opens while the runtime is on the relay moves it there (moveToLan); one lost before the relay was
-    // free leaves the runtime where it is.
     entry.supervisor = supervisor;
     supervisor.subscribe((route) => {
       const client = entry.client;
@@ -347,16 +303,11 @@ function createComputers({
     return entry;
   }
 
-  /** The wait before redial `n` (0-based): the short steps, then the offline steps while the relay says offline. */
   function redialWait(n, error) {
     if (n < backoffMs.length || !(error instanceof PeerError && error.code === "offline")) return backoffMs[Math.min(n, backoffMs.length - 1)];
     return offlineBackoffMs[Math.min(n - backoffMs.length, offlineBackoffMs.length - 1)];
   }
 
-  /**
-   * Waits out the step the runtime's redials back off by; turning the computer off or removing it ends the wait, and
-   * wake ends it early.
-   */
   function backoff(entry) {
     const wait = redialWait(entry.failures - 1, entry.lastError);
     const { signal } = entry.abort;
@@ -383,7 +334,6 @@ function createComputers({
     });
   }
 
-  /** The runtime's `connect`: the LAN channel the supervisor holds, when it has one, else a new relay channel. */
   async function connectRoute(entry) {
     if (entry.stopped || entry.refused) throw new Error("This computer is no longer connected.");
     await atMost(
@@ -397,9 +347,6 @@ function createComputers({
     }
     const computer = store.get(entry.id);
     if (!computer) throw new Error("This computer was removed.");
-    // The runtime redials every reconnectMs; a computer that keeps failing is dialed less and less often (a first start has
-    // its own backoff). Every attempt counts, not only a dial that throws: a channel can open and its first calls
-    // (daemon:status, state patches, project:open, the snapshot's limits) still fail. online() starts the count over.
     if (entry.runtime) {
       if (entry.failures > 0) await backoff(entry);
       entry.failures++;
@@ -408,21 +355,17 @@ function createComputers({
       return adopt(entry, await dial(entry, computer.relay), "relay");
     } catch (error) {
       entry.switching = false;
-      // The runtime would retry this forever: a refusal retrying can't fix stops the computer instead.
       if (isFinal(error)) refuse(entry, error);
       else entry.lastError = error;
       throw error;
     }
   }
 
-  /** One line per state change, with the route or the reason: what Settings can't show after the fact. */
   function note(entry, state, detail) {
     try {
       const computer = store.get(entry.id);
       log(`${new Date(now()).toISOString()} ${computer?.name ?? entry.id} ${state}${detail ? ` ${detail}` : ""}`);
-    } catch {
-      /* a log must not break the computers */
-    }
+    } catch {}
   }
 
   function online(entry) {
@@ -439,12 +382,10 @@ function createComputers({
     void store.seen(entry.id).catch(() => {});
     void learnRoutes(entry);
     changed();
-    // A LAN channel that opened while this connect took the relay.
     moveToLan(entry);
   }
 
   function down(entry, error, why = "") {
-    // The disconnect a switch causes is not an outage; the flag is spent on it, so a recovery that then fails reads Reconnecting.
     if (entry.switching) {
       entry.switching = false;
       return;
@@ -468,7 +409,6 @@ function createComputers({
     changed();
   }
 
-  /** Retrying can't fix it: stop the runtime and keep the reason on screen until the computer is paired again. */
   function refuse(entry, error) {
     if (entry.refused) return;
     const computer = store.get(entry.id);
@@ -488,7 +428,6 @@ function createComputers({
     changed();
   }
 
-  /** Asks the computer where else to reach it (peer:routes) and keeps the answer if it names the pinned Mac. */
   async function learnRoutes(entry) {
     const runtime = entry.runtime;
     const computer = store.get(entry.id);
@@ -515,12 +454,9 @@ function createComputers({
     }
     try {
       emit(entry.id, channel, payload);
-    } catch {
-      /* a listener must not break the runtime */
-    }
+    } catch {}
   }
 
-  /** Starts a computer's runtime. `first`: the channel that just paired, used as its first connection. */
   function start(entry, first = /** @type {any} */ (null)) {
     if (!enabled || closed || entry.stopped || entry.refused || entry.runtime || entry.starting) {
       first?.close();
@@ -551,13 +487,10 @@ function createComputers({
         }
         entry.runtime = runtime;
         entry.attempts = 0;
-        // The runtime replayed focus:false while connecting; the window's real state goes after it, and the runtime
-        // keeps it for every later reconnect.
         if (focused) void runtime.setFocused(true).catch(() => {});
         online(entry);
       } catch (error) {
         handed?.close();
-        // No runtime took the channel it opened (connect ran, then its first calls failed): nothing else would close it.
         if (!entry.runtime) entry.client?.close();
         if (!enabled || closed || entry.stopped || entry.refused) return;
         if (isFinal(error)) {
@@ -578,10 +511,6 @@ function createComputers({
     return entry.starting;
   }
 
-  /**
-   * A call for a computer that is coming back waits for it a moment. One that reads offline is dialed now instead of
-   * at the next backed-off redial, so opening a sleeping Mac's Chat once it is awake doesn't wait up to 5 min.
-   */
   async function redialFor(entry) {
     if (entry.state === "offline" && entry.wake) {
       entry.wake();
@@ -611,7 +540,6 @@ function createComputers({
     networkTimer = null;
   }
 
-  /** The pasted link, checked: a relay link, not this Mac's, not a computer already here (one refused may pair again). */
   async function read(link) {
     let pairing;
     try {
@@ -624,9 +552,7 @@ function createComputers({
     let own = null;
     try {
       own = await ownHostId();
-    } catch {
-      /* unknown: no check */
-    }
+    } catch {}
     if (relay.hostId === own) throw new Error(`That's ${thisComputer}'s own link. Copy the one on the other computer.`);
     const existing = store.list().find((computer) => computer.hostId === relay.hostId);
     if (existing && !entries.get(existing.id)?.refused) throw new Error(`${existing.name} is already in your computers.`);
@@ -642,7 +568,6 @@ function createComputers({
   }
 
   return {
-    /** Resolves once the saved computers are read (list() is empty before). */
     loaded: ready.then(() => undefined),
     list,
     async preview(link) {
@@ -651,8 +576,6 @@ function createComputers({
       return { name: pairing.name, hostId: relay.hostId, relayHost: hostOf(relay.url) };
     },
     /**
-     * Pairs with the computer the link names and saves it as `name` ("Show it as"). Waits through its owner's Allow
-     * (`onPending` runs when the Mac says it is asking). Rejects with the words to show; `cancelAdd()` stops it.
      * @param {string} link
      * @param {{ name?: string }} [options]
      * @param {{ onPending?: () => void }} [hooks]
@@ -742,11 +665,9 @@ function createComputers({
       changed();
       return list();
     },
-    /** One daemon call on a computer, through its runtime. */
     async invoke(id, method, args = []) {
       const entry = entries.get(id);
       if (entry?.recovery) {
-        // Moving to the LAN takes a moment; the call goes through once the runtime is back, or fails as it would have.
         let timer;
         await Promise.race([entry.recovery.promise, new Promise((resolve) => (timer = setTimeout(resolve, switchWaitMs)))]);
         clearTimeout(timer);
@@ -755,7 +676,6 @@ function createComputers({
       if (!entry?.runtime || entry.state !== "online") throw new Error(`${store.get(id)?.name ?? "That computer"} is offline.`);
       return entry.runtime.invoke(method, args);
     },
-    /** A TCP stream from computer `id` to `target:port` as it sees them, for its Chats' Browser pages (browser-proxy.cjs). */
     async openStream(id, target, port) {
       const entry = entries.get(id);
       if (entry) await redialFor(entry);
@@ -763,9 +683,7 @@ function createComputers({
         throw Object.assign(new Error(`${store.get(id)?.name ?? "That computer"} is offline.`), { code: "offline" });
       return entry.runtime.openStream(target, port);
     },
-    /** The window gained or lost focus: every connected computer's daemon is told, and a later connection is too. */
     setFocused(value) {
-      // Only a change goes out: a later connection is told at start, and a reconnect replays it (runtime-client.cjs).
       if (focused === (value === true)) return;
       focused = value === true;
       for (const entry of entries.values()) void entry.runtime?.setFocused(focused).catch(() => {});

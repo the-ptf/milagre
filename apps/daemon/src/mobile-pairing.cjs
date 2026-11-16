@@ -1,19 +1,13 @@
 const os = require("node:os");
 const { execFileSync } = require("node:child_process");
 
-// This Mac's name is asked on every change to the computers list and every dial, and scutil holds the daemon's event
-// loop until it answers, so it is looked up once per host: a Mac renamed in System Settings keeps its old name here
-// until the host restarts.
 /** @type {string | null} */
 let thisMac = null;
 
 /**
- * This Mac's name (System Settings › General › About), else its hostname. Asked with `options`, it is looked up again
- * each time.
  * @param {Parameters<typeof lookUpName>[0]} [options]
  */
 function computerName(options) {
-  // Recordings (scripts/site-demo) run two hosts on one Mac and name each one, instead of showing the Mac's own name.
   if (options === undefined && process.env.MILAGRE_COMPUTER_NAME) return process.env.MILAGRE_COMPUTER_NAME;
   if (options === undefined && thisMac !== null) return thisMac;
   const name = lookUpName(options);
@@ -26,9 +20,7 @@ function lookUpName({ platform = process.platform, run = execFileSync, hostname 
     try {
       const name = String(run("/usr/sbin/scutil", ["--get", "ComputerName"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] })).trim();
       if (name) return name;
-    } catch {
-      /* fall back to the hostname */
-    }
+    } catch {}
   }
   return hostname().replace(/\.local$/i, "");
 }
@@ -49,7 +41,6 @@ function pairingLink({ address, token, name, access }) {
   return `milagre://pair?address=${encodeURIComponent(address)}&token=${token}&name=${encodeURIComponent(name ?? "")}${cloudflare}`;
 }
 
-/** The QR for a Mac that is reached through the relay: the relay's origin, this Mac's id and public key, and the token. */
 function relayPairingLink({ relay, hostId, key, token, name, direct }) {
   let url;
   try {

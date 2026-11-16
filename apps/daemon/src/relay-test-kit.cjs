@@ -21,7 +21,6 @@ async function until(check, label = "condition", ms = 5000) {
   }
 }
 
-/** What the Mac's loopback bridge looks like to the relay host. */
 async function startFakeBridge(t) {
   const seen = { requests: [], liveHeaders: [], liveOpen: 0, uploads: [] };
   const held = [];
@@ -93,7 +92,6 @@ async function startFakeBridge(t) {
   };
 }
 
-/** A phone speaking the encrypted protocol over a raw relay socket. */
 function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name, kind, caps }) {
   const ws = new WebSocket(`${relayUrl}/v1/phone?id=${identity.hostId}`);
   const inbox = [];
@@ -120,16 +118,13 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     key,
     closed,
     nextRaw,
-    /** Frames the socket received, batches counted once. */
     rawFrames: 0,
-    /** Messages of a batch still to hand out. */
     items: [],
     channel: null,
     opened: new Promise((resolve, reject) => {
       ws.on("open", resolve);
       ws.on("error", reject);
     }),
-    /** Resolves with the channel, or with { error } when the Mac refused the hello. */
     async hello() {
       await phone.opened;
       const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind, caps });
@@ -142,7 +137,6 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     send(message) {
       ws.send(phone.channel.seal(message));
     },
-    /** The next message; a batch (a Mac sends them to a phone whose hello asked) is handed out one message at a time. */
     async next(ms) {
       if (phone.items.length) return phone.items.shift();
       const message = phone.channel.open(await nextRaw(ms));
@@ -150,12 +144,10 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
       phone.items.push(...message.items);
       return phone.items.shift();
     },
-    /** Sends a request as `req` parts: the body goes out as base64 chunks, `''` and no more when there is none. */
     request(id, { method = "GET", path, headers = {}, body }, size) {
       const chunks = body ? splitBody(typeof body === "string" ? new TextEncoder().encode(body) : body, size) : [""];
       chunks.forEach((chunk, index) => phone.send({ t: "req", id, method, path, headers, chunk, more: index < chunks.length - 1 }));
     },
-    /** Reads messages until a complete response for `id` arrives. */
     async response(id, ms) {
       const assembler = createAssembler();
       for (;;) {
@@ -254,7 +246,6 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
     for (const client of wss.clients) client.terminate();
     server.close();
   });
-  /** POSTs to a hook URL the Mac handed out (its origin is the relay's) and answers { status, json }. */
   const postHook = async (hookUrl, body, headers = {}) => {
     const response = await fetch(hookUrl, { method: "POST", headers: { "content-type": "application/json", ...headers }, body });
     return { status: response.status, json: await response.json().catch(() => null) };
@@ -262,11 +253,6 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
   return { url: `ws://127.0.0.1:${port}`, hostSockets, hooks: { directory, rooms: hookRooms }, postHook };
 }
 
-/**
- * A paired desktop over a raw relay or LAN socket: its hello says kind "desktop", then daemon frames travel as rpc,
- * evt and part messages (@milagre/shared/peer-frames). `messages` keeps every message the Mac sent, parts included;
- * `frames` every daemon frame they carried; `error` the first message it could not read.
- */
 function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name = "studio", caps }) {
   const ws = new WebSocket(`${relayUrl}/v1/phone?id=${identity.hostId}`);
   const reader = createFrameReader("evt");
@@ -274,7 +260,7 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
   const messages = [];
   const frames = [];
   const watchers = new Set();
-  const early = []; // sealed messages that came in one chunk with the hello's reply
+  const early = [];
   let channel = null;
   let onReply = null;
   let nextId = 0;
@@ -287,7 +273,6 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
     try {
       const message = channel.open(bytes);
       desktop.rawFrames += 1;
-      // A batch (a Mac sends them to a desktop whose hello asked) holds a window's messages, in order.
       for (const item of message.t === "batch" ? message.items : [message]) {
         messages.push(item);
         if (item.t === "pong") continue;
@@ -331,11 +316,9 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
     closed,
     messages,
     frames,
-    /** Sealed frames the channel opened, batches counted once. */
     rawFrames: 0,
     error: null,
     notices: [],
-    /** Resolves with the channel, or with { error } when the Mac refused the hello. Waits through pending notices (Allow). */
     async hello({ ms = 5000 } = {}) {
       await opened;
       const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind: "desktop", caps });
@@ -347,7 +330,6 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
         };
         arm();
         onReply = (bytes) => {
-          // A computer's first hello waits for Allow; the Mac says so, and again every few seconds.
           if (bytes[0] === 0x05) {
             desktop.notices.push(JSON.parse(new TextDecoder().decode(bytes.subarray(1))));
             arm();
@@ -364,20 +346,17 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
       for (const bytes of early.splice(0)) take(bytes);
       return { channel };
     },
-    /** Sends one daemon frame as a desktop does: whole, or in parts past 768 KiB. */
     sendFrame(frame) {
       for (const text of writer.write(JSON.stringify(frame))) ws.send(channel.sealEncoded(text));
     },
     sendMessage(message) {
       ws.send(channel.seal(message));
     },
-    /** Calls a daemon method and resolves with its reply frame ({ result } or { error }). */
     call(method, args = [], ms) {
       const id = ++nextId;
       desktop.sendFrame({ v: 1, id, method, args });
       return waitFrame((frame) => frame.id === id, ms);
     },
-    /** The first event on `name` whose payload `match` accepts, already received or still to come. */
     event(name, match = () => true, ms) {
       return waitFrame((frame) => frame.event?.channel === name && match(frame.event.payload), ms);
     },
@@ -388,7 +367,6 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
   return desktop;
 }
 
-/** Stands in for the daemon behind a desktop's channel: answers every request with its args, and records each connection. */
 function fakePeerDaemon() {
   const connections = [];
   return {
@@ -412,11 +390,6 @@ function fakePeerDaemon() {
     },
   };
 }
-/**
- * A throwaway Mac: its own data folder, a local relay in place of relay.milagre.cloud, the LAN on a port the OS picks
- * on 127.0.0.1 (none with `lan: false`), and a clock the test moves (pairing windows). Never Victor's data folder, 8797
- * or 8798. `autoAllow`: this Mac's window allows every computer that asks, as its owner would.
- */
 async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeExtra = {}, relay: relayOptions = {} } = {}) {
   const fs = require("node:fs/promises");
   const os = require("node:os");
@@ -433,7 +406,6 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
   const sockets = [];
   let daemon;
   let client;
-  // Registered before the relay's own hook, so the daemon closes while the relay still answers; the folder goes last.
   t.after(async () => {
     for (const socket of sockets) socket.close();
     client?.close();
@@ -447,7 +419,6 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
   const relay = await startLocalRelay(t, relayOptions);
   daemon = await startDaemon({
     dataDir,
-    // The temporary folder is the host's home folder too, so its Chats home is made there, never in the user's.
     homeDir: directory,
     version: "9.8.7",
     runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, readPullRequests: async (_worktree, refs) => refs, ...runtimeExtra },
@@ -466,7 +437,6 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
       if (channel !== "devices:pending") return;
       for (const request of payload?.requests ?? []) void client.call("devices:allow", [request.key]).catch(() => {});
     });
-  // Turning phone access on opens the pairing window, as showing the QR in Settings › Phone & sharing does.
   await client.call("phone:set-enabled", [true]);
   await until(async () => {
     const status = await client.call("phone:status");
@@ -474,7 +444,6 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
   }, "phone access on and the relay online");
   const identity = await readIdentity(dataDir);
   const token = JSON.parse(await fs.readFile(path.join(dataDir, "mobile.json"), "utf8")).token;
-  /** Dials this Mac with `connectTo` (connectDesktop or connectPhone), through the relay unless `relayUrl` says otherwise. */
   const dial = (connectTo, options = {}) => {
     const socket = connectTo({ relayUrl: relay.url, identity, token, ...options });
     sockets.push(socket);

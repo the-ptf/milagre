@@ -1,10 +1,6 @@
 const net = require("node:net");
 
-// A remote Chat's Browser pages draw on this Mac and reach the web from the Chat's computer (#832): each page's session
-// uses one of these as its SOCKS5 proxy (desktop main sets it), and every connection a page makes is opened from that
-// computer over its channel (peer-streams.cjs), so its localhost is the computer's and its LAN is the computer's.
 // One proxy per computer, on loopback, made the first time a page needs it. Chromium's SOCKS5 has no authentication,
-// so it takes only "no authentication"; the random port on loopback is what keeps it to this Mac.
 const VERSION = 0x05;
 const NO_AUTH = 0x00;
 const NO_METHOD = 0xff;
@@ -17,7 +13,6 @@ const REPLY = { ok: 0x00, failed: 0x01, network: 0x03, host: 0x04, refused: 0x05
 const HANDSHAKE_MS = 10_000;
 const MAX_HEADER = 512;
 
-/** The SOCKS reply for why the computer couldn't open a stream (peer-streams.cjs codes, or the computer being offline). */
 function replyFor(error) {
   switch (error?.code) {
     case "refused":
@@ -36,8 +31,6 @@ function replyFor(error) {
 }
 
 /**
- * Reads a client's greeting and CONNECT request from `buffer`. Returns null while bytes are missing, { error } for a
- * request this proxy refuses, or { target, port, rest } with the bytes after the request.
  * @param {Buffer} buffer
  */
 function parseRequest(buffer) {
@@ -136,7 +129,6 @@ function createBrowserProxies({ openStream, log = () => {} }) {
   }
 
   return {
-    /** The loopback port of `computerId`'s proxy, started the first time it is asked for. */
     port(computerId) {
       if (closed) return Promise.reject(new Error("Milagre is quitting."));
       let proxy = proxies.get(computerId);
@@ -156,7 +148,6 @@ function createBrowserProxies({ openStream, log = () => {} }) {
       }
       return proxy.then(({ port }) => port);
     },
-    /** Stops a computer's proxy and its connections (the computer was removed). */
     async drop(computerId) {
       const proxy = proxies.get(computerId);
       proxies.delete(computerId);

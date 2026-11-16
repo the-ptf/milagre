@@ -17,11 +17,6 @@ function pageUrl(value) {
   return url;
 }
 
-/**
- * A new trycloudflare.com hostname answers NXDOMAIN for several seconds after cloudflared registers, and resolvers cache
- * that answer for a minute: a phone that loads it at once gets a blank page and every retry opens another fresh name.
- * Ask public resolvers directly (never the LAN's, so its negative cache stays clean) until the name resolves.
- */
 async function waitForPublicDns(url, { timeoutMs = 20_000, intervalMs = 500, resolver } = {}) {
   const hostname = new URL(url).hostname;
   const dns = resolver ?? new Resolver({ timeout: 2000, tries: 1 });
@@ -38,11 +33,6 @@ async function waitForPublicDns(url, { timeoutMs = 20_000, intervalMs = 500, res
   }
 }
 
-/**
- * Whether a page's server runs on this computer or its private network, where a self-signed certificate is normal.
- * Only IP literals in loopback or private ranges and the loopback and mDNS names count: a public name that merely starts
- * like one ("10.example.com", "localhost.evil.com") keeps full certificate checks.
- */
 function privateTarget(hostname) {
   const host = String(hostname)
     .toLowerCase()
@@ -54,11 +44,9 @@ function privateTarget(hostname) {
     return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || host === "0.0.0.0";
   }
   if (isIP(host) === 6) return host === "::1" || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host);
-  // mDNS names resolve on the local network only.
   return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/.test(host);
 }
 
-/** One authenticated, origin-preserving HTTP/WebSocket tunnel per page lease. No screenshots or HTML rewriting. */
 function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS, published = tunnel === startQuickTunnel ? waitForPublicDns : null } = {}) {
   const leases = new Map();
   let closed = false;
@@ -105,7 +93,6 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS, p
           method: req.method,
           path: req.url,
           headers: headers(req),
-          // A local dev server's HTTPS certificate is usually self-signed; the user opened it on purpose.
           ...(target.protocol === "https:" && privateTarget(target.hostname) ? { rejectUnauthorized: false } : {}),
         });
       const server = http.createServer((req, res) => {
@@ -145,7 +132,6 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS, p
         touch();
         const outgoing = upstream(req);
         outgoing.on("response", (response) => {
-          // An edge cache must never serve an authenticated response without checking the page cookie again.
           const output = { ...response.headers, "cache-control": "private, no-store" };
           for (const name of ["cdn-cache-control", "cloudflare-cdn-cache-control", "surrogate-control"]) delete output[name];
           if (output.location) {
@@ -214,10 +200,8 @@ function createBrowserPageProxy({ tunnel = startQuickTunnel, idleMs = IDLE_MS, p
           await lease.tunnel.close();
           throw new Error("Browser proxy was closed.");
         }
-        // Still usable if DNS is slow: the phone's own retry has a chance, which a thrown error would take away.
         if (published) await published(lease.tunnel.url);
         if (!leases.has(id) || closed) throw new Error("Browser proxy was closed.");
-        // A phone that gave up waiting never opens or releases it; an unused lease goes after two minutes.
         touch(Math.min(idleMs, UNUSED_MS));
         return { id, url: `${lease.tunnel.url}${AUTH}${secret}`, origin: lease.tunnel.url };
       } catch (error) {

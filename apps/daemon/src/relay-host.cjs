@@ -4,11 +4,6 @@ const { b64url, fromB64url } = require("@milagre/shared/relay-crypto");
 const { createPhoneChannels, frame, OPEN, CLOSE } = require("./phone-channels.cjs");
 const { PEER_BUDGET } = require("./peer-channel.cjs");
 
-// helloMs: a phone connection that has not finished its hello by then is closed, so idle sockets cannot fill the room.
-// replacedMs: the wait after the relay closes a ready session as replaced (4409): another Mac holds the same identity
-// (say, after Migration Assistant), and redialing on the short backoff would have the two knock each other off every second.
-// stableMs: how long a session must stay up before the backoff starts over, so a relay that drops us right after
-// ready still backs off.
 const DEFAULT_TIMING = {
   pingMs: 20_000,
   idleMs: 45_000,
@@ -21,27 +16,19 @@ const DEFAULT_TIMING = {
   jitter: true,
 };
 const REPLACED = 4409;
-// Webhook frames on conn 0 (apps/relay/src/room.mjs): HOOK brings a delivery, HOOK_SET says which hooks this Mac wants,
-// HOOK_ACK says a delivery is on disk, HOOK_RESULT answers a set with the hooks another room still holds.
 const HOOK = 4,
   HOOK_SET = 5,
   HOOK_ACK = 6,
   HOOK_RESULT = 7;
-// After a set the relay couldn't fully apply, the set goes again, slower each time.
 const HOOK_RETRY_MS = [2000, 10_000, 30_000, 60_000, 300_000];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const HOST_OFFLINE = encoder.encode("host-offline");
 const EMPTY_SET = JSON.stringify({ hookIds: [] });
-// Headroom for one full phone response (lan-host.cjs MAX_BUFFERED) plus a desktop's own budget.
 const RELAY_PEER_BUDGET = 96 * 1024 * 1024 + PEER_BUDGET;
 const defaultRandom = (n) => new Uint8Array(randomBytes(n));
 
-// Opt-in transport diagnostics: plain counters of what crosses the relay socket, for chasing traffic storms without
-// logging anything. Off unless MILAGRE_TRANSPORT_DIAGNOSTICS=1 when the daemon starts; read (and reset) through
-// phone:status on this Mac's own connection. Every key is a fixed name below: no conn id, hook id, key, token, URL,
-// header, argument or payload ever reaches it.
-const ENVELOPES = ["OPEN", "DATA", "CLOSE", "HOOK", "HOOK_SET", "HOOK_ACK", "HOOK_RESULT"]; // frame type n is ENVELOPES[n - 1]
+const ENVELOPES = ["OPEN", "DATA", "CLOSE", "HOOK", "HOOK_SET", "HOOK_ACK", "HOOK_RESULT"];
 const MESSAGE_TYPES = new Set(["hello", "req", "res", "live-open", "live", "live-close", "ping", "pong", "peer"]);
 const ANOMALIES = ["dataNoConn", "dataNotOpen", "dataUndecryptable", "duplicateOpen"];
 const CLOSE_CODES = [1000, 1001, 1005, 1006, 1009, 1011, 4403, 4409, 4410];
@@ -68,12 +55,6 @@ function blankCounters() {
   };
 }
 
-/**
- * One process-wide set of counters (bounded: fixed keys, integers only). Each relay host `attach`es with its role and
- * counts through the probe it gets back until it stops (`detach`), so the totals outlive host restarts. `read()` is a
- * copy with `since` (ms epoch of the start or last reset), `uptimeMs` and the hosts running now; `reset()` zeroes
- * everything but that.
- */
 function createTransportDiagnostics({ now = Date.now } = {}) {
   let counters = blankCounters();
   let since = now();
@@ -120,7 +101,6 @@ function createTransportDiagnostics({ now = Date.now } = {}) {
           const closes = counters.sockets[role].closes;
           closes[code === undefined ? "idle" : CLOSE_CODES.includes(code) ? String(code) : "other"] += 1;
         },
-        /** The host stopped: nothing it still holds counts any more. */
         detach() {
           if (!attached) return;
           attached = false;
@@ -141,13 +121,6 @@ function createTransportDiagnostics({ now = Date.now } = {}) {
 }
 const transportDiagnostics = process.env.MILAGRE_TRANSPORT_DIAGNOSTICS === "1" ? createTransportDiagnostics() : null;
 
-/**
- * Keeps the Mac connected to the public relay and serves each phone that comes through it:
- * an encrypted channel per phone, with requests and live sockets forwarded to the loopback bridge.
- * `retired`: the identity is one Reset replaced. It holds the old room only to turn every phone away with
- * `{ code: 'bad-token', reason: 'reset' }`; it needs only `identity.hostId` and `identity.sign`. Apps that predate
- * `reason` still read it as an older code and say to scan again.
- */
 function startRelayHost({
   relayUrl,
   identity,
@@ -168,9 +141,7 @@ function startRelayHost({
   diagnostics = transportDiagnostics,
 }) {
   const { pingMs, idleMs, helloMs, backoff, replacedMs, stableMs, jitter, pendingRepeatMs, queueWaitMs } = { ...DEFAULT_TIMING, ...timing };
-  // Null unless diagnostics are on: every count below is behind it, so a host without them does no extra work.
   let probe = diagnostics ? diagnostics.attach(hooksOnly ? "hooks" : retired ? "retired" : "phone") : null;
-  // `hooksOnly`: no phone is served (phone access is off), the socket is kept for webhooks alone.
   const channels = hooksOnly
     ? null
     : createPhoneChannels({
@@ -194,7 +165,7 @@ function startRelayHost({
   let closed = false;
   let attempt = 0;
   let retryTimer = null;
-  let session = null; // the live relay socket and its phone connections
+  let session = null;
   let drainedOnce = false;
   let dialed = false;
 
@@ -203,29 +174,18 @@ function startRelayHost({
     status = next;
     try {
       onStatus?.(next);
-    } catch {
-      /* a listener must not break the host */
-    }
+    } catch {}
   };
 
   function sendRaw(current, bytes) {
     if (current.socket.readyState !== WebSocket.OPEN) return;
     current.socket.send(bytes);
-    // Measured only: what the socket holds unsent right after this frame joined it. Nothing is dropped or closed on it.
     if (probe) {
       probe.frame("out", envelopeOf(bytes), bytes.length);
       probe.buffered(current.socket.bufferedAmount);
     }
   }
 
-  /**
-   * Webhooks (`hooks`: { ids(), receive(deliveries), refused(ids), owners(ids) }). The relay holds deliveries for the ids
-   * in the last HOOK_SET, sent after every ready and whenever they change, each with its owner key (made with the hook,
-   * never in its URL): the relay keeps the key's hash, and the key moves a hook another room holds (this Mac's own room
-   * before a Reset) to this one. A hook refused even so shows on its Routine and is asked for again, slower each time.
-   * Deliveries arriving together are handed over as one batch and acknowledged only once `receive` has them on disk; a
-   * throw leaves them at the relay for the next ready. Nothing here logs ids, keys, secrets or payloads.
-   */
   function sendHookSet(current, force = false) {
     if (!hooks || !current.ready || current.over) return;
     let ids;
@@ -253,22 +213,15 @@ function startRelayHost({
     const refused = Array.isArray(result?.refused) ? result.refused.filter((id) => typeof id === "string") : [];
     const failed = Array.isArray(result?.failed) ? result.failed.filter((id) => typeof id === "string") : [];
     clearTimeout(current.hookRetry);
-    // A room a Reset retired, draining (`hooks.drained`): it registers nothing, and once it holds nothing more and every
-    // delivery it sent is acked, it is done. Relays from before `held` never say so; the Mac gives up on them in time.
     if (hooks.drained && !drainedOnce && result?.held === 0 && current.hookSet === EMPTY_SET && current.hookBatch.length === 0 && current.receiving === 0) {
       drainedOnce = true;
       try {
         hooks.drained();
-      } catch {
-        /* a listener must not break the host */
-      }
+      } catch {}
     }
-    // Refused although the set carried the owner key: say so on their Routines (a failed claim is only retried).
     try {
       hooks.refused(refused);
-    } catch {
-      /* a listener must not break the host */
-    }
+    } catch {}
     if (refused.length === 0 && failed.length === 0) {
       current.hookAttempt = 0;
       return;
@@ -303,12 +256,11 @@ function startRelayHost({
       try {
         await hooks.receive(batch);
       } catch {
-        return; // not acknowledged: the relay keeps them and sends them again after the next ready
+        return;
       } finally {
         current.receiving -= 1;
       }
       for (const item of batch) sendRaw(current, frame(HOOK_ACK, 0n, encoder.encode(item.id)));
-      // Draining: ask again, so the room's answer says what it still holds after these acks.
       if (hooks.drained) sendHookSet(current, true);
     });
   }
@@ -320,8 +272,6 @@ function startRelayHost({
     else return false;
     return true;
   }
-  // Phone access off: a phone that dials this room is closed at once with "host-offline", the answer it gets when no Mac
-  // is connected (relays from before that word close it as closed-by-host).
   function hooksOnlyFrame(current, data) {
     const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     if (bytes.length < 9 || bytes[0] !== OPEN) return;
@@ -350,10 +300,6 @@ function startRelayHost({
       hookAttempt: 0,
     };
     current.send = (bytes) => sendRaw(current, bytes);
-    // Every channel shares this socket, so its buffer holds whatever phones have in flight too: a single phone response
-    // (MAX_RESPONSE, about 86 MiB on the wire) can sit there while a healthy desktop is connected. A desktop's budget
-    // therefore starts above that. A desktop that stalls on the relay never shows here at all (the relay forwards to each
-    // peer on its own), so catching that one is the relay's job; this only bounds what the Mac itself can pile up.
     current.queued = () => current.socket.bufferedAmount;
     current.peerBudget = RELAY_PEER_BUDGET;
     session = current;
@@ -374,10 +320,7 @@ function startRelayHost({
       }
       setStatus("offline");
       let delay;
-      // Only a proven host being replaced means a twin Mac: replacing a pending socket takes no key, so anyone
-      // who knows the hostId could otherwise keep this Mac offline for a minute at a time.
       if (code === REPLACED && current.ready) {
-        // The usual 40% jitter spread, laid above replacedMs so the wait is never shorter than it.
         delay = jitter ? replacedMs * (1 + Math.random() * 0.4) : replacedMs;
       } else {
         const base = backoff[Math.min(attempt, backoff.length - 1)];
@@ -388,7 +331,6 @@ function startRelayHost({
     };
 
     ws.on("message", (data, isBinary) => {
-      // ws does not catch listener errors, and nothing a relay sends may take the daemon down.
       try {
         current.lastHeard = Date.now();
         if (probe) probe.frame("in", isBinary ? envelopeOf(data) : "text", data.length);
@@ -424,9 +366,7 @@ function startRelayHost({
       current.lastHeard = Date.now();
     });
     ws.on("close", (code) => finish(code));
-    ws.on("error", () => {
-      /* close follows */
-    });
+    ws.on("error", () => {});
     ws.on("open", () => {
       current.lastHeard = Date.now();
       current.readyTimer = setTimeout(() => {
@@ -440,14 +380,11 @@ function startRelayHost({
         }
         try {
           ws.ping();
-        } catch {
-          /* closing */
-        }
+        } catch {}
       }, pingMs);
     });
   }
 
-  // A stopped host counts nothing more (its channels hold the probe, which goes quiet) and lets go of it.
   function stopProbe() {
     probe?.detach();
     probe = null;
@@ -457,13 +394,10 @@ function startRelayHost({
 
   return {
     status: () => status,
-    /** Keys of the devices with a channel open through the relay now. */
     connectedKeys: () => (session && channels ? channels.keysOf(session) : []),
-    /** Closes every channel the device with `key` has open through the relay. */
     drop(key) {
       if (session && channels) channels.dropKey(session, key);
     },
-    /** Tells the relay the current hook set if it changed (a Routine made, deleted, paused or rotated). */
     syncHooks() {
       if (session) sendHookSet(session);
     },

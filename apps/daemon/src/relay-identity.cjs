@@ -5,7 +5,6 @@ const { randomBytes } = require("node:crypto");
 const { boxKeyPair, signKeyPair, hostIdOf, b64url, fromB64url } = require("@milagre/shared/relay-crypto");
 
 const random = (n) => new Uint8Array(randomBytes(n));
-// Each retired identity holds one more relay socket while the phone is on, so only the last few are kept.
 const MAX_RETIRED = 3;
 
 async function writePrivate(file, value) {
@@ -23,7 +22,6 @@ async function writePrivate(file, value) {
 
 const identityFile = (dataDir) => path.join(dataDir, "relay-identity.json");
 
-/** The Mac's relay identity: a signing key the relay checks, and a box key the phone pins from the QR. */
 async function readIdentity(dataDir) {
   try {
     assertPrivate(identityFile(dataDir));
@@ -41,10 +39,6 @@ const encode = (pair) => ({ publicKey: b64url(pair.publicKey), secretKey: b64url
 const decode = (pair) => ({ publicKey: fromB64url(pair.publicKey), secretKey: fromB64url(pair.secretKey) });
 
 /**
- * New sign and box key pairs, replacing any saved ones. Reset calls it, so a host id that leaked with an old link
- * no longer names this Mac on the relay. `retireUntil` (ms epoch) keeps the old signing key until then, so the old
- * room can still tell the phones that dial it that this Mac was reset (see readRetired). `drainUntil` keeps it until
- * then to take the webhook deliveries its room still holds (see readDraining).
  * @param {string} dataDir
  * @param {{ retireUntil?: number; drainUntil?: number; now?: number }} [options]
  */
@@ -53,16 +47,12 @@ async function rotateIdentity(dataDir, { retireUntil, drainUntil, now = Date.now
     let old;
     try {
       old = JSON.parse(await fs.readFile(identityFile(dataDir), "utf8")).sign;
-    } catch {
-      /* nothing saved, or unreadable: nothing to retire */
-    }
+    } catch {}
     if (old && retireUntil) {
       const kept = (await readRetiredRaw(dataDir)).filter((entry) => entry.until > now && entry.sign.publicKey !== old.publicKey);
       await writePrivate(retiredFile(dataDir), { retired: [...kept, { sign: old, until: retireUntil }].slice(-MAX_RETIRED) });
     }
     if (old && drainUntil) {
-      // No cap: an identity still draining may have deliveries the relay accepted waiting in its room, so only those past
-      // their limit (a day or so, see phone.cjs DRAIN_MS) go. That limit is what bounds the list.
       const kept = (await readKeysRaw(drainingFile(dataDir), "draining")).filter((entry) => entry.until > now && entry.sign.publicKey !== old.publicKey);
       await writePrivate(drainingFile(dataDir), { draining: [...kept, { sign: old, until: drainUntil }] });
     }
@@ -93,25 +83,15 @@ function decodeEntries(entries, now) {
     try {
       const sign = decode(entry.sign);
       out.push({ hostId: hostIdOf(sign.publicKey), sign, until: entry.until });
-    } catch {
-      /* a damaged entry is skipped */
-    }
+    } catch {}
   }
   return out;
 }
 
-/**
- * Identities that Reset replaced and that still answer their old room until `until`: phones paired with them hear
- * "this Mac was reset" there instead of finding nobody. Only the signing key is kept; the room needs nothing else.
- */
 async function readRetired(dataDir, now = Date.now()) {
   return decodeEntries(await readRetiredRaw(dataDir), now);
 }
 
-/**
- * Identities a Reset replaced whose rooms may still hold webhook deliveries the relay accepted: the Mac connects to each
- * until it has taken them all (then dropDraining) or `until` passes (the relay's own retention is shorter).
- */
 async function readDraining(dataDir, now = Date.now()) {
   return decodeEntries(await readKeysRaw(drainingFile(dataDir), "draining"), now);
 }

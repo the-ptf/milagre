@@ -7,7 +7,6 @@ const GLOBAL_FLAGS = [
   ["--json", "Print machine-readable JSON."],
 ];
 
-// The order `milagre help` and the /docs page list them in: running a server first, then scripting, then help.
 const COMMANDS = {
   serve: {
     description: "Run the server without a desktop UI and print pairing details.",

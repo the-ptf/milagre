@@ -1,6 +1,5 @@
 const os = require("node:os");
 
-// Tunnels, VM bridges and Apple's peer-to-peer links: a phone on the Wi-Fi can't reach these.
 const VIRTUAL = /^(utun|bridge|vmnet|awdl|llw|gif|stf|anpi|ap)\d*/;
 
 // Tailscale gives each machine a 100.64.0.0/10 address on a utun; a phone or a Mac on the same tailnet dials it from anywhere.

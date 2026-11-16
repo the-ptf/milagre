@@ -1,5 +1,3 @@
-// `milagre triage`: start the user's own coding agent in this terminal on a triage session (packages/core/src/triage.cjs)
-// covering every Milagre profile on this computer. For when the app won't start or its own entry doesn't work.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -89,7 +87,6 @@ async function triage({ dataDir, flags = [], version, output = process.stdout } 
     profiles.push({ ...candidate, exists, host: exists ? await describeHost(candidate.dir) : undefined });
   }
   const agents = await findAgents();
-  // Beside the first profile that exists, as T3 does; a computer with no profile at all still gets a session.
   const { sessionDir, playbookPath, contextPath } = await writeTriageSession({
     root: path.join(profiles.find((profile) => profile.exists)?.dir ?? os.tmpdir(), "triage"),
     entry: { kind: "cli", cliVersion: version, launchedAs: process.env.npm_command === "exec" ? "npx milagre triage" : "milagre triage" },

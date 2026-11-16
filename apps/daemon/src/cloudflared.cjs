@@ -5,7 +5,6 @@ const { createHash } = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 
-// Update the release and its artifact hashes together. Never execute an unverified download.
 const VERSION = "2026.10.0";
 const ARTIFACTS = {
   "darwin-x64": {
@@ -41,7 +40,6 @@ async function installCloudflared({
     return Buffer.from(await response.arrayBuffer());
   },
 }) {
-  // Concurrent tunnel starts in this host share one install; failed attempts can be retried.
   if (installing.has(target)) return installing.get(target);
   const work = (async () => {
     try {

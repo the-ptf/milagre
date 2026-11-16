@@ -12,7 +12,6 @@ function activityMode(value = "all") {
   return value;
 }
 
-/** All accepted answers still go through the runtime's ordinary question command. */
 function createLiveActivity({ snapshot, answer, now = Date.now, newId = randomUUID }) {
   const targets = new Map();
   const drafts = new Map();
@@ -55,7 +54,6 @@ function createLiveActivity({ snapshot, answer, now = Date.now, newId = randomUU
         ["approval", run.approvals ?? []],
       ]) {
         for (const request of requests) {
-          // A request rediscovered with different choices must not inherit an old action.
           const key = JSON.stringify([chatId, run.startedAt, kind, request]);
           seen.add(key);
           if (completed.has(key)) continue;

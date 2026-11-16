@@ -2,7 +2,6 @@ const { spawn: spawnProcess } = require("node:child_process");
 const { ensureCloudflared } = require("./cloudflared.cjs");
 
 const QUICK_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/;
-// cloudflared logs this once the edge accepts the first connection; before that the URL answers 502/530.
 const READY = /Registered tunnel connection/;
 
 /**
