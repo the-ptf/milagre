@@ -31,23 +31,14 @@
     {
       "files": ["apps/daemon/src/mobile-bridge.cjs"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 1031,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 560,
+            "max": 406,
             "skipBlankLines": true,
             "skipComments": true
           }
-        ],
-        "complexity": ["error", 100]
+        ]
       }
     },
     {
