@@ -69,7 +69,7 @@ const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
- * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "onOrchestrator">}
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
  */
 function hostSettingsBridge(invoke, listen) {
   return {
@@ -87,6 +87,9 @@ function hostSettingsBridge(invoke, listen) {
     undoOrchestratorTask: (taskId) => invoke("orchestrator:task:undo", taskId),
     rerouteOrchestratorTask: (taskId, change) => invoke("orchestrator:task:reroute", taskId, change),
     dismissOrchestratorTask: (taskId) => invoke("orchestrator:task:dismiss", taskId),
+    importOrchestratorMemory: () => invoke("orchestrator:memory:import"),
+    saveOrchestratorMemory: (notes) => invoke("orchestrator:memory:save", notes),
+    forgetOrchestratorMemory: () => invoke("orchestrator:memory:forget"),
     onOrchestrator: (callback) => listen("orchestrator:changed", callback),
   };
 }

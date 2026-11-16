@@ -3,6 +3,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { normalizeOrchestratorSettings, roleById, pickAccount, titleFromPrompt, recordTrust } = require("@milagre/shared/orchestrator");
 const { routeTask } = require("./router.cjs");
+const { importMemory } = require("./memory-import.cjs");
 
 const HINT_FILES = ["AGENTS.md", "CLAUDE.md", "README.md"];
 const HINT_CHARS = 400;
@@ -213,6 +214,36 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
     dismiss(taskId) {
       store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
       return null;
+    },
+    async importMemory() {
+      const at = now();
+      store.update((current) => ({ ...current, memory: { ...current.memory, sources: [], updatedAt: at } }));
+      const result = await importMemory({
+        call: ports.memoryCall?.(settings().router) ?? null,
+        onSource: (source) => store.update((current) => ({ ...current, memory: { ...current.memory, sources: [...current.memory.sources, source] } })),
+        ...(ports.home ? { home: ports.home } : {}),
+        now,
+      });
+      store.update((current) => ({
+        ...current,
+        memory: {
+          ...current.memory,
+          sources: result.sources,
+          notes: [...current.memory.notes.filter((note) => note.source === "Milagre"), ...result.notes],
+          importedAt: now(),
+          updatedAt: now(),
+        },
+      }));
+      return store.read().memory;
+    },
+    saveMemoryNotes(notes) {
+      if (!Array.isArray(notes)) throw new Error("Memory notes must be a list");
+      store.update((current) => ({ ...current, memory: { ...current.memory, notes, updatedAt: now() } }));
+      return store.read().memory;
+    },
+    forgetMemory() {
+      store.update((current) => ({ ...current, memory: { notes: [], trust: {}, sources: [], importedAt: null, updatedAt: now() } }));
+      return store.read().memory;
     },
     isStarting: (taskId) => starting.has(taskId),
     taskForChat(projectPath, sessionId) {

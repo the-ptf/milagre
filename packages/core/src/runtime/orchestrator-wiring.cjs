@@ -4,6 +4,23 @@ const { patchSession } = require("@milagre/shared/project-edits");
 const { createOrchestratorStore } = require("../orchestrator/store.cjs");
 const { createOrchestrator } = require("../orchestrator/service.cjs");
 const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
+
+const MEMORY_SCHEMA = {
+  type: "object",
+  properties: {
+    notes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { text: { type: "string" }, group: { type: "string" }, source: { type: "string" } },
+        required: ["text", "group", "source"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["notes"],
+  additionalProperties: false,
+};
 const { claudeModel, codexModel } = require("../git-text.cjs");
 
 function routerModels({ agentCli, clientVersion }) {
@@ -11,9 +28,9 @@ function routerModels({ agentCli, clientVersion }) {
     const status = await agentCli(provider);
     return status?.problem ? null : status;
   };
-  return (router) => {
+  return (router, outputSchema = ROUTE_SCHEMA) => {
     if (router.provider === "claude") return claudeModel({ getCommand: getCommand("claude"), model: router.model });
-    if (router.provider === "codex") return codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: ROUTE_SCHEMA, model: router.model });
+    if (router.provider === "codex") return codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema, model: router.model });
     return null;
   };
 }
@@ -75,7 +92,8 @@ function registerOrchestrator(
       chatKey,
       stop: (key) => stopChat(key),
       archive: (projectPath, sessionId) => archiveChat(projectPath, sessionId),
-      routerCall,
+      routerCall: (router) => routerCall(router),
+      memoryCall: (router) => routerCall(router, MEMORY_SCHEMA),
     },
   });
   commands.handle("orchestrator:read", () => orchestrator.snapshot());
@@ -86,6 +104,9 @@ function registerOrchestrator(
   commands.handle("orchestrator:task:undo", (_event, taskId) => orchestrator.undo(String(taskId)));
   commands.handle("orchestrator:task:reroute", (_event, taskId, change) => orchestrator.reroute(String(taskId), change ?? {}));
   commands.handle("orchestrator:task:dismiss", (_event, taskId) => orchestrator.dismiss(String(taskId)));
+  commands.handle("orchestrator:memory:import", () => orchestrator.importMemory());
+  commands.handle("orchestrator:memory:save", (_event, notes) => orchestrator.saveMemoryNotes(notes));
+  commands.handle("orchestrator:memory:forget", () => orchestrator.forgetMemory());
   return taskAccountsFor({ states, accounts, routing, agentCli });
 }
 
