@@ -6,7 +6,6 @@ import { ProjectAccountsSection } from "../../project-accounts-section";
 import { View } from "react-native";
 import { SectionLabel } from "../../ui";
 
-/** Settings › Accounts: saved accounts, usage-limit switching, and which account each Project or Link uses (was Project Accounts). */
 export default function AccountsScreen() {
   return (
     <>

@@ -35,7 +35,6 @@ async function resolveBranchPolicy(projectPath, local = {}) {
 }
 
 async function availablePolicyBranch(projectPath, policy, input, { issueBranch } = {}) {
-  // Without an explicit template, retain Linear's suggested name if it meets this Project's rules.
   let branch;
   if (!policy.template && issueBranch !== undefined) {
     try {
@@ -47,7 +46,6 @@ async function availablePolicyBranch(projectPath, policy, input, { issueBranch }
   branch ??= formatPolicyBranch(policy, input);
   const taken = async (name) => (await git.refExists(projectPath, `refs/heads/${name}`)) || (await git.refExists(projectPath, `refs/remotes/origin/${name}`));
   if (await taken(branch)) branch = validatePolicyBranch(`${branch}-${input.suffix}`, policy);
-  // Never borrow an existing local or remote branch, even if the collision suffix is already taken.
   if (await taken(branch)) throw new Error(`Branch ${branch} already exists. Try creating the Worktree again.`);
   return branch;
 }

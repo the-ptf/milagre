@@ -11,9 +11,7 @@ export function discardPastedImage(image: PastedImage) {
   if (image.uri) {
     try {
       new File(image.uri).delete();
-    } catch {
-      /* The cache may already have been cleaned. */
-    }
+    } catch {}
   }
 }
 
@@ -58,7 +56,6 @@ export async function pickAttachments(kind: "photos" | "camera" | "files" | "pas
   );
 }
 
-/** A picked video goes as a file: the agent gets its path on the computer. */
 async function prepareVideo(asset: ImagePicker.ImagePickerAsset, index: number): Promise<Attachment> {
   const file = new File(asset.uri);
   const name = videoName(asset.fileName, index, asset.uri);
@@ -78,9 +75,7 @@ function videoName(fileName: string | null | undefined, index: number, uri = "")
 function discardPicked(file: File) {
   try {
     file.delete();
-  } catch {
-    /* The cache may already have been cleaned. */
-  }
+  } catch {}
 }
 
 async function preparePhoto(asset: { uri: string; width: number; height: number; fileName?: string | null }, index: number): Promise<Attachment> {

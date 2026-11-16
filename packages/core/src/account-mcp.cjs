@@ -3,10 +3,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
 // An added Claude or Codex Account runs from its own config folder, but the MCP servers the user set up
-// belong to the connected CLI account: Claude keeps them in .claude.json, which an Account never copies,
 // and Codex copied config.toml once, when the Account was added. Each time an Account's environment is
-// built, the connected account's servers are merged into the Account's config. A server of the same name
-// takes the connected account's definition; a server only the Account has stays.
 
 function writeIfChanged(file, before, after) {
   if (after === before) return;
@@ -26,8 +23,6 @@ function readText(file) {
 
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-// The names copied last time, beside the target config, so a server removed from the source can be removed again
-// without touching servers the account added itself.
 const recordFile = (targetFile) => path.join(path.dirname(targetFile), "milagre-inherited-mcp.json");
 function readRecorded(targetFile) {
   try {
@@ -42,7 +37,6 @@ function writeRecorded(targetFile, names) {
   writeIfChanged(file, readText(file), `${JSON.stringify({ names: [...names].toSorted() })}\n`);
 }
 
-// User servers sit at the top level of .claude.json, local ones under projects[path]. The Account's file
 // is written by Claude Code at sign-in; before that there is nothing to merge into.
 function inheritClaudeMcp(sourceFile, targetFile) {
   const sourceText = readText(sourceFile);
@@ -67,12 +61,9 @@ function inheritClaudeMcp(sourceFile, targetFile) {
   writeRecorded(targetFile, sourceNames);
 }
 
-// The server a TOML table header belongs to: [mcp_servers.pencil] and [mcp_servers.pencil.env] are both
-// "pencil". Anything else, [mcp_servers] alone included, belongs to no server.
 const SERVER_HEADER = /^\s*\[\s*mcp_servers\s*\.\s*("(?:[^"\\]|\\.)*"|'[^']*'|[A-Za-z0-9_-]+)\s*(?:\.[^\]]*)?\]\s*(?:#.*)?$/;
 const HEADER = /^\s*\[/;
 
-// The text before the first table, then each table with the lines up to the next header.
 function tomlSections(text) {
   const lines = text.split("\n");
   const sections = [];
@@ -95,7 +86,6 @@ function inheritCodexMcp(sourceFile, targetFile) {
   if (sourceText === null || targetText === null) return;
   const inherited = tomlSections(sourceText).filter((section) => section.server);
   const names = new Set(inherited.map((section) => section.server));
-  // A server copied last time that the source no longer has goes, sub-tables included.
   const removed = new Set([...readRecorded(targetFile)].filter((name) => !names.has(name)));
   if (!inherited.length && !removed.size) return;
   const kept = tomlSections(targetText).filter((section) => !names.has(section.server) && !removed.has(section.server));

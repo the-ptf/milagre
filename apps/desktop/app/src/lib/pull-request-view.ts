@@ -3,10 +3,6 @@ import type { MergeMethod, PullRequestDetail, PullRequestThread } from "@milagre
 import { quoteMarkdown } from "@milagre/shared/prompt-parts";
 import type { DiffLine } from "./diff-parse";
 
-// The PR panel's pure parts: where a GitHub thread sits in the diff, the counts the panel shows, the merge method
-// remembered per repository, and the message a thread's "Fix in Chat" sends to the Chat.
-
-/** The Changes panel's modes: a Chat's own changes, or the PR its branch opened. */
 export type ChangesMode = "uncommitted" | "committed" | "pr";
 
 export type PrRange = { base: string; head: string };
@@ -17,7 +13,6 @@ export function prRange(pr: Pick<PullRequestDetail, "baseRefOid" | "headRefOid">
 
 const NO_THREADS: PullRequestThread[] = [];
 
-/** Each file's threads, the same array for a file whose threads didn't change, so its diff doesn't re-render. */
 export function threadsByPath(threads: PullRequestThread[], previous?: Map<string, PullRequestThread[]>) {
   const next = new Map<string, PullRequestThread[]>();
   for (const thread of threads) next.set(thread.path, [...(next.get(thread.path) ?? []), thread]);
@@ -30,7 +25,6 @@ export function threadsByPath(threads: PullRequestThread[], previous?: Map<strin
 
 export const threadsFor = (byPath: Map<string, PullRequestThread[]>, path: string) => byPath.get(path) ?? NO_THREADS;
 
-/** The threads GitHub anchors to a diff line: RIGHT threads to its new line number, LEFT ones to its old. */
 export function threadsOnLine(threads: PullRequestThread[], line: DiffLine): PullRequestThread[] {
   if (!threads.length) return NO_THREADS;
   const found = threads.filter(
@@ -42,7 +36,6 @@ export function threadsOnLine(threads: PullRequestThread[], line: DiffLine): Pul
   return found.length ? found : NO_THREADS;
 }
 
-/** Threads no row of the shown diff carries (outdated, or on lines outside its hunks); they gather under the file. */
 export function unplacedThreads(threads: PullRequestThread[], lines: DiffLine[]): PullRequestThread[] {
   return threads.filter((thread) => !lines.some((line) => threadsOnLine([thread], line).length > 0));
 }
@@ -54,7 +47,6 @@ export function openThreadCount(threads: PullRequestThread[]) {
   return threads.filter((thread) => threadState(thread) === "open").length;
 }
 
-/** "owner/name" from a PR address, or null. */
 export function repoOf(url: string): string | null {
   const match = /^https:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/\d+/.exec(url);
   return match?.[1] ?? null;
@@ -67,7 +59,6 @@ export const MERGE_METHODS: { value: MergeMethod; label: string; action: string 
   { value: "rebase", label: "Rebase", action: "Rebase and merge" },
 ];
 
-/** The merge method last used in a repository; squash until one was picked. */
 export function readMergeMethod(url: string, storage: Pick<Storage, "getItem"> = localStorage): MergeMethod {
   try {
     const saved = JSON.parse(storage.getItem(METHOD_KEY) ?? "{}")?.[repoOf(url) ?? ""];
@@ -87,14 +78,12 @@ export function saveMergeMethod(url: string, method: MergeMethod, storage: Pick<
   storage.setItem(METHOD_KEY, JSON.stringify({ ...saved, [repo]: method }));
 }
 
-/** "Fix in Chat" on a review thread: the thread, where it sits, and the ask. */
 export function threadFixMessage(pr: Pick<PullRequestDetail, "number">, thread: PullRequestThread): string {
   const where = thread.line ? `${thread.path}:${thread.line}` : thread.path;
   const comments = thread.comments.filter((comment) => !comment.pending).map((comment) => `${comment.author} wrote:\n${quoteMarkdown(comment.body)}`);
   return `Address this review thread on PR #${pr.number}, at ${where}:\n\n${comments.join("\n\n")}\n\nMake the change, push it, and tell me what you did so I can reply and resolve the thread.`;
 }
 
-/** A relative age like "2h" for a GitHub timestamp. */
 export function age(iso: string, now = Date.now()): string {
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return "";

@@ -6,11 +6,8 @@ import { bridgeFor } from "./computer-bridge.ts";
 import { HIDDEN_REMOTE_SCOPES_KEY, readHiddenRemoteScopes, setRemoteScopeHidden } from "./hidden-projects.ts";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./project-list.ts";
 
-/** One Project or Link of a computer, keyed as the window keeps it (`${id}|path`, `milagre-link:${id}|uuid`). */
-/** `origin`: a Project's Git remote ("host/owner/repo"), which puts its copies on several computers under one heading. */
 export type ComputerScope = { key: string; name: string; initial: string; link: NamedProjectLink | null; computerId: string; origin?: string };
 
-/** A computer's Projects (those not hidden) then its Links, from its own lists; main has already qualified their keys. */
 export function computerScopes(computerId: string, recent: RecentProject[], links: NamedProjectLink[]): ComputerScope[] {
   return [
     ...recent
@@ -27,7 +24,6 @@ export function computerScopes(computerId: string, recent: RecentProject[], link
   ];
 }
 
-/** Another computer's Projects and Links with this Mac's own `hidden` choices in place of that computer's. */
 export function withLocalVisibility(
   recent: RecentProject[],
   links: NamedProjectLink[],
@@ -39,19 +35,12 @@ export function withLocalVisibility(
   };
 }
 
-/**
- * Every computer's scopes in one list: Projects by name, then Links by name; on a tie This Mac's first, then the
- * computers in the popover's order. Two Projects the user has placed in `manualOrder` (the sidebar's saved group order)
- * keep that relative order instead of the name one, so a reorder holds across computers; a Project absent from it still
- * falls in by name, which keeps the default (nothing moved) as plain name order.
- */
 export function mergeScopes<T extends { key: string; name: string; link: unknown; computerId: string }>(
   scopes: T[],
   computerOrder: string[],
   manualOrder: readonly string[] = [],
 ): T[] {
   const rank = (scope: T) => (scope.computerId === LOCAL_COMPUTER ? -1 : computerOrder.indexOf(scope.computerId));
-  // Only decides between two Projects both in the saved order; otherwise 0, so the name compare below places them.
   const manualOrderCompare = (a: T, b: T) => {
     const ai = manualOrder.indexOf(a.key);
     const bi = manualOrder.indexOf(b.key);
@@ -67,15 +56,12 @@ export function mergeScopes<T extends { key: string; name: string; link: unknown
   );
 }
 
-/** Remote scopes minus those the window already holds as its own (the open Project of another computer is among the local ones). */
 export function withoutLocal<T extends { key: string }>(remote: T[], local: { key: string }[]): T[] {
   return remote.filter((scope) => !local.some((item) => item.key === scope.key));
 }
 
-/** Another computer's Project as the project chooser lists it, hidden ones included. */
 export type ComputerProject = RecentProject & { computerId: string };
 
-// Both workspaces keep a sidebar. A newly shown one takes the lists the other read, before paint.
 type ComputerLists = Record<string, { recent: RecentProject[]; links: NamedProjectLink[] }>;
 let lastComputerLists: ComputerLists = {};
 const listListeners = new Set<() => void>();
@@ -89,11 +75,6 @@ function keepComputerLists(next: ComputerLists) {
   for (const listener of listListeners) listener();
 }
 
-/**
- * Each paired computer's Projects and Links, read from it (from its cache in main while it is away), again when its
- * state changes, and with this Mac's own visibility choices applied. A failed read keeps the last list. `scopes` are what
- * the sidebar lists; `projects` every Project, hidden too, for the chooser.
- */
 export function useComputerScopes(computers: ComputerView[]): {
   scopes: ComputerScope[];
   projects: ComputerProject[];
@@ -120,7 +101,6 @@ export function useComputerScopes(computers: ComputerView[]): {
   }, []);
   useEffect(() => {
     let live = true;
-    // A computer turned off keeps no scopes.
     const off = computers.filter((computer) => computer.state === "off").map((computer) => computer.id);
     if (off.some((id) => id in lastComputerLists)) {
       keepComputerLists(Object.fromEntries(Object.entries(lastComputerLists).filter(([id]) => !off.includes(id))));
@@ -169,10 +149,6 @@ export function useComputerScopes(computers: ComputerView[]): {
   }, [byComputer, computers, hiddenRemote, setHidden]);
 }
 
-/**
- * A computer's short name on the sidebar's Project headers: its first word, without a possessive. Hostnames split at
- * - _ and . too ("Victor’s MacBook Pro" → "Victor", "victor-mbp" → "victor").
- */
 export function computerAlias(name: string): string {
   return (
     name
@@ -182,10 +158,8 @@ export function computerAlias(name: string): string {
   );
 }
 
-/** A computer as the project chooser heads its section: This Mac (`local`), or a paired one. */
 export type ComputerSection = { id: string; name: string; local: boolean };
 
-/** The project chooser's sections: This Mac first, then the paired computers by name. */
 export function computerSections(thisMac: string, computers: { id: string; name: string }[]): ComputerSection[] {
   return [
     { id: LOCAL_COMPUTER, name: thisMac, local: true },
@@ -195,7 +169,6 @@ export function computerSections(thisMac: string, computers: { id: string; name:
   ];
 }
 
-/** Rows under their computer's section, in the order given; a section with no rows is left out. */
 export function bySection<T extends { computerId: string }>(rows: T[], sections: ComputerSection[]): (ComputerSection & { rows: T[] })[] {
   return sections.map((section) => ({ ...section, rows: rows.filter((row) => row.computerId === section.id) })).filter((section) => section.rows.length > 0);
 }

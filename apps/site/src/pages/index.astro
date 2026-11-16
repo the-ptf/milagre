@@ -13,11 +13,9 @@ import "../styles/dawn.css";
 
 import { DOWNLOAD_ARM64, DOWNLOAD_IOS, REPO_URL } from "../links";
 
-// Search result: 50-60 characters of title, 150-160 of description, with the facts up front.
 const title = "Milagre: Claude Code and Codex agents on your Mac and phone";
 const description =
   "Free, open-source app that runs Claude Code, Codex, Antigravity and Kiro on your Mac, one Git worktree per chat. Answer approvals from your iPhone or Android.";
-// Link previews (Discord, Slack, X, iMessage) lead with the headline instead.
 const socialTitle = "Milagre: your agents keep working. Answer them from anywhere.";
 const site = "https://milagre.cloud/";
 const schema = [
@@ -87,7 +85,6 @@ const schema = [
     <DawnClouds />
     <div class="cta" data-cta><DownloadButtons /></div>
   </div>
-  <!-- The sections below the hero, with the star's trail behind them (outside their paint containment, which would clip it). -->
   <div class="journey">
     <DawnTrail />
     <BringYourSubscription />
@@ -96,21 +93,14 @@ const schema = [
 </Base>
 
 <style>
-  /* The hero takes three quarters of the window, so the first section already shows below it. Dawn's sky
-     (styles/dawn.css) fills it; its clouds hold the apps under the download button. */
   .page { --fade-h: 240px; position: relative; display: flex; flex-direction: column; height: 75vh; height: 75dvh; overflow: hidden; }
   .hero { display: flex; flex: 1; flex-direction: column; align-items: center; gap: clamp(22px, 3.6vh, 36px); min-height: 0; padding-top: calc(var(--hero-pad) + var(--lift, 0px)); text-align: center; }
   .headline { display: flex; flex-direction: column; align-items: center; gap: 12px; }
   h1 { max-width: 22ch; font-size: clamp(32px, min(4.6vw, 5.8vh), 60px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.05; }
-  /* The payoff line in an italic serif, a touch larger so it reads at the same size as the grotesk. */
-  /* The one-screen design shows the headline and the apps; this paragraph says what Milagre is for search engines,
-     AI search and screen readers. */
   .summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   h1 em { display: block; font-family: var(--font-serif); font-size: 1.12em; font-weight: 400; letter-spacing: -0.01em; color: var(--accent-ink); }
-  /* Wider than the text column, so the Mac window can grow on big screens. */
   .stage { position: relative; flex: 1; width: min(100vw - 48px, 1680px); min-height: 0; margin-top: clamp(8px, 2.5vh, 28px); }
   .cta { position: absolute; inset: auto 0 var(--drop, 0px); z-index: 2; display: flex; justify-content: center; padding: 0 20px clamp(40px, calc(4vh + 20px), 56px); }
-  /* The sections sit above the star's trail, so it passes behind the app windows. */
   .journey { position: relative; }
   .journey > :global(:not(.dawn-trail)) { position: relative; z-index: 1; }
   @media (max-width: 700px) {

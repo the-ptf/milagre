@@ -3,7 +3,6 @@ import type { PullRequestActionContext } from "../../model";
 import { BLOCKERS } from "../../lib/pr-blockers";
 import { Icon } from "../primitives/Icon";
 
-/** A PR-blocker pill the user clicked, shown as what it asked for instead of the skill prompt the agent read. */
 export function PullRequestActionCard({ action }: { action: PullRequestActionContext }) {
   const blocker = BLOCKERS[action.action];
   return (

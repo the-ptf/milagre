@@ -27,7 +27,6 @@ import { SplitProvider } from "../split-context";
 import { HardwareShortcuts, SplitShell } from "../split-layout";
 import { paneScreenLayout } from "../beside-session";
 
-// Confirmations open as a bottom sheet over whatever is showing, the side panels included.
 setConfirmPresenter(() => router.push("/confirm-sheet"));
 setChoicePresenter(() => router.push("/choice-sheet"));
 setPromptPresenter(() => router.push("/prompt-sheet"));
@@ -50,9 +49,7 @@ export default function Layout() {
     contentStyle: { backgroundColor: palette.page },
   } as const;
   // Android: react-native-screens 4.30 learns the status bar height only from a later insets change, so a full-height
-  // sheet opened fresh ran under the status bar and its header buttons couldn't be tapped. Full sheets there always
   // reach the top and keep their content below the status bar themselves: a page with a native header (Settings, the
-  // PR sheet's pages) is padded by that header, a page drawing its own header by `fullSheet`'s padding.
   const fullStackSheet = {
     ...sheet,
     sheetAllowedDetents: [1],
@@ -77,7 +74,6 @@ export default function Layout() {
                     <UpdateShell>
                       {/* On a wide iPad the Chats list is pinned beside the screen; narrower, it slides over it. */}
                       <SplitShell>
-                        {/* A sheet opened from the Chat beside reads that Chat's Project (beside-session.tsx). */}
                         <Stack screenOptions={stackScreenOptions(palette)} screenLayout={paneScreenLayout}>
                           <Stack.Screen name="index" options={{ title: "Computers" }} />
                           {/* Settings: one sheet holding a Stack of its own (app/(settings)/_layout.tsx), so its pages open inside it; a card on an iPad. */}
@@ -85,7 +81,6 @@ export default function Layout() {
                             name="(settings)"
                             options={
                               // A native sheet stops near 580 pt on an iPad, too narrow for the list beside a page: there
-                              // Settings draws its own card over a scrim, as desktop's modal (settings-split.tsx).
                               Platform.OS === "ios" && Platform.isPad
                                 ? { presentation: "transparentModal", animation: "fade", headerShown: false, contentStyle: { backgroundColor: "transparent" } }
                                 : fullStackSheet
@@ -116,7 +111,6 @@ export default function Layout() {
                           <Stack.Screen name="routines" options={{ title: "Routines" }} />
                           <Stack.Screen name="routine" options={{ title: "Routine" }} />
                           <Stack.Screen name="routine-form" options={fullSheet} />
-                          {/* A flow Routine's Run, step by step, and the sheets its Steps editor opens. */}
                           <Stack.Screen name="flow-run" options={{ title: "Run" }} />
                           <Stack.Screen name="flow-step" options={fullSheet} />
                           <Stack.Screen name="flow-add-step" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
@@ -124,7 +118,6 @@ export default function Layout() {
                           <Stack.Screen name="link-projects" options={fullSheet} />
                           <Stack.Screen name="link-chat" options={fullSheet} />
                           <Stack.Screen name="choose-projects" options={{ ...sheet, sheetAllowedDetents: [0.6, 1], sheetInitialDetentIndex: 0 }} />
-                          {/* A Chat opened from the open navigation swaps in under it, which then slides off (side-panels.tsx). */}
                           <Stack.Screen
                             name="chat"
                             options={({ route }) => ({
@@ -137,7 +130,6 @@ export default function Layout() {
                           />
                           <Stack.Screen name="context-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="permission-sheet" options={{ ...sheet, sheetAllowedDetents: [0.42, 0.6], sheetInitialDetentIndex: 0 }} />
-                          {/* Full height: the effort, Fast and Ultracode panel pinned at the bottom leaves a half-height sheet room for one model. */}
                           <Stack.Screen name="model-sheet" options={fullSheet} />
                           <Stack.Screen name="agents" options={{ ...sheet, sheetAllowedDetents: [0.5, 1], sheetInitialDetentIndex: 0 }} />
                           <Stack.Screen
@@ -151,18 +143,15 @@ export default function Layout() {
                             options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.page } }}
                           />
                           <Stack.Screen name="browser-sheet" options={fullSheet} />
-                          {/* Full screen too: a downward drag scrolls the Terminal's output instead of dismissing it. */}
                           <Stack.Screen
                             name="terminal-sheet"
                             options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.page } }}
                           />
-                          {/* Full screen too: a design scrolls and takes taps of its own. */}
                           <Stack.Screen
                             name="artifact-sheet"
                             options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.page } }}
                           />
                           <Stack.Screen name="design-share-sheet" options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }} />
-                          {/* Full screen too: the diagram pinches and pans. */}
                           <Stack.Screen
                             name="diagram-sheet"
                             options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.surface } }}
@@ -183,7 +172,6 @@ export default function Layout() {
                           <Stack.Screen name="changes" options={{ title: "Changes" }} />
                           <Stack.Screen name="file-preview" options={{ title: "File preview" }} />
                           <Stack.Screen name="diff" options={{ title: "Diff" }} />
-                          {/* The PR a Chat's branch opened: one sheet with a Stack of its own (app/(pr)/_layout.tsx), as Settings. */}
                           <Stack.Screen name="(pr)" options={fullStackSheet} />
                           <Stack.Screen name="pr-file" options={{ title: "" }} />
                         </Stack>

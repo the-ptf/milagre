@@ -1,9 +1,3 @@
-// Browser check: the One list sidebar (the default) shows the pinned Chats under Pinned and every other Chat of every
-// Project in one list, latest first. Its rows are inbox rows: the Project's icon, the title with its time (a spinner
-// while it runs, a dot when unread), and one line naming the Project, what the Chat is doing and its diff, with no
-// branch and no ⋯ button (the menu opens on a right-click). Settings › General's By Project brings the Project groups back,
-// and One list takes them away again. Snoozed Chats sit in their own section above Done, with how long until they wake,
-// and the hover Snooze button, the menu's Snooze times and Wake move rows at once. The bridge is stubbed; no agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -120,7 +114,6 @@ async function browserChecks() {
 
     assert.equal(await evaluate(checked), "Title first", "Settings › General shows the Title first card picked");
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0, "No Project groups");
-    // The Chats group (Chats without a Project) shows only once such a Chat exists; these Projects have none.
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 0, "No Chats group without a Chat without a Project");
     assert.equal(await evaluate(`document.querySelectorAll("[data-chats-divider]").length`), 0, "No divider without the Chats group");
     assert.equal(
@@ -134,7 +127,6 @@ async function browserChecks() {
       "One flat list",
     );
 
-    // Pinned Chats sit under the shared Pinned header, in their Project's slot.
     await waitFor(`document.querySelectorAll("[data-all-pinned] [data-chat-id]").length === 1`);
     assert.equal(await evaluate(`document.querySelector("[data-all-pinned] p")?.textContent`), "Pinned");
     assert.deepEqual(
@@ -143,7 +135,6 @@ async function browserChecks() {
       "The pinned Chat leads, with its Project on its second line",
     );
 
-    // Everything else, latest message first across Projects, each row naming its Project first on the second line.
     const expected = [
       ["Shop chat", "shop"],
       ["API chat", "api"],
@@ -166,7 +157,6 @@ async function browserChecks() {
       "The Project is the first item of every second line",
     );
 
-    // Inbox rows (Alt A): the title first, the Project's 14px icon on line two, no ⋯ button, no branch, a sans second line.
     const inbox = await evaluate(`[...document.querySelectorAll("[data-chat-list-flat] [data-chat-id], [data-all-pinned] [data-chat-id]")].map((row) => ({
       icon: !!row.querySelector("[data-chat-line] [data-chat-project-icon]") && !row.querySelector("[data-row] [data-chat-project-icon]"),
       actions: !!row.querySelector('[aria-label="Chat actions"]'),
@@ -190,11 +180,9 @@ async function browserChecks() {
       inbox.every((row) => !row.mono),
       "No monospace on the second line",
     );
-    // Running: a spinner where the time goes, and no word for it on the second line.
     assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-time] [data-mark]")?.dataset.mark`), "running");
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-ago]")`), false, "A running row shows its spinner, not its time");
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-status]")`), false, "The second line says no state");
-    // The PR sits at line two's right edge in its state's colour; its tooltip names it: state glyph, #number in mono, title.
     const pr = `${row(1)}.querySelector("[data-chat-pr]")`;
     assert.equal(await evaluate(`${pr}.textContent`), "980");
     assert.match(await evaluate(`${pr}.className`), /\btext-green-ink\b/);
@@ -209,7 +197,6 @@ async function browserChecks() {
     assert.match(await evaluate(`getComputedStyle(document.querySelector("[role=tooltip] [data-chat-pr-tooltip] .font-mono")).fontFamily`), /mono/i);
     await screenshot("one-list-pr-tooltip");
     await evaluate(`${pr}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse", relatedTarget: document.body }))`);
-    // Done: out of the list, in the folded Done section at the bottom, which opens to a countdown and Reopen.
     assert.equal(await evaluate(`!!${row(6)}`), false, "A Done Chat leaves the list");
     assert.equal(await evaluate(`document.querySelector("[data-done-count]")?.textContent`), "1");
     assert.equal(await evaluate(`!!document.querySelector('[data-done-row="6"]')`), false, "The Done section starts folded");
@@ -219,15 +206,12 @@ async function browserChecks() {
     assert.match(await evaluate(`document.querySelector('[data-done-row="6"] [data-done-countdown]').textContent`), /^2[23]:\d\d$/);
     await evaluate(`document.querySelector('[data-done-row="6"] [data-done-reopen]').click()`);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 6, { done: false }]);
-    // Reopen moves the row back at once, before its host answers (this stub host never does).
     await waitFor(`!!${row(6)} && !document.querySelector('[data-done-row="6"]')`);
-    // The hover Done button marks a Chat Done at once, with an Undo toast; the row moves before its host answers.
     assert.equal(await evaluate(`!!${row(7)}.querySelector("[data-chat-done]")`), true);
     await evaluate(`${row(7)}.querySelector("[data-chat-done]").click()`);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
     await waitFor(`!${row(7)} && !!document.querySelector('[data-done-row="7"]')`);
     await waitFor(`[...document.querySelectorAll("[role=status], [data-chat-toast]")].some((node) => node.textContent.includes("Moved to Done"))`);
-    // The toast sits inside the sidebar, just above its bottom bar, not beside it.
     assert.equal(
       await evaluate(`(() => {
         const toast = document.querySelector("[data-chat-toast]").getBoundingClientRect();
@@ -238,7 +222,6 @@ async function browserChecks() {
       "the toast sits inside the sidebar",
     );
     await screenshot("one-list-done-toast");
-    // ⌘Z (Ctrl+Z off a Mac) takes the Done back from anywhere outside a field, and ⇧⌘Z does it again.
     const undoKey = (shift) =>
       evaluate(`(() => {
         const mac = /Mac/.test(navigator.userAgent);
@@ -252,7 +235,6 @@ async function browserChecks() {
     await undoKey(true);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
     await waitFor(`!${row(7)} && document.querySelector("[data-chat-toast]")?.textContent.includes("Moved to Done")`);
-    // Done rows: no leading check, the countdown on the title's line at its right, and Reopen an icon alone.
     const done7 = `document.querySelector('[data-done-row="7"]')`;
     assert.equal(await evaluate(`${done7}.querySelector("button").firstElementChild.tagName`), "SPAN", "no icon leads a Done row");
     assert.equal(await evaluate(`${done7}.querySelector("button > span > svg")`), null, "no leading check-circle");
@@ -266,7 +248,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`${done7}.querySelector("[data-done-reopen]").textContent`), "", "Reopen is icon-only");
     assert.match(await evaluate(`${done7}.querySelector("[data-done-reopen]").getAttribute("aria-label")`), /^Reopen /);
 
-    // Snoozed: out of the list, in its own open section above Done, the one waking soonest first, with its time left.
     assert.equal(await evaluate(`!!${row(5)}`), false, "A snoozed Chat leaves the list");
     assert.equal(await evaluate(`document.querySelector("[data-snoozed-count]")?.textContent`), "1");
     assert.match(await evaluate(`document.querySelector('[data-snoozed-row="5"] [data-snoozed-label]').textContent`), /^4[45]m$/);
@@ -277,7 +258,6 @@ async function browserChecks() {
       true,
       "Snoozed sits above Done",
     );
-    // The hover Snooze button, beside Done, snoozes for Settings' default (1 hour) and moves the row at once.
     assert.equal(await evaluate(`${row(8)}.querySelector("[data-chat-snooze]")?.getAttribute("aria-label")`), "Snooze Shop chat");
     const beforeSnooze = Date.now();
     await evaluate(`${row(8)}.querySelector("[data-chat-snooze]").click()`);
@@ -292,12 +272,10 @@ async function browserChecks() {
     );
     await waitFor(`document.querySelector("[data-chat-toast]")?.textContent.includes("Snoozed")`);
     await screenshot("one-list-snoozed");
-    // Wake from the section brings it back at once.
     assert.equal(await evaluate(`document.querySelector('[data-snoozed-row="8"] [data-snoozed-wake]').textContent`), "", "Wake is icon-only");
     await evaluate(`document.querySelector('[data-snoozed-row="8"] [data-snoozed-wake]').click()`);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 8, { snoozed_until: false }]);
     await waitFor(`!!${row(8)} && !document.querySelector('[data-snoozed-row="8"]')`);
-    // The menu's Snooze opens its times beside it, each with the time it wakes at; picking one snoozes until then.
     await evaluate(
       `(() => { const r = ${row(8)}.querySelector("[data-row]").getBoundingClientRect(); ${row(8)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
     );
@@ -315,14 +293,11 @@ async function browserChecks() {
     const menuPatch = await evaluate(`window.patches.at(-1)`);
     assert.ok(Math.abs(menuPatch[2].snoozed_until - (beforeMenu + 3 * 3_600_000)) < 10_000, `three hours from now: ${JSON.stringify(menuPatch)}`);
     await waitFor(`!document.querySelector("[data-chat-menu]") && !${row(8)} && !!document.querySelector('[data-snoozed-row="8"]')`);
-    // ⌘Z wakes it again.
     await undoKey(false);
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 8, { snoozed_until: false }]);
     await waitFor(`!!${row(8)} && !document.querySelector('[data-snoozed-row="8"]')`);
-    // Diff stats are off by default; the branch is on but never shows here.
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
     assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");
-    // Unread: the time brighter (ink, medium), never in the accent, and the dot after it; the title stays ink.
     assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]")?.textContent`), "30m");
     const ago = await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className`);
     assert.ok(/\btext-ink\b/.test(ago) && /\bfont-medium\b/.test(ago) && !ago.includes("accent"), `unread time: ${ago}`);
@@ -330,11 +305,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`getComputedStyle(${row(4)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
     assert.match(await evaluate(`${row(4)}.querySelector("[data-chat-title]").parentElement.className`), /\btext-ink\b/);
     assert.equal(await evaluate(`getComputedStyle(${row(8)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
-    // The row is 54 high (Alt A).
     assert.equal(await evaluate(`Math.round(${row(4)}.querySelector("[data-row]").getBoundingClientRect().height)`), 54);
-    // Pinned: a pin before the title.
     assert.equal(await evaluate(`!!document.querySelector('[data-all-pinned] [data-chat-id="9"] [data-chat-pinned]')`), true, "Pinned rows show a pin");
-    // The menu opens on a right-click and from the keyboard.
     await evaluate(
       `(() => { const r = ${row(8)}.querySelector("[data-row]").getBoundingClientRect(); ${row(8)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
     );
@@ -350,7 +322,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector("[data-one-list-header] button[aria-label='New chat']")`), true, "New chat stays in the list header");
     await screenshot("one-list");
 
-    // Grouped by Project: today's sidebar, a group per Project that folds.
     await choose("By Project");
     await waitFor(`document.querySelectorAll("[data-sidebar-scope]").length === 3`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((node) => node.dataset.sidebarScope)`), [
@@ -368,11 +339,9 @@ async function browserChecks() {
     assert.equal(JSON.parse(await evaluate(`localStorage.getItem("milagre-settings")`)).chatList, "grouped", "Grouped by Project is saved");
     await screenshot("grouped");
 
-    // And back to One list.
     await choose("One list");
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0);
-    // Classic rows (One list, the default): the Project's icon leads the row, 50 high, the PR as #number.
     await evaluate(`window.updateSettings({ appearance: { ...window.DEFAULT_APPEARANCE, sidebarRows: "classic" } })`);
     await waitFor(`${checked} === "One list"`);
     await waitFor(`!!${row(1)}.querySelector("[data-row] [data-chat-project-icon]")`);

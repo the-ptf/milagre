@@ -4,18 +4,13 @@ const { checkClaude, addClaude, removeClaude, signInClaude } = require("./claude
 const { checkCodex, addCodex, removeCodex, readCodexConfig, signInCodex } = require("./codex.cjs");
 const { claudeConfigNames, codexConfigNames, detailOf, fromClaudeConfig, fromCodexConfig, maskDefinition, unmaskDefinition } = require("./definitions.cjs");
 
-// Settings › MCP: which accounts to check, one account's check (capped), and the edits: Everywhere servers and
 // the off list in mcp.json, Claude and Codex user servers through their CLIs, and OAuth sign-in. Grouping for the
-// screens lives in @milagre/shared/mcp; Chat start asks forSession for the extra servers and the off list.
 
 const PROVIDERS = new Set(["claude", "codex", "antigravity", "kiro"]);
-// Agents whose own MCP config Milagre doesn't read: a session gets only the Everywhere servers.
 const EVERYWHERE_ONLY = new Set(["antigravity", "kiro"]);
-// The caller waits longer than this cap (45 s): SLOW_METHODS in apps/daemon/src/client.cjs and MCP_CALLS in apps/mobile/src/client.ts.
 const TIMEOUT_PROBLEM = "Timed out after 30 s. Check the servers in a terminal.";
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const TARGETS = new Set(["everywhere", "claude", "codex"]);
-// Server names as providers report them: plugin and connector names can hold ":", "." and spaces ("claude.ai Gmail").
 const SERVER_NAME = /^[A-Za-z0-9_.:@ -]{1,128}$/;
 const URL_PATTERN = /^https?:\/\/\S+$/;
 
@@ -23,7 +18,6 @@ const isObject = (value) => Boolean(value) && typeof value === "object" && !Arra
 const text = (value) => (typeof value === "string" ? value : "");
 const stringRecord = (value) => (isObject(value) ? Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item === "string")) : {});
 
-/** A definition as it may be written: the known fields only, with string values. Anything else a caller sent is dropped. */
 function normalizeDefinition(def) {
   if (!isObject(def)) return null;
   if (def.type === "stdio")
@@ -37,17 +31,14 @@ function normalizeDefinition(def) {
   return { name: text(def.name), type: text(def.type), url: text(def.url), headers: stringRecord(def.headers) };
 }
 
-// Names reach the provider CLIs as arguments (`claude mcp remove <name>`), so a leading "-" would read as a flag.
 function assertServerName(name) {
   if (typeof name !== "string" || !SERVER_NAME.test(name) || name.startsWith("-")) throw new Error("Unknown server name.");
 }
 
-// The config keys each writer regenerates from a definition; any other key in a stored config is the user's own.
 const KNOWN_KEYS = { claude: new Set(["type", "url", "headers", "command", "args", "env"]), codex: new Set(["url", "http_headers", "command", "args", "env"]) };
 const extraKeys = (raw, target) =>
   isObject(raw) && KNOWN_KEYS[target] ? Object.fromEntries(Object.entries(raw).filter(([key]) => !KNOWN_KEYS[target].has(key))) : {};
 
-// The same rules as validateMcpServer in @milagre/shared/mcp; the runtime checks again because phones call it too.
 function invalid(def) {
   if (!def || !NAME.test(String(def.name))) return "Use letters, numbers, - and _ only.";
   if (def.name === "milagre") return "milagre is Milagre’s own server. Pick another name.";
@@ -76,10 +67,9 @@ function createMcp({
     codex: { add: addCodex, remove: removeCodex, read: readCodexConfig, ...writers.codex },
   };
   const sign = { claude: signers.claude ?? signInClaude, codex: signers.codex ?? signInCodex };
-  const signIns = new Map(); // server name → AbortController
+  const signIns = new Map();
 
   async function listed() {
-    // The cheap snapshot: it inspects nothing, so a first open never waits on identity checks.
     const snapshot = await accounts.snapshot();
     return snapshot.providers.filter((group) => PROVIDERS.has(group.provider)).flatMap((group) => group.accounts.map((account) => ({ group, account })));
   }
@@ -94,13 +84,11 @@ function createMcp({
     return new Set();
   }
 
-  // Everywhere servers the provider's own config doesn't already define (check and sign-in probe all of these).
   function forSessionWith(provider, accountId, env) {
     const own = configNames(provider, env);
     return { servers: store.read().everywhere.filter((def) => !own.has(def.name)), off: store.offFor(provider, accountId), own };
   }
 
-  // What a Chat start needs: Everywhere servers to add (never the ones switched off) and the names to switch off.
   // Codex merges `enabled: false` into the user's own definition, so a name it doesn't have in config.toml is dropped.
   function sessionPlan(provider, accountId, env) {
     const { servers, off, own } = forSessionWith(provider, accountId, env);
@@ -144,7 +132,6 @@ function createMcp({
       const session = forSessionWith(provider, accountId, cli.env);
       const shadowed = new Set(everywhere.map((def) => def.name).filter((name) => !session.servers.some((def) => def.name === name)));
       // Only names a Chat start would switch off read as off (see sessionPlan): Codex drops a name it has neither in
-      // config.toml nor among the Everywhere servers. A server off in the provider's own config stays as it reports.
       const everywhereNames = new Set(everywhere.map((def) => def.name));
       const switchedOff = (server) =>
         off.has(server.name) && server.disabledBy !== "provider" && (provider !== "codex" || session.own.has(server.name) || everywhereNames.has(server.name));
@@ -174,7 +161,6 @@ function createMcp({
     }
   }
 
-  /** The stored server as a definition, with its raw provider config (`raw`, null for Everywhere); null when missing. */
   async function storedDefinition(name, target) {
     if (target === "everywhere") {
       const def = store.read().everywhere.find((item) => item.name === name);
@@ -211,14 +197,12 @@ function createMcp({
     await write[target].remove({ command: cli.command, env: cli.env, name });
   }
 
-  // `extra` holds the stored config's keys the sheet doesn't know (oauth, timeouts, enabled_tools, …); the writer keeps them.
   async function addTo(full, target, extra = {}) {
     if (target === "everywhere") return store.setEverywhere([...store.read().everywhere.filter((item) => item.name !== full.name), full]);
     const cli = await routing.forAccount(target, "default");
     await write[target].add({ command: cli.command, env: cli.env, cwd, clientVersion, def: full, extra });
   }
 
-  /** Off-list entries for `name` whose account no longer has the server anywhere (Everywhere or its own config) go. */
   async function pruneOff(name) {
     const everywhere = store.read().everywhere.some((def) => def.name === name);
     for (const [key, names] of Object.entries(store.read().off)) {
@@ -228,13 +212,10 @@ function createMcp({
       try {
         const env = EVERYWHERE_ONLY.has(provider) ? {} : (await routing.forAccount(provider, accountId)).env;
         if (!everywhere && !configNames(provider, env).has(name)) store.setOff(provider, accountId, name, false);
-      } catch {
-        // An account that can't be looked up keeps its entry; it does no harm.
-      }
+      } catch {}
     }
   }
 
-  /** A renamed server keeps its switches: every account that had the old name off gets the new one. */
   function renameOff(from, to) {
     for (const [key, names] of Object.entries(store.read().off)) {
       if (!names.includes(from)) continue;
@@ -252,7 +233,6 @@ function createMcp({
   }
 
   async function save(input, target, previousInput) {
-    // Everything is checked before anything is read or written.
     assertTarget(target);
     const previous = previousOf(previousInput);
     const def = normalizeDefinition(input);
@@ -260,17 +240,14 @@ function createMcp({
     if (problem) throw new Error(problem);
     const stored = previous ? await storedDefinition(previous.name, previous.target) : null;
     const full = unmaskDefinition(def, stored?.def ?? null);
-    // Keys the sheet doesn't know survive an edit in the same config that keeps the transport type.
     const extra = stored && previous.target === target && stored.def.type === full.type ? extraKeys(stored.raw, target) : {};
     if (!previous) await addTo(full, target);
     else if (previous.name !== full.name || previous.target !== target) {
-      // Moved or renamed: the new server lands first, so a failed add leaves the old one (and its secrets) in place.
       await addTo(full, target, extra);
       await removeFrom(previous.name, previous.target);
       if (previous.name !== full.name) renameOff(previous.name, full.name);
       await pruneOff(previous.name);
     } else {
-      // Same place: the CLIs refuse a duplicate name, so remove first and put the old definition back if the add fails.
       await removeFrom(previous.name, previous.target);
       try {
         await addTo(full, target, extra);
@@ -303,9 +280,6 @@ function createMcp({
     emit("mcp:changed", { name, provider, accountId });
   }
 
-  // One account at a time, so each browser tab belongs to one sign-in. Resolves once the first account has
-  // opened its URL (or finished); the rest runs on and reports through mcp:changed. Every account ends with an
-  // event, even when its CLI lookup or runner fails, so no row stays on "signing in".
   async function signIn(name, targets) {
     signIns.get(name)?.abort();
     const controller = new AbortController();
@@ -326,7 +300,6 @@ function createMcp({
         for (const [index, { provider, accountId }] of list.entries()) {
           const last = index === list.length - 1;
           const finish = (signInState, error = null, isLast = last) => {
-            // A run that was replaced stays silent; the newer one owns the row.
             if (signIns.get(name) === controller) emit("mcp:changed", { name, provider, accountId, signIn: signInState, error, last: isLast });
           };
           if (controller.signal.aborted) {

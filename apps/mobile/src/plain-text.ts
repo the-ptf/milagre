@@ -2,15 +2,9 @@ import { markdownTokens } from "./chat-presentation.ts";
 
 type Token = ReturnType<typeof markdownTokens>[number];
 
-/**
- * A reply as the phone draws it, without markdown marks, for the Select text sheet: `**a@b.c**` selects as `a@b.c`.
- * Blocks join with one blank line; code is never trimmed or collapsed, so its indentation and blank lines survive.
- */
 export function markdownPlainText(text: string): string {
   const blocks: string[] = [];
-  // Ordered lists count their own items; a stack keeps nested lists apart.
   const lists: { ordered: boolean; next: number }[] = [];
-  // The text of the block being built: a paragraph, a heading, a list (a line per item) or a table (a line per row).
   let current = "";
   const flush = () => {
     const block = current.replace(/^\n+|\n+$/g, "");
@@ -40,7 +34,6 @@ export function markdownPlainText(text: string): string {
         current += inlineText(token.children ?? []);
         break;
       case "paragraph_close":
-        // A list item's paragraph ends its line; elsewhere it ends the block.
         if (!lists.length) flush();
         break;
       case "heading_close":
@@ -79,7 +72,6 @@ function inlineText(tokens: Token[]): string {
     else if (token.type === "image") out += token.content;
     else if (token.type === "link_open") link = { href: String(token.attrGet("href") || ""), start: out.length };
     else if (token.type === "link_close" && link) {
-      // A named link keeps its address beside it, so it can be selected too; a bare URL already is its own text.
       const label = out.slice(link.start);
       const bare = label === link.href || `mailto:${label}` === link.href || `http://${label}` === link.href;
       if (link.href && !bare) out += ` (${link.href})`;

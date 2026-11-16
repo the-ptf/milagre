@@ -18,12 +18,10 @@ const STALE_AFTER_MS = 60_000;
 
 type OpenCard = { provider: ModelProvider; left: number; bottom: number };
 
-// The fullest window, so the collapsed rail shows whichever limit is closest.
 function peakPercent(windows: { usedPercent: number }[]) {
   return windows.reduce((peak, item) => Math.max(peak, item.usedPercent), 0);
 }
 
-/** Plan usage rows for the sidebar footer; the card opens beside the sidebar, expanded or collapsed. */
 export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; scope?: string; chatsHome?: boolean }) {
   const [openCard, setOpenCard] = useState<OpenCard | null>(null);
   const { usageDisplay, appearance } = useSettings();
@@ -32,7 +30,6 @@ export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; s
   const closeTimer = useRef<number | null>(null);
   const segments = useRef(new Map<ModelProvider, HTMLButtonElement>());
   const restoringFocus = useRef(false);
-  // The card's account picker opens its panel outside the card; leaving the card for it must not close the card.
   const pickerOpen = useRef(false);
   const providers = usage.snapshot ? visibleProviders(usage.snapshot) : [];
   const openUsage = openCard ? providers.find((item) => item.provider === openCard.provider) : undefined;
@@ -87,10 +84,7 @@ export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; s
   useEffect(() => {
     if (!openCard || !openUsage) return;
     const segment = segments.current.get(openCard.provider);
-    // Capture on window runs before App's window-level Escape handler, which cancels
-    // the running agent, so Escape closes the card wherever focus is and goes no further.
     const closeOnEscape = (event: KeyboardEvent) => {
-      // The open picker takes this Escape and closes itself; the card stays.
       if (event.key !== "Escape" || pickerOpen.current) return;
       event.preventDefault();
       event.stopPropagation();
@@ -139,7 +133,6 @@ export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; s
               <ProviderLogo provider={item.provider} size={14} />
             </span>
             <span className="sidebar-copy min-w-0 truncate text-ink-2">{PROVIDER_NAMES[item.provider]}</span>
-            {/* The last read failed: its last-known numbers stay at full strength, and this says so. */}
             {item.status === "error" && (
               <Tooltip label="Couldn't read usage" side="top" className="sidebar-copy shrink-0">
                 <span data-usage-error className="flex text-red-ink">
@@ -151,7 +144,6 @@ export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; s
               item.status !== "error" && <span className="sidebar-copy ml-auto text-ink-3">—</span>
             ) : (
               <span className="sidebar-copy ml-auto flex w-26 shrink-0 items-center gap-2">
-                {/* Share the meter area equally; a single window spans the full width. */}
                 {item.windows.slice(0, 2).map((entry) => (
                   <span key={entry.id} className="flex min-w-0 flex-1 flex-col items-end gap-0.5">
                     <span className="flex items-baseline gap-1 whitespace-nowrap">
@@ -181,7 +173,6 @@ export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; s
           onPickerOpenChange={(open) => {
             pickerOpen.current = open;
             if (open) return;
-            // A choice or Escape hands focus back to the picker, in the card, after this runs; a click elsewhere
             // leaves it nowhere, and the pointer may have left the card while the panel was open.
             window.setTimeout(() => {
               const card = document.getElementById(`usage-card-${openUsage.provider}`);

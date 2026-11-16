@@ -16,7 +16,6 @@ import { pressStyle } from "./ui";
 import { useTheme } from "./theme";
 import type { SubchatNote } from "./subchat-notes";
 
-/** A grey line in the transcript, as a Delegation report's (subchat-marker.tsx): `↳` and a footnote, a link when it opens a Chat. */
 function NoteLine({ text, label, onOpen, hint }: { text: string; label?: string; onOpen?: () => void; hint?: string }) {
   const { colors } = useTheme();
   return (
@@ -37,15 +36,10 @@ function NoteLine({ text, label, onOpen, hint }: { text: string; label?: string;
   );
 }
 
-/** In the Subchat, right above its open question or approval: how long it has waited and who was told. */
 export function SubchatWaitingNote({ note }: { note: SubchatWaitingContext }) {
   return <NoteLine text={waitingNote(note)} />;
 }
 
-/**
- * A suggested answer in the Chat above: whose question it is, the answer, and what to do with it. With an outcome the card
- * is one line that says what became of it (Dismiss removes the card and leaves nothing).
- */
 function SuggestionCard({
   note,
   outcome,
@@ -66,7 +60,6 @@ function SuggestionCard({
     const line = suggestionOutcomeLine(outcome);
     return line ? <NoteLine text={line} /> : null;
   }
-  // One call at a time; Send answer refused (the question is gone) says so and leaves the buttons, which the outcome note replaces.
   const run = async (call: () => Promise<unknown>, refused?: string) => {
     setBusy(true);
     setError("");
@@ -121,10 +114,6 @@ function SuggestionCard({
   );
 }
 
-/**
- * One escalation note where it falls in the transcript. A note that draws nothing here (an outcome, an escalation a
- * suggestion repeats, the open request's waiting note) is left out by the caller (subchat-notes.ts `silent`).
- */
 export function SubchatNoteView({
   note,
   outcomes,

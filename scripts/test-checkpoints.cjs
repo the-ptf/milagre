@@ -12,6 +12,8 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { StepOutput } from "/src/components/agents/StepOutput";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore, useDraftText } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const at = new Date(); at.setHours(8, 0, 0, 0);
 const redirect = { id: "task-2", kind: "task", createdAt: at.getTime(), completedAt: at.getTime() + 60000, excluded: 0, permissionMode: "ask",
   messageId: 13, prompt: "After login, send people to the account page instead of the dashboard.", changed: 3 };
@@ -50,7 +52,8 @@ const reply = (id, body) => ({ id, session_id: 1, role: "assistant", context: nu
 function Fixture() {
   const [copyOutput, setCopyOutput] = useState(null);
   window.setCopyOutput = setCopyOutput;
-  const [draft, setDraft] = useState("");
+  const draft = useDraftText(draftStore);
+  const setDraft = draftStore.setText;
   const [sending, setSending] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
   window.setReadOnly = setReadOnly;
@@ -78,7 +81,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages} agentChatId="/Projects/storefront#1" messageScope="/Projects/storefront"
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/Projects/storefront" draft={draft} onDraftChange={setDraft} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
+      projectPath="/Projects/storefront" store={draftStore} onSend={() => { window.sent = draft; }} isSending={sending} streamingText={stream} sendBlocked={readOnly} readOnlyHistory={readOnly}
       onOpenDiff={(file, root) => window.calls.diffs.push([file, root])}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}

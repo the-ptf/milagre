@@ -29,7 +29,6 @@ import { useVoiceDictation } from "./voice-dictation-hook";
 import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
 
-/** How tall the floating controls are, and the room the list keeps under its last row. */
 const CONTROLS_HEIGHT = 48;
 const FADE_EXTRA = 28;
 /** The controls stop this far above the keyboard, like the Chat composer. */
@@ -77,12 +76,6 @@ export function useControlsVisibility() {
   return { hidden, onScroll, reveal: () => move(false) };
 }
 
-/**
- * Filters, search and New Chat floating over the list on Liquid Glass. The search field ends in a dictation mic where the
- * phone can transcribe. A take ends when the list hides.
- * While a take is under way or the search field is focused the controls stay up, whatever the list scrolls: the mic is the
- * only way to stop a take, and the field is being typed in.
- */
 export function ChatListControls({
   hidden,
   query,
@@ -96,13 +89,10 @@ export function ChatListControls({
   hidden: ReturnType<typeof useControlsVisibility>["hidden"];
   query: string;
   onQuery: (query: string) => void;
-  /** The search field, which ⌘K focuses. */
   inputRef?: Ref<TextInputInstance>;
   onFocus: () => void;
-  /** The Filters menu: `active` when it hides some Chats. */
   filters: { sections: MenuSection[]; onSelect: (id: string) => void; active: boolean };
   onNewChat: () => void;
-  /** False while the list is mounted but off screen. */
   visible?: boolean;
 }) {
   const { colors } = useTheme();
@@ -118,7 +108,6 @@ export function ChatListControls({
   });
   const { cancel, dismiss, error: dictationError } = dictation;
   const [focused, setFocused] = useState(false);
-  // 1 while the controls are held up; eased like the hide, so letting go does not snap them away.
   const pinned = useSharedValue(0);
   const pin = pinsControls(dictation.phase, focused);
   const scale = useMotionScale();
@@ -131,7 +120,6 @@ export function ChatListControls({
     if (!visible) cancel();
   }, [visible, cancel]);
   useEffect(() => {
-    // A permission refusal stays until the user acts on it, as in the composer.
     if (!dictationError || dictationError.kind === "permission") return;
     const timer = setTimeout(dismiss, NOTICE_SECONDS * 1000);
     return () => clearTimeout(timer);

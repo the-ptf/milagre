@@ -8,10 +8,6 @@ export type PrState = { status: "idle" | "loading" } | { status: "error"; messag
 
 type PrBridge = MilagreBridge["pr"];
 
-/**
- * The PR each Worktree's branch opened (a Link Chat's members, one per Project), read while `active` and every 30 s
- * while the window is focused. A Worktree without one maps to null.
- */
 export function useBranchPullRequests({ paths, active, bridge }: { paths: string[]; active: boolean; bridge: MilagreBridge }) {
   const [found, setFound] = useState<Record<string, PullRequest | null>>({});
   const key = paths.join("\n");
@@ -36,7 +32,6 @@ export function useBranchPullRequests({ paths, active, bridge }: { paths: string
   return found;
 }
 
-/** How many uncommitted files the Worktree has (changes its PR doesn't have yet), read while `active`, as the PR is. */
 export function useLocalChanges({ cwd, active, bridge }: { cwd: string | undefined; active: boolean; bridge: MilagreBridge }) {
   const [count, setCount] = useState<{ cwd: string; count: number } | null>(null);
   const lastRead = useRef(0);
@@ -61,18 +56,12 @@ export function useLocalChanges({ cwd, active, bridge }: { cwd: string | undefin
   return { count: count && count.cwd === cwd ? count.count : 0, refresh };
 }
 
-// The detail of the PR a Chat's branch opened, kept per PR so switching Chats and back shows it at once.
 const lastDetail = new Map<string, PullRequestDetail>();
-// Each PR as GitHub last answered, and the writes still waiting on it: what shows is that read with them on top.
 type Change = (pr: PullRequestDetail) => PullRequestDetail;
 const readDetail = new Map<string, PullRequestDetail>();
 const pendingWrites = new Map<string, Set<Change>>();
 const withPending = (key: string, pr: PullRequestDetail) => [...(pendingWrites.get(key) ?? [])].reduce((next, change) => change(next), pr);
 
-/**
- * The open Chat's PR, read while `active` (the panel shows it, or its diff is open): on opening, every 30 s
- * while the window is focused, and right after each write. A write's failure stays in `writeError` until the next one.
- */
 export function usePullRequest({
   cwd,
   number,
@@ -133,7 +122,6 @@ export function usePullRequest({
     );
   }, [active, key, refresh]);
 
-  /** Shows `optimistic` at once, runs the write, and reads the PR again; a failure takes back only its own change. */
   const write = useCallback(
     async (
       label: string,
@@ -149,7 +137,6 @@ export function usePullRequest({
         lastDetail.set(key, pr);
         if (request.current.key === key) setSnapshot({ key, state: { status: "ready", pr } });
       };
-      // Wrapped, so the same change written twice is two entries.
       const entry: Change | undefined = optimistic && readDetail.has(key) ? (pr) => optimistic(pr) : undefined;
       if (entry) {
         pendingWrites.set(key, (pendingWrites.get(key) ?? new Set()).add(entry));
@@ -163,7 +150,6 @@ export function usePullRequest({
       }
       if (entry) {
         pendingWrites.get(key)?.delete(entry);
-        // GitHub took it: it stays on the last read until the next one has it. A failure shows the rest without it.
         if (result.ok) readDetail.set(key, entry(readDetail.get(key)!));
         else show();
       }

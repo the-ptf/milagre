@@ -28,7 +28,7 @@ export function hiddenHere(key: string, scopes?: ReadonlySet<string>, computers?
 /** Chat keys other than `currentChat` whose turn waits on an approval or question. Link Chats, `hidden` Projects and
  * Projects on `hiddenComputers` are left out. */
 export function chatsNeedingAttention(
-  runs: AgentRuns | undefined,
+  runs: Readonly<Record<string, Pick<AgentRun, "approvals" | "questions">>> | undefined,
   currentChat?: string,
   hidden?: ReadonlySet<string>,
   hiddenComputers?: ReadonlySet<string>,

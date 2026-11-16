@@ -46,13 +46,9 @@ import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
-/** Without a control row the field still shows its mic under the text. */
 const micAlone = (mic: ReactNode) => mic;
 const NO_COMPUTERS: readonly MentionComputer[] = [];
 const OLD_MAC_ROW = "Update Milagre on your computer to mention files.";
-// Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
-// nothing, so `[Image #1]` reads as an image chip in a field that can only style its own characters. Loaded at runtime,
-// so it ships over the air.
 const GLYPHS = "MilagreChipGlyphs";
 const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
 
@@ -71,7 +67,6 @@ function useChipGlyphs() {
   return ready;
 }
 
-/** A lookup answer versions the mutable known-file cache without changing the draft or its selection. */
 function readMarks(draft: string, options: Parameters<typeof promptParts>[1], lookups: number) {
   return { lookups, parts: promptParts(draft, options) };
 }
@@ -112,23 +107,17 @@ export function PromptField({
   renderControls = micAlone,
 }: {
   chats?: readonly MentionChat[];
-  /** The computers an `@` can name; offered only with more than this one. */
   computers?: readonly MentionComputer[];
   currentId?: number;
   client: Client;
   projectPath: string;
-  /** Where skills are read, when not `projectPath`: a Link's key, or a shared Chat's own folder. */
   skillScope?: string;
   draft: string;
   onChangeText: (value: string) => void;
   onImagePaste?: (image: PastedImage) => void;
-  /** Milagre's own slash commands, offered with the skills: `/undo` in a saved Chat. */
   commands?: { name: string; description: string }[];
-  /** Which typed `@path`s name a Project file (asked of the Mac as they are typed): those are tinted like skills. */
   known?: KnownFiles;
-  /** Number of attached images, so `[Image #N]` tokens tint inline like file mentions. */
   images?: number;
-  /** Called with a picked file's path relative to the Project; the screen attaches it. */
   onMention?: (path: string) => void;
   /** Return on a hardware keyboard; Shift+Return and the on-screen keyboard still add a line. */
   onSubmit?: () => void;
@@ -139,13 +128,8 @@ export function PromptField({
   placeholder?: string;
   suggestion?: string;
   onAcceptSuggestion?: (text: string) => void;
-  /** The Chat's title and agent: dictation's fix-up asks that agent, with the title as context. */
   chatTitle?: string;
   provider?: string;
-  /**
-   * The composer's control row under the field, as on desktop: it gets the mic (null while dictation is unavailable) to
-   * place beside Send, so the typed text runs the field's whole width.
-   */
   renderControls?: (mic: ReactNode) => ReactNode;
   /** Each new value takes the keyboard with the caret at the end of the draft (Ask from a message selection). */
   focusRequest?: number;
@@ -154,9 +138,7 @@ export function PromptField({
 }) {
   const { colors, motionScale, typeScale } = useTheme();
   const styles = useStyles();
-  // Text size scales the composer too; 16 stays 16 at the default step.
   const inputSize = Math.round(16 * typeScale);
-  // The menus sit inside the translucent glass composer; an opaque surface keeps the transcript from showing through the rows.
   const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
   const enter = useReturnKey(paste.ref, onSubmit);
@@ -175,7 +157,6 @@ export function PromptField({
   );
   const [selection, setSelection] = useState({ start: draft.length, end: draft.length });
   const [focused, setFocused] = useState(false);
-  // This computer alone is no choice: computers join the @ menu once there is another one to name.
   const nameable = computers.length > 1 ? computers : NO_COMPUTERS;
   const typing = (onMention || chats.length || nameable.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
   const lookups = useMentionLookups(client, projectPath, draft, known, typing);
@@ -214,7 +195,6 @@ export function PromptField({
   }, [draft]);
   useFocusEffect(
     useCallback(() => {
-      // Screens can stay mounted while another Chat is open. Restore once on return, never on a keystroke.
       const value = latestDraft.current;
       const end = { start: value.length, end: value.length };
       setSelection(end);
@@ -224,14 +204,12 @@ export function PromptField({
   );
   const [dictationAction] = useDictationAction();
   const dictatedSend = useRef<{ value: string; projectPath: string; currentId: number | undefined } | null>(null);
-  // Submit from the next render so the screen's send action reads the transcript and its normal availability checks.
   useEffect(() => {
     const pending = dictatedSend.current;
     if (!pending) return;
     dictatedSend.current = null;
     if (pending.value === draft && pending.projectPath === projectPath && pending.currentId === currentId && dictationAction === "send") onSubmit?.();
   });
-  // The take's words live in the field itself, rewritten in place as the recognizer revises them.
   const take = useRef<DictationTake | null>(null);
   const [provisional, setProvisional] = useState<TextRange | null>(null);
   const write = (text: string, settled: number) => {
@@ -249,8 +227,6 @@ export function PromptField({
   };
   const writeLatest = useRef(write);
   const discardLatest = useRef<() => void>(() => {});
-  // A finished take whose fix-up hasn't answered: its words stay tinted until it does, and it rewrites them only if the
-  // draft is still exactly what the take left.
   const correcting = useRef<{ id: number; take: DictationTake } | null>(null);
   const corrections = useRef(0);
   useEffect(
@@ -271,12 +247,10 @@ export function PromptField({
   useEffect(() => {
     const pending = correcting.current;
     if (!pending || draft === pending.take.produced) return;
-    // The user typed, sent or dictated again: the late answer is dropped, and its tint with it.
     endCorrection();
   }, [draft, endCorrection]);
   const dictation = useVoiceDictation(
     (text, anchor, correction) => {
-      // The last words land at once, tinted while the fix-up may still rewrite them. A take that never opened lands at its anchor.
       take.current ??= startTake(latestDraft.current, anchor.selection);
       const written = writeLatest.current(text, text.length);
       take.current = null;
@@ -302,7 +276,6 @@ export function PromptField({
           setSelection(caret);
           onChangeText(corrected.value);
         }
-        // Send now waits for the fix-up, so what goes out is the corrected message.
         if (sendAfter) dictatedSend.current = { value: corrected?.value ?? pending.take.produced, ...sentFrom };
       });
     },
@@ -357,13 +330,11 @@ export function PromptField({
   useEffect(() => {
     if (take.current && partialText) writeLatest.current(partialText, partialSettled);
   }, [partialText, partialSettled]);
-  // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
   useEffect(() => {
     if (!dictating && take.current) discardLatest.current();
   }, [dictating]);
   const { error: dictationError, dismiss: dismissDictationError } = dictation;
   useEffect(() => {
-    // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
     if (!dictationError || dictationError.kind === "permission") return;
     const timer = setTimeout(dismissDictationError, NOTICE_SECONDS * 1000);
     return () => clearTimeout(timer);
@@ -420,7 +391,6 @@ export function PromptField({
   useAnnounce(dictation.download !== null ? "Downloading the speech model" : null);
   useAnnounce(skill && !query ? `/${skill.name}. ${skill.description}` : null);
 
-  // The mic box anchors the dictation notice, which floats up from its right edge over the field.
   const mic = dictation.available ? (
     <View>
       {dictationError ? (
@@ -462,7 +432,6 @@ export function PromptField({
             onAcceptSuggestion(suggestion);
             paste.ref.current?.focus();
           }}
-          // As on desktop: the suggestion in the hint's colour, then a key that says how to use it (a tap here, Tab there).
           style={({ pressed }) => ({
             minHeight: 44,
             flexDirection: "row",
@@ -565,7 +534,6 @@ export function PromptField({
           </PageScroll>
         </Animated.View>
       ) : null}
-      {/* TextInput cannot receive value and attributed children together. The children mirror every accepted edit. */}
       <View>
         <Field
           bare
@@ -618,12 +586,10 @@ export function PromptField({
           <Text style={{ fontSize: inputSize, color: colors.ink }}>
             {splitProvisional(marks, provisional).map(({ part, text, provisional: revising }, index) =>
               part.kind === "text" ? (
-                // The dictated tail the recognizer may still rewrite: settled words are plain ink, like anything typed.
                 <Text key={index} style={revising ? { color: colors.ink2, backgroundColor: colors.hover } : { color: colors.ink }}>
                   {text}
                 </Text>
               ) : glyphs ? (
-                // Like desktop's chips: skills tinted with a wand, files and images on the hover gray with their icon.
                 <Text
                   key={index}
                   style={
@@ -685,7 +651,6 @@ export function PromptField({
   );
 }
 
-/** Asks the Mac whether each typed `@path` is a Project file (~150 ms after typing stops, three at a time); the count changes as answers arrive. */
 function useMentionLookups(client: Client, root: string, draft: string, known: KnownFiles | undefined, typing: string | undefined) {
   const [answers, setAnswers] = useState(0);
   useEffect(() => {
@@ -703,8 +668,6 @@ function useMentionLookups(client: Client, root: string, draft: string, known: K
   return answers;
 }
 
-/** Project files matching `query` (null: no search), kept while the next answer loads so the menu does not flash empty. */
-/** The @ menu's files under `root`: an answer for another root (the draft moved to another Project) is never shown. */
 function useFileSearch(client: Client, root: string, query: string | null) {
   const [state, setState] = useState({ root: "", items: [] as string[], error: "", loading: true });
   const [revision, setRevision] = useState(0);

@@ -1,6 +1,3 @@
-// The /docs page's command reference, read at build time from the CLI itself so the page can't drift from `milagre help`:
-// the built-in commands from apps/daemon/src/command-help.cjs, and the generated families from the same offline catalogue
-// `milagre help <family>` prints without a running server.
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -22,7 +19,6 @@ export interface Family {
   desktopOnly: boolean;
 }
 
-// Astro builds from apps/site, but the Lighthouse check and npm workspaces can start it elsewhere: find the repository.
 function repoRoot() {
   for (let dir = process.cwd(); ; dir = path.dirname(dir)) {
     if (existsSync(path.join(dir, "apps/daemon/src/command-help.cjs"))) return dir;
@@ -38,10 +34,8 @@ const daemonPackage = load("./package.json") as { cliVersion: string };
 
 export const CLI_VERSION = daemonPackage.cliVersion;
 
-// Every built-in command, in the order `milagre help` lists them, with help last.
 export const BUILTIN_COMMANDS: BuiltinCommand[] = Object.entries(help.COMMANDS).map(([name, info]) => ({ name, ...info }));
 
-// Owner commands grouped by family (`project:open` is `milagre project open`). Native desktop actions are their own group.
 export const FAMILIES: Family[] = (() => {
   const families = new Map<string, Family>();
   for (const item of products.offlineCatalogue()) {

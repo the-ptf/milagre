@@ -1,17 +1,11 @@
 const { packet } = require("./simulators-helper.cjs");
 
-// A Simlock lease's screen is serve-sim's AVCC envelopes, `[len u32 BE][tag u8][payload]` with `len` counting the tag,
-// and its input is serve-sim's tagged messages on a WebSocket. Both take the agent token, which stays on the host.
-
 const TAG = { description: 0x01, keyframe: 0x02, delta: 0x03, seed: 0x04, meta: 0x05, alive: 0x06, ended: 0x07 };
 const MAX_ENVELOPE_BYTES = 8 * 1024 * 1024;
-// A group of pictures past this is dropped until the next keyframe; a viewer then restarts from that keyframe.
 const MAX_GROUP_BYTES = 6 * 1024 * 1024;
-// A relayed batch must stay under the receiver's 2 MiB of base64 per frame request.
 const MAX_BATCH_BYTES = 1_500_000;
 const ENDED = { explicit: "The device was returned to the Simlock pool.", expired: "The Simlock lease expired.", "device-lost": "Simlock lost the device." };
 
-/** Splits a byte stream into envelopes; a malformed length ends the stream rather than decoding blind. */
 function createEnvelopeReader() {
   let buffer = Buffer.alloc(0);
   return function push(chunk) {
@@ -24,16 +18,11 @@ function createEnvelopeReader() {
       envelopes.push({ tag: buffer[4], bytes: buffer.subarray(0, 4 + length), payload: buffer.subarray(5, 4 + length) });
       buffer = buffer.subarray(4 + length);
     }
-    // Detach retained bytes from the chunk they came in.
     buffer = Buffer.from(buffer);
     return envelopes;
   };
 }
 
-/**
- * Keeps the decoder configuration and the current group of pictures, numbered. A viewer that is current gets the
- * envelopes after its last one; a viewer that fell behind a keyframe gets the configuration and the whole group again.
- */
 function createAvccRelay() {
   let description = null,
     group = [],
@@ -66,7 +55,6 @@ function createAvccRelay() {
       } else return;
       wake();
     },
-    /** Envelopes for a viewer whose last relayed sequence is `after`, or null when there is nothing new to decode. */
     read(after) {
       if (!description || !group.length) return null;
       const current = after >= group[0].sequence && after >= description.sequence;
@@ -75,7 +63,6 @@ function createAvccRelay() {
       let bytes = 0,
         count = 0;
       for (const item of items) {
-        // A reset batch always carries the configuration and the keyframe, so a decoder can start from it.
         if (count >= (current ? 1 : 2) && bytes + item.bytes.length > MAX_BATCH_BYTES) break;
         bytes += item.bytes.length;
         count++;
@@ -130,7 +117,6 @@ function createSimlockChannel(upstream, { fetch: fetchImpl = globalThis.fetch, W
             try {
               const meta = JSON.parse(envelope.payload.toString("utf8"));
               if (meta?.codec !== "h264") return fail(`Milagre cannot show Simlock's ${String(meta?.codec).slice(0, 20)} stream.`);
-              // The input socket's configuration names the device's real size; the picture's size is only a fallback.
               if (!state.width && Number.isInteger(meta.width) && Number.isInteger(meta.height))
                 Object.assign(state, { width: meta.width, height: meta.height });
             } catch {
@@ -225,7 +211,6 @@ function createSimlockChannel(upstream, { fetch: fetchImpl = globalThis.fetch, W
   };
 }
 
-/** Adds leased devices to another simulator adapter; ids under `simlock:` go to the lease, the rest to `local`. */
 function withSimlock(local, host, channelOptions) {
   return {
     iceServers: local.iceServers,

@@ -6,10 +6,6 @@ import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { IconButton, pressStyle, tap, useStyles } from "./ui";
 
-/**
- * Messages waiting for the running turn to finish, above the composer like desktop's: oldest
- * first, each with Send now (Stop and send while a turn runs) and Remove. The line above says when they go.
- */
 export function QueuedMessages({
   items,
   held,

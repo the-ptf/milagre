@@ -47,7 +47,6 @@ function keydown(event: KeyboardEvent) {
   if (event.key === modifier && !event.repeat && !event.isComposing && !event.altKey && !event.shiftKey && !(isMac ? event.ctrlKey : event.metaKey)) {
     setVisible(true);
   } else if (event.key !== modifier) {
-    // A chord has started. Don't show hints again until the modifier is pressed anew.
     reset();
   }
 }

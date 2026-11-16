@@ -19,7 +19,6 @@ const hash = (value: string) => digest(new TextEncoder().encode(value));
 interface Env {
   PAGES: DurableObjectNamespace;
   QUOTA: DurableObjectNamespace;
-  /** Artifact pages' files: photos, videos, any file a page shows. */
   FILES: R2Bucket;
   PUBLIC_ORIGIN: string;
   ALLOW_LOCALHOST?: string;
@@ -39,7 +38,6 @@ function adapter(storage: DurableObjectStorage): Storage {
   };
 }
 
-/** The page files bucket, as the page service and the public file route use it. */
 function files(bucket: R2Bucket): FileBucket {
   return {
     head: async (key) => {
@@ -78,7 +76,6 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
-      // Disabled without a temporary operator secret. Never expose namespace object IDs publicly.
       if (path.startsWith("/maintenance/")) {
         const token = request.headers.get("Authorization")?.replace(/^Bearer /, "");
         if (!env.MIGRATION_TOKEN || !token || (await hash(token)) !== (await hash(env.MIGRATION_TOKEN))) return response("Not found", 404);
@@ -141,7 +138,6 @@ export class DesignPage implements DurableObject {
       await this.service.migrate();
       return response(null, 204);
     }
-    // The page's id, from its public address or its write address (also a file's on the way up).
     const id = /^\/(?:s|api\/pages)\/([A-Za-z0-9_-]{43})/.exec(new URL(request.url).pathname)?.[1];
     if (!id) return response("Not found", 404);
     return this.service.fetch(request, id);

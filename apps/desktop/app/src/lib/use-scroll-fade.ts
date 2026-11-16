@@ -1,6 +1,5 @@
 import { type RefObject, useEffect } from "react";
 
-/** Marks a scroll container with data-fade-top / data-fade-bottom while there's more to scroll that way; `.scroll-fade` turns them into edge fades. */
 export function useScrollFade(ref: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const element = ref.current;
@@ -12,7 +11,6 @@ export function useScrollFade(ref: RefObject<HTMLElement | null>) {
     };
     update();
     element.addEventListener("scroll", update, { passive: true });
-    // Content changes (new chats, filtered commands) change what's left to scroll.
     const observer = new ResizeObserver(update);
     observer.observe(element);
     for (const child of Array.from(element.children)) observer.observe(child);

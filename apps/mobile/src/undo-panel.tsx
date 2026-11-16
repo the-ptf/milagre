@@ -18,15 +18,10 @@ import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 export type CheckpointReview = ReturnType<typeof useCheckpoints>;
-/** Undo previews a task's checkpoint; Redo previews the recovery checkpoint an undo saved. */
 export type UndoIntent = "Undo" | "Redo";
 
 const FILE_ICONS = { replace: FileEditIcon, delete: FileAddIcon, create: FileRemoveIcon } as const;
 
-/**
- * Undo changes in the composer's place, as on desktop: the Chat's tasks (from ⋯ or /undo), then one task's files with what
- * undoing does to each. Only a file edited after the task asks Keep current or Undo; the button waits for that answer.
- */
 export function UndoPanel({
   review,
   readOnly = false,
@@ -36,7 +31,6 @@ export function UndoPanel({
   review: CheckpointReview;
   readOnly?: boolean;
   intent: UndoIntent;
-  /** Opens a file's diff; absent where the phone can't show it (a shared Link Chat). */
   onOpenFile?: (file: CheckpointFile) => void;
 }) {
   const { colors } = useTheme();

@@ -9,11 +9,6 @@ const { sharedChatEligibility } = require("@milagre/shared/chat-links");
 const HISTORY = "This Chat is read-only. Choose a current Chat from the canvas.";
 const SEPARATED = "This shared Chat is read-only. Continue in a new Chat in either Worktree.";
 
-/**
- * Transfer editing ownership, never transcripts or Git data. A durable pending adoption claims both roots before
- * Project reconciliation; retrying the same mode finishes an interrupted transfer. Release is also idempotent.
- * The synchronous guard is called inside ChatHost's serialized send, closing the race with a concurrent client.
- */
 function createCanvasChatModes({ registry, store, states, readProject, ownProject, chats, agents, broadcast, changed, git, scheduled = () => [] }) {
   let queue = Promise.resolve();
   const changing = new Set();
@@ -105,13 +100,11 @@ function createCanvasChatModes({ registry, store, states, readProject, ownProjec
       await ownProject(project.path);
       const real = await fs.realpath(end.worktree_path);
       if (real !== end.worktree_path) throw new Error("The linked Worktree path changed.");
-      // Main checkouts are deliberately outside the shared agent's owned set.
       if (real === project.path) throw new Error("Create an isolated Worktree first. Main checkouts cannot be adopted by a shared Chat.");
       const owner = owned.get(real);
       if (owner && owner.linkId !== group?.id) throw new Error("A selected Worktree already belongs to another shared Chat.");
       const discovered = (await git.worktreeList(project.path)).find((item) => item.path === real);
       if (!discovered) throw new Error("A linked Worktree is no longer active.");
-      // readProject normally resumes interrupted turns. Refuse them before that side effect during a transfer.
       const before = await states.get(project.path);
       const previous = Object.values(before.worktrees).find((item) => item.path === real);
       if (previous)
@@ -148,7 +141,6 @@ function createCanvasChatModes({ registry, store, states, readProject, ownProjec
         if (error.code !== "EEXIST" || (await fs.realpath(alias)) !== member.worktreePath) throw error;
       }
     }
-    // Write the ownership journal before touching any Project's Chat records. No setup, branch creation or cleanup.
     await store.update(
       group.id,
       (state) => ({
@@ -199,7 +191,6 @@ function createCanvasChatModes({ registry, store, states, readProject, ownProjec
       if (mode === "shared") await share(link, group, snapshot.projects);
       else {
         await separate(link, group);
-        // Also finishes a release whose final Project refresh was interrupted.
         for (const projectId of new Set([link.a.project_id, link.b.project_id])) {
           const project = (await registry.list()).find((item) => item.id === projectId);
           if (

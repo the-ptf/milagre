@@ -1,5 +1,3 @@
-// What a wake tells the agent above a waiting Subchat. Only this note carries the rules: a Chat that is never woken pays
-// nothing for them in its system prompt.
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { ESCALATION_TOOL_CALLS } = require("@milagre/shared/subchat-escalation");
 
@@ -13,7 +11,6 @@ const requestLines = ({ title, chatId, requestId, questions }) => [
   ...questions.flatMap(questionLines),
 ];
 
-/** The prompt of a wake's turn for `requests` ({ title, chatId, requestId, questions }); `full`: this Chat runs in Full permission. */
 function wakePrompt(requests, { full = false } = {}) {
   return [
     `Your Subchat${requests.length === 1 ? " is" : "s are"} blocked on a question the user hasn't answered. Milagre woke this turn so you can reach them.`,
@@ -32,7 +29,6 @@ function wakePrompt(requests, { full = false } = {}) {
   ].join("\n\n");
 }
 
-/** What the transcript keeps of a wake, for a client that doesn't know to hide it. */
 function wakeBody(requests) {
   const titles = requests.map((request) => request.title).join(", ");
   return `Milagre asked this Chat's agent to tell you about ${titles}.`;

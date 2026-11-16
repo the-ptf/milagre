@@ -32,7 +32,6 @@ function providerResult(provider, now, status, windows = [], message, extra = {}
   return { provider, status, windows, updatedAt: new Date(now()).toISOString(), ...(message ? { message } : {}), ...extra };
 }
 
-// Retry-After is delta-seconds or an HTTP date; anything unreadable or already past gets the default.
 function retryAfterMs(header, nowMs) {
   const value = typeof header === "string" ? header.trim() : "";
   let wait = Number.NaN;
@@ -171,7 +170,6 @@ function codexWindows(rateLimits) {
     }));
 }
 
-// Only a positive whole count is worth showing; zero and anything malformed mean "no bank".
 function bankedResetsOf(count) {
   return Number.isInteger(count) && count > 0 ? { bankedResets: count } : {};
 }
@@ -215,7 +213,6 @@ async function readCodexUsage(deps = {}) {
       } else if (message.id === 2) {
         const account = message.result?.account;
         if (!account) return finish(done("unavailable", [], "Not signed in to Codex."));
-        // Plan windows only exist for ChatGPT sign-ins; API-key and Bedrock accounts have none to show.
         if (account.type !== "chatgpt") return finish(done("unavailable", [], "Codex plan limits need a ChatGPT sign-in."));
         send({ id: 3, method: "account/rateLimits/read" });
       } else if (message.id === 3) {
@@ -251,7 +248,6 @@ async function readCodexUsage(deps = {}) {
   });
 }
 
-// On an error, keep showing the last good numbers (minus windows that have since reset).
 function withLastGood(result, last, nowMs) {
   if (result.status !== "error" || !last) return result;
   const windows = last.windows.filter((item) => !item.resetsAt || Date.parse(item.resetsAt) > nowMs);
@@ -259,7 +255,6 @@ function withLastGood(result, last, nowMs) {
 }
 
 function createUsageReader(deps = {}) {
-  // `ready` resolves once the login environment is applied: opened from Finder the app's PATH is bare until then,
   // and the Codex lookup starts `codex` from it.
   const {
     readClaude = readClaudeUsage,
@@ -322,7 +317,6 @@ function createUsageReader(deps = {}) {
     return inFlight;
   }
   readUsage.provider = providerUsage;
-  // A failed check can retain old quota numbers; its check time must not overwrite their updatedAt.
   readUsage.checkedAt = (provider) => checked.get(provider);
   readUsage.cached = (provider) => {
     const result = latest.get(provider);
@@ -333,8 +327,6 @@ function createUsageReader(deps = {}) {
   return readUsage;
 }
 
-// The CLI owns the per-profile Keychain name and token refresh. Ask its control API without
-// starting a model turn, instead of depending on the credential store's private naming scheme.
 async function readClaudeProfileUsage({
   command,
   env,

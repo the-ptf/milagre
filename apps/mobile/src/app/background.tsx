@@ -10,7 +10,6 @@ import { WholeSubagentDetail } from "../subagent-glance";
 import { TaskOutput } from "../task-output";
 import { CircleButton, EmptyState, ListRow, PageScroll, SheetHeader, useStyles } from "../ui";
 
-/** The phone's counterpart to the expanded background line on desktop. */
 export default function BackgroundSheet() {
   const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -18,7 +17,6 @@ export default function BackgroundSheet() {
   const project = session.snapshot?.project;
   const chat = project?.state.sessions[Number(id)];
   const chatKey = `${project?.path}#${id}`;
-  // A command serving one of the Chat's ports is in Ports instead.
   const { ports } = useChatPorts(project ? session.client : null, chatKey);
   const items = backgroundItems(chat, ports);
   const [selection, setSelected] = useState<(BackgroundItem & { chatKey: string }) | null>(null);

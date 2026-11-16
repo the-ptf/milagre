@@ -30,7 +30,6 @@ export function GlassIconButton({
   label: string;
   systemImage: React.ComponentProps<typeof IOSButton>["systemImage"];
   icon: IconData;
-  /** Use the shared vector drawing at this size instead of the SF Symbol. */
   iconSize?: number;
   onPress: () => void;
   prominent?: boolean;

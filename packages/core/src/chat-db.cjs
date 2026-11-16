@@ -2,12 +2,6 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const path = require("node:path");
 
-// A Project's messages, one row each, in <project>/.milagre/chats.db (see docs/chat-storage.md). coordination.json keeps everything
-// else, with `messages` set to MESSAGES_MARKER. The rows keep each message's place in the Project's order (`position`, a
-// sort key: increasing along the Project's array, with gaps), so the array reads back in the order it had, and its global
-// id, which numbers messages across Chats. The daemon holds only some Chats' messages in memory (see message-store.cjs);
-// the rows of the others are the only copy, and a save leaves them as they are.
-
 const MESSAGES_MARKER = Object.freeze({ storedIn: "chats.db", format: 2 });
 const isMarker = (value) => Boolean(value && typeof value === "object" && !Array.isArray(value) && value.storedIn === "chats.db");
 const dbFile = (projectPath) => path.join(projectPath, ".milagre", "chats.db");
@@ -44,7 +38,6 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS messages_position ON messages (position);
 `;
 
-/** Opens the Project's database for one read or write and closes it after; a save is a few writes a second at most. */
 async function withDatabase(projectPath, work, { create = false } = {}) {
   const file = dbFile(projectPath);
   if (create) await fs.mkdir(path.dirname(file), { recursive: true });
@@ -57,7 +50,6 @@ async function withDatabase(projectPath, work, { create = false } = {}) {
   return open(file, work);
 }
 
-/** withDatabase for a read that can't wait: loading a Chat inside a change to the state, which runs to its end in one go. */
 function withDatabaseSync(projectPath, work) {
   const file = dbFile(projectPath);
   if (!fsSync.existsSync(file)) return work(null);
@@ -74,7 +66,6 @@ function open(file, work) {
   }
 }
 
-/** The Project's messages in their saved order, each with its position; null when it has no database. */
 function readRows(projectPath) {
   return withDatabase(projectPath, (db) =>
     db
@@ -86,14 +77,12 @@ function readRows(projectPath) {
   );
 }
 
-/** The Project's messages in their saved order; null when it has no database. */
 async function readMessages(projectPath) {
   return (await readRows(projectPath))?.map((row) => row.message) ?? null;
 }
 
 const chatList = (chats) => JSON.stringify([...chats].map(Number));
 
-/** The rows of the Chats `chats` (ids), in the Project's order, each { message, position, chat }. Synchronous. */
 function readChatRows(projectPath, chats) {
   if (!chats.size && !chats.length) return [];
   return withDatabaseSync(projectPath, (db) =>
@@ -106,10 +95,6 @@ function readChatRows(projectPath, chats) {
   );
 }
 
-/**
- * What a search needs of the messages of the Chats `chats`, without reading them whole: { id, session_id, role, body } in the
- * Project's order, each with its position. Synchronous.
- */
 function readChatBodies(projectPath, chats) {
   if (!chats.size && !chats.length) return [];
   return withDatabaseSync(projectPath, (db) =>
@@ -128,7 +113,6 @@ function readChatBodies(projectPath, chats) {
   );
 }
 
-/** At most 240 characters from the last assistant reply of each requested Chat, without reading transcripts. */
 function readChatPreviews(projectPath, chats) {
   if (!chats.size && !chats.length) return [];
   return withDatabaseSync(projectPath, (db) =>
@@ -147,7 +131,6 @@ function readChatPreviews(projectPath, chats) {
   );
 }
 
-/** { id, session_id, role, outcome, clientMessageId } of the messages of the Chats `chats`, in the Project's order. Synchronous. */
 function readChatMarks(projectPath, chats) {
   if (!chats.size && !chats.length) return [];
   return withDatabaseSync(projectPath, (db) =>
@@ -172,7 +155,6 @@ function readChatMarks(projectPath, chats) {
   );
 }
 
-/** The rows of the Chats `chats` whose saved JSON contains one of `needles`, in the Project's order. Synchronous. */
 function readChatRowsContaining(projectPath, chats, needles) {
   if ((!chats.size && !chats.length) || !needles.length) return [];
   return withDatabaseSync(projectPath, (db) =>
@@ -187,7 +169,6 @@ function readChatRowsContaining(projectPath, chats, needles) {
   );
 }
 
-/** id -> { position, chat } of the saved rows of messages `ids`. Synchronous. */
 function readPositions(projectPath, ids) {
   return withDatabaseSync(projectPath, (db) =>
     db
@@ -202,7 +183,6 @@ function readPositions(projectPath, ids) {
 }
 
 const LOOKUPS = { id: "id", operationId: "operation_id", clientMessageId: "client_message_id" };
-/** The first saved message (in the Project's order) of a Chat in `chats` whose `field` (id, operationId or clientMessageId) is `value`. */
 function findRow(projectPath, chats, field, value) {
   const column = LOOKUPS[field];
   if (!column) throw new Error(`Messages can't be looked up by ${field}`);
@@ -217,7 +197,6 @@ function findRow(projectPath, chats, field, value) {
   });
 }
 
-/** The details sidecars the saved messages of the Chats `chats` point at. */
 function readDetailRefs(projectPath, chats) {
   if (!chats.size && !chats.length) return new Set();
   return withDatabaseSync(projectPath, (db) => {
@@ -232,20 +211,6 @@ function readDetailRefs(projectPath, chats) {
 }
 
 /**
- * Writes `messages`, the messages of every Chat the state holds in memory, in the Project's order. `saved` maps each
- * message id to { message, position, chat } as chats.db holds it, for those Chats: rows whose message object and
- * position are unchanged aren't written again, and rows in `saved` that `messages` no longer has are deleted. Without
- * `saved` (the first save of a run, or a Project moving from coordination.json) it is read from the database.
- *
- * `keep` lists the Chats whose messages the state doesn't hold (see message-store.cjs): their rows stay as they are,
- * whatever `saved` says. `drop` lists Chats of that kind that are gone from the state: their rows are deleted.
- *
- * A message keeps its position while that keeps the order increasing along `messages`; one that would break it (a
- * message added, or re-sent after the reply before it split) takes a position after every row. Then the positions
- * are numbered 0..n-1 again where a removal left gaps. All in one transaction. Returns the map to pass next time
- * (`saved` itself, updated, when given), also handed to `commit(map, stats)` right after the transaction, before any
- * other code runs. `stats`, when given, gets how many rows were written and removed, and whether positions were
- * numbered again (`renumbered`).
  * @param {string} projectPath
  * @param {any[]} messages
  * @param {Map<any, { message: any, position: number, chat: any }> | null | undefined} saved
@@ -284,8 +249,6 @@ function writeMessages(
               .all()
               .map((row) => [row.id, { message: undefined, position: row.position, chat: row.session_id }]),
           );
-        // A message the map lacks but chats.db has (a Chat loaded while the save that made the map ran) keeps its row's
-        // place instead of moving after every row.
         const unknown = saved ? messages.filter((message) => !saved.has(message.id)).map((message) => message.id) : [];
         const found = unknown.length
           ? new Map(
@@ -317,8 +280,6 @@ function writeMessages(
             stats.removed++;
           }
         for (const chat of drop) stats.removed += Number(removeChat.run(chat).changes);
-        // Positions go back to 0..n-1 in the Project's order, as releases before idle unloading (docs/chat-storage.md) wrote and expect them: one
-        // of those adds a message at the array's length, which must come after every row.
         const { last, count } = db.prepare("SELECT MAX(position) AS last, COUNT(*) AS count FROM messages").get();
         if (count && last !== count - 1) {
           db.exec(`WITH ranked AS (SELECT id, ROW_NUMBER() OVER (ORDER BY position, id) - 1 AS rank FROM messages)
@@ -335,8 +296,6 @@ function writeMessages(
         db.exec("ROLLBACK");
         throw error;
       }
-      // What chats.db holds now, for the Chats in memory. A map read from the database also held the kept Chats' rows,
-      // so a new one is made of what was written.
       const next = saved ?? new Map();
       for (const id of removals) next.delete(id);
       for (const [id, row] of writes) next.set(id, row);
@@ -344,7 +303,6 @@ function writeMessages(
         stats.renumbered = true;
         for (const [id, row] of next) if (renumbered.has(id)) next.set(id, { ...row, position: renumbered.get(id) });
       }
-      // Before anything else runs: a Chat loaded from here on must find its rows in the map chats.db now matches.
       commit?.(next, stats);
       return next;
     },

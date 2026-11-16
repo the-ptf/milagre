@@ -7,13 +7,11 @@ export type ShowAlert = (
   options?: { cancelable?: boolean; onDismiss?: () => void },
 ) => void;
 
-/** A question shown in the confirmation sheet; `choose` runs once, with the button picked or null when dismissed. */
 type Confirmation = { title: string; message?: string; buttons: AlertButton[]; choose: (index: number | null) => void };
 
 let current: Confirmation | null = null;
 let present: (() => void) | null = null;
 
-/** The app's root wires this to open the sheet route; a route can't carry callbacks, so the question waits here. */
 export function setConfirmPresenter(open: () => void) {
   present = open;
 }
@@ -21,10 +19,6 @@ export function currentConfirmation() {
   return current;
 }
 
-/**
- * Alert.alert's shape, answered in a bottom sheet. A dismissed sheet runs the cancel button, as a dismissed alert would.
- * A newer question replaces one still waiting, which counts as dismissed.
- */
 export const confirmSheet: ShowAlert = (title, message, buttons, options) => {
   current?.choose(null);
   let done = false;
@@ -45,7 +39,6 @@ export const confirmSheet: ShowAlert = (title, message, buttons, options) => {
   present?.();
 };
 
-/** Asks with a destructive confirm and a Cancel; resolves true when confirmed. */
 export function confirm(title: string, message: string | undefined, action: string) {
   return new Promise<boolean>((resolve) =>
     confirmSheet(title, message, [

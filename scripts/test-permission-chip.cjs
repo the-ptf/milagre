@@ -1,6 +1,3 @@
-// Real App, isolated agent IPC. A Chat another Chat started (MCP, Delegation) has no permission pick of its own:
-// while its turn runs, the chip shows the mode the agent runs in, not the default for new Chats.
-// Run with node scripts/test-permission-chip.cjs. Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -62,13 +59,11 @@ async function browserChecks() {
   };
   try {
     await window.loadURL(process.argv[2]);
-    // The whole App mounts here, cold on a busy runner; the checks after it keep the short wait.
     await waitFor(String.raw`!!document.querySelector("[data-prompt-editor]")`, 800);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '2', metaKey: true, bubbles: true, cancelable: true }))`);
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Review PR 10923")`);
     assert.equal(await chip(), "Full", "an idle Chat with no pick shows the default");
 
-    // Another Chat's agent started this one through the MCP, in Ask.
     await emit({ type: "message-sent", model: "claude-opus-5-5", permissionMode: "ask" });
     await emit({ type: "turn-started", turnId: "t-1" });
     await emit({
@@ -85,14 +80,11 @@ async function browserChecks() {
     await waitFor(String.raw`document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode === "ask"`);
     await screenshot("running-in-ask");
 
-    // Once the turn ends, the chip is the mode the next message sends: the default again.
     await emit({ type: "turn-completed", turnId: "t-1" });
     await waitFor(String.raw`document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode === "full"`);
 
-    // A mode picked for the Chat wins over the run's.
     await emit({ type: "message-sent", model: "claude-opus-5-5", permissionMode: "ask" });
     await waitFor(String.raw`document.querySelector('[data-promptbar] [data-permission-mode]').dataset.permissionMode === "ask"`);
-    // The permission lives in the model picker's footer.
     await evaluate(`document.querySelector('[data-promptbar] [data-permission-mode]').click()`);
     await waitFor(String.raw`!!document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]')`);
     await evaluate(`document.querySelector('[data-permission-footer] button[aria-label="Agent permissions"]').click()`);

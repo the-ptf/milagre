@@ -5,22 +5,16 @@ import { useSlider } from "../../lib/use-slider";
 import type { SliderOptions } from "../../lib/use-slider";
 import Tooltip from "./Tooltip";
 
-// Grab feedback for the handle's height only.
 const SPRING_BOUNCY = { type: "spring", stiffness: 500, damping: 14, mass: 0.7 } as const;
-// The handle's centre runs from HANDLE_INSET to width - HANDLE_INSET, and the tick dots follow it.
 const HANDLE_INSET = 8;
 
 export interface RangeSliderProps extends SliderOptions {
-  /** A tick dot at each step. */
   showTicks?: boolean;
-  /** A slim position track for paging through a long list. */
   variant?: "default" | "position" | "context";
   secondary?: SliderOptions;
   className?: string;
 }
 
-/** After beUI's Range Slider: tick dots and a vertical-bar handle that bounces as it lands on each
- * step. Drag anywhere on the track or use the arrow keys; reduced motion drops the springs. */
 export function RangeSlider({ showTicks = true, variant = "default", className = "", secondary, ...options }: RangeSliderProps) {
   const second = useSlider(secondary ?? options);
   const reduce = useReducedMotion();
@@ -41,7 +35,6 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
     return () => observer.disconnect();
   }, [trackProps.ref]);
 
-  // One spring-smoothed position drives the handle and the fill.
   const target = useMotionValue(percent);
   useEffect(() => {
     target.set(percent);
@@ -49,12 +42,8 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   const smooth = useSpring(target, SPRING_GLIDE);
   const position = reduce ? target : smooth;
   const handleX = useTransform(position, (p) => HANDLE_INSET + (Math.max(0, trackWidth - HANDLE_INSET * 2 - 4) * p) / 100);
-  // The fill ends at the handle's centre, which is the tick's centre: the clip is inset 2px, so the handle centre
-  // (HANDLE_INSET + 2 + (width - 2 * HANDLE_INSET - 4) * p) sits HANDLE_INSET - 0.16p px past p% of the clip. Translating
-  // a full-size fill inside the clip keeps its corner round.
   const fillX = useTransform(position, (p) => `calc(${p - 100}% + ${HANDLE_INSET - ((HANDLE_INSET * 2) / 100) * p}px)`);
 
-  // Floor, so a range the step does not divide stops its dots at the last whole step.
   const steps = Math.floor(Number(((max - min) / step).toFixed(6)));
   const ticks = showTicks && steps > 0 && steps <= 50 ? Array.from({ length: steps + 1 }, (_, i) => Number((min + i * step).toFixed(6))) : [];
 

@@ -4,13 +4,9 @@ const path = require("node:path");
 const defaultClient = createGit();
 const { text: git, commitOf } = defaultClient.read;
 
-// A hung git must not leave the archive menu on "Checking worktree…": the check fails and the chat only hides.
 const GIT_TIMEOUT_MS = LIMITS.READ.timeout;
-// Removing a worktree with big ignored folders (node_modules, build output) can take minutes, and killing git
-// halfway would leave it half-deleted and still registered. Only the checks are on the short leash.
 const REMOVE_TIMEOUT_MS = LIMITS.REMOVE.timeout;
 
-// The message a removal refused because the worktree changed after the user looked; the renderer words the notice.
 const { WORKTREE_CHANGED: CHANGED_AFTER_CHECK } = require("@milagre/shared/git-codes").GIT_CODES;
 
 /**
@@ -48,14 +44,6 @@ function isInside(root, target) {
 
 const sameStatus = (now, seen) => Boolean(seen) && now.head === seen.head && now.uncommitted <= seen.uncommitted && now.unpushed <= seen.unpushed;
 
-/**
- * Removes a worktree Milagre made, then its `milagre/` branch. It refuses a path outside `root`, the main checkout,
- * the project folder itself, and a worktree of another repository. Then it closes the chat's agent session
- * (`closeSession`) so nothing keeps running in the folder, and looks again: the safe remove (no `force`) needs the
- * worktree to be removable still; the forced one (`force`) refuses if `seen`, the status the user saw, has grown
- * or HEAD moved. Either refusal throws CHANGED_AFTER_CHECK. The safe remove is git's own (a dirty worktree is
- * refused) with `branch -d` (an unmerged branch is kept: it's pushed or empty); the forced one uses --force and -D.
- */
 async function removeWorktree({ path: worktreePath, root, projectPath, base, seen, force = false, closeSession, exec }) {
   const client = exec ? createGit({ execFile: callbackExec(exec) }) : defaultClient;
   const g = client.read.text;
@@ -69,20 +57,17 @@ async function removeWorktree({ path: worktreePath, root, projectPath, base, see
   if (realMain === real) throw new Error(`${worktreePath} is the main checkout.`);
   const top = (await g(real, ["rev-parse", "--show-toplevel"])).trim();
   if ((await fs.realpath(top)) !== real) throw new Error(`${worktreePath} is not the top of a worktree.`);
-  // The project is how a worktree is known to be this project's: without it nothing is removed.
   if (!projectPath) throw new Error("No project was given, so the worktree is kept.");
   const realProject = await fs.realpath(projectPath);
   if (realProject === real) throw new Error(`${worktreePath} is the project folder.`);
   if ((await client.commonDir(real)) !== (await client.commonDir(realProject))) throw new Error(`${worktreePath} belongs to another repository.`);
 
-  // The agent may still be writing: close its session, then look at the folder as it is now.
   await closeSession?.();
   const now = await worktreeStatus(real, base);
   if (force ? !sameStatus(now, seen) : !now.removable) throw new Error(`${CHANGED_AFTER_CHECK}: ${worktreePath} changed after it was checked.`);
 
   await client.write.checked(realMain, ["worktree", "remove", ...(force ? ["--force"] : []), real], { profile: "REMOVE" });
 
-  // Only branches Milagre made: a chat that switched its worktree to another branch must not delete it.
   let branchDeleted = false;
   if (now.branch?.startsWith("milagre/")) {
     try {

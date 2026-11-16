@@ -1,4 +1,3 @@
-// Opt-in real-provider comparison. Uses only temporary Projects and the user's existing sign-ins.
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const assert = require("node:assert/strict");

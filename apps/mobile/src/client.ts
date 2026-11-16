@@ -14,26 +14,18 @@ import { localEndpoint, relayAddress, validAccess, validRelay, type Access, type
 export type OpenProject = {
   path: string;
   name: string;
-  /** "chats" for the Chats home. Absent for every other Project and on older hosts. */
   kind?: ProjectKind;
   state: CoordinatorState;
   link?: OpenLink;
-  /** Derived before the host removes shell output from phone snapshots. Absent on older hosts. */
   pullRequestRefs?: Record<number, string[]>;
 };
-/** A Project's streaming turns; `seq` numbers the last event they hold. */
 export type Runs = { runs: AgentRuns; seq?: number };
-/** New hosts partition live turns into requested detail and status-only summaries. */
 export type RunsReply = Runs & { summaries?: Record<string, Omit<AgentRun, "text" | "steps">>; detailChats?: number[] };
-/** A page of a Chat's messages, from a host that keeps them by Chat (the snapshot then has none: messagesInChats). */
 export type ChatPage = { messages: ChatMessage[]; hasMore: boolean; total: number };
 export type ChatSearchMatch = { message: { id: number; session_id: number }; score: number; snippet: string; highlight: [number, number]; term: string };
 export type Snapshot = { project: OpenProject; runs: Runs; previewOnly?: false };
-/** Drawer metadata only. Never use it as the Chat screen's snapshot. Older hosts return a full Snapshot. */
 export type ProjectPreview = Omit<Snapshot, "previewOnly"> & { previewOnly: true };
 export type RegisteredProject = { id: string; path: string; name: string };
-/** `hidden`: the user keeps this Project out of the Projects list (and desktop's all-Projects sidebar). */
-/** `origin`: the Git remote as "host/owner/repo", the same on every computer with a clone of that repository. */
 export type RecentProject = {
   path: string;
   name?: string;
@@ -43,26 +35,19 @@ export type RecentProject = {
   projects?: RegisteredProject[];
 };
 
-// The pairing link's parts moved to @milagre/shared with parsePairing; the phone's modules still import them from here.
 export { localEndpoint, relayAddress, validAccess, validRelay };
 export type { Access, RelayLink };
 
-/** What a client needs to reach one computer: a direct address, or the relay. */
 export type ClientHost = { address: string; token: string; access?: Access; relay?: RelayLink };
-/** Which LAN transport, if any, carries this computer's traffic right now. */
 export type RouteView = { current(): RelayTransport | null; subscribe(listener: () => void): () => void };
 /** The phone's side of the relay, injected so this file stays free of native modules. */
 export type RelayRuntime = {
   randomUUID?(): string;
-  /** The one transport for this Mac, opened on first use and shared by every client. */
   transport(host: { relay: RelayLink; token: string }): Promise<RelayTransport>;
-  /** This computer's LAN route; requests and live streams use its transport while `current()` has one. */
   lan?(host: { id: string; token: string }): RouteView;
-  /** Images fetched through the relay, kept as files in the cache folder. */
   files: { find(name: string): Promise<string | null>; write(name: string, bytes: Uint8Array): Promise<string> };
 };
 
-/** A short, stable file name for an image: FNV-1a twice over, plus the image's own extension. */
 function mediaName(text: string, path: string): string {
   const fnv = (seed: number) => {
     let hash = seed >>> 0;
@@ -78,14 +63,10 @@ function mediaName(text: string, path: string): string {
 
 type Answer = { status: number; ok: boolean; etag?: string | null; text: () => Promise<string> };
 const LOST = "Connection lost. Reconnect to your computer. Check the Chat before sending again.";
-/** What a retired client's callers get: the computer it served was replaced, and nothing more is started for it. */
 const replaced = () => new Error("This computer was replaced.");
-/** The connection dropped or a deadline passed: the request may have reached the Mac (see retryKind in send-retry). */
 const lost = () => Object.assign(new Error(LOST), { retry: "unknown" as const });
 const decoder = new TextDecoder();
-// The waits before a request a busy Mac turned away (429) goes again; its own deadline ends the tries.
 const BUSY_RETRY_DELAYS = [250, 500, 1000, 2000] as const;
-/** Waits `ms`, or rejects as a lost connection once `signal` aborts (the request's deadline passed). */
 function pause(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) return reject(lost());
@@ -101,9 +82,7 @@ function pause(ms: number, signal: AbortSignal) {
   });
 }
 const MEDIA_AT_ONCE = 4;
-// Deleting a Link removes its untouched Worktrees one after another: the desktop daemon client waits as long.
 const LINK_DELETE_MS = 30 * 60 * 1000;
-// Creating a worktree can fetch and copy files; removing one with big ignored folders can take minutes.
 const LONG_CALLS = new Set([
   "worktree:create",
   "worktree:remove",
@@ -112,7 +91,6 @@ const LONG_CALLS = new Set([
   "link:send",
   "link:open",
   "agent:update-cli",
-  // PR reads and writes go through gh to GitHub (paged GraphQL, a fetch for missing commits, a merge).
   "pr:detail",
   "pr:diff-files",
   "pr:diff-file",
@@ -127,17 +105,10 @@ const LONG_CALLS = new Set([
   "pr:reviewer-candidates",
   "pr:request-reviewers",
 ]);
-// Settings › MCP: the Mac caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
-// A Browser page proxy may download cloudflared, start a tunnel (30 s at most) and wait for its name in DNS (20 s).
 const PAGE_URL_MS = 75000;
 const MCP_CALLS = new Set(["mcp:accounts", "mcp:check", "mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]);
-// The Mac embeds images before uploading a public snapshot; match its desktop RPC deadline.
 const DESIGN_SHARE_CALLS = new Set(["artifact:share-page", "artifact:revoke-page-share", "artifact:revoke-saved-page-share"]);
 
-/**
- * One request through a transport, the relay's or the LAN's. The relay's own failures, and a phone key that can't be read, carry copy for the
- * user; anything else is a lost connection.
- */
 function overRelay(
   through: Promise<RelayTransport>,
   method: "GET" | "POST",
@@ -146,7 +117,6 @@ function overRelay(
   body: string | undefined,
   signal: AbortSignal,
 ) {
-  // The transport cannot cancel a request, so the deadline only stops waiting for it.
   const deadline = new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(lost()), { once: true }));
   const answer = through.then((relayed) =>
     relayed.request(method, route, headers, body).catch((error) => {
@@ -156,7 +126,6 @@ function overRelay(
   return Promise.race([deadline, answer]);
 }
 
-/** The bridge's live socket, read through the relay. It opens once the transport is ready, unless closed first. */
 function relayLive(path: string, { onSignal, onStatus }: LiveOptions, through: Promise<RelayTransport>): Live {
   let closed = false;
   let handle: { close(): void } | null = null;
@@ -177,9 +146,7 @@ function relayLive(path: string, { onSignal, onStatus }: LiveOptions, through: P
         onStatus,
       );
     },
-    () => {
-      /* the snapshot polls until a live socket opens */
-    },
+    () => {},
   );
   return {
     close() {
@@ -197,30 +164,22 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   const url = relay ? relayAddress(relay.hostId) : localEndpoint(host.address);
   if (access && !url.startsWith("https:")) throw new Error("A Cloudflare access token needs an HTTPS address.");
   const token = host.token.trim();
-  // The last snapshot per route and its ETag: an unchanged Project answers 304 instead of megabytes.
   const cached = new Map<string, { etag: string; value: unknown }>();
-  // Every route is cached by its URL, so a route whose URL varies (the Projects of /chat-lists) must not pile up.
   const CACHED_ROUTES = 200;
   const CHAT_LISTS = "/chat-lists?";
   function remember(route: string, entry: { etag: string; value: unknown }) {
-    // The Projects asked for change from read to read: only the latest batch's answer can still be revalidated.
     if (route.startsWith(CHAT_LISTS)) for (const known of cached.keys()) if (known !== route && known.startsWith(CHAT_LISTS)) cached.delete(known);
     cached.delete(route);
     cached.set(route, entry);
     while (cached.size > CACHED_ROUTES) cached.delete(cached.keys().next().value!);
   }
-  // Set once the owner replaced this client: it starts no request, transport or stream after that.
   let retired = false;
-  // Per Project, the last snapshot the host numbered: the next one comes as a patch on it, a few hundred bytes where a
-  // large Project's snapshot runs to megabytes. A host that doesn't number snapshots answers with the whole one.
   const numbered = new Map<string, { epoch: string; version: number; value: SnapshotAnswer }>();
   type SnapshotAnswer = Snapshot | { link: OpenLink; runs: Runs };
   type NumberedAnswer = { epoch: string; version: number } & ({ base: number; patch?: StatePatch } | { snapshot: SnapshotAnswer });
   async function readSnapshot(owner: string): Promise<SnapshotAnswer> {
     const held = numbered.get(owner);
-    // In a header, so the route stays the one an older host answers with an ETag (and a 304 when nothing changed).
     const since = held ? `${held.epoch}:${held.version}` : "none";
-    // X-Milagre-Chat-Pages: the snapshot without messages; the chat screen reads its Chat's as pages (chatMessages).
     const answer = await request<SnapshotAnswer | NumberedAnswer>(`/snapshot?projectPath=${encodeURIComponent(owner)}`, undefined, timeoutMs, {
       "X-Milagre-Snapshot-Since": since,
       "X-Milagre-Chat-Pages": "1",
@@ -233,7 +192,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     if ("snapshot" in answer) value = answer.snapshot;
     else if (held && answer.epoch === held.epoch && answer.base === held.version) value = applyStatePatch(held.value, answer.patch);
     else {
-      // A patch on a snapshot this app no longer holds: ask for the whole one.
       numbered.delete(owner);
       return readSnapshot(owner);
     }
@@ -243,8 +201,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   const auth = { Authorization: `Bearer ${token}`, ...(access ? { "CF-Access-Client-Id": access.id, "CF-Access-Client-Secret": access.secret } : {}) };
   const lanView = runtime?.lan?.({ id: url, token });
   const lanNow = () => lanView?.current() ?? null;
-  // The Mac adds the token to every request it forwards; over the relay or the LAN it only rides the handshake.
-  /** The transport this request rides: the LAN when it is up, else the relay for a relay computer, else none (HTTPS). */
   const carrier = (): Promise<RelayTransport> | null => {
     if (retired) throw replaced();
     const lan = lanNow();
@@ -264,7 +220,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     return { status: response.status, ok: response.ok, etag: response.headers?.get?.("etag"), text: () => response.text() };
   }
 
-  /** Runs `work` with a signal that aborts after `deadlineMs`, including the time to read the body. */
   async function timed<T>(deadlineMs: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), deadlineMs);
@@ -282,7 +237,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         try {
           return await attempt<T>(route, body, extraHeaders, signal);
         } catch (error) {
-          // A busy Mac turns a request away unread (429), so it goes again while its deadline lasts.
           const delay = BUSY_RETRY_DELAYS[Math.min(tries, BUSY_RETRY_DELAYS.length - 1)] ?? 2000;
           if ((error as { status?: number }).status !== 429 || Date.now() - started + delay >= deadlineMs) throw error;
           await pause(delay, signal);
@@ -327,7 +281,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       );
     }
     if (value?.v !== 1) throw new Error("Incompatible daemon response. Update the app and daemon together.");
-    // The Mac runs 16 requests at once and holds 64 more (phone-channels.cjs, mobile-bridge.cjs); an older Mac refuses past 16.
     if (response.status === 429) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
     if (!response.ok || value.error) throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
     if (body === undefined && response.etag) remember(route, { etag: response.etag, value: value.result });
@@ -335,15 +288,11 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   }
 
   const mediaRoute = (projectPath: string, path: string) => `/media?projectPath=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(path)}`;
-  /** An image file on the computer, served by the bridge only from the Project's Worktrees and Milagre's image folders. */
   function media(projectPath: string, path: string) {
     if (relay || lanNow()) throw new Error("Images from a relay computer load through mediaFile.");
     return { uri: url + mediaRoute(projectPath, path), headers: auth };
   }
-  // One load per image: thumbnails ask on every render, and must get the same source back.
   const images = new Map<string, Promise<{ uri: string }>>();
-  // The Mac serves at most 16 relayed requests at once. A chat full of images takes 4 of them, in order, so the
-  // snapshot, runs and sends always find a free one.
   let fetching = 0;
   const waiting: (() => void)[] = [];
   function inTurn<T>(work: () => Promise<T>): Promise<T> {
@@ -368,7 +317,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     const loading = (async () => {
       const found = await runtime!.files.find(name);
       if (found) return { uri: found };
-      // The carrier is chosen when the request starts: a route that switched while this waited its turn is not the one to use.
       const response = await inTurn(async () => {
         const through = carrier();
         if (!through) throw lost();
@@ -386,12 +334,10 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
 
   return {
     url,
-    /** Stops this client from starting any request, relay transport or stream; what is already in flight settles on its own. */
     retire() {
       retired = true;
     },
     async recentScopes(): Promise<RecentProject[]> {
-      // All three requests settle before this answers or fails: a caller that limits requests in flight counts them as one job.
       const [recent, linked, registered] = await Promise.allSettled([
         request<RecentProject[]>("/rpc", { v: 1, method: "project:recent", args: [] }),
         request<NamedProjectLink[]>("/rpc", { v: 1, method: "link:list", args: [] }),
@@ -416,10 +362,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         })),
       ];
     },
-    /**
-     * Where this computer keeps its Chats without a Project, whether made yet or not; null when its daemon predates them
-     * (it refuses the command) or it is a demo computer. Asked next to the Project list, never as one of its entries.
-     */
     async chatsHome(): Promise<ChatsHome | null> {
       try {
         const home = await request<ChatsHome | null>("/rpc", { v: 1, method: "chats:home", args: [] });
@@ -429,7 +371,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         throw error;
       }
     },
-    /** Makes this computer's Chats home when it is missing and opens it, without moving the computer's shown Project. */
     ensureChatsHome: () => request<{ path: string; name: string; kind?: ProjectKind }>("/rpc", { v: 1, method: "chats:ensure", args: [] }),
     async open(owner: string) {
       const link = isLinkScopeKey(owner);
@@ -450,7 +391,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         runtime?.randomUUID,
       ),
     reuseUpload: (projectPath: string, id: string) => request<{ path: string; name: string; id: string } | null>("/attachments", { projectPath, reuse: id }),
-    // Git fetches, worktree setup and removing a worktree get the same deadline as the desktop daemon client.
     call: async <T>(method: string, args: unknown[] = []) => {
       if (retired) throw replaced();
       return request<T>(
@@ -470,44 +410,32 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       );
     },
     media,
-    /** A relay computer's image, fetched once into the cache folder; resolves to its file:// URI. */
     mediaFile: (projectPath: string, path: string) => relayImage(projectPath, path).then((source) => source.uri),
-    /** The image source to show: the authenticated URL directly, or the cached file through the relay. */
     image: (projectPath: string, path: string): { uri: string; headers?: Record<string, string> } | Promise<{ uri: string }> =>
       relay || lanNow() ? relayImage(projectPath, path) : media(projectPath, path),
-    /** A page of one Chat's messages: its latest turns, or those before the message `before`. */
     chatMessages: (projectPath: string, chatId: number, options: { before?: number; turns?: number } = {}) =>
       request<ChatPage>(
         `/chat-messages?projectPath=${encodeURIComponent(projectPath)}&chatId=${chatId}` +
           (options.before !== undefined ? `&before=${options.before}` : "") +
           (options.turns !== undefined ? `&turns=${options.turns}` : ""),
       ),
-    /** Matches across the Chats of a Project or Link, best first: where each is and what matched. */
     searchChats: (projectPath: string, query: string) =>
       request<ChatSearchMatch[]>(`/search?projectPath=${encodeURIComponent(projectPath)}&q=${encodeURIComponent(query)}`),
-    /** One message with its tools' full output; the snapshot leaves that out. */
     message: (projectPath: string, id: number) => request<ChatMessage>(`/message?projectPath=${encodeURIComponent(projectPath)}&id=${id}`),
     snapshot: async (projectPath: string) => phoneSnapshot(await readSnapshot(projectPath)),
     preview: (projectPath: string) => request<ProjectPreview | Snapshot>("/snapshot?projectPath=" + encodeURIComponent(projectPath) + "&view=chats"),
-    /**
-     * The drawer previews of up to 20 Projects in one read-only request. A Project the Mac can't read comes back as
-     * `{ error }`. A Mac without the route fails with code "unsupported": ask for each Project's `preview` instead.
-     */
     chatLists: (paths: string[]) =>
       request<Record<string, ProjectPreview | { error: string }>>("/chat-lists?paths=" + encodeURIComponent(JSON.stringify(paths))).catch((error: unknown) => {
         throw (error as { status?: number })?.status === 404 ? Object.assign(error as Error, { code: "unsupported" as const }) : error;
       }),
-    /** Just the Project's streaming turns: what a live "runs" signal fetches instead of the whole snapshot. */
     runs: (projectPath: string, chats?: readonly number[]) =>
       request<RunsReply>(
         "/runs?projectPath=" +
           encodeURIComponent(projectPath) +
           (chats === undefined ? "" : "&chats=" + encodeURIComponent(JSON.stringify([...new Set(chats)].sort((a, b) => a - b)))),
       ),
-    /** Chat keys, in every Project, whose turn waits on an approval or question. */
     attention: () => request<string[]>("/attention"),
     inbox: () => request<import("@milagre/shared/attention").InboxSnapshot>("/inbox"),
-    /** The Project's live socket, through the same tunnel and Access headers as every request, or through the relay. */
     live: (projectPath: string, options: LiveOptions): Live => {
       if (retired) return { close() {} };
       const path = `/live?projectPath=${encodeURIComponent(projectPath)}`;
@@ -518,7 +446,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       if (!lanView) return open();
       let using = lanNow();
       let inner = open();
-      // A switch of route moves the stream: the old one closes, the new one opens; the snapshot polls in between.
       const unsubscribe = lanView.subscribe(() => {
         if (lanNow() === using) return;
         using = lanNow();

@@ -1,4 +1,3 @@
-/** Whether the connected computer has Designs: always, unless it runs an older Milagre with Designs off. Keep its last answer visible while reconnecting. */
 export type DesignsState = { enabled: boolean | null; stale: boolean; error: string };
 type Caller = { call: <T>(method: string, args: unknown[]) => Promise<T> };
 export const DESIGNS_DISCONNECTED: DesignsState = { enabled: null, stale: true, error: "" };

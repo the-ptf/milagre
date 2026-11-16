@@ -1,6 +1,4 @@
 // Settings > Integrations > Linear in Electron: the switch reveals the connections, one row per workspace; Connect adds
-// the first, Add another, and each workspace disconnects on its own. Moving issues to In Progress is on by default, and a
-// workspace signed in before write access says it can't move them yet.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -110,7 +108,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!${button("Add")}`), true, "a connected Mac can add another workspace");
     await screenshot("connected");
     assert.deepEqual(await evaluate(`window.__connects`), ["browser"], "the first Connect keeps the browser's Linear login");
-    // Add signs in afresh in a window of its own, and offers the browser instead while it waits.
     await evaluate(`window.__hangConnect = true`);
     await evaluate(`${button("Add")}.click()`);
     await waitFor(`${text}.includes('Finish signing in in the Linear window')`);
@@ -122,7 +119,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`window.__connects.at(-1)`), "browser");
     assert.match(await evaluate(text), /Finish signing in to Linear in your browser\./);
     assert.equal(await evaluate(`!!document.querySelector('[data-linear-use-browser]')`), false);
-    // Closing the window (or a newer sign-in) ends the waiting one quietly: the row goes back to Add, with no error.
     await evaluate(`window.__rejectConnect = null; window.__hangConnect = false`);
     await evaluate(`${button("Start again")}.click()`);
     await waitFor(`document.querySelectorAll('[data-linear-workspace]').length === 2`);
@@ -135,13 +131,11 @@ async function browserChecks() {
     await waitFor(`!!${button("Add")}`);
     assert.equal(await evaluate(`!!document.querySelector('[data-linear-settings] .text-red')`), false, "a closed window shows no error");
     await evaluate(`window.__hangConnect = false`);
-    // Add signs in to a second workspace; both get a row of their own.
     await evaluate(`${button("Add")}.click()`);
     await waitFor(`document.querySelectorAll('[data-linear-workspace]').length === 2`);
     assert.match(await evaluate(text), /Beta LabsSigned in as Vic/);
     await evaluate(`document.querySelector('[data-linear-connect]').scrollIntoView({ block: 'center' })`);
     await screenshot("two-workspaces");
-    // Moving issues is on by default; only the read-only sign-in says it can't, and only while the switch is on.
     const moveSwitch = `document.querySelector('[role="checkbox"][aria-label="Move issues to In Progress"]')`;
     assert.equal(await evaluate(`${moveSwitch}.getAttribute('aria-checked')`), "true");
     const readOnly = /Beta LabsSigned in as Vic\. Can't move issues yet\. Sign in to this workspace again with Add workspace to allow it\./;
@@ -155,20 +149,16 @@ async function browserChecks() {
     assert.doesNotMatch(await evaluate(text), /Can't move issues yet/);
     await evaluate(`${moveSwitch}.click()`);
     await waitFor(`window.__moveToStarted === true`);
-    // Disconnect ends only its own workspace.
     await evaluate(`document.querySelector('[data-linear-workspace="acme"]').click()`);
     await waitFor(`document.querySelectorAll('[data-linear-workspace]').length === 1`);
     assert.equal(await evaluate(`!!document.querySelector('[data-linear-workspace="beta"]')`), true);
     assert.doesNotMatch(await evaluate(text), /Acme/);
     await evaluate(`${button("Disconnect")}.click()`);
-    // A status that arrives from the daemon (a sign-in that finished elsewhere) updates the row without a click.
     await evaluate(`window.__emitLinear(window.__connectedStatus)`);
     await waitFor(`document.querySelector('[data-linear-settings]').dataset.linearConnected === 'true'`);
     assert.match(await evaluate(text), /AcmeSigned in as Victor/);
     await evaluate(`${button("Disconnect")}.click()`);
     await waitFor(`document.querySelector('[data-linear-settings]').dataset.linearConnected === 'false'`);
-    // A connect still waiting when the connected status arrives ends quietly: no error, no "Start again", even when
-    // the waiting call later fails.
     await evaluate(`window.__hangConnect = true`);
     await evaluate(`${button("Connect")}.click()`);
     await waitFor(`!!${button("Start again")}`);

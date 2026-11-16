@@ -8,10 +8,8 @@ import { PillButton } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { tap } from "./primitives/tap";
 
-/** Who wrote the message a passage is quoted from: the user, or the agent's reply. */
 export type QuoteFrom = "user" | "assistant";
 
-/** Quotes a passage selected in a message into the Chat's composer (the selection menu's Quote). Unset hides Quote. */
 export const MessageAskContext = createContext<((passage: string, from: QuoteFrom) => void) | null>(null);
 
 type NativeSelectableTextProps = ViewProps & {
@@ -39,7 +37,6 @@ const NativeSelectableText =
     ? requireNativeViewManager<NativeSelectableTextProps>("MilagreSelectableText")
     : null;
 
-/** Puts the selection view in place of a message's formatted text while a selection is open; otherwise shows it. */
 export type SelectionSwap = (formatted: React.ReactNode) => React.ReactNode;
 
 type Selection = { text: string; markdown: boolean; from: QuoteFrom; start?: { x: number; y: number } };
@@ -68,8 +65,6 @@ export function MessageActions({
   children: (open: ((event?: GestureResponderEvent) => void) | undefined, swap: SelectionSwap) => React.ReactNode;
 }) {
   const [selection, setSelection] = useState<Selection | null>(null);
-  // `open` keeps one identity for the life of the message, so it doesn't break the memo of the Markdown it is passed to
-  // while a reply streams; the ref holds the text it should act on.
   const latest = useRef({ text, markdown, from });
   useEffect(() => {
     latest.current = { text, markdown, from };
@@ -193,7 +188,6 @@ function PlainSelection({ text, onQuote, onClose }: { text: string; onQuote?: (p
   );
 }
 
-/** The VoiceOver action for a message's text, which the non-accessible long-press wrapper can't carry. Empty without `open`. */
 export function messageActionProps(open?: () => void) {
   if (!open) return {};
   return { accessibilityActions: [{ name: "longpress", label: "Select text" }], onAccessibilityAction: () => open() };

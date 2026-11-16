@@ -43,7 +43,6 @@ const textarea = "w-full resize-y rounded-control border border-line-strong bg-s
 
 export type FlowAct = (action: "approve" | "reject" | "pause" | "resume" | "end" | "retry", options?: { reason?: string; note?: string }) => Promise<void>;
 
-/** A step's state as an icon at the end of its row. */
 function StateIcon({ status }: { status: string }) {
   const icon = (glyph: typeof CheckmarkCircle02Icon, tone: string, label: string) => (
     <span role="img" aria-label={label} data-flow-state={status} className={`flex size-5 shrink-0 items-center justify-center ${tone}`}>
@@ -70,7 +69,6 @@ function StateIcon({ status }: { status: string }) {
   }
 }
 
-/** What a step's row says under its name, and in which ink. */
 function rowText(step: FlowStep, status: string, state: FlowStepRun | null, now: number): { text: string; tone: string } {
   const quiet = "text-ink-3";
   if (status === "not-taken") return { text: "Not taken", tone: quiet };
@@ -96,10 +94,6 @@ function rowText(step: FlowStep, status: string, state: FlowStepRun | null, now:
   return { text: parts.filter(Boolean).join(", ") || "Done", tone: quiet };
 }
 
-/**
- * The bar over a Run: which Run (a picker over the flow's Runs), its state, its issue, the revision it runs and when it
- * started; with a draft open, a lock says the Run shows its own steps, not the draft.
- */
 export function RunBar({
   routine,
   runs,
@@ -141,7 +135,6 @@ export function RunBar({
   );
 }
 
-/** A thin rail between rows; green once the row under it has been reached. */
 function Rail({ left, reached }: { left: number; reached: boolean }) {
   return (
     <div className="relative h-6">
@@ -153,11 +146,6 @@ function Rail({ left, reached }: { left: number; reached: boolean }) {
 const INDENT = 44;
 const RAIL = 27;
 
-/**
- * A Run's steps as it ran them: the trigger, then each step's row with its state (done, waiting for you, running, failed,
- * not started, did not run), an If's paths under it with the one taken marked. A row selects its step; Open Chat opens
- * the Chat a step ran in.
- */
 export function RunRows({
   routine,
   run,
@@ -268,7 +256,6 @@ export function RunRows({
   );
 }
 
-/** Label and value rows in a bordered table: the pull request preview and the receipt. */
 function Table({ rows, header }: { rows: Array<[string, ReactNode]>; header?: ReactNode }) {
   return (
     <div className="overflow-hidden rounded-control border border-line">
@@ -294,7 +281,6 @@ function Note({ icon, tone = "bg-page text-ink-2", children }: { icon: typeof Sh
   );
 }
 
-/** An approval waiting on the owner: what it asks (or the pull request it would open), Approve, and Reject with a reason. */
 function ApprovalCard({ name, step, state, act }: { name: string; step: FlowStep; state: FlowStepRun; act: FlowAct }) {
   const approval = state.approval!;
   const preview = approval.preview;
@@ -373,7 +359,6 @@ function ApprovalCard({ name, step, state, act }: { name: string; step: FlowStep
   );
 }
 
-/** What an action kept: the pull request it opened or found, the comment it posted. */
 function ReceiptCard({ name, receipt, readers }: { name: string; receipt: FlowReceipt; readers: string[] }) {
   const [copied, setCopied] = useState(false);
   const url = receipt.url;
@@ -436,7 +421,6 @@ function ReceiptCard({ name, receipt, readers }: { name: string; receipt: FlowRe
   );
 }
 
-/** A step the Run stopped at: its error, each try with its Chat, what has left the Mac, and Retry with a note. */
 function FailedCard({
   name,
   step,
@@ -540,7 +524,6 @@ function FailedCard({
   );
 }
 
-/** The selected step of a Run, in the inspector: its approval, receipt, failure, output or why it didn't run. */
 export function RunInspector({
   routine,
   run,

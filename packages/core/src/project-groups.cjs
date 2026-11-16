@@ -14,7 +14,6 @@ function validProjectGroup(group) {
   );
 }
 
-/** Checks a requested name and membership. Members already in `previous` may stay even while their folder is unavailable. */
 function membership(groups, projects, request, previous) {
   const name = typeof request?.name === "string" ? request.name.trim() : "";
   // oxlint-disable-next-line no-control-regex -- rejects control characters in a Link name
@@ -39,7 +38,6 @@ function createProjectGroup(groups, projects, request, now = () => new Date()) {
   return { id: randomUUID(), ...membership(groups, projects, request), createdAt: now().toISOString() };
 }
 
-/** Renames a Link or changes its member Projects. Chats that already started keep the Worktrees they own. */
 function updateProjectGroup(groups, projects, request) {
   const previous = groups.find((group) => group.id === request?.id);
   if (!previous) throw new Error("Link no longer exists");
@@ -50,7 +48,6 @@ function updateProjectGroup(groups, projects, request) {
   return updated;
 }
 
-/** The Links without `id`. Its shared Chats and Worktrees are the caller's to settle first (link-runtime.cjs). */
 function deleteProjectGroup(groups, id) {
   if (!groups.some((group) => group.id === id)) throw new Error("Link no longer exists");
   return groups.filter((group) => group.id !== id);

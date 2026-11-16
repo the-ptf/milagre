@@ -43,7 +43,6 @@ function createDesignPageSharing({
   directory,
   artifacts,
   validateChat,
-  // The Chat's own title (set by the user or generated from its first message), which names its public page.
   chatTitle = async () => null,
   origin = "https://share.milagre.cloud",
   fetch: fetcher = fetch,
@@ -97,7 +96,6 @@ function createDesignPageSharing({
     }
   };
   const historyQueues = new Map();
-  // Only disk read-modify-write operations hold a history lock, never network requests.
   const updateHistory = (filename, update) => {
     const result = (historyQueues.get(filename) ?? Promise.resolve()).then(async () => {
       const entries = await readFile(filename);
@@ -122,8 +120,6 @@ function createDesignPageSharing({
     });
   };
   const live = (entries, kind) => entries.filter((entry) => !entry.revoked && pageKind(entry.kind) === kind);
-  // The link a Chat page shares: its newest live link on this service. Links on another service origin
-  // (a local preview) are never updated; the next publication creates one here and retires them.
   const currentLink = (entries, kind) => live(entries, kind).findLast((entry) => entry.origin === endpoint.origin);
   const histories = async function* () {
     const names = await fs.readdir(directory).catch((error) => (error.code === "ENOENT" ? [] : Promise.reject(error)));
@@ -143,9 +139,7 @@ function createDesignPageSharing({
       const response = await fetcher(`${endpoint.origin}/health`, { method: "GET", redirect: "error", signal: AbortSignal.timeout(5000) });
       if (response.status === 200 && (await boundedResponseText(response, 64)).trim() === "ok") return { available: true };
       await response.body?.cancel();
-    } catch {
-      /* A failed health check never creates a publication or capability. */
-    }
+    } catch {}
     return { available: false, reason: "Publishing is unavailable. The sharing service is not reachable. Try again later." };
   };
   const send = async (entry, method, body) => {
@@ -186,14 +180,10 @@ function createDesignPageSharing({
     let reply;
     try {
       reply = JSON.parse(await boundedResponseText(response, 4096));
-    } catch {
-      /* Reject malformed or unbounded acknowledgements. */
-    }
+    } catch {}
     if (reply?.id !== entry.id || reply?.path !== `/s/${entry.id}`)
       throw Error("The sharing service did not confirm publication. Check the saved link before retrying.");
   };
-  // One file of an Artifact page, uploaded under its hash before the snapshot that names it; the service keeps a
-  // file it already has. A file is streamed from the store on disk, never read whole into memory.
   const sendFile = async (entry, chatId, asset) => {
     const body = await openAsBlob(await artifacts.assetPath({ chatId, hash: asset.hash }), { type: asset.type });
     if (body.size !== asset.size) throw Error("A file of this page changed while it was publishing. Share again.");
@@ -229,7 +219,6 @@ function createDesignPageSharing({
       for await (const history of histories()) entries.push(...history.entries.map(publicEntry));
       return entries.toSorted((a, b) => b.createdAt - a.createdAt);
     },
-    // Owner-only RPC. A saved capability remains manageable after its original Chat is deleted.
     revokeSaved: async ({ id }) => {
       if (!ID.test(id ?? "")) throw Error("A published page id is required.");
       for await (const { filename, entries } of histories()) {
@@ -240,9 +229,6 @@ function createDesignPageSharing({
       }
       throw Error("This published page is not in this computer's saved history.");
     },
-    // Atomic history files can be read while an upload is running. A Chat page has one current link: the
-    // newest one not revoked. Older live links from before updates existed stay in the file until the next
-    // publication retires them, and remain manageable in the global list meanwhile.
     list: async ({ chatId, kind }) => {
       await check(chatId, kind);
       const entries = await read(chatId);
@@ -250,15 +236,12 @@ function createDesignPageSharing({
       const current = currentLink(entries, pageKind(kind));
       return current ? [publicEntry(current)] : [];
     },
-    // Sharing again re-uploads to the current link with its saved capability, so the URL never changes.
-    // A lost acknowledgement leaves the same capability in place, and the retry is an idempotent PUT.
     publish: (request) =>
       serial(async () => {
         const { chatId, acknowledgePublic, kind } = request ?? {};
         const selectedKind = pageKind(kind);
         await check(chatId, kind);
         if (acknowledgePublic !== true) throw Error("Confirm that the entire page will be public before publishing.");
-        // The page is named after its Chat; a title the request carries (older phones send one) is ignored.
         const named = String((await chatTitle(chatId).catch(() => null)) ?? "")
           .replace(/\s+/g, " ")
           .trim();
@@ -276,7 +259,6 @@ function createDesignPageSharing({
           digest,
         };
         let published;
-        // At most two attempts: a link revoked on the service but not in local history is retired and replaced once.
         for (let attempt = 0; !published; attempt++) {
           const entry = await updateHistory(filename, (entries) => {
             const target = currentLink(entries, selectedKind);
@@ -294,7 +276,6 @@ function createDesignPageSharing({
               published: false,
             };
             entries.push(created);
-            // Save the capability before upload. A failed acknowledgement retries the same ID.
             return created;
           });
           await check(chatId, kind);
@@ -304,8 +285,6 @@ function createDesignPageSharing({
             await send(entry, "PUT", payload);
           } catch (error) {
             if (error.status !== 410 || attempt > 0) throw error;
-            // Revoked here while uploading: the person's revocation stands. Revoked only on the service
-            // (its local record was lost): record that and publish under a fresh link.
             const revokedHere = await updateHistory(filename, (entries) => {
               const gone = entries.find((item) => item.id === entry.id);
               const already = !gone || gone.revoked === true;
@@ -318,7 +297,6 @@ function createDesignPageSharing({
           published = await updateHistory(filename, (entries) => {
             const saved = entries.find((item) => item.id === entry.id);
             if (!saved) throw Error("This published page is no longer in saved history.");
-            // A revocation that finished while the upload was in flight wins over its late acknowledgement.
             if (saved.revoked) return saved;
             if (saved.published) saved.updatedAt = Date.now();
             Object.assign(saved, details, { published: true });
@@ -326,8 +304,6 @@ function createDesignPageSharing({
           });
         }
         if (published.revoked) return publicEntry(published);
-        // Retire every older live link of this page. A failed revocation keeps its row, so the next
-        // publication retries it and the global list can still revoke it; the result reports how many remain.
         const older = live(await read(chatId), selectedKind).filter((item) => item.id !== published.id);
         const results = await Promise.allSettled(older.map((entry) => send(entry, "DELETE")));
         const retired = new Set(older.filter((_, index) => results[index].status === "fulfilled").map((entry) => entry.id));

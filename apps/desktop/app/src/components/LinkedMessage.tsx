@@ -10,7 +10,6 @@ import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
 export { linkedContext, linkedLine };
 
-/** The sender line over a message another Chat sent: who it's from, and a way to open that Chat. */
 export function LinkedMessageHeader({ context, onOpenChat }: { context: LinkedContext; onOpenChat?: (chatKey: string) => void }) {
   const { text, chat } = linkedHeading(context);
   const label = (
@@ -33,10 +32,6 @@ export function LinkedMessageHeader({ context, onOpenChat }: { context: LinkedCo
   );
 }
 
-/**
- * A message another Chat's agent sent (chat_start, or a Delegation), as a line in the transcript the way a model switch
- * is one: "Message from Fix login". A click opens the whole message, with its sender and a way to open that Chat.
- */
 export function LinkedMessageLine({
   message,
   line,
@@ -58,7 +53,6 @@ export function LinkedMessageLine({
       : undefined;
   return (
     <TranscriptDivider data-linked-message-line={String(message.id)} label={`${line.verb} ${line.label}`}>
-      {/* The visible text names the button; the ::before brings its hit area to 24px without growing the hairline row. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -97,10 +91,6 @@ export function LinkedMessageLine({
   );
 }
 
-/**
- * A back-and-forth with one other Chat as one line ("4 messages with Fix login"); the latest reply stays under it in the
- * transcript. A click opens the whole exchange, each message under who wrote it.
- */
 export function LinkedExchangeLine({ exchange, onOpenChat }: { exchange: LinkedExchange; onOpenChat?: (chatKey: string) => void }) {
   const [open, setOpen] = useState(false);
   const { line } = exchange;

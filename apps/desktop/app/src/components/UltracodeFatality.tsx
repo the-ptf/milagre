@@ -5,9 +5,8 @@ import voice from "../assets/ultracode.mp3";
 
 const SECONDS = 2.6;
 const LETTERS = "ULTRACODE".split("");
-// Sparks that burst out of the word in jittery hops and flicker as they fade: a fixed scatter so every run looks the same.
 const DOTS = Array.from({ length: 120 }, (_, index) => {
-  const angle = index * 2.399963; // golden angle spreads them evenly
+  const angle = index * 2.399963;
   const reach = 120 + ((index * 53) % 260);
   const jitter = (n: number) => (((index * n) % 41) - 20) * 1.6;
   const x = Math.cos(angle) * reach * 2;
@@ -21,15 +20,12 @@ const DOTS = Array.from({ length: 120 }, (_, index) => {
   };
 });
 
-/** Turning Ultracode on, Mortal Kombat style in Milagre purple: the window darkens and shakes, ULTRACODE slams in, dots float out of it, and the
- * announcer says it. Plays once per mount over the whole window. Reduced motion keeps the word and the voice, not the slam. */
 export function UltracodeFatality({ onDone }: { onDone: () => void }) {
   const reduce = useReducedMotion();
 
   useEffect(() => {
     const audio = new Audio(voice);
     audio.volume = 0.8;
-    // A blocked or missing clip leaves the animation alone.
     audio.play().catch(() => {});
     return () => audio.pause();
   }, []);
@@ -67,7 +63,6 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
                 backgroundImage: "linear-gradient(180deg, #f0abfc 0%, var(--purple) 45%, #4c1d95 100%)",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
-                // The stroke paints over the fill and eats into Creepster's heavy strokes, so the letters read thinner.
                 WebkitTextStroke: "5px #12051f",
                 filter: "drop-shadow(0 0 2px #000) drop-shadow(0 0 22px rgba(168,85,247,0.6)) drop-shadow(0 6px 0 #000)",
               }}

@@ -9,7 +9,6 @@ import { useSession } from "./session";
 type SettingsSnapshot = { settings: ContextSettings; ready: boolean; error: string };
 const EMPTY: SettingsSnapshot = { settings: CONTEXT_DEFAULTS, ready: false, error: "" };
 
-/** One read and one foreground listener per subscribed client, with no periodic work. */
 export function createContextSettingsStore(client: Pick<Client, "call">) {
   let snapshot = EMPTY;
   let dataKey = "";
@@ -23,7 +22,6 @@ export function createContextSettingsStore(client: Pick<Client, "call">) {
     listeners.forEach((listener) => listener());
   }
   function refresh(afterSave = false): Promise<void> {
-    // A read started before a save cannot satisfy its refresh or overwrite the saved settings.
     if (afterSave) {
       generation++;
       reading = null;
@@ -31,12 +29,10 @@ export function createContextSettingsStore(client: Pick<Client, "call">) {
     if (reading) return reading;
     const started = generation;
     const read = (async () => {
-      // Start after reading has been assigned, even if a client throws synchronously.
       await Promise.resolve();
       try {
         const settings = await client.call<ContextSettings | null | undefined>("context:settings:read", []);
         if (started !== generation) return;
-        // A host without context settings answers nothing: the defaults show and stay read-only, as on desktop.
         if (!settings) return publish(EMPTY);
         const nextKey = rpcDataKey(settings);
         publish({ settings: nextKey === dataKey ? snapshot.settings : settings, ready: true, error: "" });

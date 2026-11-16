@@ -1,4 +1,3 @@
-// HTML artifacts run in separate opaque sandboxed documents. Unlike srcdoc, a protocol
 // response gets its own CSP, so the main renderer never needs unsafe-inline scripts.
 const { randomBytes } = require("node:crypto");
 const { artifactCsp, artifactDocument, ARTIFACT_CSP, DESIGN_CODE_CSP } = require("@milagre/shared/artifact-document");
@@ -7,17 +6,11 @@ const { diagramScript } = require("@milagre/shared/diagram-script");
 const PREFIX = "milagre-artifact://preview/";
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;
-// A page's files load from this scheme, so every preview's policy allows it; each preview's address is unguessable.
 const ASSET_SOURCE = "milagre-artifact:";
 /** The policy a preview runs under: its iframe asks for the same one (ArtifactFrame), so Chromium accepts the page. */
 const PREVIEW_CSP = artifactCsp(ASSET_SOURCE);
 const FILE = /^(milagre-artifact:\/\/preview\/[a-f0-9]{48})\/assets\/([^/?#]+)$/;
 
-/**
- * `readAsset(chatId, name, offset, length)` reads part of a file of the Chat's Artifact page from the computer the Chat
- * is on (artifact:asset). A page's `assets/<name>` points at this preview's address, which streams the file in the
- * chunks that call returns, by byte range when the player asks for one.
- */
 /** @param {{ readAsset?: (chatId: string, name: string, offset: number, length: number) => Promise<{ base64: string; hash: string }> }} [options] */
 function createArtifactPreviews({ readAsset } = {}) {
   const entries = new Map();
@@ -38,8 +31,6 @@ function createArtifactPreviews({ readAsset } = {}) {
           ASSET_NAME.test(asset?.name ?? "") && ASSET_HASH.test(asset?.hash ?? "") && Number.isSafeInteger(asset?.size) && typeof asset?.type === "string",
       );
       const page = chatId && assets.length ? rewriteAssetUrls(html, assets, (asset) => `${url}/assets/${asset.name}`) : html;
-      // The page's viewer drives its helper (pins, comments, zoom); Mermaid blocks render with Pele. An interactive
-      // design runs as it is, under its own policy: its libraries from the pinned CDNs, no files of a page.
       const inline = source?.inline === true;
       const code = source?.code === true;
       const body = code
@@ -86,7 +77,6 @@ function createArtifactPreviews({ readAsset } = {}) {
   };
 }
 
-/** One file of a page, whole or by byte range, streamed a chunk at a time; it never runs as a page of its own. */
 function fileResponse(readAsset, chatId, asset, header) {
   const range = byteRange(header, asset.size);
   const headers = {
@@ -105,7 +95,6 @@ function fileResponse(readAsset, chatId, asset, header) {
         try {
           const chunk = await readAsset(chatId, asset.name, position, offset + length - position);
           const bytes = Buffer.from(chunk?.base64 ?? "", "base64");
-          // The page changed under the player: this file is another one now, or gone.
           if (chunk?.hash !== asset.hash || !bytes.length) throw new Error("This file is no longer on the page.");
           position += bytes.length;
           controller.enqueue(bytes);

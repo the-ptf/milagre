@@ -1,7 +1,3 @@
-// Requests reviewers on a pull request: victorlucss on every PR he did not
-// write, plus whoever in the rotation was asked least recently, until the PR
-// has two reviewers besides its author. Run by .github/workflows/reviewers.yml.
-
 const LEAD = "victorlucss";
 const ROTATION = ["marcosgenesis", "jefo3", "micaelomota", "ericrodriguesfer", "victorsaisse"];
 const MIN_REVIEWERS = 2;

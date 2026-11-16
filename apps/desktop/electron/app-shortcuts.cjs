@@ -1,18 +1,11 @@
 // @ts-check
 const { KEYBINDING_COMMANDS, compileRules, defaultKeybindings, eventMatches } = require("@milagre/shared/keybindings");
 
-// The app's frame-wide keys (Settings, the theme, the canvas, the grid and the side panels: the `forward` commands of
-// @milagre/shared/keybindings), caught before any frame gets the key. With focus inside an embedded frame (a design on
-// the canvas, an HTML reply, the simulator viewer) the key goes to that frame and the window's own listeners never see
-// it, so these are sent on to the renderer, which handles them as if pressed there. They follow this Mac's
-// keybindings.json (`setForwardedRules`); every other key reaches the focused frame as usual.
 const FORWARDED = new Set(KEYBINDING_COMMANDS.filter((command) => command.forward).map((command) => command.id));
 /** @type {ReturnType<typeof compileRules>} */
 let forwarded = [];
 
 /**
- * Follows a keybindings.json: the keys its rules give the `forward` commands are the ones caught. Their `when` is the
- * renderer's to judge.
  * @param {ReadonlyArray<{ key: string; command: string; when?: string }>} rules
  */
 function setForwardedRules(rules) {
@@ -24,7 +17,6 @@ setForwardedRules(defaultKeybindings());
 const asEvent = (input) => ({ key: input.key, code: input.code, metaKey: input.meta, ctrlKey: input.control, altKey: input.alt, shiftKey: input.shift });
 
 /**
- * Whether this key is one the app catches from every frame.
  * @param {{ type: string; key: string; code?: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input
  * @param {NodeJS.Platform} platform
  */

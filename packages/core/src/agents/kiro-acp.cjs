@@ -5,14 +5,9 @@ const { resolveKiroModel } = require("@milagre/shared/kiro-models");
 // Kiro is AWS's agent (kiro-cli) over ACP; see docs/providers.md. This is everything AcpSession needs
 // to know about it. Run against kiro-cli 2.34.2 on macOS arm64, engine v3, signed in through IAM Identity Center.
 
-// The v3 engine: its `model` option reports each model's credit multiplier and efforts, and an `effortLevel` option
-// follows the model. v2 asks for every command, `git status` included, and reports neither.
 const ACP_ARGS = ["acp", "--agent-engine", "v3"];
 
 // Kiro's `autopilot` option stays on in every mode. On, Kiro asks before each edit and each command it doesn't
-// consider read-only; off (supervised), it also asks for every command and asks again to review each edit after it
-// is made, a second card for what Ask already approved. Its `mode` option is something else (its agents: Default,
-// Spec, Plan…), so Milagre never sets it. Milagre's own modes decide the cards (see AcpSession.askPermission).
 const MODES = { ask: "on", auto: "on", full: "on" };
 
 // The app the Homebrew cask (and Kiro's installer) puts in /Applications holds the agent beside the `kiro-cli` launcher.
@@ -28,10 +23,6 @@ function isExecutableFile(file) {
   }
 }
 
-/**
- * The agent binary for a `kiro-cli` launcher found on PATH (or null). `kiro-cli acp` only works once the CLI's own
- * setup has linked `~/.local/bin/kiro-cli-chat`, so Milagre runs the agent beside the launcher's real path instead.
- */
 function kiroAgentFor(launcher, { exists = isExecutableFile, realpath = fs.realpathSync } = {}) {
   const candidates = [process.env.MILAGRE_KIRO_PATH];
   if (launcher) {
@@ -48,10 +39,8 @@ function kiroSpawn({ command, args, env }) {
   return { command, args: args ?? ACP_ARGS, env: { ...env } };
 }
 
-// "2026-10-30T14:49:46.060Z ERROR kiro::…: message": the agent's tracing prefix says nothing a reader needs.
 const LOG = /^\S+\s+(?:ERROR|WARN|INFO|DEBUG|TRACE)\s+[\w:.-]+:\s*/;
 
-/** The line of the agent's stderr that says why it stopped: its last error line, else its last line. */
 function crashDetail(stderr) {
   const lines = String(stderr ?? "")
     .split("\n")

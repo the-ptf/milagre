@@ -3,8 +3,6 @@ const os = require("node:os");
 const path = require("node:path");
 const { SETUP_FILE } = require("./worktree-setup.cjs");
 
-// These are host approvals, independent of a provider's permission mode. The same pending request travels
-// in Chat snapshots to desktop and phone; only the first valid response for that Chat can consume it.
 class SetupReview {
   constructor({ read, settings, send, computer = os.hostname() }) {
     Object.assign(this, { read, settings, send, computer });
@@ -33,7 +31,6 @@ class SetupReview {
         signal,
       );
       if (signal.aborted || decision === null) return { cancelled: true };
-      // The command may change while either client is reviewing it. A decision never approves unseen text.
       const current = await this.read(entry.projectPath);
       if (current.command !== resolved.command || current.source !== resolved.source) continue;
       if (decision === "deny") return { ...current, skipped: true };

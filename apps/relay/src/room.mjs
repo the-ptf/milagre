@@ -3,14 +3,11 @@ import { hostIdOf, b64url, fromB64url } from "@milagre/shared/relay-crypto";
 
 const MAX_FRAME = 1024 * 1024;
 export const MAX_PHONES = 16;
-// Conns the room remembers telling the Mac about; past this many the list starts over (a repeat costs one more CLOSE).
 const TOLD_GONE_MAX = 64;
 const OPEN = 1,
   DATA = 2,
   CLOSE = 3;
 // Webhook frames, all on conn 0 (phones start at 1): HOOK carries a stored delivery to the Mac, HOOK_SET the Mac's full
-// set of hook ids, HOOK_ACK the id of a delivery the Mac has persisted, HOOK_RESULT (room to Mac) the ids of the last
-// set that another room still holds. Older daemons drop anything that is not DATA.
 export const HOOK = 4,
   HOOK_SET = 5,
   HOOK_ACK = 6,
@@ -41,7 +38,6 @@ function isArrayBuffer(data) {
     return false;
   }
 }
-/** Binary payloads only, never copied: null for text and anything that is not an ArrayBuffer or a view, TOO_BIG past `max` bytes. */
 function toBytes(data, max) {
   let bytes;
   if (isArrayBuffer(data)) bytes = new Uint8Array(data);
@@ -65,11 +61,10 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
   let host = null,
     pending = null,
     challenge = null,
-    next = 0n; // host: the proven Mac; pending: a newcomer still proving its key
-  const phones = new Map(); // conn -> socket
-  const connOf = new Map(); // socket -> conn
-  const toldGone = new Set(); // conns the Mac was told are gone, so a stream to one is answered once
-  // A mark that fails (a socket already gone) only costs that socket its restore.
+    next = 0n;
+  const phones = new Map();
+  const connOf = new Map();
+  const toldGone = new Set();
   const note = (socket, state) => {
     try {
       mark(socket, state);
@@ -130,7 +125,6 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
     note(socket, null);
   };
   return {
-    /** A new Mac socket waits as pending: the current host and its phones are untouched until the proof verifies. */
     hostOpened(socket) {
       if (pending) drop(pending, 4409, "replaced");
       pending = socket;
@@ -163,8 +157,6 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       const { type, conn, payload } = unframe(bytes);
       if (conn === 0n) return type === HOOK_SET || type === HOOK_ACK ? onHostFrame?.(type, payload) : undefined;
       const phone = phones.get(conn);
-      // A stream for a phone that left (its CLOSE lost, or the room rebuilt without it): the Mac hears CLOSE once, so
-      // it stops sending frames the room can only drop, each of which still costs a request.
       if (!phone) {
         if (type === DATA && !toldGone.has(conn)) {
           if (toldGone.size >= TOLD_GONE_MAX) toldGone.clear();
@@ -180,8 +172,6 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         toHost(frame(CLOSE, conn));
       } else if (type === CLOSE) {
         forgetPhone(conn, phone);
-        // A Mac whose phone access is off (it is connected for webhooks alone) says so, and the phone hears what it would
-        // with no Mac here at all, so it waits instead of dialing again at once.
         if (payload.byteLength === HOST_OFFLINE.byteLength && payload.every((byte, index) => byte === HOST_OFFLINE[index])) drop(phone, 4404, "host-offline");
         else drop(phone, 1000, "closed-by-host");
       }
@@ -197,9 +187,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       note(socket, null);
       dropPhones();
     },
-    /** Why a new phone would be turned away right now, or null. Changes nothing. */
     phoneRefusal,
-    /** Sends a whole frame to the proven Mac; false when there is none or the send failed. */
     sendHost(bytes) {
       if (!host) return false;
       toHost(bytes);
@@ -212,7 +200,6 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         return null;
       }
       const conn = ++next;
-      // The phone takes a slot only once the Mac has heard about it.
       if (!sent(host, frame(OPEN, conn))) {
         hostGone();
         drop(socket, 4404, "host-offline");
@@ -272,7 +259,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         if (twin) {
           connOf.delete(twin);
           drop(twin, 1011, "lost-state");
-        } // two phones on one conn: the later mark wins
+        }
         phones.set(conn, socket);
         connOf.set(socket, conn);
         if (conn > next) next = conn;
@@ -282,13 +269,11 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
   };
 }
 
-/** A u64 counter written as a decimal string in a mark, or null. */
 function decimal(text) {
   if (typeof text !== "string" || !/^\d{1,20}$/.test(text)) return null;
   const value = BigInt(text);
   return value <= 0xffffffffffffffffn ? value : null;
 }
-/** A 32-byte challenge from a mark, or null. */
 function nonceOf(text) {
   try {
     const bytes = typeof text === "string" ? fromB64url(text) : null;

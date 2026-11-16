@@ -27,13 +27,10 @@ import { thisComputer } from "../lib/shortcut-hints";
 
 const keyOf = (account: Pick<McpAccount, "provider" | "accountId">) => `${account.provider}:${account.accountId}`;
 const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
-// `check` keeps the last answer while `checking` is set, so rows stay on screen during a re-check.
 type Entry = { account: McpAccount; check: McpAccountCheck | null; checking: boolean };
 type Sheet = { initial?: McpServerDefinition; target?: McpTarget; previous?: { name: string; target: McpTarget } };
-// Where each outside group is changed, shown at the right of its heading.
 const whereOf = (source: string) => (source === "Project" ? ".mcp.json" : source.startsWith("Plugin") ? "Claude Code plugin" : null);
 
-/** Settings › MCP for one computer: this one by default, or a paired Mac's bridge on its computer page (`remote`). */
 export function McpSettings({ bridge = window.milagre, remote = false, title }: { bridge?: MilagreBridge; remote?: boolean; title?: string }) {
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [error, setError] = useState("");
@@ -45,14 +42,12 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
   const [now, setNow] = useState(() => Date.now());
   const run = useRef(0);
   const entriesRef = useRef<Entry[] | null>(null);
-  // A new URL server waiting for the refresh its save triggers, to start "Add and sign in".
   const pendingSignIn = useRef<string | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
 
-  /** One account's check; null when a newer refresh took over. */
   const checkOne = useCallback(
     async (account: McpAccount, id: number): Promise<McpAccountCheck | null> => {
       const check = await bridge.mcp
@@ -86,17 +81,14 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
       return;
     }
     if (id !== run.current) return;
-    // Each account keeps its last answer until the new one replaces it.
     setEntries((current) =>
       accounts.map((account) => ({ account, check: current?.find((entry) => keyOf(entry.account) === keyOf(account))?.check ?? null, checking: true })),
     );
-    // Every account at once; each fills in as it answers, so one slow account never holds the others.
     const checks = await Promise.all(accounts.map((account) => checkOne(account, id)));
     if (id !== run.current) return;
     const at = Date.now();
     setCheckedAt(at);
     setNow(at);
-    // "Add and sign in": the accounts that now say the new server needs a sign-in get one.
     const name = pendingSignIn.current;
     if (!name) return;
     pendingSignIn.current = null;
@@ -117,7 +109,6 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
     );
     if (chips.length) signIn({ name, chips });
   }, [bridge, checkOne, signIn]);
-  // Writes announce themselves on mcp:changed, often several at once (a remove per config); one refresh answers them all.
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
@@ -138,11 +129,9 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
     () =>
       bridge.mcp?.onChanged?.((event) => {
         if (event.signIn) {
-          // One account finished; the row stays "signing in" while the next account's tab is open.
           if (event.last || event.signIn !== "done") setSigningIn((current) => new Set([...current].filter((name) => name !== event.name)));
           if (event.signIn === "failed" && event.error) setError(event.error);
         }
-        // An event that names an account (a toggle, a sign-in) re-checks that account only; the rest refresh everything.
         const account = event.provider && entriesRef.current?.find((entry) => keyOf(entry.account) === `${event.provider}:${event.accountId}`)?.account;
         if (account) {
           setEntries((current) => current?.map((entry) => (keyOf(entry.account) === keyOf(account) ? { ...entry, checking: true } : entry)) ?? null);
@@ -151,7 +140,6 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
       }),
     [bridge, checkOne, scheduleRefresh],
   );
-  // "Checked 12 s ago" keeps counting while the page is open.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(timer);
@@ -163,8 +151,6 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
   const checking = entries === null || entries.some((entry) => entry.checking);
   const ownAttention = attention.filter((row) => row.editable);
   const outsideAttention = attention.filter((row) => !row.editable);
-  // Your servers also lists its rows that need sign-in (with their switches, Edit and Remove); Needs sign-in holds the action.
-  // Outside rows that need sign-in list first in their own group, so nothing hides behind the expander's count.
   const outside = [...new Set([...outsideAttention.map((row) => row.source ?? "Built in"), ...other.map((group) => group.source)])]
     .sort((a, b) => mcpSourceRank(a) - mcpSourceRank(b) || a.localeCompare(b))
     .map((source) => ({
@@ -176,7 +162,6 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
 
   const fail = (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause));
   const cancelSignIn = (row: McpRow) => void bridge.mcp.cancelSignIn(row.name).catch(fail);
-  // Toggles, removes and saves announce themselves on mcp:changed, which re-checks; nothing refreshes here.
   const onSwitch = (row: McpRow) => (chip: McpChip, on: boolean) => void bridge.mcp.toggle(chip.provider, chip.accountId, row.name, on).catch(fail);
   const edit = async (row: McpRow) => {
     setError("");
@@ -188,7 +173,6 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
     if (initial) setSheet({ initial, target, previous: { name: row.name, target } });
     else if (initial === null) setError("Couldn’t read this server’s settings. Edit it in its CLI config.");
   };
-  // Every config is tried, even after one fails; the failures are reported once, by place.
   const removeRow = async (row: McpRow) => {
     setError("");
     const failed: { target: McpTarget; message: string }[] = [];
@@ -204,7 +188,6 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
     scheduleRefresh();
   };
   const save = async (def: McpServerDefinition, target: McpTarget) => {
-    // Only a new URL server added here signs in straight away; set before the write, whose event may beat its reply.
     pendingSignIn.current = def.type !== "stdio" && !remote && !sheet?.previous ? def.name : null;
     try {
       await (def.type === "stdio" || !remote ? bridge.mcp.save : bridge.mcp.saveUrl)(def, target, sheet?.previous);
@@ -212,7 +195,6 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
       pendingSignIn.current = null;
       throw cause;
     }
-    // The sheet closes now; the refresh (also asked for by the write's event) fills the page in behind it.
     scheduleRefresh();
   };
   const seconds = checkedAt ? Math.max(1, Math.round((now - checkedAt) / 1000)) : null;

@@ -2,12 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import { useSession } from "./session";
 
-/**
- * A screen reached for a Project other than the loaded one opens it itself, so the screen shows the splash mark
- * while it loads instead of the navigation showing a spinner. It loads on focus and on Retry only: while the screen
- * is showing, another Project can take over just before a navigation leaves it, and reopening this one would undo that.
- */
-/** A missing folder reads as one, not as the Mac's ENOENT. */
 function openFailure(message: string) {
   return /ENOENT|no such file or directory/i.test(message) ? "Couldn't find that folder on your computer. Check the path and try again." : message;
 }

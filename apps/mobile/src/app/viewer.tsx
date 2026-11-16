@@ -23,14 +23,11 @@ import { pressStyle } from "../ui";
 import { useMedia } from "../chat-reply";
 import { viewerImages, type MediaValue, type ThumbRect } from "../viewer-store";
 
-// Desktop's SPRING_LAYOUT (lib/ease.ts), the spring its lightbox morphs with.
 const SPRING = { stiffness: 360, damping: 32, mass: 0.6, useNativeDriver: true } as const;
 const FILL = 0.78;
 
-/** The image's natural size, so the morph lines the fitted image up with its thumbnail. */
 async function naturalSize(value: MediaValue | undefined): Promise<{ width: number; height: number } | null> {
   let source: ImageSourcePropType | undefined;
-  // A relay image still loading does not hold up the opening morph; it fades in instead.
   try {
     source = await Promise.race([value, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))]);
   } catch {
@@ -45,7 +42,6 @@ async function naturalSize(value: MediaValue | undefined): Promise<{ width: numb
   });
 }
 
-/** How far a double tap zooms in, and the most a pinch can. */
 const DOUBLE_TAP_ZOOM = 2.5;
 const MAX_ZOOM = 4;
 
@@ -73,14 +69,12 @@ function Figure({
   const view = useRef<ScrollViewInstance | null>(null);
   const scale = useRef(1);
   const tap = useRef({ x: 0, y: 0, t: 0, last: 0 });
-  // The image fitted inside the page's image area, so a zoomed image pans to its own edges, not into letterbox bars.
   const box = height * FILL;
   const fitted = !ratio ? { width, height: box } : ratio > width / box ? { width, height: width / ratio } : { width: box * ratio, height: box };
   const doubleTap = (x: number, y: number) => {
     // Android's ScrollView does not zoom.
     if (Platform.OS !== "ios") return;
     if (scale.current > 1.01) return view.current?.scrollResponderZoomTo({ x: 0, y: 0, width: fitted.width, height: fitted.height });
-    // At fit the content sits centred on the page: move the tap into the image's own coordinates and zoom around it.
     const cx = Math.min(fitted.width, Math.max(0, x - (width - fitted.width) / 2)),
       cy = Math.min(fitted.height, Math.max(0, y - (height - fitted.height) / 2));
     const w = width / DOUBLE_TAP_ZOOM,
@@ -98,7 +92,6 @@ function Figure({
       minimumZoomScale={1}
       bouncesZoom
       centerContent
-      // At fit nothing scrolls, so a downward drag stays free to pull the viewer closed.
       alwaysBounceHorizontal={false}
       alwaysBounceVertical={false}
       showsHorizontalScrollIndicator={false}
@@ -142,10 +135,6 @@ function Figure({
   );
 }
 
-/**
- * Full-screen images, like desktop's lightbox: the image grows out of the thumbnail you tapped and shrinks back into
- * it on close. ✕ trailing; swipe sideways between a message's images, swipe down to close.
- */
 export default function Viewer() {
   const { images, index } = viewerImages();
   const { width, height } = useWindowDimensions();
@@ -155,7 +144,6 @@ export default function Viewer() {
   const current = images[page];
   const [progress] = useState(() => new Animated.Value(0));
   const [drag] = useState(() => new Animated.Value(0));
-  // The thumbnail pose (offset, scale) and whether to fade instead. They are animated values set before each spring, so
   // the animated style keeps one shape: swapping native-driven props between renders left the image invisible.
   const [pose] = useState(() => ({ dx: new Animated.Value(0), dy: new Animated.Value(0), scale: new Animated.Value(0.96), fade: new Animated.Value(1) }));
   const setPose = (to: { dx: number; dy: number; scale: number } | null) => {
@@ -165,10 +153,8 @@ export default function Viewer() {
     pose.fade.setValue(to ? 0 : 1);
   };
   const closingRef = useRef(false);
-  // Each page's zoom view, and whether the page on screen is zoomed in: zoomed, a drag pans the image instead of closing.
   const pages = useRef(new Map<number, ScrollViewInstance>());
   const zoomed = useRef(false);
-  // The list renders its pages once, so their callbacks read the page on screen from here.
   const pageRef = useRef(index);
   const fit = (i: number) => {
     if (Platform.OS === "ios") pages.current.get(i)?.scrollResponderZoomTo({ x: 0, y: 0, width, height });
@@ -176,7 +162,6 @@ export default function Viewer() {
   // Where a touch started, to tell a downward pull from a sideways swipe between images.
   const touch = useRef({ x: 0, y: 0, t: 0 });
 
-  // Where the fitted image sits, scaled and moved onto a thumbnail: scale matches widths, the centers meet.
   const toThumb = async (from: ThumbRect | undefined, source: MediaValue | undefined) => {
     if (!from) return null;
     const size = await naturalSize(source);
@@ -207,7 +192,6 @@ export default function Viewer() {
     });
   };
 
-  // A vertical drag pulls the image down; far or fast enough closes, like Photos.
   const pull = {
     onTouchStart: ({ nativeEvent: e }: { nativeEvent: { pageX: number; pageY: number; timestamp: number } }) => {
       touch.current = { x: e.pageX, y: e.pageY, t: e.timestamp };
@@ -226,7 +210,6 @@ export default function Viewer() {
       else Animated.spring(drag, { toValue: 0, ...SPRING }).start();
     },
   };
-  // At progress 0 the image sits on its thumbnail (or is faded and slightly small); at 1 it fills the screen.
   const rest = Animated.subtract(1, progress);
   const figure = {
     opacity: Animated.add(Animated.subtract(1, pose.fade), Animated.multiply(pose.fade, progress)),
@@ -260,7 +243,6 @@ export default function Viewer() {
           onMomentumScrollEnd={({ nativeEvent }) => {
             const next = Math.round(nativeEvent.contentOffset.x / width);
             if (next === page) return;
-            // Like Photos, the image you swiped away from is back at fit when you return to it.
             fit(page);
             zoomed.current = false;
             pageRef.current = next;

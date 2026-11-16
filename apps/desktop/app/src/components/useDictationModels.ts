@@ -1,8 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { DictationModelState } from "../electron";
 
-// The speech models on this computer, shared by Settings and every composer: one download shows the same ring in both.
-// The main process announces each change to every window; the first reader asks for the full list once.
 let states: Readonly<Record<string, DictationModelState>> = {};
 let started = false;
 const listeners = new Set<() => void>();
@@ -13,7 +11,6 @@ function set(state: DictationModelState) {
 }
 
 function subscribe(listener: () => void) {
-  // A bridge without dictation (a check's stubbed window.milagre) reports no models instead of throwing.
   const dictation = window.milagre?.dictation;
   if (!started && typeof dictation?.onModel === "function") {
     started = true;
@@ -27,7 +24,6 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-/** Every model's state by id; a model not reported yet is missing. */
 export function useDictationModels() {
   return useSyncExternalStore(subscribe, () => states);
 }

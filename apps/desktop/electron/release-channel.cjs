@@ -1,5 +1,4 @@
 // @ts-check
-// Which update feed this install follows. Lives in userData because the check runs before the renderer loads.
 const fs = require("node:fs");
 const CHANNELS = /** @type {const} */ (["stable", "beta"]);
 /**
@@ -27,9 +26,6 @@ const { owner: OWNER, repo: REPO } = require("@milagre/shared/repository");
 const GITHUB_FEED = { provider: "github", owner: OWNER, repo: REPO, releaseType: "release" };
 
 /**
- * Points the updater at its channel. Stable asks GitHub for the latest release, which is never a draft or a
- * prerelease. Beta reads the feed of `betaFeedUrl` (see resolveBetaFeed); without one it falls back to GitHub's own
- * lookup, which reads the releases atom feed.
  * @param {{ channel?: string | null, allowPrerelease?: boolean, allowDowngrade?: boolean, setFeedURL(options: object): void }} autoUpdater
  * @param {string} channel
  * @param {string | null} [betaFeedUrl]
@@ -42,11 +38,9 @@ function configureUpdater(autoUpdater, channel, betaFeedUrl = null) {
   autoUpdater.allowDowngrade = false;
 }
 
-/** The feed file electron-updater reads for `channel` on `platform`. */
 const channelFile = (/** @type {string} */ channel, /** @type {string} */ platform) =>
   platform === "darwin" ? `${channel}-mac.yml` : platform === "linux" ? `${channel}-linux.yml` : `${channel}.yml`;
 
-/** vX.Y.Z or vX.Y.Z-beta.N as numbers; a stable release sorts after every beta of its version. */
 function versionKey(/** @type {string} */ tag) {
   const match = /^v(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/.exec(tag);
   if (!match) return null;
@@ -58,12 +52,6 @@ function compareKeys(/** @type {number[]} */ a, /** @type {number[]} */ b) {
 }
 
 /**
- * Where beta installs read their update: the newest published beta (vX.Y.Z-beta.N) that carries this platform's beta
- * feed file. Stable releases are skipped: each one rebuilds the newest beta's commit, so a beta install already has its
- * code, and stables before v0.230 also carried a copy of the beta feed. GitHub's atom feed, which electron-updater reads for prereleases, also lists every tag; a tag without a published
- * release (such as the per-merge draft candidates of releases before v0.229) has no files, so the updater would read
- * its missing feed and see nothing. The REST API lists published releases only. Resolves to null when none carries
- * the file; rejects when GitHub can't be read.
  * @param {{ fetch?: typeof globalThis.fetch, platform?: string }} [options]
  * @returns {Promise<string | null>}
  */
@@ -86,8 +74,6 @@ async function resolveBetaFeed({ fetch = globalThis.fetch, platform = process.pl
 }
 
 /**
- * Configures the updater for a check on `channel`, resolving the beta feed first. A failed lookup keeps beta on
- * GitHub's own lookup rather than failing the check.
  * @param {Parameters<typeof configureUpdater>[0]} autoUpdater
  * @param {string} channel
  * @param {Parameters<typeof resolveBetaFeed>[0]} [options]

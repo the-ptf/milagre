@@ -1,6 +1,5 @@
 const { once } = require("node:events");
 
-/** Subscribe before taking the snapshot, then discard buffered events at or before its watermark. */
 async function watch(client, { output = process.stdout, chat, channels = [], signal } = {}) {
   const queue = [];
   let bytes = 0;

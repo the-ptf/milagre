@@ -5,28 +5,14 @@ const { hasToken } = require("./antigravity-install.cjs");
 const { loginMessage } = require("./events.cjs");
 const { kiroLoggedOut } = require("../kiro-account.cjs");
 
-// What the model picker shows about each agent's CLI: { state, message? }, where state is
-//   ready      nothing to flag
-//   missing    not installed                       (cli.cjs)
-//   outdated   older than Milagre supports          (cli.cjs)
-//   broken     found, but `--version` doesn't run   (cli.cjs)
-//   logged-out Claude: `claude auth status` says "loggedIn": false
 //              Codex: account/read answers { account: null, requiresOpenaiAuth: true }
 //              Antigravity: the account's GEMINI_HOME has no antigravity-acp/acp_token.json (nothing is spawned)
 //              Kiro: `kiro-cli whoami` says "Not logged in"
-// `message` is the same text a turn fails with. The login check never blocks anything: a check that fails
-// in any other way counts as ready. A ready status is kept for READY_TTL_MS; a problem is looked at again
-// on every call, so fixing it needs neither a restart nor waiting.
 
 const READY_TTL_MS = 5 * 60_000;
 const AUTH_TIMEOUT_MS = 10_000;
-// account/read answers in well under a second.
 const ACCOUNT_TIMEOUT_MS = 8_000;
 
-// `claude auth status` prints JSON and exits 1 when logged out, so the output is read either way, from its
-// first "{" (a notice line may come before it). Only an explicit `"loggedIn": false` on Anthropic's own API
-// (`"apiProvider": "firstParty"`) counts: on Bedrock, Vertex or Foundry the CLI authenticates through the
-// cloud account and `claude auth login` is no remedy. Anything unreadable is not a reason to flag the CLI.
 function claudeLoggedOut(command, { execFileImpl = execFile, env } = {}) {
   return new Promise((resolve) => {
     let child;
@@ -45,12 +31,10 @@ function claudeLoggedOut(command, { execFileImpl = execFile, env } = {}) {
       resolve(false);
       return;
     }
-    // Nothing is written to it; closing it keeps a CLI that reads stdin from waiting.
     child?.stdin?.end?.();
   });
 }
 
-// A short-lived `codex app-server`, asked who is logged in. Any failure counts as logged in.
 async function codexLoggedOut(command, { cwd, env, clientVersion = "0.0.0", createRpc = (options) => new CodexRpc(options) } = {}) {
   let rpc;
   try {
@@ -72,13 +56,11 @@ async function codexLoggedOut(command, { cwd, env, clientVersion = "0.0.0", crea
 }
 
 // Antigravity is signed in when its profile directory holds the token file; a profile that has never
-// signed in has none. Without a GEMINI_HOME the account isn't known yet, and that is no reason to flag it.
 function antigravityLoggedOutAt(home) {
   return typeof home === "string" && home !== "" && !hasToken(home);
 }
 const antigravityLoggedOut = async (_command, { env } = {}) => antigravityLoggedOutAt(env?.GEMINI_HOME);
 
-// The state cli.cjs's check implies, or null when the CLI runs.
 function cliState(status) {
   if (!status.problem) return null;
   if (!status.command) return "missing";
@@ -94,9 +76,6 @@ async function inspect(name, { cli, loggedOut, cwd, clientVersion }) {
   return out ? { state: "logged-out", message: loginMessage(name) } : { state: "ready" };
 }
 
-/**
- * `() => Promise<{ [provider]: CliStatus }>`, one entry per provider. Waits for the login environment (through `cli`).
- */
 function createCliStatus({
   cli,
   cwd,
@@ -115,7 +94,6 @@ function createCliStatus({
       .then((result) => {
         entry.pending = false;
         entry.at = now();
-        // A lookup that finishes after invalidate() must not delete the newer entry that replaced it.
         if (result.state !== "ready" && cache.get(name) === entry) cache.delete(name);
         return result;
       });
@@ -126,7 +104,6 @@ function createCliStatus({
     const states = await Promise.all(PROVIDERS.map(lookup));
     return Object.fromEntries(PROVIDERS.map((name, index) => [name, states[index]]));
   };
-  // A turn just failed with this provider's login message: a status kept as ready is out of date.
   check.invalidate = (name) => {
     cache.delete(name);
   };

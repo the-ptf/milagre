@@ -4,11 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const git = createGit().read;
 
-// Files a new worktree gets from the project's main checkout, after Conductor's "Files to copy":
-// untracked files that git ignores and that match the project's patterns (.gitignore syntax).
 const DEFAULT_PATTERNS = [".env*"];
-// Dependency and build folders are left out of the walk and the copy: an unanchored pattern such as the default
-// `.env*` would otherwise pick up a dependency's own files (node_modules/bottleneck/.env).
 const EXCLUDED_FOLDERS = [
   "node_modules",
   ".git",
@@ -30,22 +26,15 @@ const EXCLUDED_FOLDERS = [
   "coverage",
 ];
 
-/**
- * The folders to skip for these patterns. A folder comes back in when an anchored pattern (one with a slash
- * before its end, like `dist/config.json` or `**\/node_modules/pkg/.env`) names it, so it can still be asked for.
- * Unanchored patterns never lift an exclusion.
- */
 function excludedFolders(patterns) {
   const anchored = patterns
     .map((line) => line.trim())
-    // A negated pattern only takes files out, so it never asks for a folder.
     .filter((line) => line && !line.startsWith("#") && !line.startsWith("!"))
     .map((line) => line.replace(/^\//, ""))
     .filter((line) => line.replace(/\/+$/, "").includes("/") || /^[^/]+\/$/.test(line));
   return EXCLUDED_FOLDERS.filter((folder) => !anchored.some((line) => line === `${folder}/` || line.startsWith(`${folder}/`) || line.includes(`/${folder}/`)));
 }
 
-/** Whether the real location of `directory` (or of its nearest existing ancestor) is inside `realRoot`. */
 async function staysInside(realRoot, directory) {
   let current = directory;
   for (;;) {
@@ -67,7 +56,6 @@ function patternLines(text) {
   return text.split(/\r?\n/);
 }
 
-/** Which patterns apply: .worktreeinclude at the repo root, else the project's setting, else the default. */
 async function resolvePatterns(projectPath, setting) {
   let worktreeInclude = null;
   try {
@@ -79,14 +67,12 @@ async function resolvePatterns(projectPath, setting) {
   return { source: "default", patterns: DEFAULT_PATTERNS, worktreeInclude: null };
 }
 
-// check-ignore exits 1 when no path is ignored; the shared runner still preserves its output.
 async function gitWithInput(cwd, args, input) {
   const result = await git.run(cwd, args, { input });
   if (!result.ok && result.code !== 1) throw new GitError(result);
   return result.stdout;
 }
 
-/** The regular files in `projectPath` that the patterns pick and git ignores, as { path, size }, sorted. */
 async function findFilesToCopy(projectPath, patterns) {
   if (patterns.every((line) => !line.trim() || line.trim().startsWith("#"))) return [];
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-copy-"));
@@ -112,7 +98,6 @@ async function findFilesToCopy(projectPath, patterns) {
   return files;
 }
 
-/** What the effective patterns match right now, for the Settings preview. `setting` may be an unsaved draft. */
 async function previewFilesToCopy(projectPath, setting) {
   const resolved = await resolvePatterns(projectPath, setting);
   let matches = [];
@@ -122,7 +107,6 @@ async function previewFilesToCopy(projectPath, setting) {
   return { source: resolved.source, worktreeInclude: resolved.worktreeInclude, matches };
 }
 
-/** Copies the matching files into a new worktree. Never throws: what went wrong comes back as notes. */
 async function copyFilesToWorktree({ projectPath, worktreePath, setting, limits = {} }) {
   const { maxFiles, maxBytes } = { ...COPY_LIMITS, ...limits };
   const copied = [];
@@ -141,7 +125,6 @@ async function copyFilesToWorktree({ projectPath, worktreePath, setting, limits 
       const target = path.join(worktreePath, file.path);
       if (path.relative(worktreePath, target).startsWith("..")) continue;
       try {
-        // A folder the base branch tracks as a symlink must not lead the copy out of the worktree.
         const realWorktree = await fs.realpath(worktreePath);
         if (!(await staysInside(realWorktree, path.dirname(target)))) {
           notes.push(`Skipped ${file.path}: its folder leads outside the worktree.`);
@@ -152,7 +135,6 @@ async function copyFilesToWorktree({ projectPath, worktreePath, setting, limits 
           notes.push(`Skipped ${file.path}: its folder leads outside the worktree.`);
           continue;
         }
-        // Never overwrite: a file the worktree already has came from git.
         await fs.copyFile(path.join(projectPath, file.path), target, fs.constants.COPYFILE_EXCL);
         copied.push(file.path);
         bytes += file.size;
@@ -166,11 +148,6 @@ async function copyFilesToWorktree({ projectPath, worktreePath, setting, limits 
   return { copied, notes };
 }
 
-/**
- * The files the patterns pick in a worktree that differ from the project's own copy, or that the project lacks: a
- * copied .env edited there, or a new one. git status leaves them out (git ignores them), so a clean worktree can
- * still hold them. Relative paths, sorted.
- */
 async function changedCopiedFiles({ projectPath, worktreePath, setting }) {
   const { patterns } = await resolvePatterns(projectPath, setting);
   const changed = [];

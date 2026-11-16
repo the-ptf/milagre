@@ -19,10 +19,8 @@ import { radius, space, type } from "./design-tokens";
 import { pressStyle } from "./primitives/press-style";
 import type { SavedHost } from "./hosts-store";
 
-// The last read per computer, so the breakdown page and a reopened computer page show numbers at once.
 const last = new Map<string, ComputerResources>();
 
-/** A computer's memory and disk, read from that computer while the page is on screen and every 15 seconds after. */
 export function useComputerResources(host: SavedHost | undefined, online: boolean): { resources: ComputerResources | null; error: string } {
   const client = useMemo(() => (host ? createClient(host, fetch, 5000, relayRuntime) : null), [host]);
   const [state, setState] = useState<{ resources: ComputerResources | null; error: string }>(() => ({
@@ -53,10 +51,8 @@ export function useComputerResources(host: SavedHost | undefined, online: boolea
   return state;
 }
 
-/** Whether an error means the computer runs a Milagre too old to report its memory and disk. */
 const olderMilagre = (error: string) => /unknown|not (available|allowed|supported)|no handler/i.test(error);
 
-/** A gauge's bar: Milagre in the accent, everything else in use in the faint ink (orange when the computer is low). */
 function GaugeBar({ gauge }: { gauge: ResourceGauge }) {
   const { colors } = useTheme();
   return (
@@ -96,7 +92,6 @@ function GaugeRow({ gauge, onPress }: { gauge: ResourceGauge; onPress: () => voi
   );
 }
 
-/** What the group says instead of rows: offline, still reading, or why it couldn't read. Null once it has read. */
 function resourcesNote({
   online,
   read,
@@ -118,7 +113,6 @@ function resourcesNote({
   return `Couldn't read: ${error}`;
 }
 
-/** Settings › Computers › one computer: its memory and disk; a row opens what Milagre uses there. */
 export function ComputerResourcesGroup({ host, online }: { host: SavedHost; online: boolean }) {
   const { colors } = useTheme();
   const { resources, error } = useComputerResources(host, online);

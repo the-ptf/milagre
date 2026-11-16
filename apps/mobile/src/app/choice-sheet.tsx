@@ -9,12 +9,10 @@ import { Icon } from "../icons";
 import { CheckRow, Chip, EmptyState, HeaderButton, InlineError, SectionLabel, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-/** The grabber and title bar of the sheet, which content scrolls under. */
 const SHEET_HEADER_HEIGHT = 76;
 
 function ChoiceSeparator() {
   const { colors } = useTheme();
-  // Past the 20pt leading icon, as in a Group.
   return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: 32 }} />;
 }
 
@@ -37,7 +35,6 @@ export default function ChoiceSheet() {
       router.back();
       return;
     }
-    // Apply after dismissal, like the confirmation sheet: worktree selection changes the Chat's route params.
     return () => entry.choose(chosen.current);
   }, [entry]);
   if (!entry) return null;
@@ -45,7 +42,6 @@ export default function ChoiceSheet() {
   const load = entry.load;
   const items = switching ? [] : allItems.filter((item) => `${item.title}\n${item.keywords ?? ""}`.toLowerCase().includes(search));
   const tabs = entry.tabs && entry.tabs.length > 1 ? entry.tabs : null;
-  // A pull reads the shown tab from Linear again; a tab reads what the Mac kept, with no rows meanwhile.
   async function reload(next: string | undefined, fresh: boolean) {
     if (!load) return;
     if (fresh) setRefreshing(true);
@@ -103,11 +99,9 @@ export default function ChoiceSheet() {
         ItemSeparatorComponent={ChoiceSeparator}
         ListEmptyComponent={switching ? undefined : <EmptyState title={entry.emptyLabel} />}
         renderItem={({ item, index }) => {
-          // The chosen row shows only its tick, like the Linear issue rows; no fill. The leading icon stays ink3.
           const row = (
             <CheckRow
               title={item.title}
-              // Full names wrap (long branch names); a path subtitle keeps its start and end.
               titleLines={0}
               subtitle={item.subtitle}
               subtitleLines={1}
@@ -117,7 +111,6 @@ export default function ChoiceSheet() {
               leading={item.leading ?? entry.leading ?? <Icon icon={entry.icon ?? GitBranchIcon} tone="ink3" size={20} />}
             />
           );
-          // The first row of a section (a computer's Projects) carries its heading.
           if (!item.section || item.section === items[index - 1]?.section) return row;
           return (
             <View>
@@ -143,7 +136,6 @@ export default function ChoiceSheet() {
         onChangeText={(event) => setQuery(event.nativeEvent.text)}
         onCancelButtonPress={() => setQuery("")}
       />
-      {/* HIG: a sheet's close button sits on the leading edge. */}
       <Stack.Toolbar placement="left">
         {Platform.OS === "ios" ? (
           <Stack.Toolbar.Button icon="xmark" onPress={() => close(null)}>

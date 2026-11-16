@@ -1,7 +1,6 @@
 // @ts-check
 
 /**
- * Observe GPU initialization before app.whenReady(), but query it only when a first-launch window is about to open.
  * @param {{ app: Pick<import("electron").App, "once" | "getGPUInfo" | "getGPUFeatureStatus" | "commandLine">, platform: NodeJS.Platform, timeoutMs?: number }} options
  */
 function createIntroMotionDecision({ app, platform, timeoutMs = 1500 }) {

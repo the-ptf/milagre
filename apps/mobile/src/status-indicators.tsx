@@ -15,8 +15,6 @@ import { StatusPill } from "./status-pill";
 
 const MARK_ICONS = { bubble: BubbleChatIcon, "shield-alert": ShieldAlertIcon, link: Link04Icon, alert: Alert02Icon } as const;
 
-/** Desktop's chat mark slot (chatMarkPresentation): an asking icon, a spinning ring, the background ring, an 8pt unread
- * or failed dot, or a solid 6pt ink4 idle dot. */
 export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; background?: number }) {
   const { colors } = useTheme();
   const { icon, tone } = chatMarkPresentation(mark);
@@ -42,8 +40,6 @@ export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; backgro
   );
 }
 
-/** Desktop's background mark: a still accent ring around how many background tasks still run, its count in caption2
- * accentInk. It grows with the text size (to 1.3x), past the 20pt slot if it must. */
 export function BackgroundRing({ count = 0 }: { count?: number }) {
   const { colors } = useTheme();
   return (
@@ -71,7 +67,6 @@ export function BackgroundRing({ count = 0 }: { count?: number }) {
   );
 }
 
-/** Desktop's pullRequestAction chip: the first blocker's fix, sent to the agent. */
 export function PullRequestAction({ pr, onRun, disabled }: { pr: PullRequest; onRun: () => void; disabled?: boolean }) {
   const { colors } = useTheme();
   const blocker = pullRequestBlockers(pr)[0];
@@ -95,7 +90,6 @@ export function PullRequestMerge({ pr, onOpen }: { pr: PullRequest; onOpen: () =
   return <StatusPill label={`Merge #${pr.number}`} icon={GitMergeIcon} tone="green" tint={colors.greenTint} onPress={onOpen} />;
 }
 
-/** The PR's unresolved review threads: the pill opens them. */
 export function PullRequestReview({ count, onOpen }: { count: number; onOpen: () => void }) {
   const { colors } = useTheme();
   return (
@@ -111,7 +105,6 @@ export function PullRequestReview({ count, onOpen }: { count: number; onOpen: ()
   );
 }
 
-/** The Chat header's PR: its state and number, under the title; a tap opens the PR. */
 export function HeaderPullRequestChip({ pr, onPress }: { pr: PullRequest; onPress: () => void }) {
   const { colors } = useTheme();
   const { tone, icon, spoken } = pullRequestPresentation(pr);
@@ -131,7 +124,6 @@ export function HeaderPullRequestChip({ pr, onPress }: { pr: PullRequest; onPres
   );
 }
 
-/** Desktop's SubagentTrack trigger: a chip with a ring while any agent works. */
 export function SubagentChip({ agents, onPress }: { agents: Subagent[]; onPress: () => void }) {
   const count = agentCounts(agents);
   if (!count.total) return null;

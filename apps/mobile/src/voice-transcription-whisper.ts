@@ -4,8 +4,6 @@ import { WHISPER_MODELS, silentPcm, whisperLanguage, whisperModelFor, whisperPro
 import type { Transcriber } from "./voice-transcription";
 import { serializeTranscription } from "./voice-transcription-queue";
 
-// Whisper on the phone: each model downloads once into the app's documents, picked in Settings or on the first take that
-// needs it, and the one in use stays loaded after the first take.
 const folder = new Directory(Paths.document, "whisper");
 const fileOf = (model: WhisperModel) => new File(folder, model.file);
 
@@ -23,7 +21,6 @@ type WhisperContext = {
   };
   release(): Promise<void>;
 };
-// Required when first used, typed by hand: the package maps no "." export, and its source (what TypeScript reads under
 // the react-native condition) doesn't typecheck against this app's React Native.
 const initWhisper = (options: { filePath: string }): Promise<WhisperContext> =>
   (
@@ -32,7 +29,6 @@ const initWhisper = (options: { filePath: string }): Promise<WhisperContext> =>
     }
   ).initWhisper(options);
 
-/** A model on this phone: downloaded, and how many bytes of its download in flight have arrived (null when none is). */
 export type WhisperModelState = { ready: boolean; received: number | null };
 
 const downloads = new Map<string, { promise: Promise<void>; controller: AbortController; received: number }>();
@@ -57,7 +53,6 @@ function update(model: WhisperModel) {
   for (const listener of listeners) listener();
 }
 
-/** Every phone model's state by id, shared by Settings and the composer's mic. */
 export function useWhisperModels() {
   return useSyncExternalStore((listener) => {
     listeners.add(listener);
@@ -67,7 +62,6 @@ export function useWhisperModels() {
   }, snapshot);
 }
 
-/** Downloads a model once; a second call while it downloads joins the first. Cancelling rejects it with an AbortError. */
 export function downloadWhisperModel(id: string): Promise<void> {
   const model = whisperModelFor("phone", id);
   const running = downloads.get(model.id);
@@ -86,7 +80,6 @@ export function downloadWhisperModel(id: string): Promise<void> {
         signal: controller.signal,
         onProgress: ({ bytesWritten }) => {
           entry.received = Math.min(bytesWritten, model.size);
-          // Progress reaches React at most ten times a second.
           if (Date.now() - reported < 100) return;
           reported = Date.now();
           update(model);
@@ -98,7 +91,6 @@ export function downloadWhisperModel(id: string): Promise<void> {
       await partial.move(file);
       moved = true;
     } finally {
-      // move() is async and changes partial.uri to the destination. Never delete the successfully promoted model.
       if (!moved && partial.exists) await partial.delete();
     }
   })().finally(() => {
@@ -120,7 +112,6 @@ function release() {
   return current?.whisper.then((whisper) => whisper.release()).catch(() => {});
 }
 
-/** Deletes a downloaded model, cancelling its download and freeing it from memory first. */
 export async function deleteWhisperModel(id: string) {
   const model = whisperModelFor("phone", id);
   cancelWhisperModel(model.id);
@@ -135,7 +126,6 @@ export async function deleteWhisperModel(id: string) {
 
 async function warm(model: WhisperModel) {
   await downloadWhisperModel(model.id);
-  // One model in memory at a time: switching models frees the last one first.
   if (context && context.id !== model.id) await release();
   if (!context) {
     const loading = { id: model.id, whisper: initWhisper({ filePath: fileOf(model).uri }) };

@@ -3,11 +3,6 @@ import type { ActivityEntry } from "./reply-parts";
 const ACTIVITY_CAP = 200;
 const ACTIVITY_PAGE = 150;
 
-/**
- * Fix the first-open boundary, lowering it only to keep waiting steps, and running steps while the
- * reply streams, visible. A saved reply can keep a stale `running` step (an interrupted turn), which
- * must not lift the cap.
- */
 export function activityBoundary(
   entries: ActivityEntry[],
   waitingStepIds: string[],
@@ -22,7 +17,6 @@ export function activityBoundary(
   return end;
 }
 
-/** Count hidden tool steps; thinking and intervening text are revealed without inflating the label. */
 export function earlierStepsLabel(entries: ActivityEntry[], hidden: number) {
   let steps = 0;
   let failed = 0;

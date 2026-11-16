@@ -12,11 +12,6 @@ export { undoHistory };
 
 const ICONS: Record<ToastKind, typeof Tick02Icon> = { done: Tick02Icon, deleted: Delete02Icon, undone: Undo02Icon };
 
-/**
- * The history's toast for one screen (`place`), as ToastPill props, or null when it shows elsewhere or nothing: the step
- * just taken with Undo, and after an Undo what it went back to with Redo. Long enough to read and reach with a thumb; a
- * deletion's only lasts its Undo window.
- */
 export function useHistoryToast(place: string) {
   const toast = useSyncExternalStore(undoHistory.subscribe, undoHistory.toast);
   const shown = toast?.place === place ? toast : null;

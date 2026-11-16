@@ -28,15 +28,11 @@ const PHASE_ICONS = {
 } as const;
 
 const HEIGHT = 168;
-// One legend row per phase: its centre is rowY(row, HEIGHT), so every dot sits on its label.
 const ROW = HEIGHT / PHASES.length;
 const FALLBACK_WIDTH = 260;
 
-/** The Chat's phase history on a time axis that ends at Now; long idle stretches fold into a labelled gap. */
 export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; now?: number; action?: ReactNode }) {
-  // Now is taken when the graph opens, so rerenders do not move the axis.
   const [opened] = useState(() => fixedNow ?? Date.now());
-  // The SVG is drawn in real pixels at the cell's width, so its rows line up with the legend beside it.
   const [cell, setCell] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(FALLBACK_WIDTH);
   useEffect(() => {

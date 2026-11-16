@@ -86,7 +86,6 @@ export function createUpdateController({ enabled, check, fetch, reload, now = Da
         if (downloaded.isNew || downloaded.isRollBackToEmbedded) publish("ready", "", updateDetails(downloaded.manifest));
         else publish("error", "Could not download the update. Try again.");
       } catch {
-        // An offline check must not claim there is an update. A failed known download offers a retry.
         if (state.status === "ready" || state.status === "restarting") return;
         if (state.status === "downloading") publish("error", "Could not download the update. Try again.");
         else if (force) publish("check-error", "Could not check for updates. Check your connection and try again.");
@@ -122,7 +121,6 @@ export function createUpdateController({ enabled, check, fetch, reload, now = Da
   };
 }
 
-/** Only foreground use checks for updates; subscriptions and the timer live as long as the app layout. */
 export function watchUpdates(
   controller: ReturnType<typeof createUpdateController>,
   environment: {

@@ -7,7 +7,6 @@ export const EMPTY_CHAT_MENTIONS: ChatMentionScope = { chats: [], project: "" };
 export const ChatMentionsContext = createContext<ChatMentionScope>(EMPTY_CHAT_MENTIONS);
 export const useChatMentions = () => useContext(ChatMentionsContext);
 
-/** The computers an `@` can name: this Mac, then its paired computers (none while Other computers is off). */
 export function useMentionComputers(): readonly MentionComputer[] {
   const { thisMac, computers } = useComputers();
   return useMemo(

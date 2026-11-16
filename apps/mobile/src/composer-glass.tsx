@@ -29,7 +29,6 @@ export function ComposerGlass({ radius }: { radius: number }) {
           blurAmount={Platform.OS === "android" ? 3 : 8}
           reducedTransparencyFallbackColor={colors.surface}
           // Android's blur paints its own tint (the dark one near half opaque), which under the surface tint hid the
-          // transcript entirely; the surface below is the only tint, as on desktop.
           overlayColor={Platform.OS === "android" ? "transparent" : undefined}
           style={StyleSheet.absoluteFill}
         />

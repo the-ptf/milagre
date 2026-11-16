@@ -32,9 +32,12 @@ import { BrowserPages } from "/src/components/agents/BrowserPanel";
 import { PanelToggles } from "/src/components/agents/PanelToggles";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore, useDraftText } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const noop = () => {};
 function Fixture() {
-  const [draft, setDraft] = useState("");
+  const draft = useDraftText(draftStore);
+  const setDraft = draftStore.setText;
   window.setDark = (dark) => document.documentElement.classList.toggle("dark", dark);
   const model = MODEL_CATALOG[0];
   const messages = [{ id: 1, session_id: 1, context: null, role: "user", body: "Sign in on the staging site." }];
@@ -43,7 +46,7 @@ function Fixture() {
     <BrowserPages /><PanelToggles right={12} />
     <ChatComposer messages={messages} agentChatId="/fixture#1"
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={true} sendBlocked={false} tasks={[]} subagents={children} onArchiveFinishedSubagents={noop} onArchiveSubagent={noop} waitingForSubagents={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={true} sendBlocked={false} tasks={[]} subagents={children} onArchiveFinishedSubagents={noop} onArchiveSubagent={noop} waitingForSubagents={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}

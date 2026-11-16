@@ -16,14 +16,6 @@ const capped = (value, max) => {
 
 const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 
-// System notifications for chats that wait on the user: an approval or a question. Every agent event
-// is observed, so the notifier knows which requests are still open, and notify names the chat. One shows only while no Milagre window has focus, once per
-// request, and closes when its request is answered or its turn ends. Clicking it opens the chat.
-// The end of a chat's work is announced too (notifyCompletion): the chat leaving working or background for idle or
-// failed, as the shared activity tracker (chat-activity.mjs) tells it. A turn that ends while the chat's background
-// subagents work is not that end: the window's call is kept, and announced once the work ends.
-// A chat's notification plays the chime picked in Settings > Notifications: the system notice goes silent and playChime
-// plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
   /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void; isHidden?: (chatId: string) => boolean; now?: () => number }} options */
   constructor({
@@ -38,7 +30,6 @@ class AttentionNotifier {
     now = Date.now,
   }) {
     this.createNotification = createNotification;
-    // A Chat this Mac's sidebar leaves out (its Project or its computer unchecked in Filters) stays quiet here.
     this.isHidden = isHidden;
     this.now = now;
     this.schedule = null;
@@ -53,9 +44,7 @@ class AttentionNotifier {
     this.phonePaired = null;
     /** @type {Electron.Notification | null} */
     this.computerWaiting = null;
-    // Keys of the computers waiting for Allow that were already announced.
     this.computersAnnounced = new Set();
-    // What each chat is doing, from its events, and the ends of work no window has asked to announce yet.
     this.activity = createActivityTracker();
     this.completed = new Map();
     this.completionNotifications = new Map();
@@ -64,9 +53,7 @@ class AttentionNotifier {
     this.activeChatId = null;
     this.notifyOnCompletion = true;
     this.showDockBadge = true;
-    // Requests the agents wait on, by key, with the notification shown for each (or null).
     this.open = new Map();
-    // Chats a window asked to announce whose work goes on in the background, with the title to announce it by.
     this.asked = new Map();
   }
 
@@ -98,7 +85,6 @@ class AttentionNotifier {
     this.schedule = parseNotificationSchedule(value);
   }
 
-  /** A chat's notification, silent when the window plays the chime instead; show() it, then call the returned `played`. */
   chatNotification(notice) {
     const chime = this.chime !== "system" && this.canPlayChime() ? this.chime : null;
     const notification = this.createNotification(chime ? { ...notice, silent: true } : notice);
@@ -116,7 +102,6 @@ class AttentionNotifier {
 
   observe(chatId, event) {
     const { completion } = this.activity.observe(chatId, event);
-    // A new turn announces its own end; so does the turn a background subagent's result wakes.
     if (event.type === "turn-started" || event.type === "turn-cancelled") {
       this.completed.delete(chatId);
       this.asked.delete(chatId);
@@ -144,7 +129,6 @@ class AttentionNotifier {
     this.updateBadge();
   }
 
-  // Only a request an agent still waits on is notified about.
   /** @param {{ chatId?: string; requestId?: string; title?: string; body?: string }} [notice] */
   notify({ chatId, requestId, title, body } = {}) {
     const key = keyOf(String(chatId), String(requestId));
@@ -167,7 +151,6 @@ class AttentionNotifier {
     if (typeof chatId !== "string") return false;
     const result = this.completed.get(chatId);
     this.completed.delete(chatId);
-    // The turn ended, but the chat's background subagents still work: its work ends when they do (see observe).
     if (!result && this.activity.activity(chatId) === "background") this.asked.set(chatId, title);
     if (!result || !this.notifyOnCompletion) return false;
     return this.showCompletion(chatId, title, result);
@@ -190,9 +173,6 @@ class AttentionNotifier {
     return true;
   }
 
-  // A device paired with this Mac for the first time: a phone, or ("computer") another Mac that can now drive this one.
-  // Shown even while Milagre has focus: it is about who can reach the agents, and the pairing window opens just by
-  // looking at Settings → Phone & sharing. Clicking it opens that page.
   notifyDevicePaired(kind = "phone") {
     if (kind !== "computer") return this.notifyPhonesPaired([{ name: null }]);
     return this.showPaired({
@@ -203,8 +183,6 @@ class AttentionNotifier {
   }
 
   /**
-   * Phones that paired with this Mac and no window announced yet (devices:take-notices), named when they sent a name.
-   * `away`: they paired while this desktop wasn't connected (Milagre was closed), so the notice says so.
    * @param {Array<{ name?: unknown }>} phones
    * @param {{ away?: boolean }} [options]
    */
@@ -235,8 +213,6 @@ class AttentionNotifier {
   }
 
   /**
-   * Computers waiting for Allow (devices:pending): a new one is announced once, while no Milagre window has focus (the
-   * prompt is on screen otherwise). The notice closes when nothing waits any more; its click brings the window back.
    * @param {Array<{ key?: unknown; name?: unknown }>} [requests]
    */
   notifyComputerWaiting(requests = []) {
@@ -270,7 +246,6 @@ class AttentionNotifier {
     notification?.close();
   }
 
-  /** Projects or computers were hidden or shown in Filters: notices of what is now hidden close, and the badge follows. */
   hiddenChanged() {
     for (const [key, notification] of this.open) {
       if (notification && this.isHidden(key.slice(0, key.lastIndexOf("\n")))) {
@@ -286,7 +261,6 @@ class AttentionNotifier {
     this.updateBadge();
   }
 
-  /** A computer was removed or switched off: what it waited on, and its unread chats, leave the badge. */
   forgetComputer(computerId) {
     const mine = (chatId) => computerOfKey(chatId) === computerId;
     for (const key of Array.from(this.open.keys())) if (mine(key.slice(0, key.lastIndexOf("\n")))) this.close(key);

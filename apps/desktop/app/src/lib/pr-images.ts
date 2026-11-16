@@ -2,9 +2,6 @@ import { githubImageSource } from "@milagre/shared/github-image";
 import type { MarkdownImageLoader } from "../components/markdown/Markdown";
 import type { MilagreBridge } from "../electron";
 
-// Uploads and repository screenshots in a private PR need GitHub authentication: the PR's computer reads them
-// with gh's token (pr:image). Kept as data URLs
-// while recent so the panel's refreshes and remounts don't read them again; a read that failed is asked again next time.
 const MAX_KEPT = 64;
 const kept = new Map<string, Promise<string>>();
 

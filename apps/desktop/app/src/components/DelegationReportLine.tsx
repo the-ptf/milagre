@@ -6,10 +6,6 @@ import { Markdown } from "./markdown/Markdown";
 
 const INK: Partial<Record<SubchatKind, string>> = { failed: "text-red-ink" };
 
-/**
- * What a Subchat's finished report stands for in the transcript: one grey line ("Fix the login finished"), whose name
- * opens that Chat and whose chevron shows the report's text in place.
- */
 export function DelegationReportLine({
   marker,
   body,
@@ -18,7 +14,6 @@ export function DelegationReportLine({
 }: {
   marker: { text: string; kind: SubchatKind };
   body: string;
-  /** The Chat that sent it, when there is one to open. */
   chat: string | null;
   onOpenChat?: (chatKey: string) => void;
 }) {

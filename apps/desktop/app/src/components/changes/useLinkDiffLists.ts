@@ -7,7 +7,6 @@ import type { DiffMode } from "../../electron";
 import type { DiffList } from "./useDiffFiles";
 import { bridgeForKey, onAnyAgentEvent } from "../../lib/computer-bridge";
 
-/** Read every owned Worktree, retaining independent errors and never showing an earlier Chat's lists. */
 export function useLinkDiffLists({ members, chatId, mode, active }: { members: WorktreeBinding[]; chatId: string | null; mode: DiffMode; active: boolean }) {
   const identity = JSON.stringify([chatId, mode, members]);
   const [snapshot, setSnapshot] = useState<{ identity: string; lists: Record<string, DiffList>; loading: boolean }>({

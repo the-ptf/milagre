@@ -19,11 +19,8 @@ export const USAGE_CARD_WIDTH = 288;
 type UsageCardProps = {
   id: string;
   usage: ProviderUsage;
-  /** The Project or Link whose account the card can switch; none shows the account as plain text. */
   scope?: string;
-  /** The scope is a Chats home: its account is the one every Chat without a Project uses. */
   chatsHome?: boolean;
-  /** The account picker's panel opened or closed; it sits outside the card, so the card must not close under it. */
   onPickerOpenChange: (open: boolean) => void;
   loading: boolean;
   position: { left: number; bottom: number };
@@ -41,10 +38,6 @@ function AccountText({ account, small = false }: { account?: string; small?: boo
   );
 }
 
-/**
- * The account line: a picker when the Project has more than one saved account for the provider. The card's header
- * shows it large; `small` is the usage button's popover, where it sits at the right of each provider's name.
- */
 export function AccountPicker({
   scope,
   chatsHome,
@@ -75,12 +68,9 @@ export function AccountPicker({
         compact={small}
         onOpenChange={onOpenChange}
         triggerClassName={small ? "text-ink-3 hover:text-ink" : "text-15 font-semibold"}
-        // Not `disabled` while saving: a disabled trigger drops focus to <body>, which closes the card.
         onChange={(next) => {
           if (!busy) void act(() => bridgeForKey(scope).assignProjectAccount(scope, provider, next || null));
         }}
-        // Just the account on one line, no plan icon (the list shows the full address); Settings' Default badge doesn't fit the header,
-        // and the panel's first row still says the default is in use.
         options={projectAccountOptions(group).map(({ icon: _icon, ...option }) => ({
           ...option,
           display: (
@@ -202,7 +192,6 @@ export function UsageCard({
           onClick={() => {
             if (!loading) spin.refresh();
           }}
-          // aria-disabled, not disabled: a disabled button drops focus to <body>, which would close the card.
           aria-disabled={loading}
         >
           <span
@@ -219,7 +208,6 @@ export function UsageCard({
 
       {usage.windows.length > 0 && <UsageWindows usage={usage} now={now} className="border-t border-line px-4 pb-4 pt-3" />}
 
-      {/* Only when the account has some: a "0 left" row would read as something used up. */}
       {usage.bankedResets ? (
         <div className="flex items-center justify-between border-t border-line px-4 py-3 text-12 tabular-nums">
           <span className="text-ink-2">Banked resets</span>

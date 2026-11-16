@@ -1,4 +1,3 @@
-// Real renderer and browser isolation checks. Screenshots from this fixture are test evidence, not PR images.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const fs = require("node:fs");

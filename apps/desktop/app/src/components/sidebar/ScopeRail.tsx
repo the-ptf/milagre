@@ -4,7 +4,8 @@ import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { menuRowClass } from "../primitives/Popover";
 import { SectionLabel } from "../primitives/SectionLabel";
-import { ChatMarkDotInline, type SidebarRecent } from "./ChatRow";
+import type { SidebarRecent } from "./ChatRow";
+import { ChatMarkDotInline } from "./ChatMarks";
 import { useDismiss } from "../../lib/use-dismiss";
 import type { RailStatus } from "../../lib/sidebar-scopes";
 

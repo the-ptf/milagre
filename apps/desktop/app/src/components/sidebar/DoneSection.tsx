@@ -8,7 +8,8 @@ import { useDisplayNow } from "../../lib/display-clock";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
 import { ChatTitle } from "./ChatTitle";
-import { computerIcon, type RowComputer, type SidebarRecent } from "./ChatRow";
+import type { RowComputer, SidebarRecent } from "./ChatRow";
+import { computerIcon } from "./chat-row-parts";
 
 /**
  * A Done chat with what its own scope does with it: open it, or take it back to the list. `computer`: the one it lives on,

@@ -1,7 +1,5 @@
 const { z } = require("zod");
 
-// Browsers join a Chat by process lineage (see docs/host.md) or by an explicit attach.
-// These tools let the agent attach the browser it drives when lineage cannot see it, bound to its own Chat.
 const browserId = z.string().min(8).max(64).describe("A browser id from browser_list: an entry under others, or the part of a page id before the colon.");
 function browserToolDefinitions(chatId, api) {
   return [

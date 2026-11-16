@@ -20,11 +20,6 @@ const NO_UPLOADS: AttachmentUpload[] = [];
 
 const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
-/**
- * `leading` goes first in the row, which isn't a file the user attached. `order` lists attachment keys (a path, or a
- * pasted image's id) in the order they were added; without it images come before files. `previewId`/`onPreview`
- * control which item the viewer shows, so a chip elsewhere can open it.
- */
 export function Attachments({
   images = NO_IMAGES,
   files = NO_FILES,
@@ -47,16 +42,13 @@ export function Attachments({
   leading?: ReactNode;
   previewId?: string | null;
   onPreview?: (id: string | null) => void;
-  /** Files still uploading to the Chat's computer: each shows as a tile that fills as it goes. */
   uploads?: AttachmentUpload[];
   cancelUpload?: (id: string) => void;
 }) {
-  // The open item's id; its thumbnail hides while the viewer shows it.
   const [ownPreview, setOwnPreview] = useState<string | null>(null);
   const openId = previewId !== undefined ? previewId : ownPreview;
   const setOpenId = onPreview ?? setOwnPreview;
   const thumbs = useRef(new Map<string, HTMLButtonElement>());
-  // A remote chat's images come from its computer; its other files have no preview here.
   const scope = useScope();
   const remote = isRemoteKey(scope);
   const { sources: remoteSources, failed: remoteFailed } = useRemoteMedia(remote ? scope : null, [
@@ -94,7 +86,6 @@ export function Attachments({
     const rank = (key: string) => (order.includes(key) ? order.indexOf(key) : order.length);
     items.sort((a, b) => rank(a.key) - rank(b.key));
   }
-  // The viewer pages only through what has an image to show: one still loading, or one that failed, has none.
   const media = items.filter((item): item is typeof item & LightboxItem => !!item.kind && !!item.src);
   const failedRemote = (item: (typeof items)[number]) => remote && item.kind === "image" && !item.src && !!item.path && !!remoteFailed[item.path];
   const found = openId === null ? -1 : media.findIndex((item) => item.id === openId);
@@ -185,7 +176,6 @@ export function Attachments({
   );
 }
 
-/** A file that isn't an image or video (a .txt, a .md): a square tile the size of a media thumbnail, with its extension. */
 function FileTile({ path, name, file, unavailable }: { path: string; name: string; file?: File; unavailable?: boolean }) {
   const [open, setOpen] = useState(false);
   const extension = /\.([^./]+)$/.exec(name)?.[1];
@@ -226,10 +216,8 @@ function FileTile({ path, name, file, unavailable }: { path: string; name: strin
 }
 
 const MB = 1024 * 1024;
-// One decimal under 10 MB, so a small file's count still moves; the total sets it for both numbers.
 const megabytes = (bytes: number, total: number) => (bytes / MB).toFixed(total < 10 * MB ? 1 : 0);
 
-/** A file on its way to the Chat's computer: the file tile, its percentage, and a bar along the bottom that fills. */
 function UploadTile({ upload }: { upload: AttachmentUpload }) {
   const percent = upload.totalBytes ? Math.min(100, Math.round((upload.sentBytes / upload.totalBytes) * 100)) : 0;
   return (

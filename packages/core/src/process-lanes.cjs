@@ -1,16 +1,11 @@
 const { AsyncLocalStorage } = require("node:async_hooks");
 
 // Every `git` and `gh` the host starts waits for a slot here, so a burst of background reads (the PR poller, diff
-// stats, main sync) can't pile up processes or make what someone is waiting on (a PR's detail, an open diff, a commit)
-// wait behind them. Interactive work always takes the next free slot; background work leaves one slot of each kind
-// free for it. A process holds its slot only while it runs, so nothing waits on itself.
 
 const LIMITS = Object.freeze({ git: 8, gh: 4 });
 
 const lane = new AsyncLocalStorage();
-/** Runs `task` and everything it starts as background work. */
 const background = (task) => lane.run("background", task);
-/** The lane of the code calling it: interactive unless it runs inside `background()`. */
 const currentLane = () => lane.getStore() ?? "interactive";
 
 /** The scheduler kind of a program: `git`, `gh`, or null for anything that isn't limited. */
@@ -45,7 +40,6 @@ function createLanes(limits = LIMITS) {
       });
     }
   }
-  /** Waits for a slot of `kind` in `which` lane; resolves with the function that frees it. */
   function acquire(kind, which = currentLane()) {
     if (!limits[kind]) return Promise.resolve(() => {});
     return new Promise((resolve) => {

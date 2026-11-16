@@ -10,16 +10,8 @@ import { useReducedMotion } from "./motion";
 
 export type SwipeAction = "done" | "archive" | "reopen" | "wake" | "snooze-for" | "read" | "unread";
 
-/**
- * The list sits in the slide-over sidebar, which a leftward drag closes. A drag meant to close it lands on a row more often
- * than not, so there a row's leftward swipe only reveals Done, which a tap then commits, and the rows leave their last 32
- * points, an edge nothing marks, to the close.
- */
 export const ClosesLeftContext = createContext<SharedValue<boolean> | null>(null);
-// Kept as one object: a new hitSlop each render would rebuild the row's gestures.
 const CLOSE_EDGE = { right: -32 };
-// The one row showing Done in the sidebar. A revealed Done waits for a tap, so it must not outlive the moment: another
-// row revealing, the list scrolling or the sidebar closing hides it.
 let revealed: SwipeableMethods | null = null;
 export function hideRevealed() {
   revealed?.close();
@@ -48,21 +40,15 @@ export function ChatSwipeRow({
 }: {
   children: ReactNode;
   unread: boolean;
-  /** The row is in the Done section. */
   done?: boolean;
-  /** The row is in the Snoozed section. */
   snoozed?: boolean;
-  /** The Chat's Mac can mark it Done; an older one archives instead. */
   doneable?: boolean;
   disabled: boolean;
-  /** The list's own color under the row, so a row reads as part of the list rather than a tile of its own. */
   background: string;
   onAction: (action: SwipeAction) => Promise<void>;
 }) {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
-  // In the sidebar, whether it is all the way open: while it slides, a swipe must not reach a moving row. Read on the UI
-  // thread, so opening and closing re-render no row.
   const sidebar = useContext(ClosesLeftContext);
   const closesLeft = sidebar !== null;
   const swipeable = useRef<SwipeableMethods>(null);
@@ -70,7 +56,6 @@ export function ChatSwipeRow({
   const [busy, setBusy] = useState(false);
   const idle = !disabled && !busy;
   const enabled = useDerivedValue(() => idle && (sidebar?.get() ?? true), [idle, sidebar]);
-  // What a release does, read when it happens: the callbacks below never change, so the gestures are built once.
   const latest = useRef({
     disabled,
     onAction,
@@ -83,7 +68,6 @@ export function ChatSwipeRow({
     left: done ? "reopen" : snoozed ? "wake" : unread ? "read" : "unread",
     right: doneable ? "done" : "archive",
   };
-  // `direction` is the swipe's (left reveals the right-hand actions); `choice` a revealed button's own action.
   const commit = useCallback((direction: "left" | "right", choice?: SwipeAction) => {
     if (revealed === swipeable.current) revealed = null;
     swipeable.current?.close();
@@ -96,7 +80,6 @@ export function ChatSwipeRow({
       setBusy(false);
     });
   }, []);
-  // A revealed action commits on a tap; the row's ⋯ menu stays the accessible way, so it is hidden from screen readers.
   const action = (label: string, icon: IconData, solid = false, onPress?: () => void, tint?: string) => (
     <Pressable
       disabled={!onPress}
@@ -123,9 +106,7 @@ export function ChatSwipeRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `action` only reads the theme's colors.
     [leftLabel, done, snoozed, unread, colors],
   );
-  // Snooze beside Done: the swipe only reveals them, so a tap picks which.
   const twoActions = doneable;
-  // Read on release, so the open callback (and the row's gestures) keeps its identity.
   const reveals = useRef(twoActions);
   reveals.current = twoActions;
   const renderRight = useCallback(
@@ -147,7 +128,6 @@ export function ChatSwipeRow({
   const childrenContainerStyle = useMemo(() => ({ backgroundColor: background }), [background]);
   const onOpen = useCallback(
     (direction: "left" | "right") => {
-      // Snooze and Done (and, in the sidebar, Archive) stay revealed until one is tapped or the row is touched again.
       if (direction === "left" && (closesLeft || reveals.current)) {
         if (revealed !== swipeable.current) hideRevealed();
         revealed = swipeable.current;

@@ -33,28 +33,23 @@ export type InboxQuestionDraft = {
   page: number;
   picked: QuestionAnswers;
   typed: Record<string, string>;
-  /** Photos attached to each question's answer, by question id. */
   images?: Record<string, Attachment[]>;
 };
 
-/** Photos attached to the answers, by question id: the caller uploads them and the agent gets their paths. */
 export type AnswerImages = Record<string, Attachment[]>;
 
 const NO_ANSWERS: QuestionAnswers = {};
 const NO_IMAGES: Attachment[] = [];
 const MAX_IMAGES = 10;
 
-/** A typed answer with dictated words after it, a space between them. */
 function withDictation(typed: string, words: string): string {
   const said = words.trim();
   if (!said) return typed;
   return typed && !/\s$/.test(typed) ? `${typed} ${said}` : `${typed}${said}`;
 }
 
-/** What the answer card and the summary say for a question's attached photos. */
 const imagesLabel = (count: number) => (count === 1 ? "1 image" : `${count} images`);
 
-/** The answers as the answer card shows them, with each question's photos counted, as the Mac records them. */
 export function answersWithImages(answers: QuestionAnswers, images: AnswerImages | undefined): QuestionAnswers {
   const shown = { ...answers };
   for (const [id, list] of Object.entries(images ?? {})) if (list.length) shown[id] = [...(shown[id] ?? []), imagesLabel(list.length)];
@@ -63,10 +58,6 @@ export function answersWithImages(answers: QuestionAnswers, images: AnswerImages
 
 const RECOMMENDED = /\s*\((recommended)\)\s*$/i;
 
-/**
- * The agent's questions, Claude-style: the card takes the composer's place, one question at a time.
- * A single-choice pick moves on; a batch's last question waits for Send, matching desktop.
- */
 export function Questions({
   request,
   busy,
@@ -78,7 +69,6 @@ export function Questions({
   onDraftChange,
   dictationChat,
 }: {
-  /** The Chat asking: dictation reads its Project's words and its agent fixes misheard names, as in the composer. */
   dictationChat?: DictationChat;
   variant?: "card" | "inline";
   draft?: InboxQuestionDraft;
@@ -86,7 +76,6 @@ export function Questions({
   request: QuestionRequest;
   busy: boolean;
   initialAnswers?: QuestionAnswers;
-  /** The inbox keeps the choice editable until Send, like desktop's inbox. */
   confirmSingle?: boolean;
   submit: (answers: QuestionAnswers | null, summary: string, images?: AnswerImages) => void;
 }) {
@@ -101,7 +90,6 @@ export function Questions({
     typed: {},
   }));
   const current = draft ?? localDraft;
-  // Dictation lands after a render or two: its edits start from the latest draft, not the one it began on.
   const latest = useRef(current);
   latest.current = current;
   const { page, picked, typed } = current;
@@ -113,14 +101,12 @@ export function Questions({
     else setLocalDraft((previous) => ({ ...previous, ...patch }));
   };
   const [direction, setDirection] = useState(1);
-  // The typed-answer row is the field, so its edge (not the text alone) turns accent while focused.
   const [typing, setTyping] = useState(false);
   const setTyped = (target: AgentQuestion, text: string) =>
     change({
       typed: { ...latest.current.typed, [target.id]: text },
       ...(confirmSingle && !target.multiSelect ? { picked: { ...latest.current.picked, [target.id]: [] } } : {}),
     });
-  // A dictated answer goes after what was typed: the words show as they're heard, and the fix-up may rewrite them after.
   const dictated = useRef<{ question: AgentQuestion; base: string } | null>(null);
   const dictation = useVoiceDictation((text, _anchor, correction) => {
     const target = dictated.current;
@@ -140,7 +126,6 @@ export function Questions({
     if (target && heard) setTyped(target.question, withDictation(target.base, heard));
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- only new words move the field.
   }, [heard]);
-  // A take that ends without words (cancelled, no speech, failed) puts back what was typed before it.
   useEffect(() => {
     const target = dictated.current;
     if (dictating || !target) return;
@@ -177,7 +162,6 @@ export function Questions({
         return [q.id, [...(next[q.id] || []), ...(answer ? [answer] : [])]];
       }),
     );
-    // A question answered with photos alone is answered too: the agent gets their paths.
     const open = questions.findIndex((q) => !answers[q.id]?.length && !imagesOf(q).length);
     if (open >= 0) {
       setPage(open);
@@ -375,7 +359,6 @@ export function Questions({
             <View style={{ width: 24, alignItems: "center" }}>
               <Icon icon={PencilEdit02Icon} tone="ink2" size={16} />
             </View>
-            {/* ponytail: a bare TextInput, as Field `bare` would draw it; the bordered row is its field. */}
             <TextInput
               accessibilityLabel={`Your own answer to: ${question.question}`}
               placeholder="Type your answer…"
@@ -530,7 +513,6 @@ export function Questions({
   );
 }
 
-/** Desktop's approval card: what the agent wants to run or change, then Deny, Always allow in this Chat, and Allow once. */
 export function Approval({
   approval,
   busy,

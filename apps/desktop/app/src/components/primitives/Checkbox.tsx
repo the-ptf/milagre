@@ -3,15 +3,9 @@ import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./Icon";
 
 // The box both inputs draw: line ink-3 at rest, ink fill once checked. Inputs drop the base outline (styles.css), so
-// the accent focus ring is put back here.
 export const CHECK_BOX =
   "peer col-start-1 row-start-1 size-4 shrink-0 cursor-pointer appearance-none border border-ink-3 bg-surface transition-colors checked:border-ink checked:bg-ink indeterminate:border-ink indeterminate:bg-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-40 aria-invalid:border-red";
 
-/**
- * A checkbox on a real <input type="checkbox">, so it's in the form, Space toggles it and a <label> around it works:
- * a 16px box, ink-filled with a 14px on-ink tick when checked. It carries role, aria-checked and data-state as well, the
- * hooks the Radix one had. `className` goes on the box's wrapper (margins). Selection is ink: `tone` is ignored.
- */
 export function Checkbox({
   checked = false,
   onCheckedChange,
@@ -22,7 +16,6 @@ export function Checkbox({
 }: Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "checked" | "onChange"> & {
   checked?: boolean | "indeterminate";
   onCheckedChange?: (checked: boolean) => void;
-  /** @deprecated Selection is ink (round 2, decision 2); remove it from call sites. */
   tone?: "ink" | "accent";
   ref?: Ref<HTMLInputElement>;
 }) {
@@ -53,10 +46,6 @@ export function Checkbox({
   );
 }
 
-/**
- * The checkbox's (or with `radio`, the radio's) box alone, for a row that is itself the control (a menuitemcheckbox,
- * an option button): it draws the state, the row carries the role and aria-checked.
- */
 export function CheckboxBox({ checked, radio = false, className = "" }: { checked: boolean; radio?: boolean; className?: string }) {
   return (
     <span
@@ -68,7 +57,6 @@ export function CheckboxBox({ checked, radio = false, className = "" }: { checke
   );
 }
 
-/** A setting's trailing checkbox. The row supplies the visible label. */
 export function SettingCheckbox({
   label,
   checked,
@@ -90,7 +78,6 @@ export function SettingCheckbox({
       onCheckedChange={(value) => onChange(value === true)}
       disabled={disabled}
       tone={tone}
-      // The box ends on the row's trailing edge with the selects and values; the 24px hit area reaches left of it.
       className="size-6 justify-items-end"
     />
   );

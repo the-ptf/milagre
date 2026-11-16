@@ -1,4 +1,3 @@
-// Deployment must never advertise a missing or different public installer.
 const { url: repository } = require("../packages/shared/src/repository.mjs");
 const fs = require("node:fs");
 const path = require("node:path");

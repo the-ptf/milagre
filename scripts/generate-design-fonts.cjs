@@ -1,5 +1,3 @@
-// Regenerate the Inter subsets embedded in design previews, SVG exports and the agent's PNG.
-// Run: node scripts/generate-design-fonts.cjs
 const fs = require("node:fs");
 const path = require("node:path");
 const subsetFont = require("subset-font");
@@ -15,7 +13,6 @@ async function main() {
   for (const [weight, style] of Object.entries(WEIGHTS)) {
     const font = await subsetFont(fs.readFileSync(path.join(source, "ttf", `Inter-${style}.ttf`)), CHARACTERS, {
       targetFormat: "truetype",
-      // Keep the typographic family and subfamily (name IDs 16/17): without them resvg sees only Regular and Bold under "Inter".
       preserveNameIds: [16, 17],
     });
     fonts[weight] = font.toString("base64");

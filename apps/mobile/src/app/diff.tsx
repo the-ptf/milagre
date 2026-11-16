@@ -25,7 +25,6 @@ export type DiffTarget = {
   mode: string;
   base?: string;
   commit?: string;
-  /** Empty string identifies a root commit; omission supports older hosts. */
   commitParent?: string;
   status?: DiffFileEntry["status"];
   added?: string;
@@ -45,7 +44,6 @@ export default function Diff() {
   );
 }
 
-/** Desktop's DiffFile, unified: hunk headers, one line-number gutter, +/− markers, row tints and changed-word highlights. */
 export function DiffView({ target }: { target: DiffTarget }) {
   const styles = useStyles();
   const session = useSession();

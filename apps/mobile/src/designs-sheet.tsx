@@ -36,29 +36,16 @@ import { loadCanvasDesign } from "./design-font-cache";
 import { CommentBox } from "./viewer-chrome";
 import { useVisibleRunChatKeys } from "./visible-run-chats";
 
-/** A comment waiting for Send, pinned where the user held the design. */
 type Note = DesignComment & { key: string };
-/** What the canvas shows: one design fitted, or the whole board. */
 type CanvasView = { mode: "design" | "canvas"; id: string | null };
-/** The comment box open on a pin: a new one being written, a waiting one to change, or a sent one to read. */
 type Composer = { key: string; kind: "new" | "edit" | "read"; at: { x: number; y: number } | null };
 type CanvasCommand = Record<string, unknown> & { t: string };
 
-/**
- * Feedback not sent yet, by Chat: leaving the designs keeps the pinned comments and the choice until they are sent or
- * deleted, as on desktop. In memory, for the app's life.
- */
 const unsent = new Map<string, { notes: Note[]; choice: ArtifactRef | null }>();
 const EMPTY_DESIGNS: Record<string, Artifact> = {};
 
 const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: design.version, title: design.title, format: design.format });
 
-/**
- * The Chat's designs full screen, on one canvas. The design the card opened fills the screen; pinching out (or the
- * squares button) flies out to every design, a row per group, and a tap flies back in. Holding a design pins a comment
- * there. Comments and the choice wait for Send, in the header with their count, which hands them to the Chat as one
- * message for the agent.
- */
 /** `onClose` is set where the canvas is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
 export function DesignsSheet({
   hostId,
@@ -90,7 +77,6 @@ export function DesignsSheet({
 
   const [summaries, setSummaries] = useState<ArtifactSummary[] | null>(null);
   const [listError, setListError] = useState("");
-  // The version shown of each design; null shows the newest.
   const [versions, setVersions] = useState<Record<string, number | null>>(() => (id ? { [id]: version ? Number(version) : null } : {}));
   const [loadedState, setLoaded] = useState<{ source: typeof source; chatId: typeof chatId; designs: Record<string, Artifact> }>({
     source,
@@ -112,7 +98,6 @@ export function DesignsSheet({
     if (commentId && id && version) setVersions((current) => ({ ...current, [id]: Number(version) }));
   }, [commentId, requestId, id, version]);
 
-  // Until the canvas paints its first design, the design icon draws itself over the empty page.
   const [painted, setPainted] = useState(false);
 
   useEffect(() => {
@@ -125,9 +110,7 @@ export function DesignsSheet({
     if (feature.enabled === false) close();
   }, [feature.enabled, close]);
 
-  // Finished designs and resolutions refresh the canvas even when it stays docked beside the Chat.
   const revision = commentActivity(snapshot, chatId, "artifact");
-  // Its comment refresh reads the Chat's live steps, so that run comes in full.
   useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   useEffect(() => {
     if (!source) return;
@@ -148,8 +131,6 @@ export function DesignsSheet({
       live = false;
     };
   }, [source, chatId, revision, reconnects]);
-  // Share shows only once this host says sharing works for this Chat; a reply for another host or Chat, or one a newer
-  // check has overtaken, is ignored.
   const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
   const [sharingAvailable, setSharingAvailable] = useState<typeof sharingScope | null>(null);
   const sharingRequest = useRef(0);
@@ -187,7 +168,6 @@ export function DesignsSheet({
       setSharingAvailable(available === true ? sharingScope : null);
     });
   }, [hostId, chatId, sharingScope]);
-  // Share opens as a bottom sheet over the designs.
   const openShare = () => {
     if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId } });
   };
@@ -195,8 +175,6 @@ export function DesignsSheet({
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
   const ordered = useMemo(() => rows.flatMap((row) => row.designs), [rows]);
 
-  // Every design's shown version, the opened one first. A newest version reloads when the agent makes
-  // another; a chosen older one stays.
   const pendingLoads = useRef(new WeakMap<NonNullable<typeof source>, Map<string, Promise<Artifact>>>());
   useEffect(() => {
     if (!source || !summaries || !chatId) return;
@@ -234,14 +212,11 @@ export function DesignsSheet({
               designs: { ...(current.source === source && current.chatId === chatId ? current.designs : {}), [design.id]: artifact },
             }));
         } catch {
-          /* A deleted or unreadable design stays blank on the board. */
         } finally {
           if (inFlight.get(key) === promise) inFlight.delete(key);
         }
       }
     };
-    // Warm the cache with the opened design, then keep relay round trips in parallel.
-    // Superseding effects reuse matching in-flight reads, and obsolete queues stop before starting another.
     void load(wanted.slice(0, 1)).then(() => {
       if (!live) return;
       const rest = wanted.slice(1);
@@ -250,18 +225,13 @@ export function DesignsSheet({
     return () => {
       live = false;
     };
-    // `loaded` is read to skip designs already there; the loads themselves update it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, chatId, summaries, ordered, versions, reconnects]);
 
-  // The canvas page: commands wait for it to say it is ready.
-  // The canvas page: until it says it is ready, commands are dropped, and each time it does (a fresh page after the
-  // web view reloads too) it is sent everything again.
   const canvas = useRef<DomWebViewRef>(null);
   const ready = useRef(false);
   const [epoch, setEpoch] = useState(0);
   const [commenting, setCommenting] = useState(false);
-  // The interactive design being tried: it takes the touches on it until the user flies away or comments.
   const [playing, setPlaying] = useState<string | null>(null);
   const [room, setRoom] = useState({ width: 0, height: 0 });
   const command = useCallback((message: CanvasCommand) => {
@@ -281,7 +251,6 @@ export function DesignsSheet({
   useEffect(() => {
     if (!summaries?.length) return;
     command({ t: "set", rows: layout, focus: id, pad: { top: 0, bottom: insets.bottom }, ink: colors.ink3, accent: colors.accent });
-    // The layout's content, not its identity, decides whether the page needs it again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
 
@@ -289,7 +258,6 @@ export function DesignsSheet({
     command({ t: "comment", on: commenting });
   }, [command, epoch, commenting]);
 
-  // The chosen design (waiting for Send, or sent) is outlined and the other options in its row step back, as on the desktop.
   const chosenId = choice?.id ?? (chosen ? chosen.slice(0, chosen.lastIndexOf(":")) : null);
   useEffect(() => {
     command({ t: "chosen", id: chosenId, ink: colors.ink });
@@ -317,10 +285,8 @@ export function DesignsSheet({
       const code = isInteractiveDesign(artifact);
       command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html, { code }), ...(code ? { run: true } : {}), ...(font ? { font } : {}) });
     }
-    // The layout first: the page makes a design's frame when it lays the design out.
   }, [loaded, command, epoch, layoutKey]);
 
-  // The pins on each design's shown version: waiting comments numbered in Send order, sent ones within their message.
   const numbers = useMemo(() => sentNumbers(sent), [sent]);
   const pins = useMemo(() => {
     const shown = (designId: string) => loaded[designId]?.version;
@@ -355,7 +321,6 @@ export function DesignsSheet({
     command({ t: "pins", pins: JSON.parse(pinsKey) });
   }, [pinsKey, command, epoch, layoutKey]);
 
-  // History can arrive before the saved comments, the requested version, or the canvas is ready.
   useEffect(() => {
     if (!ready.current || !pendingComment.current) return;
     const comment = sent.find((item) => item.id === pendingComment.current && item.design.id === id);
@@ -443,7 +408,6 @@ export function DesignsSheet({
   };
   const send = () => {
     if (!hostId || !chatId || !feedback || !source) return;
-    // Each comment gets the id the agent resolves it by; the host records the comments once the message went.
     const comments: DesignComment[] = written.map(({ key: _key, ...note }) => ({ ...note, text: note.text.trim(), id: newCommentId() }));
     if (chatKey) unsent.delete(chatKey);
     postDesignMessage(`${hostId}|${chatId}`, {
@@ -462,7 +426,6 @@ export function DesignsSheet({
       close();
       return;
     }
-    // Docked beside the Chat, the Chat is on screen already and sends it now; the canvas stays open, its pins turn sent.
     sendDesignMessageNow(`${hostId}|${chatId}`);
     setComposer(null);
     setCommenting(false);
@@ -528,7 +491,6 @@ export function DesignsSheet({
     }
   };
 
-  // An option's letter within its row, as the desktop canvas labels it.
   const position =
     row && summary && row.designs.length > 1
       ? `Option ${row.designs.indexOf(summary) < 26 ? String.fromCharCode(65 + row.designs.indexOf(summary)) : row.designs.indexOf(summary) + 1}`
@@ -660,19 +622,13 @@ export function DesignsSheet({
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-// The design icon's strokes (Hugeicons' PaintBoard, as on the design cards) and their lengths in its 24-unit box.
 const PALETTE =
   "M22 12C22 6.477 17.523 2 12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C12.842 22 14 22.116 14 21C14 20.391 13.683 19.921 13.369 19.454C12.908 18.772 12.452 18.095 13 17C13.667 15.667 14.778 15.667 16.481 15.667C17.333 15.667 18.333 15.667 19.5 15.5C21.601 15.2 22 13.908 22 12Z";
 const PALETTE_LENGTH = 72;
 const DOT_LENGTH = 9.5;
-/** Artwork timing: one drawing, or under reduced motion one full-and-faded step pair (SpinnerRing's pulse). */
 const DRAW_MS = 1800;
 const PULSE_MS = 1600;
 
-/**
- * The design icon drawing itself, stroke by stroke, then fading to draw again: the canvas page does the same in each
- * design's place until it loads. Reduced motion shows it drawn, stepping between full and 45% opacity.
- */
 function DrawingDesignIcon() {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
@@ -683,7 +639,6 @@ function DrawingDesignIcon() {
       withRepeat(withTiming(1, reduced ? { duration: PULSE_MS, easing: Easing.linear } : { duration: DRAW_MS, easing: Easing.inOut(Easing.quad) }), -1, false),
     );
   }, [progress, reduced]);
-  // Drawn over the first 55%, held, then faded over the last 15%.
   const drawn = (length: number) => {
     "worklet";
     return reduced ? 0 : length * (1 - Math.min(1, progress.value / 0.55));
@@ -711,7 +666,6 @@ function DrawingDesignIcon() {
  * by hash), and each design is a frame that runs none, so nothing a design holds can read the phone's files or post
  * to the app. The Expo modules bridge stays off; the app reads only the canvas script's messages, by their shape.
  */
-// On the surface color (white, or the theme's dark surface), like the header, so the bar and the canvas read as one.
 function DesignsCanvas({ ref, onMessage }: { ref: React.Ref<DomWebViewRef>; onMessage: (data: string) => void }) {
   const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
@@ -729,9 +683,7 @@ function DesignsCanvas({ ref, onMessage }: { ref: React.Ref<DomWebViewRef>; onMe
     () => () => {
       try {
         if (prepared?.file.exists) prepared.file.delete();
-      } catch {
-        /* The OS may purge cache files while backgrounding. */
-      }
+      } catch {}
     },
     [prepared],
   );

@@ -7,7 +7,6 @@ import { SpinnerRing } from "./icons";
 import { TranscriptDivider } from "./primitives/transcript-divider";
 import { fonts, useTheme } from "./theme";
 
-/** A manual or automatic compaction, as on desktop: it spins while the agent compacts. */
 export function CompactionDivider({ context }: { context: CompactionContext }) {
   const { colors } = useTheme();
   const label = compactionLabel(context);

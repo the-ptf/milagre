@@ -29,7 +29,6 @@ export function ProviderUpdateNotice({ onSettings, onUpdated }: { onSettings: ()
       aria-live="polite"
       className="relative w-[360px] max-w-full rounded-card bg-surface p-4 text-ink shadow-overlay"
     >
-      {/* A wrapper takes the position: IconButton is `relative` for its hit area. */}
       <span className="absolute top-2 right-2 flex">
         <IconButton label={`Dismiss ${name} update`} icon={Cancel01Icon} size={28} disabled={working} onClick={updates.dismiss} />
       </span>

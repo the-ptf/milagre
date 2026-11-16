@@ -21,7 +21,6 @@ export function useComposerPreferences(chatKey: string) {
     setPrefs((prev) => {
       const current = prev[key] ?? {};
       const next = { ...prev, [key]: { ...current, ...patch } };
-      // Read the saved copy again first: the window's cached copy misses a write made outside it (another process, or
       // the native store directly), which this read-modify-write would otherwise drop.
       localStorage.forget("milagre.composer-preferences");
       saveComposerPreferences(localStorage, key, patch);
@@ -77,7 +76,6 @@ export function useComposerPreferences(chatKey: string) {
     fastMode,
     setFastMode,
     permissionMode,
-    /** The mode picked for this Chat, if any; `permissionMode` falls back to the default for new Chats. */
     pickedPermissionMode: current.permissionMode,
     setPermissionMode,
   };

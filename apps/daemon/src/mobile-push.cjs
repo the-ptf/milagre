@@ -15,7 +15,6 @@ const MAX_DEVICES = 32;
 const MAX_CHATS = 500;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const TOKEN = /^(?:ExpoPushToken|ExponentPushToken)\[[A-Za-z0-9_-]{1,200}\]$/;
-// A Mac reached through the public relay has no URL; the phone names it by its relay host id.
 const RELAY_HOST = /^relay:\/\/[A-Za-z0-9_-]{22}$/;
 const capped = (value, limit) =>
   String(value || "")
@@ -51,23 +50,16 @@ function registration(value) {
     hostId: value.hostId,
     notifyWhenWaiting: value.notifyWhenWaiting,
     notifyOnCompletion: value.notifyOnCompletion,
-    // The phone's notification chime, bundled in its build. Older phones send none: the system sound.
     chime: parseNotificationChime(value.chime),
     schedule: parseNotificationSchedule(value.schedule),
   };
 }
 
-/**
- * The daemon owns registrations and event policy. Neither desktop nor a live phone connection is needed to deliver.
- * A Chat open in a focused desktop window (isChatFocused) is already being read, so no phone hears about it.
- */
 function createMobilePush({ dataDir, send, context, isChatFocused = () => false, now = Date.now, onError = () => {} }) {
   const file = path.join(dataDir, "mobile-push.json");
   let devices = new Map();
   const focus = new Map();
   const chats = new Map();
-  // What each chat is doing (chat-activity.mjs): its work ends when it leaves working or background for idle or failed,
-  // so a turn that ends while background subagents work is announced only once they end with no turn to take the result.
   const activity = createActivityTracker({ maxChats: MAX_CHATS });
   const work = new Set();
   let writes = Promise.resolve();
@@ -105,7 +97,6 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
       !isChatFocused(chatId)
     );
   }
-  /** An approval or question (`requestId`), or with `completion` the end of the chat's work (chat-activity.mjs). */
   function deliver(chatId, run, event, requestId, completion) {
     if (!devices.size) return;
     const occurredAt = now();
@@ -114,8 +105,6 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     const task = (async () => {
       const metadata = await context(chatId);
       if (!metadata) return;
-      // A snoozed Chat finishing stays quiet; it only comes back when it needs the user or its time comes. A failed turn
-      // wakes it (snooze.mjs), so its push goes out even when this read lands before the wake is saved.
       if (!requestId && !completion?.failed && metadata.snoozedUntil > occurredAt) return;
       const notice = requestId ? attentionNotice(event, metadata) : completionNotice(metadata.chatTitle, completion);
       const validEvent = () => epoch === version && chats.get(chatId) === run && (requestId ? !run.ended && run.requests.has(requestId) : run.ended);
@@ -146,10 +135,6 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     void task.finally(() => work.delete(task));
   }
   return {
-    /**
-     * A notice that no turn raised (a Routine flow Run waiting for its owner's approval), to every device that wants to
-     * hear when something waits. Tapping it opens `chatId`, the Run's Chat.
-     */
     notice(chatId, { title, body }) {
       if (closed || !devices.size) return;
       const occurredAt = now();
@@ -198,7 +183,6 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
         const previous = devices.get(device.deviceId);
         if (previous && JSON.stringify(previous) === JSON.stringify(device)) return { registered: true };
         const next = new Map(devices);
-        // A token represents one app installation. A reinstallation must not get two copies.
         for (const [id, old] of next)
           if (old.token === device.token) {
             next.delete(id);
@@ -246,14 +230,12 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
       else focus.set(deviceId, { chatId, until: now() + FOCUS_MS });
       return null;
     },
-    /** Whether a phone has `chatId` open now. */
     viewing(chatId) {
       return [...focus.values()].some((view) => view.chatId === chatId && view.until > now());
     },
     observe(chatId, event) {
       if (closed || !Number.isSafeInteger(sessionIdFromKey(chatId)) || !validOwner(projectOfKey(chatId))) return;
       let run = chats.get(chatId);
-      // A turn started again under the same id (a steer that reached it) keeps its lifecycle and what it followed.
       const repeated = event.type === "turn-started" && event.turnId && run?.turnId === event.turnId && !run.ended;
       const { completion } = repeated ? { completion: null } : activity.observe(chatId, event);
       if (event.type === "turn-started" || (event.type === "message-sent" && run?.ended)) {

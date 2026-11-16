@@ -8,10 +8,6 @@ import { Icon } from "./primitives/Icon";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
-/**
- * A Link on the canvas that reached this Chat: a hairline with "Linked to  web  main" centred on it, as the handoff
- * divider is drawn. It opens the linked summary the Chat's next turn gets.
- */
 export function WorktreeLinkDivider({ context }: { context: WorktreeLinkedContext }) {
   const [open, setOpen] = useState(false);
   const imageOf = useProjectImages([context.project.path]);
@@ -20,7 +16,6 @@ export function WorktreeLinkDivider({ context }: { context: WorktreeLinkedContex
   return (
     <>
       <TranscriptDivider data-worktree-link-divider label={worktreeLinkText(context)}>
-        {/* The visible text names the button; it opens the summary in a dialog. */}
         <button
           type="button"
           disabled={!canOpen}

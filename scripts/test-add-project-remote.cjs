@@ -1,7 +1,4 @@
 // Run with npm test -- --only add-project-remote. Add project with another computer, in Electron against a stand-in for
-// the bridges: the computer is chosen first (an offline one is disabled), This Mac keeps its folder dialog, and another
-// computer's home folder is browsed there with a breadcrumb, each folder tagged "Added" or "git · branch", and the chosen
-// checkout opens on that computer. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -81,7 +78,6 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     const text = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent.trim() ?? null`);
-    // The computer is a menu now: its rows exist while it is open.
     const on = (id) => `document.querySelector('[role=listbox] [data-add-project-on="${id}"]')?.closest('[data-picker-row]')`;
     const openOn = async () => {
       await waitFor(`!!document.querySelector('dialog[data-add-project] button[aria-label="Computer"]')`);
@@ -125,7 +121,6 @@ async function browserChecks() {
     assert.deepEqual(await evaluate(`window.opened`), ["/Users/a/Code/billing-service"]);
     console.log("PASS: another computer's folders are browsed there, tagged, and the chosen checkout opens on it");
 
-    // An Added folder is opened (switched to), not added a second time.
     const button = (label) => `[...document.querySelectorAll('dialog button')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})`;
     await evaluate(`document.querySelector('[data-reopen]').click()`);
     await waitFor(`document.querySelector('dialog[data-add-project]')?.open`);
@@ -139,7 +134,6 @@ async function browserChecks() {
     await evaluate(`${button("Open atlas-web")}.click()`);
     await waitFor(`window.added === 'c-atlas|/Users/a/Code/atlas-web' && !!document.querySelector('[data-closed]')`);
 
-    // Clone a repository: This Mac asks its folder dialog where, another computer clones into the folder picked in its list.
     const typeUrl = (value) =>
       evaluate(
         `(() => { const input = document.querySelector('[data-add-project-url]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
@@ -176,7 +170,6 @@ async function browserChecks() {
     assert.deepEqual(await evaluate(`window.cloned.slice(1)`), [["atlas", URL, "/Users/a/Code"]]);
     console.log("PASS: a repository is cloned into the folder chosen on this Mac or on another computer");
 
-    // The chosen computer going offline stops the browser and disables Add; removing it falls back to This Mac.
     const computerList = (state) =>
       `[{ id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: ${JSON.stringify(state)}, route: null, lastSeen: Date.now(), addedAt: 1, message: null, lan: false, lanRoutes: [] }]`;
     await evaluate(`document.querySelector('[data-reopen]').click()`);
@@ -199,7 +192,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!${mode("clone")}`), true, "this Mac alone still offers to clone");
     console.log("PASS: an Added folder opens, and an offline or removed computer stops the browser");
 
-    // A press on the scrim closes the dialog.
     await evaluate(`document.querySelector('dialog[data-add-project]').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     await waitFor(`!!document.querySelector('[data-closed]')`);
     assert.deepEqual(errors, []);

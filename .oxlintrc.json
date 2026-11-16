@@ -1,5 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["./.oxlintrc.size-baseline.json"],
+  "options": { "reportUnusedDisableDirectives": "error" },
   "plugins": ["typescript", "react", "import", "promise", "unicorn", "oxc"],
   "categories": {
     "correctness": "error",
@@ -39,6 +41,9 @@
     "react/no-object-type-as-default-prop": "error",
     "eslint/preserve-caught-error": "error",
     "no-await-in-loop": "off",
+    "max-lines": ["error", { "max": 800, "skipBlankLines": true, "skipComments": true }],
+    "max-lines-per-function": ["error", { "max": 250, "skipBlankLines": true, "skipComments": true }],
+    "complexity": ["error", 40],
     "typescript/ban-ts-comment": [
       "error",
       { "ts-ignore": true, "ts-nocheck": true, "ts-check": false, "ts-expect-error": "allow-with-description", "minimumDescriptionLength": 10 }
@@ -62,7 +67,10 @@
     {
       "files": ["**/*.test.*", "scripts/test-*.cjs"],
       "rules": {
-        "no-shadow": "off"
+        "no-shadow": "off",
+        "max-lines": "off",
+        "max-lines-per-function": "off",
+        "complexity": "off"
       }
     },
     {

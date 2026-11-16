@@ -1,7 +1,6 @@
 const { z } = require("zod");
 const { artifactToolDefinitions } = require("./chat-artifacts.cjs");
 
-/** The local MCP registry owns grants and transport. This adapter owns resource scope. */
 function createDesignToolGroup({ artifacts }) {
   return {
     id: "designs",

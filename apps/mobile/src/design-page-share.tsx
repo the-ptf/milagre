@@ -15,8 +15,6 @@ const when = (share: DesignPageShare) =>
 const olderLinksNotice = (count = 0) =>
   count ? `${count === 1 ? "An older link" : `${count} older links`} could not be revoked yet. Revoke in Settings > Milagre > Published pages.` : "";
 
-/** A Chat page has one public link, and publishing again updates the snapshot behind it. Without a chatId this lists
- * every page published from the host. The parent keys this view by host and Chat and unmounts it when Designs is off. */
 export function DesignPageShareSheet({
   client,
   chatId,
@@ -30,7 +28,6 @@ export function DesignPageShareSheet({
   chatId?: string | null;
   kind?: "designs" | "artifacts";
   onClose: () => void;
-  /** Shown in a bottom sheet over the page, which has its own grabber to close: no Back button. */
   inSheet?: boolean;
   onBusyChange?: (busy: boolean) => void;
   onAvailabilityChange?: (available: boolean | null) => void;
@@ -45,12 +42,10 @@ export function DesignPageShareSheet({
   useEffect(() => onBusyChange?.(!!state.busy), [state.busy, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
   const [confirm, setConfirm] = useState<string | null>(null);
-  // What an action did shows as a toast over the sheet, not as text in it.
   const [toast, setToast] = useState<{ text: string; key: number } | null>(null);
   const toastKey = useRef(0);
   const showToast = (text: string) => text && setToast({ text, key: ++toastKey.current });
   const current = chatId ? state.shares.find((share) => !share.revoked) : undefined;
-  // The host names the page after its Chat; this only satisfies an older host, which requires a title.
   const title = current?.title ?? (kind === "artifacts" ? "Artifact" : "Designs");
   useEffect(() => {
     void sharing.refresh();
@@ -72,7 +67,6 @@ export function DesignPageShareSheet({
     const result = sharing.getSnapshot();
     const share = result.shares[0];
     if (result.error || !share) return;
-    // Publishing copies the link right away: sharing it is what comes next.
     const copied = await Clipboard.setStringAsync(share.url).then(
       () => true,
       () => false,

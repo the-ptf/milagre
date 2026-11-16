@@ -29,10 +29,6 @@ function createLink(links, a, b, projects, active, now = () => new Date()) {
   return { id: randomUUID(), a, b, created_at: now().toISOString() };
 }
 
-/**
- * A removed Link made again with its own id and date, for the sidebar's Undo: grants and Delegations saved against the
- * id still match it. The same rules as a new Link apply.
- */
 function restoreLink(links, link, projects, active) {
   if (!link || typeof link.id !== "string" || !link.id || typeof link.created_at !== "string") throw new Error("That Link is no longer valid.");
   if (!canLink(link.a, link.b, projects, active)) throw new Error("These endpoints cannot be linked.");
@@ -42,12 +38,9 @@ function restoreLink(links, link, projects, active) {
 }
 
 function pruneLinks(links, projects, active) {
-  // An adopted pair keeps its ownership and recovery entry until the user returns it to separate Chats.
   return links.filter((link) => link.sharedChat || canLink(link.a, link.b, projects, active));
 }
 
-// Every Worktree the source reaches in one hop, each with the Link that reaches it (the first one, when several do) and
-// every Link that does, so a grant on any of them counts.
 function linkedWorktrees(source, links, active) {
   if (!active[source.project_id]?.includes(source.worktree_path)) return [];
   const found = new Map();

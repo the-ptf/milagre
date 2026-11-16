@@ -23,13 +23,11 @@ const statusLabel = (state: string, message?: string) =>
 
 const dividerFor = (colors: Palette) => ({ borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line });
 
-/** `onAccountsPage`: shown under the saved accounts themselves, so the footnote has no link back to them. */
 export function ProjectAccountsSection({ onAccountsPage = false }: { onAccountsPage?: boolean } = {}) {
   const session = useSession();
   return <ProjectAccountsForComputer key={session.client?.url || "disconnected"} onAccountsPage={onAccountsPage} />;
 }
 
-// The same choice inside a Project's own settings, fixed to that Project.
 export function ProjectAccountsGroup({ path }: { path: string }) {
   const styles = useStyles();
   const session = useSession();
@@ -63,8 +61,6 @@ function Footnote({ link = true }: { link?: boolean }) {
   );
 }
 
-/* One row per provider. The row shows the account the next turn uses;
- * a second line appears only when that account needs attention. */
 function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -75,7 +71,6 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const request = useRef(0);
-  // Cleared on unmount so a late reply from a previous Project or Link changes nothing.
   const activeScope = useRef(scopeKey);
   useEffect(() => {
     activeScope.current = scopeKey;
@@ -102,7 +97,6 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
   const invalidate = useCallback(() => {
     request.current++;
   }, []);
-  // This effect fetches the scope's accounts from the connected computer.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
@@ -272,7 +266,6 @@ function ProjectAccountsForComputer({ onAccountsPage = false }: { onAccountsPage
     };
   }, [client, retry]);
   const selected = scopes.find((scope) => scope.key === scopeKey);
-  // The Chats home has no repository picture of its own to show: it wears the Chats group's mark.
   const photo = (scope: ProjectAccountScope) =>
     scope.chatsHome ? (
       <ChatsHomeIcon />

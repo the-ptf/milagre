@@ -24,19 +24,14 @@ import type { Client } from "./client";
 /** Where the transcript goes: the draft and caret as they were when the mic was tapped. */
 export type DictationAnchor = { draft: string; selection: Selection };
 
-/** A finished take's correction, with the model name for the status line. */
 export type DictationCorrection = { model: string; text: Promise<string> };
 
-/** The transcript so far and how much of it has stopped changing. `settled` marks stability, not correctness. */
 export type DictationPartial = { text: string; settled: number };
 
 const NO_PARTIAL: DictationPartial = { text: "", settled: 0 };
 
-/** The Chat a take is for: its folder's words guide the local recognizer. */
-/** The Chat dictated into: `chatId` lets the Mac add the names its last turns used to the recognizer's words. */
 export type DictationChat = { client: Client; cwd: string; chatTitle?: string; provider?: string; chatId?: number };
 
-/** The take that is preparing or recording anywhere in the app: one microphone, so starting another ends it quietly. */
 const microphone = createMicrophone();
 
 /**
@@ -58,7 +53,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
   const [fixUpEnabled] = useDictationFixUp();
   const [fixModel] = useDictationFixModel();
   const models = useWhisperModels();
-  /** The take waiting on a model download, and the model: cancelling the take cancels the download. */
   const fetching = useRef<{ id: number; model: string } | null>(null);
   const level = useSharedValue(0);
   const phase = useRef<Dictation>(IDLE);
@@ -94,10 +88,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     microphone.release(owner);
   }, [owner]);
 
-  /**
-   * Ends the current take, if any: later answers from it are ignored and its recorder and file are released. The promise
-   * settles once they are, audio session included.
-   */
   const abandon = useCallback(
     (uri?: string | null): Promise<void> => {
       const current = take.current;
@@ -112,11 +102,9 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     [release, stopMeter],
   );
 
-  /** Throws the take away without a message: the sidebar hid, or another field took the microphone. Settles once it is released. */
   const cancel = useCallback((): Promise<void> => {
     const waiting = fetching.current;
     if (waiting) {
-      // The take was the only reason for the download, so it stops too.
       fetching.current = null;
       cancelWhisperModel(waiting.model);
       counter.current += 1;
@@ -146,7 +134,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     move({ type: "stop" });
     stopMeter();
     let uri: string | null = null;
-    // A model that couldn't be readied says why (an unsupported language, a download cut off); other failures don't.
     let reason: string = ERRORS.failed.message;
     try {
       uri = await current.recorder.finish();
@@ -179,12 +166,10 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     async (anchor: DictationAnchor) => {
       if (!transcriber || phase.current.phase !== "idle") return;
       tap();
-      // Another field's take is cancelled first; the audio session is not activated before it has been given back.
       const handoff = microphone.claim(owner, cancel);
       move({ type: "start" });
       const id = (counter.current += 1);
       setPartial(NO_PARTIAL);
-      // A missing model downloads before the microphone opens: nothing is recorded that would wait minutes for it.
       const missing = transcriber.missingModel(language, model);
       if (missing) {
         fetching.current = { id, model: missing };
@@ -207,7 +192,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       const prepared = transcriber.prepare(language, model);
       prepared.catch(() => {});
       const target = chatRef.current;
-      // The project's words are read while the user talks too.
       const terms = target?.cwd
         ? target.client
             .call<{ terms: string[] }>("dictation:context", [
@@ -222,7 +206,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       const known = terms.then((words) => {
         vocabulary = words;
       });
-      // The first inference waits briefly for the project's words; a slow or offline computer doesn't hold it up.
       const vocabularyReady = Promise.race([known, new Promise((resolve) => setTimeout(resolve, VOCABULARY_WAIT_MS))]);
       const stream = createStreamingDictation({
         transcribe: async (audio) => {
@@ -235,7 +218,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
         },
       });
       const recorder = newVoiceTake((pcm) => stream.append(pcm));
-      // The Mac's fix-up of the finished words, with the Chat's names; without a Mac the words stay as heard.
       const fixUp =
         fixUpEnabled && target?.cwd
           ? (text: string): DictationCorrection => ({
@@ -267,11 +249,9 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
         if (!permission.granted) return fail(ERRORS.permission);
         await handoff;
         if (!live()) return;
-        // False when the take was cancelled on the way: the recorder has already released everything it had.
         const recording = await recorder.start((status) => {
           if (!live()) return;
           if (status.hasError || status.mediaServicesDidReset) fail(ERRORS.failed);
-          // The five-minute limit, a call or another app taking the microphone end the recording by themselves.
           else if (status.isFinished) void stop();
         });
         if (!recording || !live()) return;
@@ -298,7 +278,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
 
   useEffect(
     () => () => {
-      // Leaving the screen mid-download stops the download, so its take can't start recording here afterwards.
       if (fetching.current) cancelWhisperModel(fetching.current.model);
       fetching.current = null;
       void abandon();

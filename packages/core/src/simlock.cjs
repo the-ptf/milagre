@@ -4,15 +4,11 @@ const path = require("node:path");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { spawn } = require("node:child_process");
 
-// Experimental: devices leased from a Simlock worker or gateway (https://github.com/callstackincubator/simlock).
-// Milagre never installs or runs Simlock; the user's own worker or gateway owns the devices. A lease is opened through
-// Milagre's pinned agent-device so agents drive the same session (agent-device cannot adopt a lease it did not take).
 // A lease Milagre stops renewing (a crash, a quit) ends on its own one TTL later, so nothing is kept across restarts.
 
 const AGENT_DEVICE_PATH = "/v1/agent-device";
 const CATALOG_TTL_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
-// The gateway queues a lease request for up to five and a half minutes when every device is busy.
 const OPEN_TIMEOUT_MS = 7 * 60_000;
 const COMMAND_TIMEOUT_MS = 2 * 60_000;
 const CLOSE_TIMEOUT_MS = 20_000;
@@ -31,10 +27,6 @@ const origin = (url) => {
 const trimUrl = (url) => url.trim().replace(/\/+$/, "");
 const validGatewayUrl = (url) => /^https?:\/\/[^\s/]+$/.test(url) && origin(url) !== null;
 
-/**
- * The gateway and token this machine's agent-device already uses: agent-device's remote-daemon variables, which Simlock
- * tells clients to set, else the profile a standalone worker writes for agents on its own Mac. Null when neither exists.
- */
 function machineSimlock(env = process.env, home = os.homedir()) {
   const fromBase = (base, agentToken, source) => {
     const trimmed = typeof base === "string" ? trimUrl(base) : "";
@@ -59,17 +51,12 @@ function normalize(value) {
     enabled: input.enabled === true,
     gatewayUrl: typeof input.gatewayUrl === "string" && validGatewayUrl(trimUrl(input.gatewayUrl)) ? trimUrl(input.gatewayUrl) : "",
     agentToken: typeof input.agentToken === "string" ? input.agentToken.trim().slice(0, 4096) : "",
-    // The gateway origin the token was saved for; it is sent nowhere else, even when detection later finds another.
     tokenOrigin: typeof input.tokenOrigin === "string" ? input.tokenOrigin : "",
     maxLeases: int(input.maxLeases, 1, 20, DEFAULTS.maxLeases),
     maxLeaseMinutes: int(input.maxLeaseMinutes, 5, 240, DEFAULTS.maxLeaseMinutes),
   };
 }
 
-/**
- * The pool's settings, kept by the host in a private file. Clients read everything but the token, which only the host
- * sends, and only to the gateway it was saved for.
- */
 function createSimlockSettings({ file, emit = () => {}, env = process.env, home = os.homedir() }) {
   function stored() {
     try {
@@ -106,8 +93,6 @@ function createSimlockSettings({ file, emit = () => {}, env = process.env, home 
       throw new Error("A lease's longest time must be a whole number of minutes from 5 to 240.");
     const current = stored();
     const next = normalize({ ...current, ...patch });
-    // A token belongs to the gateway in effect when it was entered: the saved one, else the one detected on this Mac then.
-    // A new gateway without a new token drops the old one.
     if (patch.gatewayUrl !== undefined && origin(next.gatewayUrl) !== origin(current.gatewayUrl) && patch.agentToken === undefined) next.agentToken = "";
     if (patch.agentToken !== undefined)
       next.tokenOrigin = next.agentToken ? (origin(next.gatewayUrl || machineSimlock(env, home)?.gatewayUrl || "") ?? "") : "";
@@ -128,7 +113,6 @@ function createSimlockSettings({ file, emit = () => {}, env = process.env, home 
   return { read, save, resolved };
 }
 
-// agent-device's exports leave out its package.json; find it where Node would resolve the package.
 function agentDevicePackage() {
   for (const directory of require.resolve.paths("agent-device") ?? []) {
     const candidate = path.join(directory, "agent-device", "package.json");
@@ -146,7 +130,6 @@ function resolveAgentDevice(packagePath = agentDevicePackage()) {
   return { nodePath: process.execPath, entryPath: path.join(root, bin), version: manifest.version };
 }
 
-// The variables that would point the CLI at another daemon or session than the lease's own.
 const AGENT_DEVICE_OVERRIDES = /^AGENT_DEVICE_(DAEMON_BASE_URL|DAEMON_AUTH_TOKEN|CONFIG|STATE_DIR|SESSION)$/;
 function cliEnvironment(env) {
   return {
@@ -159,7 +142,6 @@ function cliEnvironment(env) {
 }
 
 // Past its deadline a command gets SIGTERM, then SIGKILL after this grace; the call settles at the kill either way,
-// so a child that ignores signals or a grandchild holding its pipes can never stall a release or host shutdown.
 const KILL_GRACE_MS = 3000;
 function runCli({ nodePath, entryPath }, args, { cwd, env, timeoutMs, killGraceMs = KILL_GRACE_MS }) {
   return new Promise((resolve, reject) => {
@@ -202,7 +184,6 @@ function runCli({ nodePath, entryPath }, args, { cwd, env, timeoutMs, killGraceM
   });
 }
 
-/** The CLI's own failure message, without its log paths. */
 function cliFailure(result, command) {
   try {
     const error = JSON.parse(result.stdout)?.error;
@@ -216,10 +197,6 @@ function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
-/**
- * The command an agent runs to drive one lease: the pinned CLI bound to the lease's session and config, refusing the
- * commands that would end or replace Milagre's connection (simulator_release ends a lease).
- */
 function launcherScript({ nodePath, entryPath }, { session, configPath, leaseId }) {
   return [
     "#!/bin/sh",
@@ -244,7 +221,6 @@ function gatewayFailure(error, gatewayUrl) {
   return `Could not reach the Simlock gateway at ${gatewayUrl}.`;
 }
 
-/** Catalog models agents and people can lease: phones and tablets with a runtime and, through a gateway, a worker. */
 function catalogDevices(catalog) {
   const devices = [];
   for (const entry of Array.isArray(catalog?.platforms) ? catalog.platforms : []) {
@@ -261,7 +237,6 @@ function catalogDevices(catalog) {
   return devices;
 }
 
-/** Leases from the configured pool: open, keep alive, return. Device ids are `simlock:<leaseId>`. */
 function createSimlockHost({
   settings,
   directory,
@@ -273,7 +248,6 @@ function createSimlockHost({
   log = () => {},
   renewIntervalMs = RENEW_INTERVAL_MS,
 }) {
-  // Folders a previous run left: their leases end on their own one TTL after it stopped renewing them.
   fs.rmSync(directory, { recursive: true, force: true });
   const leases = new Map();
   let starting = 0,
@@ -317,17 +291,14 @@ function createSimlockHost({
     const key = `${value.gatewayUrl}\n${value.agentToken}`;
     if (catalog && catalog.key === key && now() - catalog.at < CATALOG_TTL_MS) return structuredClone(catalog.devices);
     const devices = catalogDevices(await request(value, "GET", "/v1/catalog"));
-    // An empty platform is usually its workers reconnecting; caching that would hide it for the TTL.
     catalog = devices.length > 0 ? { key, at: now(), devices } : null;
     return structuredClone(devices);
   }
 
-  /** Who a gateway says a token is. A URL or token given here is checked without saving it. */
   async function identity(input = {}) {
     const value = settings.resolved();
     const gatewayUrl = typeof input.gatewayUrl === "string" && input.gatewayUrl.trim() ? trimUrl(input.gatewayUrl) : value.gatewayUrl;
     if (!validGatewayUrl(gatewayUrl)) throw new Error("Enter the gateway's origin, such as https://gateway.example.ts.net:4700.");
-    // A saved token goes only to the gateway it was saved for.
     const agentToken =
       typeof input.agentToken === "string" && input.agentToken.trim()
         ? input.agentToken.trim()
@@ -377,10 +348,8 @@ function createSimlockHost({
     if (!leases.has(lease.deviceId)) return;
     clearTimeout(lease.timer);
     try {
-      // A frozen device can hold close for minutes; past this, the HTTP release below ends the lease at once.
       await cli(lease, ["close"], { timeoutMs: CLOSE_TIMEOUT_MS });
     } catch (error) {
-      // The session is gone (a restarted worker, a deleted folder) or close timed out: end the lease over HTTP instead.
       await request(
         { gatewayUrl: lease.gatewayUrl, agentToken: lease.agentToken ?? value.agentToken },
         "DELETE",
@@ -406,7 +375,6 @@ function createSimlockHost({
         try {
           await request(lease, "POST", `/v1/leases/${encodeURIComponent(lease.leaseId)}/renew`, { ttlMs: LEASE_TTL_MS });
         } catch (error) {
-          // Simlock ended it (lost device, its TTL, a close from elsewhere): stop listing it.
           if (error.status === 404) return forget(lease);
           log("simlock renew failed", { leaseId: lease.leaseId, error: String(error.message) });
         }
@@ -417,7 +385,6 @@ function createSimlockHost({
     lease.timer.unref?.();
   }
 
-  /** Takes a lease of `model` on `platform`. `installDirectory` is the folder agent-device accepts installs from. */
   async function openLease({ platform, model, chatId = null, installDirectory } = {}) {
     if (stopped) throw new Error("Simlock is stopping.");
     if (platform !== "ios" && platform !== "android") throw new Error("Choose ios or android.");
@@ -450,7 +417,6 @@ function createSimlockHost({
         JSON.stringify({ daemonBaseUrl: `${value.gatewayUrl}${AGENT_DEVICE_PATH}`, daemonAuthToken: value.agentToken, stateDir: dir }),
         { mode: 0o600 },
       );
-      // agent-device accepts installs only from the folder `open` ran in: the Chat's own, never a fallback.
       let cwd;
       try {
         cwd = fs.realpathSync(installDirectory);
@@ -492,7 +458,6 @@ function createSimlockHost({
       scheduleRenewal(record);
       return { ...view(record), launcher, installDirectory: cwd };
     } catch (error) {
-      // A failed or interrupted open may still hold a lease: close the session either way.
       await cli(pending, ["close"]).catch(() => {});
       fs.rmSync(dir, { recursive: true, force: true });
       throw error;
@@ -511,7 +476,6 @@ function createSimlockHost({
       const found = leases.get(deviceId);
       return found ? { ...view(found), launcher: found.launcher, installDirectory: found.installDirectory } : null;
     },
-    /** Where a lease's screen and input are, with the header that admits them. Never leaves the host. */
     upstream(deviceId) {
       const found = leases.get(deviceId);
       if (!found) return null;

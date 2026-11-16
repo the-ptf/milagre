@@ -49,7 +49,6 @@ async function browserChecks() {
   }
   async function shot(name) {
     if (!capture) return;
-    // A hidden window repaints lazily: wait for the frame that shows the last change.
     await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
     await delay(250);
     const fs = require("node:fs/promises");
@@ -68,7 +67,6 @@ async function browserChecks() {
       assert.equal(await evaluate(`${divider(name)}.dataset.status`), name === "restored" ? "done" : name);
       assert.equal(await evaluate(`${divider(name)}.getAttribute("role")`), "group");
       assert.ok(await evaluate(`${divider(name)}.getAttribute("aria-label")`));
-      // Full width of the transcript column, with a hairline of equal length on each side of the label.
       const box = await evaluate(
         `JSON.stringify([${divider(name)}.getBoundingClientRect().width, ...[...${divider(name)}.querySelectorAll("span.h-px")].map((line) => line.getBoundingClientRect().width)])`,
       ).then(JSON.parse);
@@ -82,7 +80,6 @@ async function browserChecks() {
     assert.doesNotMatch(await text("restored"), /Opus/);
     for (const name of ["preparing", "done", "failed", "restored"]) await shot(name);
 
-    // Only a finished handoff with a brief opens it.
     for (const name of ["preparing", "failed"]) {
       assert.equal(await evaluate(`${divider(name)}.querySelector("button").disabled`), true);
       await evaluate(`${divider(name)}.querySelector("button").click()`);
@@ -94,12 +91,11 @@ async function browserChecks() {
     assert.equal(await evaluate('document.querySelector("[data-brief-preview] h1").textContent'), "Goal");
     assert.equal(await evaluate('document.querySelector("[data-brief-preview] strong").textContent'), "login redirect");
     assert.equal(await evaluate('!!document.querySelector("[data-brief-tab]") || !!document.querySelector("[data-brief-editor]")'), false);
-    await delay(600); // the dialog fades and pops in
+    await delay(600);
     await shot("brief");
     press("Escape");
     await waitFor('!document.querySelector("[data-brief-dialog]")');
 
-    // A restored divider opens its brief the same way, and Close shuts it.
     await evaluate(`${divider("restored")}.querySelector("button").click()`);
     await waitFor('document.querySelector("[data-brief-dialog]")');
     await evaluate('document.querySelector("[data-brief-close]").click()');

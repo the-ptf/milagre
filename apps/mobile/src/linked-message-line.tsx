@@ -6,11 +6,6 @@ import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { TranscriptDivider } from "./ui";
 
-/**
- * A message another Chat's agent sent here (chat_start, or a Delegation), as one line between rules, the way a model
- * switch is one: "Message from Fix login ›". With `count`, a back-and-forth with that Chat: "4 messages with Fix login ›".
- * Tapping it opens the whole message, or the exchange, in a sheet.
- */
 export function LinkedMessageLine({
   line,
   count,

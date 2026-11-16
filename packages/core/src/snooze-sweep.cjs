@@ -1,7 +1,5 @@
 const { snoozeDue } = require("@milagre/shared/snooze");
 
-// The sweep that wakes snoozed Chats once their time comes. It looks at the state memory holds and hands each due Chat
-// to `wake`, which reads it again and wakes it only if it is still due: one snoozed again in the meantime stays.
 const SWEEP_MS = 30 * 1000;
 
 function createSnoozeSweep({ scopes, heldState, wake, isClosing = () => false, now = () => Date.now() }) {

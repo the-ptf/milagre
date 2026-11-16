@@ -5,13 +5,6 @@ import { inkFor, useTheme } from "../theme";
 
 type TagTone = "neutral" | "accent" | "green" | "orange" | "red" | "purple";
 
-/**
- * A static label (a state, a setting, a badge): 24pt tall, caption1 12/16 medium, with an optional 12pt icon or 6pt dot.
- * `neutral` is a field fill with an ink2 label (Recommended, Default, a skill's source); a status tone is its tint with
- * its -ink label and a dot in the fill colour. `tint` paints a data colour (a GitHub label) behind an ink label;
- * `square` takes chip corners (6) instead of a pill. It sizes to its label in a row; in a column pass
- * `style={{ alignSelf: "flex-start" }}`. A tappable one is a `Chip`.
- */
 export function Tag({
   label,
   tone = "neutral",

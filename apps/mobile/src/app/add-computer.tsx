@@ -13,13 +13,11 @@ import { CircleButton, ErrorNotice, Field, Group, ListRow, PageScroll, PillButto
 import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
-/** One sheet, two steps: scan (with paste as a shortcut), or type the address and token. */
 export default function AddComputer() {
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
   const [permission, requestPermission] = useCameraPermissions();
-  // The walkthrough's "Enter address instead" opens straight on the manual form.
   const params = useLocalSearchParams<{ manual?: string }>();
   const [manual, setManual] = useState(params.manual === "1");
   const [address, setAddress] = useState("https://");
@@ -87,7 +85,6 @@ export default function AddComputer() {
       }
     />
   );
-  // A form sheet sizes its first scroll view to the sheet, so the header scrolls with the content.
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0 }} automaticallyAdjustKeyboardInsets>
       <Stack.Screen options={{ headerShown: false }} />

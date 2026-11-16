@@ -28,7 +28,6 @@ function CommandOutput({ chatKey, taskId, running }: { chatKey: string; taskId: 
   );
 }
 
-/** The background line opens the work it counts, including commands that have no subagent pill. */
 export function BackgroundWork({
   items,
   chatKey,
@@ -44,7 +43,6 @@ export function BackgroundWork({
   const [selected, setSelected] = useState<BackgroundItem | null>(null);
   const current = items.find((item) => item.type === selected?.type && item.id === selected.id);
   const child = current ?? (selected?.type === "command" ? selected : undefined);
-  // The line hides when all that is left serves a port: the Ports pill shows it.
   const indicator = showIndicator && items.length > 0;
   if (!indicator && !(open && child)) return null;
   return (

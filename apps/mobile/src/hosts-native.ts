@@ -23,25 +23,21 @@ export const savedProjectOrder = createProjectOrderStore({
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });
 
-/** The Projects and Links hidden from the Projects list on this phone, per paired computer. */
 export const savedHiddenProjects = createHiddenProjectsStore({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });
 
-/** Provider update cards dismissed on this phone, per paired computer. */
 export const savedProviderUpdateDismissals = createProviderUpdateDismissals({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });
 
-/** The Project groups folded by hand in the sidebar, per computer; every other group is open. */
 export const savedFoldedProjects = createFoldedProjectsStore({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });
 
-/** The Chats pinned on this phone, per computer; the Macs keep their own. */
 export const savedChatPins = createChatPinsStore({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
@@ -65,7 +61,6 @@ export const savedChatDefaults = createChatDefaultsStore({
 
 const permissionKey = "milagre.permission.v1";
 const MODES = new Set(["ask", "auto", "full"]);
-/** The default permission mode for new Chats on this phone. */
 export async function readPermission(): Promise<"ask" | "auto" | "full" | null> {
   try {
     const value = await SecureStore.getItemAsync(permissionKey);
@@ -87,9 +82,7 @@ export async function readFloatingInbox(): Promise<boolean> {
 export async function saveFloatingInbox(on: boolean) {
   try {
     await SecureStore.setItemAsync(floatingInboxKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const floatingInboxActivityKey = "milagre.floating-inbox-activity.v1";
 export async function readFloatingInboxActivity(): Promise<boolean> {
@@ -102,11 +95,8 @@ export async function readFloatingInboxActivity(): Promise<boolean> {
 export async function saveFloatingInboxActivity(on: boolean) {
   try {
     await SecureStore.setItemAsync(floatingInboxActivityKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
-/** Settings › Chat › Tool call display; a phone that had Murilo mode on (the Experimental switch it replaces) reads as Full detail. */
 export async function readToolCallDisplay(): Promise<ToolCallDisplay> {
   try {
     const saved = await SecureStore.getItemAsync(toolCallDisplayKey);
@@ -118,12 +108,9 @@ export async function readToolCallDisplay(): Promise<ToolCallDisplay> {
 export async function saveToolCallDisplay(display: ToolCallDisplay) {
   try {
     await SecureStore.setItemAsync(toolCallDisplayKey, display);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const chatListKey = "milagre.chat-list.v1";
-/** Settings › Chat › Chat list: how the sidebar lists Chats on this phone; One list unless chosen otherwise. */
 export async function readChatList(): Promise<ChatList> {
   try {
     return parseChatList(await SecureStore.getItemAsync(chatListKey));
@@ -134,9 +121,7 @@ export async function readChatList(): Promise<ChatList> {
 export async function saveChatList(mode: ChatList) {
   try {
     await SecureStore.setItemAsync(chatListKey, mode);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const expandReasoningKey = "milagre.expand-reasoning.v1";
 const showContextSizeKey = "milagre.show-context-size.v1";
@@ -151,9 +136,7 @@ export async function readShowContextSize(): Promise<boolean> {
 export async function saveShowContextSize(on: boolean) {
   try {
     await SecureStore.setItemAsync(showContextSizeKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 export async function readCompactButtonDisplay(): Promise<CompactButtonDisplay> {
   try {
@@ -165,11 +148,8 @@ export async function readCompactButtonDisplay(): Promise<CompactButtonDisplay> 
 export async function saveCompactButtonDisplay(value: CompactButtonDisplay) {
   try {
     await SecureStore.setItemAsync(compactButtonDisplayKey, value);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
-/** Settings › Chat › Always expand reasoning; off unless turned on. */
 export async function readExpandReasoning(): Promise<boolean> {
   try {
     return (await SecureStore.getItemAsync(expandReasoningKey)) === "on";
@@ -180,13 +160,9 @@ export async function readExpandReasoning(): Promise<boolean> {
 export async function saveExpandReasoning(on: boolean) {
   try {
     await SecureStore.setItemAsync(expandReasoningKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
-// v2: the glance moved to Church and starts off; v1 held the old on-by-default choice.
 const newChatStatsKey = "milagre.new-chat-stats.v2";
-/** Settings › Church › New Chat stats: a new Chat's glance cards; off unless turned on. */
 export async function readNewChatStats(): Promise<boolean> {
   try {
     return (await SecureStore.getItemAsync(newChatStatsKey)) === "on";
@@ -197,9 +173,7 @@ export async function readNewChatStats(): Promise<boolean> {
 export async function saveNewChatStats(on: boolean) {
   try {
     await SecureStore.setItemAsync(newChatStatsKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const panelWidthKey = "milagre.ipad-panel-width.v1";
 /** The width the iPad's docked right panel was dragged to; null until it has been. */
@@ -214,13 +188,10 @@ export async function readPanelWidth(): Promise<number | null> {
 export async function savePanelWidth(width: number) {
   try {
     await SecureStore.setItemAsync(panelWidthKey, String(Math.round(width)));
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const dictationFixUpKey = "milagre.dictation-fix-up.v1";
 const dictationFixModelKey = "milagre.dictation-fix-model.v1";
-/** Settings › Chat › Dictation: whether the Mac's fix-up corrects a finished take's names, on unless turned off. */
 export async function readDictationFixUp(): Promise<boolean> {
   try {
     return (await SecureStore.getItemAsync(dictationFixUpKey)) !== "off";
@@ -231,11 +202,8 @@ export async function readDictationFixUp(): Promise<boolean> {
 export async function saveDictationFixUp(on: boolean) {
   try {
     await SecureStore.setItemAsync(dictationFixUpKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
-/** Settings › Chat › Dictation: the fix-up's model, "auto" for the Chat's own agent's smallest one. */
 export async function readDictationFixModel(): Promise<DictationFixModel> {
   try {
     return dictationFixModel(await SecureStore.getItemAsync(dictationFixModelKey));
@@ -246,9 +214,7 @@ export async function readDictationFixModel(): Promise<DictationFixModel> {
 export async function saveDictationFixModel(model: DictationFixModel) {
   try {
     await SecureStore.setItemAsync(dictationFixModelKey, model);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const dictationLanguageKey = "milagre.dictation-language.v1";
 const dictationActionKey = "milagre.dictation-action.v1";
@@ -262,11 +228,8 @@ export async function readDictationAction(): Promise<DictationActionPreference> 
 export async function saveDictationAction(action: DictationActionPreference) {
   try {
     await SecureStore.setItemAsync(dictationActionKey, action);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
-/** Settings › Chat › Dictation: a language code, or "auto" for experimental local language detection. */
 export async function readDictationLanguage(): Promise<string> {
   try {
     return dictationLanguage(await SecureStore.getItemAsync(dictationLanguageKey));
@@ -277,9 +240,7 @@ export async function readDictationLanguage(): Promise<string> {
 export async function saveDictationLanguage(language: string) {
   try {
     await SecureStore.setItemAsync(dictationLanguageKey, language);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const dictationModelKey = "milagre.dictation-model.v1";
 export async function readDictationModel(): Promise<string> {
@@ -292,12 +253,9 @@ export async function readDictationModel(): Promise<string> {
 export async function saveDictationModel(id: string) {
   try {
     await SecureStore.setItemAsync(dictationModelKey, id);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const ultracodeFatalityKey = "milagre.ultracode-fatality.v1";
-/** Experimental: whether turning Ultracode on plays the Fatality overlay; off unless turned on. */
 export async function readUltracodeFatality(): Promise<boolean> {
   try {
     return (await SecureStore.getItemAsync(ultracodeFatalityKey)) === "on";
@@ -308,12 +266,9 @@ export async function readUltracodeFatality(): Promise<boolean> {
 export async function saveUltracodeFatality(on: boolean) {
   try {
     await SecureStore.setItemAsync(ultracodeFatalityKey, on ? "on" : "off");
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 const themeKey = "milagre.theme.v1";
-/** The saved color theme settings as raw JSON, or null when nothing is saved yet. */
 export async function readThemeSettings(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(themeKey);
@@ -324,20 +279,15 @@ export async function readThemeSettings(): Promise<string | null> {
 export async function saveThemeSettings(raw: string) {
   try {
     await SecureStore.setItemAsync(themeKey, raw);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 export async function savePermission(mode: string) {
   try {
     await SecureStore.setItemAsync(permissionKey, mode);
-  } catch {
-    /* best effort */
-  }
+  } catch {}
 }
 
 const internalBrowserKey = "milagre.internal-browser.v1";
-/** Device-local link preference, matching desktop's default. */
 export async function readInternalBrowser(): Promise<boolean> {
   try {
     return (await SecureStore.getItemAsync(internalBrowserKey)) !== "off";
@@ -362,7 +312,5 @@ export async function readUsageDisplay(): Promise<import("@milagre/shared/usage"
 export async function saveUsageDisplay(display: import("@milagre/shared/usage").UsageDisplay) {
   try {
     await SecureStore.setItemAsync(usageDisplayKey, display);
-  } catch {
-    /* Keep the in-memory preference if storage is unavailable. */
-  }
+  } catch {}
 }

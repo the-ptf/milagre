@@ -15,6 +15,8 @@ import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import { startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 window.milagre = Object.freeze({ listEditors: async () => [] });
 const noop = () => {};
 window.clock = 100000;
@@ -41,7 +43,7 @@ function Fixture() {
     <div data-rings style={{ display: "flex", alignItems: "center", gap: 4 }}>{[10, 12, 16].map(size => <SpinnerRing key={size} size={size} color="rgb(255, 0, 0)" />)}</div>
     <ChatComposer messages={[{ id: 1, session_id: chat === "a" ? 1 : 2, context: null, role: "user", body: "Check the chat timer" }]}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={true} sendBlocked={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={true} sendBlocked={false}
       runStartedAt={runs[chat].startedAt} asking={asking}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}

@@ -9,8 +9,6 @@ export type PullRequestTarget = { path: string; refs: string[] };
 type Status = Record<string, { branch?: PullRequest; found: Record<string, PullRequest | null> }>;
 export type ComputerPullRequestTargets = { hostId: string; client: Client | null; targets: PullRequestTarget[] };
 const EMPTY: Status = {};
-// The drawer and Chat share the last answer, even after a screen remount or a computer goes offline. Paths alone
-// aren't identities: two computers can have the same Worktree path and different PRs.
 let statuses: Record<string, Status> = {};
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
@@ -18,7 +16,6 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 const snapshot = () => statuses;
-// A refresh resolves one read per path and ref: the readers re-render once for all of them, not once each.
 let notifying = false;
 function notify() {
   if (notifying) return;
@@ -30,7 +27,6 @@ function notify() {
 }
 const same = (a: PullRequest | null | undefined, b: PullRequest | null | undefined) => a === b || JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-// Readers rebuild their targets on every list change; the same hosts, clients and paths keep the reads running as they are.
 const clientIds = new WeakMap<Client, number>();
 let nextClientId = 0;
 const clientId = (client: Client | null) => {
@@ -40,7 +36,6 @@ const clientId = (client: Client | null) => {
   return id;
 };
 
-/** Reads each computer's PRs while the screen is focused and the app active; answers land in the shared store. */
 function usePullRequestReads(computers: ComputerPullRequestTargets[]) {
   const key = JSON.stringify(computers.map(({ hostId, client, targets }) => [hostId, clientId(client), targets]));
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` names everything the reads depend on.
@@ -59,7 +54,6 @@ function usePullRequestReads(computers: ComputerPullRequestTargets[]) {
                 if (!active() || value === undefined) return;
                 const previous = statuses[hostId] ?? EMPTY;
                 const old = previous[path] || { found: {} };
-                // A cached or unchanged answer leaves the store, and everyone reading it, alone.
                 if (ref ? ref in old.found && same(old.found[ref], value) : same(old.branch, value || undefined)) return;
                 const next = ref ? { ...old, found: { ...old.found, [ref]: value } } : { ...old, branch: value || undefined };
                 statuses = Object.assign({}, statuses, { [hostId]: Object.assign({}, previous, { [path]: next }) });
@@ -84,13 +78,11 @@ function usePullRequestReads(computers: ComputerPullRequestTargets[]) {
   );
 }
 
-/** Every visible row reads PRs from its own computer, through that client's bounded request pool. */
 export function useComputerChatPullRequests(computers: ComputerPullRequestTargets[]) {
   usePullRequestReads(computers);
   return useSyncExternalStore(subscribe, snapshot);
 }
 
-/** The open Chat uses the same computer-scoped answers as its row in the drawer, and re-renders only for its computer's. */
 export function useChatPullRequests(client: Client | null, targets: PullRequestTarget[]) {
   const targetsKey = JSON.stringify(targets);
   const computers = useMemo<ComputerPullRequestTargets[]>(

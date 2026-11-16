@@ -16,7 +16,6 @@ import { useOpenFolder } from "./ImportFolderDialog";
 import { ThisComputer, isWindows, thisComputer } from "../lib/shortcut-hints";
 
 const THIS_MAC = "this-mac";
-// Where a clone goes when no folder is chosen (onboarding-projects.cjs: <home>/Code).
 const CODE_FOLDER = isWindows ? "~\\Code" : "~/Code";
 type Mode = "open" | "clone" | "link";
 const MODES: { id: Mode; name: string; line: string; icon: typeof FolderOpenIcon }[] = [
@@ -25,12 +24,6 @@ const MODES: { id: Mode; name: string; line: string; icon: typeof FolderOpenIcon
   { id: "link", name: "Link Projects", line: "Work across several", icon: Link04Icon },
 ];
 
-/**
- * Add Project: what to add first (open a folder, clone a repository, or Link Projects, which hands over to the Link
- * dialog through `onLinkProjects`), then the computer it goes on (a menu; offline ones disabled), then a folder on it, or
- * a repository to clone into one. This Mac keeps its folder dialog; another computer's home folder is browsed through fs:list-dirs and the
- * checkout opens there, whose daemon owns it. Mounted only while open.
- */
 export function AddProjectDialog({
   onClose,
   onOpened,
@@ -38,7 +31,6 @@ export function AddProjectDialog({
 }: {
   onClose: () => void;
   onOpened: (project: OpenProject) => void;
-  /** Link Projects: closes this dialog and opens the Link dialog. */
   onLinkProjects?: () => void;
 }) {
   const { thisMac, computers } = useComputers();
@@ -49,9 +41,7 @@ export function AddProjectDialog({
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<Mode>("open");
   const [url, setUrl] = useState("");
-  // This Mac's clone folder, from its own dialog; null is ~/Code. Another computer's is the folder on screen.
   const [parent, setParent] = useState<string | null>(null);
-  // A folder chosen on This Mac with repositories inside: the step that adds them takes the dialog's place.
   const folder = useOpenFolder(onOpened, onClose);
   const reads = useRef(0);
   const computer = computers.find((item) => item.id === on);
@@ -70,20 +60,17 @@ export function AddProjectDialog({
     }
   }
   useEffect(() => {
-    // A new computer drops what the last one was reading, so a late listing or error can't land on this pane.
     reads.current++;
     setListing(null);
     setSelected(null);
     setError(null);
     if (on !== THIS_MAC) void browse();
   }, [on]);
-  // The chosen computer went offline: stop reading from it. It was removed: back to This Mac.
   useEffect(() => {
     if (on === THIS_MAC) return;
     if (!computer) setOn(THIS_MAC);
     else if (!reachable) reads.current++;
   }, [on, computer, reachable]);
-  // It came back after being away: the folder on screen is read again, since it may have changed (or the last read was cut off).
   const wasReachable = useRef(reachable);
   const folderOnScreen = useRef<string | undefined>(undefined);
   folderOnScreen.current = listing?.path;
@@ -111,7 +98,6 @@ export function AddProjectDialog({
       setError(ipcErrorMessage(cause));
     }
   }
-  // Another computer clones into the folder picked in its list, else the one on screen.
   const cloneInto = computer ? (selected?.path ?? listing?.path) : (parent ?? undefined);
   async function clone() {
     if (computer && (!reachable || !cloneInto)) return;

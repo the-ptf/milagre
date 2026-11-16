@@ -10,13 +10,11 @@ import { DISABLED_OPACITY } from "../primitives/press-style";
 type Send = (text: string) => Promise<boolean | "busy">;
 const SendContext = createContext<{ send?: Send }>({});
 
-/** Gives every block in the transcript the screen's send function, so a button can post its message. */
 export function GenerativeUIProvider({ send, children }: { send?: Send; children: ReactNode }) {
   const value = useMemo(() => ({ send }), [send]);
   return <SendContext value={value}>{children}</SendContext>;
 }
 
-/** Whether the surrounding markdown is the chunk of a reply still being written. */
 export const MarkdownStreamingContext = createContext(false);
 
 class Boundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
@@ -29,7 +27,6 @@ class Boundary extends Component<{ fallback: ReactNode; children: ReactNode }, {
   }
 }
 
-/** An `openui` fence rendered from the contract; `fallback` is the plain fence view, shown when the block can't render. */
 export function GenerativeUI({ code, fallback }: { code: string; fallback: ReactNode }) {
   const streaming = useContext(MarkdownStreamingContext);
   const { send } = useContext(SendContext);
@@ -45,7 +42,6 @@ export function GenerativeUI({ code, fallback }: { code: string; fallback: React
       try {
         await send(event.humanFriendlyMessage);
       } catch {
-        // The Chat send path presents failures; allow the button to retry.
       } finally {
         sending.current = false;
         setBusy(false);

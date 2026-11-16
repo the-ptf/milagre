@@ -1,7 +1,4 @@
 // Run with npm test -- --only test-allow-computer. The Allow prompt in the real App against a real daemon (its own
-// temporary data directory and socket; the relay host is a stand-in that records its options): a computer pairing for
-// the first time asks, Allow lets it in, Deny and Escape turn it away, one that gives up takes its prompt with it, and
-// two at once are asked one after the other. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -50,8 +47,6 @@ async function browserChecks() {
   app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "milagre-allow-ui-")));
   const dataDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-allow-host-")));
   await app.whenReady();
-  // The check never dials the public relay: this stand-in reports that it connected and keeps the options, whose
-  // allowComputer is the real one phone access hands a relay host.
   const relays = [];
   const startRelay = (options) => {
     relays.push(options);
@@ -105,7 +100,6 @@ async function browserChecks() {
     await waitFor(`!!(${button}) && !(${button}).disabled`);
     await evaluate(`(${button}).click()`);
   }
-  /** A click as it lands, enabled or not (a disabled button takes none). */
   const clickNow = (text) =>
     evaluate(
       `(() => { const button = [...${prompt}.querySelectorAll('button')].find((el) => el.textContent.trim() === ${JSON.stringify(text)}); button?.click(); return !!button && !button.disabled; })()`,
@@ -117,7 +111,6 @@ async function browserChecks() {
     fs.mkdirSync(screenshotDir, { recursive: true });
     fs.writeFileSync(path.join(screenshotDir, `${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
-  /** Asks as a computer's first hello does; `verdict` settles with the owner's answer. */
   function ask(key, name) {
     const abort = new AbortController();
     const verdict = relays.at(-1).allowComputer({ key, name, signal: abort.signal, waiting() {} });
@@ -170,7 +163,6 @@ async function browserChecks() {
     assert.deepEqual(await host.call("devices:pending"), []);
     console.log("PASS: two computers at once are asked one after the other, oldest first");
 
-    // The second click of a double-click lands as the next request replaces the first: it must not allow what was never read.
     const gamma = ask("c".repeat(43), "gamma");
     const delta = ask("d".repeat(43), "delta");
     await waitFor(asking("gamma"));

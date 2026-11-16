@@ -32,14 +32,9 @@ import { MediaLightbox } from "../motion/LazyMediaLightbox";
 
 const AttachmentPreview = lazyView(() => import("../AttachmentPreview").then((module) => module.AttachmentPreview));
 
-/**
- * An inline code chip: translucent ink, so it shows on the page, in the user's bubble (a field) and on a card in every
- * theme. A field fill matched the light page and the chip vanished.
- */
 export const CODE_CHIP = "rounded-inline bg-hover-2 px-1 py-px font-mono text-[0.875em] text-ink";
 const CODE_CLASS = CODE_CHIP;
 const MarkdownImages = createContext<ImageAttachment[] | undefined>(undefined);
-/** Reads a remote image the text shows inline, as a data URL; null for an image it doesn't read, which stays a link. */
 export type MarkdownImageLoader = (src: string) => Promise<string> | null;
 const ImageLoader = createContext<MarkdownImageLoader | undefined>(undefined);
 
@@ -63,7 +58,6 @@ function LoadedImage({ load, src, alt, width }: { load: Promise<string>; src: st
     return (
       <span
         data-markdown-image-loading=""
-        // The Skeleton look (primitives/Skeleton), as an inline block sized like the image it waits for.
         className="inline-block h-24 max-w-full rounded-chip bg-hover-2 align-middle motion-safe:animate-pulse"
         style={size ?? { width: 160 }}
       />
@@ -75,7 +69,6 @@ function LoadedImage({ load, src, alt, width }: { load: Promise<string>; src: st
         type="button"
         aria-label={`Open ${name}`}
         onClick={(event) => {
-          // An image inside a link opens here, not in the browser, which couldn't read a private repository's image.
           event.preventDefault();
           setOpen(true);
         }}
@@ -109,8 +102,6 @@ function ImageLink({ src, alt }: { src?: string; alt?: string }) {
   return <Link href={saved?.path ?? src}>{alt || src || "image"}</Link>;
 }
 
-// Inline code that names a file of the chat's folder opens it in the editor; the click asks main, which says
-// when the file isn't there. Everything else stays plain code.
 function InlineCode({ children }: { children?: ReactNode }) {
   const opener = useFileOpener();
   const text = Children.toArray(children).join("");
@@ -128,9 +119,6 @@ function InlineCode({ children }: { children?: ReactNode }) {
   );
 }
 
-// A localhost link that a Chat on another computer wrote opens at that computer's LAN or tailnet IP, the address this
-// Mac reaches it on; one over the relay, or to a server the Chat's ports show on loopback only, stays as written. A
-// bare URL shows where it now goes.
 function useReachableHref(href: string | undefined) {
   const scope = useScope();
   const { computers } = useComputers();
@@ -147,7 +135,6 @@ function MediaLinkLightbox({ path, name, kind, close }: { path: string; name: st
   const [src, setSrc] = useState<string | null>(remote ? null : mediaUrl(path));
 
   useEffect(() => {
-    // Only remote images are loaded via data URLs; videos are too large.
     if (remote && scope && kind === "image") {
       let live = true;
       remoteImageDataUrl(scope, path)
@@ -166,8 +153,6 @@ function MediaLinkLightbox({ path, name, kind, close }: { path: string; name: st
   return <MediaLightbox items={[{ id: path, name, src, kind, file: remote ? src : path }]} start={0} close={close} thumbFor={() => null} />;
 }
 
-// A link to a file on the chat's computer (an absolute path, a file:// URL or a path relative to the chat's folder)
-// opens it in the file viewer; a browser would get nothing. Web and mail links leave the app as before.
 function Link({ href, children }: { href?: string; children?: ReactNode }) {
   const root = useFilesRoot();
   const [open, setOpen] = useState(false);
@@ -182,12 +167,9 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
         title={reachable}
         target="_blank"
         rel="noreferrer"
-        // A web link opens where Settings › Browser says (the Browser panel of the Chat on screen, or the user's browser);
-        // ⌘-click opens it in the other one.
         onClick={(event) => {
           if (!reachable || !/^https?:\/\//i.test(reachable) || event.shiftKey || !opensInPanel(event)) return;
           event.preventDefault();
-          // The panel of a Chat on another computer reaches the web from there (#832): it takes the link as written.
           if (!openInBrowserPanel(isRemoteKey(scope) && href ? href : reachable)) window.open(reachable, "_blank", "noreferrer");
         }}
         className={LINK_CLASS}
@@ -232,18 +214,15 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   if (isMarkdownFence(fence)) return streaming ? <MarkdownBody text={closeOpenMarkdown(text)} cache={false} /> : <MarkdownBody text={text} />;
   if (isMermaidFence(fence)) return <MermaidBlock code={text} />;
   const plain = <CodeBlock code={text} fence={fence} streaming={streaming} />;
-  return isGenuiFence(fence) ? <GenerativeUI code={text} fallback={plain} /> : plain;
+  return isGenuiFence(fence) ? <GenerativeUI key={String(streaming)} code={text} fallback={plain} /> : plain;
 }
 
-// Raw HTML in a reply is shown as text (react-markdown's default), and unsafe link protocols are dropped. Text from
-// GitHub (`html`) renders its HTML as GitHub does, through GitHub's own sanitize schema.
 const components: Components = {
   pre: MarkdownPre,
   code: InlineCode,
   a({ href, children }) {
     return <Link href={href}>{children}</Link>;
   },
-  // Remote images in a reply would load without asking; show them as links instead, unless an image loader reads them.
   img({ src, alt, width }) {
     return <MarkdownImage src={typeof src === "string" ? src : undefined} alt={alt} width={width} />;
   },
@@ -267,58 +246,60 @@ const components: Components = {
 };
 
 const REMARK_PLUGINS = [remarkGfm];
-// C:\ reads as an unknown protocol to the default, which would drop the link.
 const urlTransform = (url: string) => (isWindowsPath(url) ? url : defaultUrlTransform(url));
 const HTML_PLUGINS = [rehypeRaw, rehypeSanitize];
-// Cache keys of `html` texts: the same text parses to a different tree.
 const HTML_KEY = "\0html\0";
 
 function parseMarkdown(text: string, html = false): ReactElement {
-  // react-markdown's sync component uses no hooks: called directly it parses now and returns the element tree, whose
-  // components (links, code blocks) still render, and read their context, wherever the tree is mounted.
   return ReactMarkdown({ children: text, remarkPlugins: REMARK_PLUGINS, rehypePlugins: html ? HTML_PLUGINS : undefined, components, urlTransform });
 }
 
-// Parsed bodies outlive their Chat's transcript, so reopening a Chat (or a transcript slot remounting) reuses them
-// instead of parsing every message again. react-markdown doesn't expose its syntax tree, so this keeps the element tree
-// it returns per text: a few times the text's size in memory, bounded by entries and by the total length of the texts.
-const CACHE_ENTRIES = 500;
-const CACHE_CHARS = 2_000_000;
-// A body this long would push out hundreds of others; it parses on each mount as before.
 const CACHE_MAX_TEXT = 200_000;
-const parsedBodies = new Map<string, ReactElement>();
-let parsedChars = 0;
 
-function cachedMarkdown(text: string, html = false): ReactElement {
-  const key = html ? HTML_KEY + text : text;
-  const hit = parsedBodies.get(key);
-  if (hit) {
-    // Most recently used last: Map keeps insertion order.
-    parsedBodies.delete(key);
-    parsedBodies.set(key, hit);
-    return hit;
-  }
-  const parsed = parseMarkdown(text, html);
-  if (text.length > CACHE_MAX_TEXT) return parsed;
-  parsedBodies.set(key, parsed);
-  parsedChars += key.length;
-  for (const oldest of parsedBodies.keys()) {
-    if (parsedBodies.size <= CACHE_ENTRIES && parsedChars <= CACHE_CHARS) break;
-    parsedBodies.delete(oldest);
-    parsedChars -= oldest.length;
-  }
-  return parsed;
+function parsedCache(maxEntries: number, maxChars: number) {
+  const bodies = new Map<string, ReactElement>();
+  let chars = 0;
+  return (text: string, html = false): ReactElement => {
+    const key = html ? HTML_KEY + text : text;
+    const hit = bodies.get(key);
+    if (hit) {
+      bodies.delete(key);
+      bodies.set(key, hit);
+      return hit;
+    }
+    const parsed = parseMarkdown(text, html);
+    if (text.length > CACHE_MAX_TEXT) return parsed;
+    bodies.set(key, parsed);
+    chars += key.length;
+    for (const oldest of bodies.keys()) {
+      if (bodies.size <= maxEntries && chars <= maxChars) break;
+      bodies.delete(oldest);
+      chars -= oldest.length;
+    }
+    return parsed;
+  };
 }
 
-// Parsed output of one block of text; memoized so a block that stopped changing never parses again. A block still
-// being written (`cache={false}`) changes on every batch, so it stays out of the cache it would only churn.
-const MarkdownBody = memo(function MarkdownBody({ text, cache = true, html = false }: { text: string; cache?: boolean; html?: boolean }) {
-  return cache ? cachedMarkdown(text, html) : parseMarkdown(text, html);
+const cachedMarkdown = parsedCache(500, 2_000_000);
+const cachedStreamedBlock = parsedCache(64, 200_000);
+
+const MarkdownBody = memo(function MarkdownBody({
+  text,
+  cache = true,
+  html = false,
+  streamed = false,
+}: {
+  text: string;
+  cache?: boolean;
+  html?: boolean;
+  streamed?: boolean;
+}) {
+  if (!cache) return parseMarkdown(text, html);
+  return streamed ? cachedStreamedBlock(text, html) : cachedMarkdown(text, html);
 });
 
 const WRAPPER = "markdown break-words [overflow-wrap:anywhere]";
 
-/** `html` renders the text's HTML, sanitized (a PR description or comment); `loadImage` reads the images it can show. */
 export const Markdown = memo(function Markdown({
   text,
   images,
@@ -341,11 +322,8 @@ export const Markdown = memo(function Markdown({
   );
 });
 
-// A streamed answer can arrive in dozens of batches a second; parsing the block being written faster than this shows
-// nothing new. The last batch always renders, after at most this long.
 const STREAM_RENDER_MS = 50;
 
-/** `value`, changing at most once per `interval` ms while it keeps changing; the latest value always follows. */
 function useThrottledValue<T>(value: T, interval: number): T {
   const [shown, setShown] = useState(value);
   const shownAt = useRef(0);
@@ -370,25 +348,18 @@ const StreamingBlocks = memo(function StreamingBlocks({ text }: { text: string }
   const blocks = splitStreamingBlocks(text);
   return (
     <div className={WRAPPER}>
-      {blocks.map((block, index) =>
-        index === blocks.length - 1 ? (
-          <MarkdownStreamingContext key={index} value={true}>
-            <MarkdownBody text={closeOpenMarkdown(block)} cache={false} />
+      {blocks.map((block, index) => {
+        const last = index === blocks.length - 1;
+        return (
+          <MarkdownStreamingContext key={index} value={last}>
+            {last ? <MarkdownBody text={closeOpenMarkdown(block)} cache={false} /> : <MarkdownBody text={block} streamed />}
           </MarkdownStreamingContext>
-        ) : (
-          <MarkdownBody key={index} text={block} />
-        ),
-      )}
+        );
+      })}
     </div>
   );
 });
 
-/**
- * The answer of a running turn. Its finished blocks render from memo, and only the block being written is
- * parsed (with its open bold or code span closed), so a long answer costs no more per batch than a short one.
- * One wrapper keeps the spacing between blocks the same as when the whole text is a single `Markdown`. Batches
- * render at most every STREAM_RENDER_MS, so a fast stream doesn't parse the open block more often than it can show.
- */
 export const StreamingMarkdown = memo(function StreamingMarkdown({ text }: { text: string }) {
   return <StreamingBlocks text={useThrottledValue(text, STREAM_RENDER_MS)} />;
 });

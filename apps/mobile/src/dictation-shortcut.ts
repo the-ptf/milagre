@@ -14,7 +14,6 @@ export function toggleDictationShortcut() {
   target.toggle();
 }
 
-/** Hidden routes never receive the shortcut, and a split view still starts only one take. */
 export function useDictationShortcut(target: Target) {
   useFocusEffect(
     useCallback(() => {

@@ -8,13 +8,6 @@ import { useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
 import { Field, PillButton } from "./ui";
 
-// The full-screen viewers' comment box, the Designs canvas's and the Artifact page's, that opens from a pin. Their header
-// buttons are CircleButtons (Send is `filled badge={count}`).
-
-/**
- * The comment on a pin, opened from its point as on desktop: the box's square corner sits where the pin pointed. A new
- * or waiting comment is written here; a sent one is read, with the agent's note once it resolved it.
- */
 export function CommentBox({
   at,
   kind,
@@ -41,7 +34,6 @@ export function CommentBox({
   const { colors } = useTheme();
   const [text, setText] = useState(note?.text ?? "");
   // A web page the comment was held on can keep the keyboard focus past autoFocus (WebKit's text interaction takes it
-  // as the hold ends): the field asks again once the hold is over.
   const input = useRef<TextInputInstance>(null);
   const [focused, setFocused] = useState(false);
   const keep = () => onDone();
@@ -80,7 +72,6 @@ export function CommentBox({
       ref={surface}
       onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
       accessibilityViewIsModal
-      // Dismissing keeps the draft; Cancel or Delete explicitly removes it.
       onAccessibilityEscape={onDone}
       style={{
         position: "absolute",
@@ -122,7 +113,6 @@ export function CommentBox({
         <>
           <Field
             ref={input}
-            // Uncontrolled to the parent: each keystroke updates the comment without writing the value back.
             label={`Comment ${number}`}
             hideLabel
             autoCapitalize="sentences"

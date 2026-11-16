@@ -2,11 +2,6 @@ import { View } from "react-native";
 import { radius } from "../design-tokens";
 import { useTheme } from "../theme";
 
-/**
- * A progress or usage bar, as desktop's ProgressBar: a lineStrong track with an ink fill (or a state tone at usage
- * thresholds), full radius, 4 or 6 tall. `value` is 0 to 1; it reads as a progress bar with its percentage, or with
- * `valueText` ("42% used, 84k tokens") when given.
- */
 export function ProgressBar({
   value,
   tone = "ink",

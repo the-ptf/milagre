@@ -10,14 +10,8 @@ import { lineHeight, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { PR_ICONS } from "./pr-look";
 
-/** PR chips a row shows; the rest are a count, as on desktop. */
 const ROW_PR_LIMIT = 1;
 
-/**
- * Desktop's PR chip and overflow menu: the first pull request, then "+3" for the rest, with tap targets separate from the
- * Chat title. The Worktree's Linear issue comes first. A PR chip opens the PR in its Chat when the row can (the PR sheet),
- * else on GitHub.
- */
 export function ChatPullRequestChips({
   pullRequests,
   linearIssue,
@@ -27,7 +21,6 @@ export function ChatPullRequestChips({
   pullRequests: PullRequest[];
   linearIssue?: LinearIssue;
   children?: ReactNode;
-  /** Opens the PR in its Chat (the PR sheet); without it a PR opens on GitHub. */
   onOpenPullRequest?: (pr: PullRequest) => void;
 }) {
   const { colors } = useTheme();
@@ -103,11 +96,6 @@ export function ChatPullRequestChips({
   );
 }
 
-/**
- * The same links inline in a Chat row's second line (the One list): the Linear key, then the first pull request and a count
- * of the rest, each link its own tap target so a tap opens the issue or pull request rather than the Chat. `separator` goes
- * between them.
- */
 export function InlinePullRequestLinks({
   pullRequests,
   linearIssue,
@@ -120,7 +108,6 @@ export function InlinePullRequestLinks({
   onOpenPullRequest?: (pr: PullRequest) => void;
 }) {
   const { colors } = useTheme();
-  // The row's second line is footnote 13/18; each link reaches 44pt tall, overlapping only the row's own target.
   const text = { fontSize: type.footnote, lineHeight: lineHeight.footnote } as const;
   const slop = { top: 13, bottom: 13, left: 4, right: 4 };
   const open = (url: string) => {

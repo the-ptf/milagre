@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { startRefreshLoop } from "@milagre/shared/refresh-loop";
 
-/** External tools never emit agent events. Keep visible Changes views current independently. */
 export function useGitRefresh(active: boolean, identity: string, refresh: (background?: boolean) => Promise<void>) {
   useEffect(() => {
     if (!active) return;

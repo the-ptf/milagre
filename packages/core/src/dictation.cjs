@@ -8,7 +8,6 @@ const { createGit } = require("./git/client.cjs");
 
 const git = createGit().read;
 
-// The files a message is most likely about: uncommitted ones, then those the latest commits touched.
 const RECENT_COMMITS = 60;
 const SOURCE_FILES = 12;
 const TEST = /(?:^|\/)(?:__tests__|tests?)\/|\.(?:test|spec)\./;
@@ -23,16 +22,10 @@ async function recentFiles(cwd, present) {
   return [...new Set([...changed, ...log.split("\n").map((line) => line.trim())])].filter((file) => file && present.has(file));
 }
 
-/** The repository's name ("milagre-ade"), not the worktree folder's ("fix-dictation-2kq1"), when it has an origin. */
 function projectName(cwd, origin) {
   return /([^/:]+?)(?:\.git)?\/?$/.exec(origin)?.[1] || path.basename(cwd);
 }
 
-/**
- * The words the recognizer should expect in a message about the folder: its name, branch, the Chat's title and the names its
- * `messages` (bodies, oldest first) used, the files the user is working on and the names declared in them, and the rest of
- * its code names.
- */
 async function dictationContext({ cwd, chatTitle, listFiles, messages = [] }) {
   const [branch, origin, files] = await Promise.all([
     git.text(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).then(
@@ -87,7 +80,6 @@ const TEXT_LIMIT = 8000;
 // A warm call answers in 4 to 7 s; the first after launch also resolves the CLI and loads the SDK, past 12 s on a busy Mac.
 const TIMEOUT_MS = 20_000;
 
-/** The fix-up's instructions and input, for any model that runs it. */
 function polishRequest({ text, terms = [], chatTitle = "" }) {
   const prompt = [
     `<vocabulary>\n${terms.slice(0, 120).join("\n")}\n</vocabulary>`,
@@ -99,24 +91,17 @@ function polishRequest({ text, terms = [], chatTitle = "" }) {
   return { system: SYSTEM, prompt };
 }
 
-/** A reply far longer or shorter than what was said is the model answering or summarizing, not correcting. */
 function plausible(original, fixed) {
   const ratio = fixed.length / Math.max(1, original.length);
   return fixed.trim().length > 0 && ratio > 0.6 && ratio < 1.6;
 }
 
-/**
- * The dictated text with misheard names fixed, by one call to a small model of the Chat's agent (the others in picker
- * order if it can't answer), or of the one agent the user picked (`only`). Never throws: the text comes back as it was when no model answers in time or the answer
- * isn't a correction.
- */
 async function polishDictation({ text, terms = [], chatTitle = "", provider = "claude", only = false }, { models = {}, timeoutMs = TIMEOUT_MS } = {}) {
   const original = typeof text === "string" ? text.trim() : "";
   if (!original || original.length > TEXT_LIMIT) return { text: original, polished: false };
   const { prompt } = polishRequest({ text: original, terms, chatTitle });
   const first = PROVIDERS.includes(provider) ? provider : "claude";
   const order = only ? [first] : [first, ...PROVIDERS.filter((name) => name !== first)];
-  // One budget for every agent tried: the user is waiting on the mic button.
   const deadline = Date.now() + timeoutMs;
   for (const name of order) {
     const call = models[name];
@@ -128,9 +113,7 @@ async function polishDictation({ text, terms = [], chatTitle = "", provider = "c
       const fixed = JSON.parse(extractJson(reply))?.text;
       if (typeof fixed === "string" && plausible(original, fixed)) return { text: fixed.trim(), polished: true };
       return { text: original, polished: false };
-    } catch {
-      // Not installed, signed out or failed: the next agent may answer in the time left.
-    }
+    } catch {}
   }
   return { text: original, polished: false };
 }

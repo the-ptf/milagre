@@ -1,8 +1,4 @@
 // Run with npm test -- --only test-sidebar-hidden-workspace. The real App against a stand-in for main, with a Link and a
-// Project both on another computer. The Link's and the Project's workspaces stay mounted behind each other (an
-// <Activity>), so the hidden one's sidebar hears no events: the remote Project gains a Chat while one workspace is on
-// screen, and switching to the other must list it there too, not the rows that sidebar froze with. Set
-// MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -114,7 +110,6 @@ async function browserChecks() {
   const rows = (scope) =>
     evaluate(`[...document.querySelectorAll('[data-sidebar-scope="${scope}"] [data-chat-id]')].map((row) => row.dataset.chatId).join(",")`);
   const current = () => evaluate(`document.querySelector('[data-sidebar-scope][data-current]')?.dataset.sidebarScope ?? null`);
-  // Opens a Chat from the sidebar on screen and returns every list the remote Project's group showed while it settled.
   const open = async (scope, id) => {
     await evaluate(`document.querySelector('[data-sidebar-scope="${scope}"] [data-chat-id="${id}"] [data-row]').click()`);
     const seen = [];
@@ -130,7 +125,6 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('[data-sidebar-scope="${KEY}"] [data-chat-id]') && !document.querySelector('.startup-splash-screen')`, 20000);
-    // Both workspaces mount: the Link's from the Project's sidebar, the Project's from the Link's.
     await evaluate("window.scopeDelay = 400");
     assert.deepEqual(await open(LINK, "3"), ["4"], "a new Link sidebar keeps the remote list while its own reads are pending");
     assert.deepEqual(await open(KEY, "4"), ["4"]);
@@ -140,11 +134,9 @@ async function browserChecks() {
     assert.deepEqual(await open(KEY, "5"), ["5,4"]);
     await evaluate(`window.pushRemote([4, 5, 6])`);
     await waitFor(`[...document.querySelectorAll('[data-sidebar-scope="${KEY}"] [data-chat-id]')].length === 3`);
-    // The Link's sidebar was hidden when chat 6 came: it lists it from the first frame, not the two Chats it froze with.
     assert.deepEqual(await open(LINK, "3"), ["6,5,4"], "the Link's sidebar shows the Chat that came while the Project was on screen");
     await screenshot("link-after-remote-change");
     assert.deepEqual(await open(KEY, "6"), ["6,5,4"]);
-    // Enough rows to scroll. The second workspace must start at the same offset, even while its lists reload.
     await evaluate("window.oneList(); window.pushRemote(Array.from({length: 25}, (_, i) => i + 4))");
     await waitFor('document.querySelectorAll("aside [data-chat-id]").length >= 27');
     await evaluate('document.querySelector(".sidebar-scroll").scrollTop = 300');

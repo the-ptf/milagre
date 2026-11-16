@@ -1,5 +1,4 @@
 // node-pty's prebuilt macOS helper is published without its execute bit, and npm may skip node-pty's own install
-// script. Without the bit every Terminal fails with "posix_spawnp failed", so set it before running or packaging.
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -24,7 +23,6 @@ if (require.main === module) {
   try {
     prepareNodePty();
   } catch (error) {
-    // An install without @milagre/core's dependencies has no Terminal to prepare.
     if (error.code !== "MODULE_NOT_FOUND") throw error;
   }
 }

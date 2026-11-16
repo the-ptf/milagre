@@ -113,7 +113,6 @@ export function ContextSettingsSection() {
                 borderRadius: radius.card,
                 borderCurve: "continuous",
                 borderWidth: mode === display ? 2 : 1,
-                // Selection is ink, as on the other choice cards: accent is for focus and links.
                 borderColor: mode === display ? colors.ink : colors.line,
                 backgroundColor: colors.surface,
                 minHeight: 196,

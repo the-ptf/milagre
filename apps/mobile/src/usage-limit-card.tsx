@@ -10,10 +10,6 @@ import { useSession } from "./session";
 import { useTheme } from "./theme";
 import { InlineError, PillButton, pressStyle, useAnnounce } from "./ui";
 
-/**
- * A reply the plan's usage limit stopped. It offers the Project's other accounts for the provider only while this is the
- * Chat's last message with no turn running (`projectPath` is set then); otherwise it is the headline alone.
- */
 export function UsageLimitCard({
   limit,
   sessionId,
@@ -63,14 +59,11 @@ export function UsageLimitCard({
     try {
       const value = await client.call<ProjectAccountsSnapshot>("accounts:scope", [projectPath, false]);
       if (version === request.current) setSnapshot(value);
-    } catch {
-      // The headline stays; the card offers no choices it could not load.
-    }
+    } catch {}
   }, [client, projectPath]);
   const invalidate = useCallback(() => {
     request.current++;
   }, []);
-  // This effect fetches the Project's accounts from the connected computer, again when they change on it.
   useEffect(() => {
     if (!interactive) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect

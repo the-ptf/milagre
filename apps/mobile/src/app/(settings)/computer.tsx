@@ -27,7 +27,6 @@ import { presenceTone } from "@milagre/shared/chat-scopes";
 
 type MacPage = "models" | "accounts" | "usage" | "skills" | "mcp" | "worktrees" | "connections" | "phone-sharing" | "this-mac";
 
-/** Settings › Computers › one computer: whether it answers, its Chats in the list, its settings, rename and forget. */
 export default function ComputerScreen() {
   const { colors } = useTheme();
   const session = useSession();
@@ -39,23 +38,19 @@ export default function ComputerScreen() {
   useRouteChanges(list);
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
-  // The page to open once the session shows this computer: the session's client is the one on screen, not the one connect returned.
   const [pending, setPending] = useState<{ hostId: string; page: MacPage } | null>(null);
   const currentUrl = session.client?.url;
   const handled = useRef<typeof pending>(null);
   useEffect(() => {
     if (!pending || handled.current === pending) return;
     handled.current = pending;
-    // Another computer became current in the meantime (a second connect won): this tap no longer applies.
     if (currentUrl === pending.hostId) router.push(`/${pending.page}`);
   }, [pending, currentUrl]);
-  // A forgotten computer leaves the list while this page is still on screen for a moment.
   if (!host) return <Stack.Screen options={{ title: "" }} />;
   const state = reachability[host.id] ?? "checking";
   const shown = !host.hidden;
   const dot = colors[presenceTone(state)];
   const connected = currentUrl === host.id;
-  // Its settings are the connected Mac's: connect to this one first when another is current.
   async function open(page: MacPage) {
     if (!host) return;
     setError("");
@@ -66,7 +61,6 @@ export default function ComputerScreen() {
     }
     setConnecting(true);
     try {
-      // False when another connect replaced this one: the page would show some other computer's settings.
       if (await session.connect(host)) setPending({ hostId: host.id, page });
       else setError("Could not connect to this computer. Try again.");
     } catch (e) {

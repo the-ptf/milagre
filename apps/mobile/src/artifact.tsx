@@ -52,7 +52,6 @@ import { useVisibleRunChatKeys } from "./visible-run-chats";
 
 let feedbackRequestId = 0;
 
-/** Feedback the user sent on the designs, as what it was: the design they chose, then each comment and its design. */
 export function DesignFeedbackCard({
   feedback,
   chatId,
@@ -60,7 +59,6 @@ export function DesignFeedbackCard({
 }: {
   feedback: { choice: ArtifactRef | null; comments: DesignComment[] };
   chatId?: string;
-  /** Changes as the Chat moves on, to read the agent's resolutions again. */
   moved?: number;
 }) {
   const { colors } = useTheme();
@@ -81,7 +79,6 @@ export function DesignFeedbackCard({
   const feedbackLabel = [...(choice ? [choice] : []), ...comments.map((comment) => comment.design)].some((ref) => format(ref) === "html")
     ? "Feedback on the artifact"
     : "Feedback on the designs";
-  // The agent's notes on the comments it resolved, by comment id.
   const [resolutions, setResolutions] = useState<Map<string, string>>(() => new Map());
   const ids = comments.some((comment) => comment.id);
   useEffect(() => {
@@ -185,7 +182,6 @@ export function DesignFeedbackCard({
                   minWidth: 20,
                   minHeight: 20,
                   paddingHorizontal: 4,
-                  // The desktop canvas's pin: round, its point the top-left corner; a number on it takes the -ink fill.
                   borderRadius: radius.full,
                   borderTopLeftRadius: 0,
                   alignItems: "center",
@@ -250,7 +246,6 @@ export function DesignFeedbackCard({
   );
 }
 
-/** The designs one reply showed: a card for one, one card naming them all for several, which opens at the first. */
 export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]; chatId?: string; chosen?: string }) {
   const { colors } = useTheme();
   const { client, designs: feature } = useSession();
@@ -341,7 +336,6 @@ function openDesigns(openTab: ReturnType<typeof usePanelTabs>, target: DesignsTa
   router.push({ pathname: "/artifact-sheet", params: { ...params, ...(html ? { kind: "html" } : {}) } });
 }
 
-/** A design the agent showed. It opens the Chat's designs full screen; a saved Chat is needed to read them. */
 function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: ArtifactStep; chatId?: string; chosen?: string; kind?: "design" | "html" }) {
   const { colors } = useTheme();
   const { client, designs: feature } = useSession();
@@ -406,28 +400,13 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
   );
 }
 
-/** A comment waiting for Send, pinned where the user held the page. */
 type Note = DesignComment & { key: string };
-/** The comment box open on a pin: a new one being written, a waiting one to change, or a sent one to read. */
 type Composer = { key: string; kind: "new" | "edit" | "read"; at: { x: number; y: number } | null };
 
-/**
- * Feedback not sent yet, by Chat: leaving the page keeps the comments until they are sent or deleted, as on desktop.
- * In memory, for the app's life.
- */
 const unsent = new Map<string, Note[]>();
 
 const refOf = (page: Artifact): ArtifactRef => ({ id: page.id, version: page.version, title: page.title, format: page.format });
 
-/**
- * The Chat's HTML artifact full screen, as the Designs open (their canvas is DesignsSheet): a header like the in-app
- * browser's, close on the left, Send and ⋯ on the right, and the page under it filling the screen at the phone's
- * width, pinching and scrolling as a web page does. Holding a spot on the page pins a comment there, written in a box
- * that opens from the pin; comments wait for Send, which hands them to the Chat as one message for the agent.
- *
- * A page the agent split into tabs shows one tab's page at a time, chosen from the menu on the header's title; a
- * comment is pinned on its tab.
- */
 /** `onClose` is set where the page is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
 export function ArtifactSheet({
   hostId,
@@ -454,7 +433,6 @@ export function ArtifactSheet({
   const close = useCallback(() => (onClose ? onClose() : router.back()), [onClose]);
   const source = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
   const [state, setState] = useState<{ artifact: Artifact | null; error: string }>({ artifact: null, error: "" });
-  // Share shows only once this host says sharing works for this Chat's page; a reply a newer check overtook is ignored.
   const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
   const [sharingAvailable, setSharingAvailable] = useState<typeof sharingScope | null>(null);
   const sharingRequest = useRef(0);
@@ -494,9 +472,7 @@ export function ArtifactSheet({
   const sharing = !!source && sharingAvailable === sharingScope;
 
   const [revision, setRevision] = useState(0);
-  // A new artifact or a resolution refreshes the page and its comments while the panel stays open.
   const pageRevision = commentActivity(snapshot, chatId, "artifact");
-  // Its comment refresh reads the Chat's live steps, so that run comes in full.
   useVisibleRunChatKeys(client, chatId ? [chatId] : []);
   useEffect(() => {
     const watch = AppState.addEventListener("change", (status) => {
@@ -526,7 +502,6 @@ export function ArtifactSheet({
   const artifact = source && state.artifact?.format === "html" ? state.artifact : null;
   const [tabId, setTabId] = useState<string | null>(targetTab ?? null);
   const tab = artifact ? artifactTab(artifact, tabId) : null;
-  // The page's photos and videos, downloaded once into the cache; the page shows once they are there.
   const files = usePageFiles(source, chatId, artifact?.assets);
   const tabs = artifact?.tabs && artifact.tabs.length > 1 ? artifact.tabs : null;
 
@@ -552,8 +527,6 @@ export function ArtifactSheet({
     pendingComment.current = commentId ?? null;
   }, [targetTab, commentId, requestId]);
 
-  // The page: until its helper says it is ready, commands are dropped, and each time it does (the page loaded again)
-  // it is told everything again.
   const page = useRef<DomWebViewRef>(null);
   const ready = useRef(false);
   const [epoch, setEpoch] = useState(0);
@@ -570,7 +543,6 @@ export function ArtifactSheet({
     command({ t: "mode", input: "touch", comment: commenting });
   }, [command, epoch, commenting]);
 
-  // The pins on the page as it is now: waiting comments numbered in Send order, sent ones within their message.
   const numbers = useMemo(() => sentNumbers(sent), [sent]);
   const pins = useMemo<PagePin[]>(() => {
     if (!artifact || !tab) return [];
@@ -628,7 +600,6 @@ export function ArtifactSheet({
     colors.onAccent,
   ]);
   // A pin just opened scrolls near the top once the page has it, out of the keyboard's way; the page then says where it
-  // landed, and the box opens there.
   const revealing = useRef<string | null>(null);
   const pinsKey = JSON.stringify(pins);
   const watch = composer?.key ?? null;
@@ -714,7 +685,6 @@ export function ArtifactSheet({
   const written = notes.filter((note) => note.text.trim());
   const send = () => {
     if (!hostId || !chatId || !written.length || !source) return;
-    // Each comment gets the id the agent resolves it by; the host records the comments once the message went.
     const comments: DesignComment[] = written.map(({ key: _key, ...note }) => ({ ...note, text: note.text.trim(), id: newCommentId() }));
     if (feedbackKey) unsent.delete(feedbackKey);
     postDesignMessage(`${hostId}|${chatId}`, {
@@ -732,7 +702,6 @@ export function ArtifactSheet({
       close();
       return;
     }
-    // Docked beside the Chat, the Chat is on screen already and sends it now; the page stays open, its pins turn sent.
     sendDesignMessageNow(`${hostId}|${chatId}`);
     setComposer(null);
     setCommenting(false);
@@ -762,7 +731,6 @@ export function ArtifactSheet({
           {!onClose && <CircleButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
         </View>
         {tabs && tab ? (
-          // A page split into tabs: its title opens the menu of its tabs, and the line under it names the one shown.
           <PullDown
             label={`${artifact?.title ?? "Artifact"}, ${tab.title} tab. Choose a tab`}
             style={{ flex: 1, alignItems: "center" }}
@@ -773,7 +741,6 @@ export function ArtifactSheet({
               setTabId(id);
             }}
           >
-            {/* PullDown lays its children in a wrapper of its own; this centres the tab line under the title. */}
             <View style={{ alignItems: "center" }}>
               {heading}
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
@@ -881,7 +848,6 @@ export function ArtifactSheet({
  * messages through, which `onMessage` reads by their shape; the Expo modules bridge stays off. Mermaid blocks draw
  * with Pele, which the shell's page carries.
  */
-/** `files`: the page shows files from the phone's cache (artifact-files.ts), which its policy lets it load. */
 function ArtifactWebView({
   ref,
   html,
@@ -895,8 +861,6 @@ function ArtifactWebView({
 }) {
   const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
-  // Written while rendering, so the page is there on the first frame; each page gets a file of its own, removed when
-  // the page changes or goes. Named for this view and the page's content: two views never share a file.
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const prepared = useMemo(() => {
     const page = artifactShell(html, { diagrams: PELE_SCRIPT, ...(files ? { assets: "file:" } : {}) });
@@ -914,9 +878,7 @@ function ArtifactWebView({
     () => () => {
       try {
         if (prepared?.file.exists) prepared.file.delete();
-      } catch {
-        /* The OS may purge cache files while backgrounding. */
-      }
+      } catch {}
     },
     [prepared],
   );
@@ -932,7 +894,6 @@ function ArtifactWebView({
     <DomWebView
       ref={ref}
       source={{ uri }}
-      // ponytail: an HTML page's own default paper is white in every theme; a page that wants dark sets its own.
       style={{ flex: 1, backgroundColor: colors.paper }}
       containerStyle={{ flex: 1 }}
       useExpoModulesBridge={false}

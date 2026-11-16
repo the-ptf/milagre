@@ -1,12 +1,5 @@
-// Design council screenshots: the REAL desktop renderer (App.tsx through Vite) with a fixed fixture behind a stubbed
 // window.milagre bridge, captured in a hidden Electron window at 1440x900 @2x, light and dark.
-//
-//   node scripts/design-council/capture-desktop.cjs <outDir>
-//
-// Writes d01-chat-light.png, d01-chat-dark.png, ... (see SCREENS below). No provider, daemon or personal data: Vite runs on
 // a random port, Electron gets a temp userData dir and a hidden window, and only those two processes are stopped at the
-// end. A step that fails is logged and its screen is skipped; the run carries on with the next one. Selectors use
-// aria-label, role and text so they survive styling changes.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -18,18 +11,12 @@ const WIDTH = 1440;
 const HEIGHT = 900;
 const SCALE = 2;
 const THEMES = ["light", "dark"];
-// Every timestamp in the fixture hangs off this instant, and the renderer's clock is frozen at it, so relative times
-// ("5m", "1m 30s") and running timers read the same every run.
 const NOW = Date.UTC(2026, 10, 9, 14, 0, 0);
 const min = (n) => NOW - n * 60000;
 
-// ---------------------------------------------------------------------------------------------------------------------
-// Fixture data
-// ---------------------------------------------------------------------------------------------------------------------
 const projectPath = "/demo/milagre";
 const projectImage = "data:image/png;base64," + fs.readFileSync(path.join(ROOT, "apps/desktop/app/public/logo-milagre-image.png")).toString("base64");
 
-// [chat id, title, branch, provider, minutes since last activity, extra session fields]
 const CHATS = [
   [2, "Reset paired phones from Settings", "feat/phone-reset", "claude", 3, {}],
   [3, "Find Projects from the phone", "feat/project-search", "codex", 6, {}],
@@ -44,7 +31,6 @@ const QUESTION_CHAT = 3;
 const RUNNING_CHAT = 4;
 const APPROVAL_CHAT = 5;
 const CHAT_TITLE = Object.fromEntries(CHATS.map(([id, title]) => [id, title]));
-// Sidebar PR badges, by branch.
 const PULLS = {
   "feat/phone-reset": { number: 192, checks: "passed" },
   "feat/project-search": { number: 189, checks: "running" },
@@ -210,7 +196,6 @@ for (const [id, title, branch, provider, age, extra] of CHATS) {
 }
 const project = { path: projectPath, name: "Milagre", state };
 
-// Two other Projects, so the sidebar shows several.
 const otherState = (rows) => ({
   next_id: 100,
   projects: { 1: { id: 1, name: "x" } },
@@ -326,7 +311,6 @@ const runs = {
   },
 };
 
-// Changes panel: uncommitted files in the main Chat's Worktree.
 const patch = (...lines) => lines.join("\n") + "\n";
 const FILES = {
   "apps/mobile/src/hooks/usePairedPhones.ts": {
@@ -402,7 +386,6 @@ const FILES = {
   },
 };
 
-// The main Chat's PR, as the Changes panel's PR tab reads it.
 const HEAD = "a".repeat(40);
 const BASE = "b".repeat(40);
 const PR_DETAIL = {
@@ -465,9 +448,6 @@ const PR_DETAIL = {
 
 const MODELS = { codex: null, claude: null, antigravity: null, kiro: null };
 
-// ---------------------------------------------------------------------------------------------------------------------
-// The renderer entry: real App, stubbed host bridge.
-// ---------------------------------------------------------------------------------------------------------------------
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -546,10 +526,6 @@ const { default: App } = await import('/src/App');
 createRoot(document.getElementById('root')).render(<App />);
 `;
 
-// ---------------------------------------------------------------------------------------------------------------------
-// Screens. Each runs on a fresh page load in the given theme; `ready` waits for the app, `act` drives it.
-// ---------------------------------------------------------------------------------------------------------------------
-/** In-page helpers, injected once per load; everything finds elements by role, aria-label or text. */
 const HELPERS = `
 window.__c = {
   visible(el) { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; },
@@ -590,7 +566,6 @@ const SCREENS = [
       );
       if (!ok) throw new Error("No Edited step row to open");
       await delay(400);
-      // Scroll the transcript back to its top so the request, the tool rows and the diff share the screen.
       await p.eval(
         `[...document.querySelectorAll('main *, [role=main] *')].filter((el) => el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)).forEach((el) => { el.scrollTop = 0; })`,
       );
@@ -668,7 +643,6 @@ const SCREENS = [
     async act(p) {
       await p.openChat(CHAT_TITLE[MAIN_CHAT]);
       await p.waitFor(`document.querySelectorAll('.markdown .code-token').length > 5`);
-      // The composer's model button: it holds the model's name (Opus 5.5, GPT-6.1-Sol, ...) and toggles aria-expanded.
       const ok = await p.eval(
         `__c.click(document.querySelector('[data-model-name]')?.closest('button') || [...document.querySelectorAll('button[aria-expanded]')].find((b) => __c.visible(b) && /Opus|Sonnet|GPT|Gemini/.test(b.textContent)))`,
       );
@@ -691,9 +665,7 @@ const SCREENS = [
   },
 ];
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Electron side
-// ---------------------------------------------------------------------------------------------------------------------
 async function capture(baseUrl, outDir, userData) {
   const { app, BrowserWindow } = require("electron");
   app.commandLine.appendSwitch("force-device-scale-factor", String(SCALE));
@@ -709,7 +681,6 @@ async function capture(baseUrl, outDir, userData) {
     show: false,
     webPreferences: { backgroundThrottling: false, partition: "council-capture" },
   });
-  // Nothing leaves this machine: only our own Vite server answers (GitHub avatars, fonts CDNs and the like fall back).
   const blocked = new Set();
   window.webContents.session.webRequest.onBeforeRequest({ urls: ["*://*/*"] }, (details, callback) => {
     const local = /^(https?|wss?):\/\/(127\.0\.0\.1|localhost)[:/]/.test(details.url);
@@ -744,7 +715,6 @@ async function capture(baseUrl, outDir, userData) {
       if (!ok) throw new Error("No Changes toggle");
       await page.waitFor(`document.querySelectorAll('[data-diff-tree-file]').length >= 3 || document.body.innerText.includes('usePairedPhones.ts')`);
     },
-    // Compact tool display folds a reply's calls into one line; open it so the rows themselves are judged.
     async expandToolRows() {
       await page.eval(
         `(() => { const fold = [...document.querySelectorAll('button[aria-expanded="false"]')].find((b) => /\\b(tool|step|call|ran|read|edited)/i.test(b.textContent) && b.closest('.markdown, [data-message], main')); if (fold) fold.click(); })()`,
@@ -758,13 +728,9 @@ async function capture(baseUrl, outDir, userData) {
   }
   async function settle() {
     await page.eval(`document.fonts.ready.then(() => true)`);
-    // Move focus and hover away so no tooltip or focus ring depends on timing.
     await page.eval(`document.activeElement?.blur?.()`);
     await page.eval(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
     await delay(900);
-    // Entrances still playing jump to their end; endless animations (spinners, shimmers, glints) are parked at their
-    // first frame, so every run paints the same pixels.
-    // A pure rotation (a spinner) is stopped outright: a paused compositor rotation still lands on a different step each run.
     await page.eval(`document.getAnimations().forEach((a) => { try {
       if (a.effect?.getTiming?.().iterations !== Infinity) { if (a.playState === 'running') a.finish(); return; }
       const frames = a.effect.getKeyframes?.() ?? [];
@@ -820,10 +786,7 @@ async function capture(baseUrl, outDir, userData) {
   }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Node side: Vite on a random port, then Electron; both are stopped at the end.
-// ---------------------------------------------------------------------------------------------------------------------
-/** An OS-assigned free port (ephemeral range, far from the user's own Vite on 5180 and the daemon's 8797/8798). */
 function freePort() {
   return new Promise((resolve, reject) => {
     const probe = require("node:net").createServer();

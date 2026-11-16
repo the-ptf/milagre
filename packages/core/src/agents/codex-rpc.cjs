@@ -6,13 +6,6 @@ const { createInterface } = require("node:readline");
 const { killTree } = require("./process-tree.cjs");
 
 // Client for `codex app-server`: newline-delimited JSON over stdio, shaped like JSON-RPC
-// without the "jsonrpc" field (verified against codex-cli 0.158.0):
-//   request       { id, method, params }    sent by either side
-//   response      { id, result } | { id, error: { code, message } }
-//   notification  { method, params }
-// Milagre uses initialize, initialized, thread/start, thread/resume, thread/unarchive,
-// turn/start and turn/interrupt, plus the item/agentMessage/delta and turn/completed
-// notifications. The protocol is marked experimental, so callers read fields defensively.
 class CodexRpc extends EventEmitter {
   constructor({ command, args = ["app-server"], cwd, env = process.env, spawnImpl = spawn } = {}) {
     super();

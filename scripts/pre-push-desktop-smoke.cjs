@@ -1,8 +1,5 @@
 #!/usr/bin/env node
 // lefthook pre-push: runs the macOS desktop smoke (`npm test -- --only test-desktop`) when a pushed commit changes
-// apps/desktop/electron, as AGENTS.md asks of a desktop PR; CI runs it only on main.
-// Not lefthook's {push_files}: on a branch's first push it lists every file in the tree, so every new branch would run it.
-// Reads git's pre-push lines (<local ref> <local sha> <remote ref> <remote sha>) on stdin.
 const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -10,10 +7,6 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const ZERO = /^0+$/;
 
-/**
- * Git exports GIT_DIR (and in a linked worktree more) to hooks. A check that runs `git init` in a temp folder with it
- * set re-initializes this repository instead, and flips the shared core.bare to true. Children get none of them.
- */
 function withoutGitEnv(env) {
   return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith("GIT_")));
 }
@@ -24,12 +17,11 @@ function git(args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8", env: withoutGitEnv(process.env) }).trim();
 }
 
-/** Files the pushed commits change: since the remote ref when it exists here, else since the branch left origin/main. */
 function pushedFiles(stdin) {
   const files = [];
   for (const line of stdin.split("\n").filter(Boolean)) {
     const [, local, , remote] = line.split(" ");
-    if (!local || ZERO.test(local)) continue; // a deleted ref pushes no files
+    if (!local || ZERO.test(local)) continue;
     let base = !ZERO.test(remote ?? "0") ? remote : null;
     if (base) {
       try {
@@ -53,7 +45,6 @@ if (require.main === module) {
   try {
     files = pushedFiles(fs.readFileSync(0, "utf8"));
   } catch (error) {
-    // No origin/main to compare with (a fresh clone of a fork, say): CI and the PR checklist still cover it.
     console.log(`Skipping the desktop smoke: could not list the pushed files (${error.message.split("\n")[0]}).`);
     process.exit(0);
   }

@@ -35,8 +35,6 @@ const PR_TONE: Record<GlancePrTone, "green" | "orange" | "red" | "purple" | "ink
   muted: "ink3",
 };
 
-// The repository's open PRs (the host reads gh at most once a minute), again each minute and when the app returns.
-// A host without the command throws "Unknown command": the card stays away.
 function useOpenPullRequests(client: Client | null, projectPath: string | null) {
   const [found, setFound] = useState<{ client: Client | null; projectPath: string | null; rows: GlancePullRequest[] }>({
     client: null,
@@ -64,11 +62,9 @@ function useOpenPullRequests(client: Client | null, projectPath: string | null) 
       subscription.remove();
     };
   }, [client, projectPath]);
-  // Rows read for another Project or computer are not this one's.
   return found.client === client && found.projectPath === projectPath ? found.rows : NO_ROWS;
 }
 
-// Plan usage from the saved numbers (the hook refreshes them when stale), scoped to the Project like desktop.
 function useScopedUsage(client: Client | null, scopeKey: string): UsageSnapshot | null {
   const source = useMemo(() => {
     if (!client) return null;
@@ -93,7 +89,6 @@ function useScopedUsage(client: Client | null, scopeKey: string): UsageSnapshot 
   return useAccountUsage(source).snapshot;
 }
 
-// Today's tokens on the computer, read by the hour; the host's token-usage signal reads again.
 function useToday(client: Client | null) {
   const [today, setToday] = useState<GlanceToday | null>(null);
   useEffect(() => {
@@ -134,7 +129,6 @@ function Card({ title, count, aside, children }: { title: string; count?: number
         borderCurve: "continuous",
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.line,
-        // The composer tray's fill (offline-tray.tsx), as on desktop.
         backgroundColor: colors.inset,
       }}
     >
@@ -156,7 +150,6 @@ function Card({ title, count, aside, children }: { title: string; count?: number
 
 function PullRequestRow({ pr }: { pr: GlancePullRequest }) {
   const { colors } = useTheme();
-  // The PR sheet needs a Worktree and a Chat this draft doesn't have yet, so the PR opens on GitHub.
   return (
     <Pressable
       accessibilityRole="link"
@@ -216,7 +209,6 @@ function barFill(colors: Palette, provider: ProviderUsage["provider"], peak: num
 function UsageCard({ providers, display }: { providers: ProviderUsage[]; display: UsageDisplay }) {
   const { colors } = useTheme();
   const [now] = useState(Date.now);
-  // The closest limit's reset: what decides whether to start something big now.
   const closest = providers
     .flatMap((usage) => usage.windows.map((window) => ({ provider: usage.provider, window })))
     .sort((a, b) => b.window.usedPercent - a.window.usedPercent)[0];
@@ -292,10 +284,6 @@ function TodayCard({ today }: { today: GlanceToday }) {
   );
 }
 
-/**
- * Under a new Chat's "Start building in" line: the repository's open PRs, plan usage and today's tokens. Each card shows
- * only with something in it; a Chats home draft (no `projectPath`) has no PRs. Nothing shows while there is nothing to show.
- */
 export function NewChatGlance({ client, projectPath, scopeKey }: { client: Client | null; projectPath: string | null; scopeKey: string }) {
   const prs = useOpenPullRequests(client, projectPath);
   const snapshot = useScopedUsage(client, scopeKey);

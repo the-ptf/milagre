@@ -1,7 +1,6 @@
 const { providerName } = require("@milagre/shared/providers");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 
-/** What the main Chat's agent is sent for an advisor's result: the output as data, and what to do with it. */
 function advisorPrompt(result) {
   const name = providerName(result.provider);
   const output = neutralizeTags(result.output);
@@ -34,7 +33,6 @@ function advisorPrompt(result) {
   ].join("\n");
 }
 
-// Delivery has its own serialization and durability boundary, outside Chat state mutation queues.
 function acceptsAdvisorResult(previous, current) {
   if (previous === current) return true;
   try {
@@ -47,7 +45,6 @@ function acceptsAdvisorResult(previous, current) {
       value[3].length > 0 &&
       value[3].every((root) => Array.isArray(root) && root.length === 3 && typeof root[0] === "string" && Number.isFinite(root[1]) && Number.isFinite(root[2]));
     if (!valid(before) || !valid(after) || !before.slice(0, 3).every((part, index) => part === after[index])) return false;
-    // A shared Chat may add Worktrees while the advisor runs. Every original directory must still be the same one.
     const roots = new Set(after[3].map((root) => JSON.stringify(root)));
     return before[3].every((root) => roots.has(JSON.stringify(root)));
   } catch {
@@ -108,7 +105,6 @@ function createAdvisorDelivery({ store, contextFor, isBlocked, send }) {
           } catch {
             accepted = null;
           }
-          // Stop holds an accepted queue entry; it does not undo delivery to the Chat or replay it on resume.
           await updateResult(chatId, result.id, accepted?.queued || (accepted?.turnId && allowed()) ? "delivered" : "uncertain");
         }
       }
@@ -121,7 +117,6 @@ function createAdvisorDelivery({ store, contextFor, isBlocked, send }) {
     return work;
   }
   return {
-    // The manager saves each completion first. Duplicates read that durable identity rather than enqueueing again.
     enqueue: (chatId) => drain(chatId),
     drain,
     async stop(chatId) {

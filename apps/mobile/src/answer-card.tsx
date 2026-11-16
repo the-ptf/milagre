@@ -5,7 +5,6 @@ import { Icon } from "./icons";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
-/** The user's answers to the agent's questions, shown as each question with what was picked or typed instead of the text the agent reads. */
 export function AnswerCard({ answered }: { answered: AnsweredQuestion[] }) {
   const { colors } = useTheme();
   const title = answered.length === 1 ? "Answered the question" : `Answered ${answered.length} questions`;

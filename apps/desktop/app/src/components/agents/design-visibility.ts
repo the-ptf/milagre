@@ -1,6 +1,5 @@
 type Visibility = (visible: boolean) => void;
 
-/** One observer for a canvas, with a viewport-sized prefetch margin. Removed frames ignore queued callbacks. */
 export function createDesignVisibility() {
   const targets = new Map<Element, Visibility>();
   let observer: IntersectionObserver | null = null;

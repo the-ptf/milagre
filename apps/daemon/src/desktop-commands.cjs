@@ -1,6 +1,5 @@
 const { randomUUID } = require("node:crypto");
 
-/** Local desktop capability port. Commands execute once in their owning desktop; disconnects never replay them. */
 function createDesktopCommands({ timeoutMs = 120000 } = {}) {
   const hosts = new Map();
   const pending = new Map();

@@ -8,14 +8,9 @@ import type { MessageChanges } from "../electron.d.ts";
 import { stateEvents } from "./state-events.ts";
 import { ChatWindowCache, prependChatPage } from "@milagre/shared/chat-window-cache";
 
-// The messages of the Chats on screen, from a host that keeps them by Chat (chat-pages-v1, #300): a window of each Chat's
-// latest turns, read with readChatMessages, extended back on request and kept current from each change's messages.
-
 export type ChatWindow = {
   messages: ChatMessage[];
-  /** Whether the Chat has messages before the window. */
   hasMore: boolean;
-  /** All of the Chat's messages, the window or not. */
   total: number;
   loading: boolean;
   error?: string;
@@ -29,21 +24,18 @@ const listeners = new Map<string, Set<() => void>>();
 const keyOf = (scope: string, chatId: number) => `${scope}#${chatId}`;
 
 function notify(key: string) {
-  // A copy: a listener can resubscribe while it is told, and a live Set would then be walked forever.
   for (const listener of Array.from(listeners.get(key) ?? [])) listener();
 }
 
 function set(key: string, next: ChatWindow) {
   windows.set(key, next);
   notify(key);
-  // A remote chat's window is its computer's offline copy too.
   if (!next.loading && !next.error) {
     const at = key.lastIndexOf("#");
     rememberChat(key.slice(0, at), Number(key.slice(at + 1)), next);
   }
 }
 
-/** `messages` with `changes` for Chat `chatId` applied: a known message replaced, a new one placed after the one before it. */
 export function applyChanges(current: ChatWindow, chatId: number, changes: MessageChanges): ChatWindow {
   const removed = new Set(changes.removed);
   let messages = removed.size ? current.messages.filter((message) => !removed.has(message.id)) : current.messages;
@@ -57,7 +49,6 @@ export function applyChanges(current: ChatWindow, chatId: number, changes: Messa
     }
     total++;
     const before = after === null ? -1 : messages.findIndex((item) => item.id === after);
-    // A message after one the window doesn't hold belongs before the window, unless the window ends there.
     if (before < 0 && after !== null && current.hasMore && messages.length) continue;
     const place = before < 0 ? (after === null ? 0 : messages.length) : before + 1;
     messages = [...messages.slice(0, place), message, ...messages.slice(place)];
@@ -67,14 +58,10 @@ export function applyChanges(current: ChatWindow, chatId: number, changes: Messa
 
 const loads = new Map<string, Promise<void>>();
 const earlierLoads = new Map<string, Promise<void>>();
-// Reads whose page may predate a change that arrived while they were on their way: each reads again when it ends.
 const stale = new Set<string>();
-// Scopes whose open is on its way to their computer. A Chat's page read goes out before it, so it can reach a host that
-// hasn't loaded the Project yet: that read waits for the open and reads once more instead of showing the error.
 const openings = new Map<string, Promise<unknown>>();
 const NOT_OPEN = /Open the Project before reading its messages/;
 
-/** The open of `scope` is on its way (`opened` settles with it): a page read that finds it not open there yet reads again. */
 export function noteScopeOpening(scope: string, opened: Promise<unknown>) {
   openings.set(scope, opened);
   const settled = () => {
@@ -84,7 +71,6 @@ export function noteScopeOpening(scope: string, opened: Promise<unknown>) {
 }
 
 function readPage(scope: string, chatId: number) {
-  // The call is made now, not a microtask later: a switch's open, sent right after, must not reach the host first.
   const read = () => {
     let page: Promise<{ messages: ChatMessage[]; hasMore: boolean; total: number }>;
     try {
@@ -100,14 +86,12 @@ function readPage(scope: string, chatId: number) {
     return opening.then(read, read);
   });
 }
-/** A paired computer's chat paints from its last copy on this Mac while the computer's own answer is on its way. */
 function recallRemote(scope: string, chatId: number, key: string) {
   if (!isRemoteKey(scope)) return;
   const recall = window.milagre.computers?.recall;
   if (!recall) return;
   void Promise.resolve(recall(computerOfKey(scope), { kind: "chat", scope, chatId }))
     .then((kept) => {
-      // The computer answered first, or nobody wants the Chat any more.
       if (!kept?.messages.length || !loads.has(key) || windows.has(key)) return;
       set(key, { messages: kept.messages as ChatMessage[], hasMore: kept.hasMore, total: kept.total, loading: true });
     })
@@ -141,7 +125,6 @@ function load(scope: string, chatId: number) {
   return loading;
 }
 
-/** Reads the turns before the window; resolves once they're in. Exported for its tests. */
 export async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
   const key = keyOf(scope, chatId);
   const pending = earlierLoads.get(key);
@@ -165,7 +148,6 @@ export async function loadEarlier(scope: string, chatId: number, turns = TURNS) 
   return request;
 }
 
-// Trims asked for while their Chat's window was being read, with the reader's check of whether it still wants one.
 const pendingTrims = new Map<string, () => boolean>();
 const reading = (key: string) => loads.has(key) || earlierLoads.has(key);
 
@@ -173,11 +155,6 @@ function trimNow(key: string, canTrim: () => boolean) {
   if (canTrim() && windows.trim(key)) notify(key);
 }
 
-/**
- * Followed at its bottom, Chat `chatId`'s window drops what it holds beyond its last turns once it holds more than twice
- * as many (ChatWindowCache.trim); scrolling up reads them again. A read on its way answers for the window as it was, so
- * a trim asked for meanwhile waits for it, and then asks `canTrim` again: the reader may have scrolled up since.
- */
 export function trimChatWindow(scope: string, chatId: number, canTrim: () => boolean) {
   const key = keyOf(scope, chatId);
   if (reading(key)) pendingTrims.set(key, canTrim);
@@ -194,7 +171,6 @@ function settleTrim(key: string) {
   trimNow(key, canTrim);
 }
 
-/** Reads every message of the Chat (find in chat searches all of it). */
 async function loadAll(scope: string, chatId: number, signal?: AbortSignal) {
   const key = keyOf(scope, chatId);
   while (listeners.get(key)?.size && windows.get(key)?.hasMore) {
@@ -209,7 +185,6 @@ function follow() {
   following = true;
   stateEvents.onMessages(({ scope, changes, reset }) => {
     if (reset) {
-      // A reconnect's old read may never answer. Replace it now; only the current read may commit its result.
       const keys = new Set([...loads.keys(), ...earlierLoads.keys(), ...windows.keys()]);
       for (const key of keys) {
         if (!key.startsWith(`${scope}#`)) continue;
@@ -220,14 +195,11 @@ function follow() {
       }
       return;
     }
-    // A read on its way may have been answered before a change to its Chat: it reads again (a new Chat's reply can beat
-    // its first page).
     for (const key of loads.keys()) {
       if (!key.startsWith(`${scope}#`)) continue;
       const chatId = Number(key.slice(scope.length + 1));
       if (changes?.removed.length || changes?.changed.some(({ message }) => message.session_id === chatId)) stale.add(key);
     }
-    // A copy: set() moves a window to the end of the Map, and walking the Map itself would reach it again.
     for (const [key, current] of Array.from(windows)) {
       if (!key.startsWith(`${scope}#`)) continue;
       const chatId = Number(key.slice(scope.length + 1));
@@ -252,22 +224,18 @@ export function prefetchChatMessages(scope: string, chatId: number) {
   void load(scope, chatId);
 }
 
-// Each paired computer's most recent Chats are copied to this Mac in the background, so even the first open of one paints
 // from its copy (recallRemote) instead of waiting on the other Mac. Only into the offline copy: the windows held in memory
-// stay the Chats this window showed.
 const WARM_PER_COMPUTER = 5;
 const WARM_DELAY_MS = 2_000;
 type WarmCandidate = { scope: string; chatId: number; lastAt: number; lastId: number };
 const warmCandidates = new Map<string, Map<string, WarmCandidate>>();
 const WARM_RETRY_MS = 30_000;
 const WARM_TRIES = 3;
-// Chats copied, or found current, since the window opened; and the failed tries of the rest.
 const warmed = new Set<string>();
 const warmFailures = new Map<string, number>();
 let warmTimer: ReturnType<typeof setTimeout> | undefined;
 let warming: Promise<void> | null = null;
 
-/** A paired computer's Project state reached the window: its most recent Chats are copied to this Mac a moment later, one at a time. */
 export function warmRecentChats(
   scope: string,
   state: { messagesInChats?: boolean; sessions?: Record<string, { id: number; archived?: boolean; summary?: { lastAt?: number; lastId?: number } }> },
@@ -282,7 +250,6 @@ export function warmRecentChats(
     if (session.archived || !(session.id > 0) || !lastAt || !lastId) continue;
     candidates.set(keyOf(scope, session.id), { scope, chatId: session.id, lastAt, lastId });
   }
-  // Not pushed back by later states: a streaming turn sends one many times a second.
   warmTimer ??= setTimeout(() => {
     warmTimer = undefined;
     void warmNext();
@@ -290,7 +257,6 @@ export function warmRecentChats(
 }
 
 function warmNext(): Promise<void> {
-  // A read already going finishes first; then the latest candidates are walked again.
   if (warming) return warming.then(warmNext);
   warming = (async () => {
     for (const [computer, candidates] of warmCandidates) {
@@ -299,15 +265,11 @@ function warmNext(): Promise<void> {
         if (warmed.has(key) || windows.has(key) || loads.has(key) || (warmFailures.get(key) ?? 0) >= WARM_TRIES) continue;
         warmed.add(key);
         try {
-          // A copy that ends on the Chat's last message is current already.
           const kept = await window.milagre.computers?.recall?.(computer, { kind: "chat", scope, chatId });
           if ((kept?.messages.at(-1) as { id?: number } | undefined)?.id === lastId) continue;
           const page = await readWithTimeout(() => bridgeForKey(scope).readChatMessages(scope, chatId, { turns: TURNS }));
-          // Opened meanwhile: its window keeps the copy itself.
           if (!windows.has(key)) rememberChat(scope, chatId, page);
         } catch {
-          // The computer isn't reachable yet (a window opening before its route is up) or went away: tried again a
-          // while later, a few times. The Chat reads on open as before meanwhile.
           warmed.delete(key);
           const failures = (warmFailures.get(key) ?? 0) + 1;
           warmFailures.set(key, failures);
@@ -322,10 +284,8 @@ function warmNext(): Promise<void> {
   return warming;
 }
 
-/** Chat `chatId`'s window as held now, without reading it. Exported for its tests. */
 export const peekChatWindow = (scope: string, chatId: number): ChatWindow | undefined => windows.get(keyOf(scope, chatId));
 
-/** Tells `listener` of each change to Chat `chatId`'s window, which stays whole while anyone reads it. Exported for its tests. */
 export function watchChatWindow(scope: string, chatId: number, listener: () => void) {
   const key = keyOf(scope, chatId);
   let heard = listeners.get(key);
@@ -339,7 +299,6 @@ export function watchChatWindow(scope: string, chatId: number, listener: () => v
   };
 }
 
-/** The window of Chat `chatId`'s messages, read when first shown; none while `scope` or `chatId` is missing. */
 export function useChatMessages(scope: string | null | undefined, chatId: number | null | undefined) {
   const key = scope && typeof chatId === "number" && chatId > 0 ? keyOf(scope, chatId) : null;
   const subscribe = useCallback((listener: () => void) => (key ? watchChatWindow(scope!, chatId!, listener) : () => {}), [key, scope, chatId]);

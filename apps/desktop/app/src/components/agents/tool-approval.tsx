@@ -39,7 +39,6 @@ export interface ToolApprovalProps {
   onOpenChange?: (open: boolean) => void;
   onApprove?: () => void;
   onAlwaysAllow?: () => void;
-  /** Label for the always-allow button. */
   alwaysAllowLabel?: ReactNode;
   approveLabel?: ReactNode;
   denyLabel?: ReactNode;
@@ -83,7 +82,6 @@ export function ToolApprovalCode({ code, language = "bash", className = "", plai
         <code>{code}</code>
       </pre>
     );
-  // The row's label already says what this is (Command, Changes, Details): no language bar over the code.
   return (
     <div data-language={language} className={`min-w-0 overflow-hidden rounded-control border border-line bg-inset ${className}`}>
       <pre className="max-h-44 overflow-auto px-3 py-2 text-12 leading-5 text-ink-2">
@@ -93,7 +91,6 @@ export function ToolApprovalCode({ code, language = "bash", className = "", plai
   );
 }
 
-/** An approval's title with its `code` spans drawn as code chips, never as literal backticks. */
 export function ApprovalTitle({ title }: { title: string }) {
   return (
     <>

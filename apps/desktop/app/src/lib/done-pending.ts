@@ -4,14 +4,6 @@ import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { bridgeForKey } from "./computer-bridge.ts";
 import { dropSnoozePending } from "./snooze-pending.ts";
 
-/*
- * DONE, AT ONCE
- * Marking a Chat Done (or reopening it) moves its row before its host has saved it: another computer answers in seconds,
- * through its state's next event. The row keeps the asked-for place until the host's rows agree, the patch fails, or a
- * minute passes without an answer (the host's rows win then).
- */
-
-// Chat key (`<scope>#<id>`) to the doneAt the row shows meanwhile: a time for Done, null for reopened.
 let pending: ReadonlyMap<string, number | null> = new Map();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const listeners = new Set<() => void>();
@@ -37,19 +29,16 @@ function set(chatKey: string, doneAt: number | null | undefined) {
   for (const listener of listeners) listener();
 }
 
-/** Patches a Chat on its computer; a Done or Reopen in it shows on the row at once. */
 export function patchChatShowingDone(scopeKey: string, sessionId: number, patch: SessionPatch): Promise<void> {
   const { done } = patch;
   if (typeof done !== "boolean") return bridgeForKey(scopeKey).patchChat(scopeKey, sessionId, patch);
   const chatKey = `${scopeKey}#${sessionId}`;
   const doneAt = done ? Date.now() : null;
   set(chatKey, doneAt);
-  // Done and Reopen both end a snooze on the host (runtime sessionPatch), so a Snooze still on its way stops showing.
   dropSnoozePending(scopeKey, sessionId);
   return bridgeForKey(scopeKey)
     .patchChat(scopeKey, sessionId, patch)
     .catch((error: unknown) => {
-      // Unless a later Done or Reopen of it took the row since.
       if (pending.get(chatKey) === doneAt) set(chatKey, undefined);
       throw error;
     });
@@ -61,7 +50,6 @@ export function useDonePending(): ReadonlyMap<string, number | null> {
   return useSyncExternalStore(subscribe, pendingDoneMarks);
 }
 
-/** A scope's rows as the pending Done marks show them; the same array when none applies. */
 export function withDonePending(scopeKey: string, rows: SidebarRecent[], marks: ReadonlyMap<string, number | null>): SidebarRecent[] {
   if (marks.size === 0) return rows;
   let changed = false;
@@ -76,7 +64,6 @@ export function withDonePending(scopeKey: string, rows: SidebarRecent[], marks: 
   return changed ? shown : rows;
 }
 
-/** Drops the marks a scope's rows from its host already agree with, so a later change on the host shows again. */
 export function settleDonePending(scopeKey: string, rows: readonly SidebarRecent[]) {
   for (const row of rows) {
     const chatKey = `${scopeKey}#${row.id}`;

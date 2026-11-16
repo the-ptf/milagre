@@ -5,7 +5,6 @@ import { radius, type } from "../design-tokens";
 import { pressStyle } from "./press-style";
 import { useTheme } from "../theme";
 
-/** The whole row is a target; standalone checkboxes keep the same 44pt hit area. */
 export function Checkbox({
   label,
   selected,
@@ -59,7 +58,6 @@ export function Checkbox({
   );
 }
 
-/** The 20pt box of a checkbox row (CheckRow `kind="checkbox"`): ink fill with an onInk tick when checked, a 1pt ink3 edge when not. */
 export function CheckboxBox({ checked }: { checked: boolean }) {
   const { colors } = useTheme();
   return (

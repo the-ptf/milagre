@@ -3,7 +3,6 @@ const path = require("node:path");
 const { hash } = require("node:crypto");
 const { database } = require("@milagre/core/chat-db");
 
-// Spec "Offline cache": the transcripts of a computer's last 20 opened chats.
 const MAX_CHATS = 20;
 const ID = /^[A-Za-z0-9-]{1,64}$/;
 const SCHEMA = `
@@ -33,8 +32,6 @@ const checked = (computerId) => {
 function createComputerCaches({ dir, now = Date.now }) {
   /** @type {Map<string, any>} */
   const open = new Map();
-  // Per computer, a digest of what each (kind, key) last wrote. Every read of a list (project:recent, link:list, Routines)
-  // and every open of a Project (a 1.3 MB state) put its copy again, most of them unchanged; those write nothing now.
   /** @type {Map<string, Map<string, string>>} */
   const written = new Map();
   let closed = false;
@@ -45,7 +42,6 @@ function createComputerCaches({ dir, now = Date.now }) {
       fs.mkdirSync(path.join(dir, id), { recursive: true, mode: 0o700 });
       const raw = new (database().DatabaseSync)(path.join(dir, id, "cache.sqlite"));
       try {
-        // A rollback journal with full syncs wrote a 1.3 MB state into its journal and the file, waiting on the disk for both.
         raw.exec("PRAGMA journal_mode = WAL");
         raw.exec("PRAGMA synchronous = NORMAL");
         raw.exec(SCHEMA);
@@ -59,12 +55,9 @@ function createComputerCaches({ dir, now = Date.now }) {
           read: raw.prepare("SELECT payload FROM entries WHERE kind = ? AND key = ?"),
         };
       } catch (error) {
-        // A garbage file fails here, before the handle is kept: close it so the caller's reset can delete the folder.
         try {
           raw.close();
-        } catch {
-          /* already unusable */
-        }
+        } catch {}
         throw error;
       }
       open.set(id, handle);
@@ -74,13 +67,10 @@ function createComputerCaches({ dir, now = Date.now }) {
   const CORRUPT = /^(SQLITE_CORRUPT|SQLITE_NOTADB)/;
   const isCorrupt = (error) =>
     error instanceof SyntaxError || CORRUPT.test(String(error?.code ?? error?.errstr ?? "")) || /malformed|not a database/i.test(String(error?.message));
-  /** A damaged copy is closed and deleted so it rebuilds; the error still goes on to the caller. */
   function reset(id) {
     try {
       open.get(id)?.handle.close();
-    } catch {
-      /* already unusable */
-    }
+    } catch {}
     open.delete(id);
     written.delete(id);
     fs.rmSync(path.join(dir, id), { recursive: true, force: true, maxRetries: 5 });
@@ -106,13 +96,11 @@ function createComputerCaches({ dir, now = Date.now }) {
         const slot = `${kind}\n${key}`;
         let kept = written.get(id);
         if (kept?.get(slot) === digest) {
-          // The same copy: a chat still counts as opened now, for the MAX_CHATS kept.
           if (kind === "chat") touch.run(now(), kind, key);
           return;
         }
         upsert.run(kind, key, payload, now());
         if (!kept) written.set(id, (kept = new Map()));
-        // Chats past MAX_CHATS are deleted: what they last wrote no longer stands for a row.
         if (kind === "chat" && Number(trim.run(MAX_CHATS).changes) > 0) for (const other of kept.keys()) if (other.startsWith("chat\n")) kept.delete(other);
         kept.set(slot, digest);
       });
@@ -140,9 +128,7 @@ function createComputerCaches({ dir, now = Date.now }) {
       for (const { handle } of open.values()) {
         try {
           handle.close();
-        } catch {
-          /* already closed */
-        }
+        } catch {}
       }
       open.clear();
       written.clear();

@@ -5,9 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseLsof } = require("./agents/ports.cjs");
 
-// Discovery reads the process table and each candidate's loopback DevTools endpoint, and starts no
 // capture. Only Chromium browser processes started with --remote-debugging-port qualify; a browser
-// driven over --remote-debugging-pipe (Playwright's default) has no endpoint to attach to.
 const PORT_ARG = /(?:^|\s)--remote-debugging-port=(\d{1,5})(?=\s|$)/;
 const PAGE_ID = /^[A-Fa-f0-9]{32}$/;
 const BROWSER_PATH = /\/devtools\/browser\/([A-Za-z0-9-]{8,64})$/;
@@ -21,7 +19,6 @@ const MAX_FRAME = 1536 * 1024;
 const MAX_MESSAGE = 4 * 1024 * 1024;
 const BUTTON_BITS = { left: 1, right: 2, middle: 4, none: 0 };
 
-/** `ps -axo pid=,ppid=,args=` rows. Arguments are only matched here, never kept or logged. */
 function parseProcesses(output) {
   const processes = [],
     candidates = [];
@@ -33,7 +30,6 @@ function parseProcesses(output) {
       args = match[3];
     processes.push({ pid, ppid });
     const port = PORT_ARG.exec(args);
-    // Renderer, GPU and utility helpers carry --type; the browser process does not.
     if (port && !/(?:^|\s)--type=/.test(args) && Number(port[1]) <= 65535 && candidates.length < MAX_CANDIDATES)
       candidates.push({ pid, port: Number(port[1]) });
   }
@@ -45,7 +41,6 @@ function productName(value) {
   const major = /^(\d{1,4})/.exec(version ?? "")?.[1];
   return major ? `${label} ${major}` : label;
 }
-// /json/list HTML-escapes titles; the viewer shows them as text.
 function unescape(value) {
   return String(value ?? "").replace(
     /&(amp|lt|gt|quot|#39|#x27);/g,
@@ -88,7 +83,6 @@ function createBrowserAdapter(options = {}) {
     const run = (command, args) => execFile(command, args, { timeout: 5000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" });
     const { processes, candidates } = parseProcesses((await run("ps", ["-axwwo", "pid=,ppid=,args="])).stdout);
     if (!candidates.length) return { processes, browsers: [] };
-    // The listener must belong to the browser process itself, so a port reused by another process cannot claim its lineage.
     let listeners = [];
     try {
       listeners = parseLsof(
@@ -96,7 +90,7 @@ function createBrowserAdapter(options = {}) {
       );
     } catch (error) {
       listeners = parseLsof(error?.stdout ?? "");
-    } // lsof exits 1 when a listed pid has no listener.
+    }
     const browsers = await Promise.all(
       candidates.map(async (candidate) => {
         const listener = listeners.find(
@@ -123,18 +117,16 @@ function createBrowserAdapter(options = {}) {
           };
         } catch {
           return null;
-        } // A browser that exits or stalls during discovery is omitted.
+        }
       }),
     );
     const seen = new Set();
     return { processes, browsers: browsers.filter((item) => item && !seen.has(item.id) && seen.add(item.id)) };
   }
 
-  /** One DevTools session on one page: screencast frames out, admitted input in. It never closes the page. */
   async function connect(browser, pageId) {
     if (!PAGE_ID.test(pageId) || ![...LOOPBACK.values()].includes(browser?.host) || !Number.isInteger(browser.port) || browser.port < 1 || browser.port > 65535)
       throw new Error("Invalid browser page.");
-    // A Browser panel's pages are served behind a token path (cdp-proxy.cjs); a real browser has none.
     if (browser.prefix !== undefined && !/^\/[a-f0-9]{48}$/.test(browser.prefix)) throw new Error("Invalid browser page.");
     const socket = new Socket(`ws://${browser.host}:${browser.port}${browser.prefix ?? ""}/devtools/page/${pageId}`);
     const pending = new Map(),
@@ -158,7 +150,6 @@ function createBrowserAdapter(options = {}) {
         item.reject(new Error(message));
       }
       pending.clear();
-      // A copy: listeners may change their subscriptions during notification.
       for (const listener of Array.from(listeners)) listener();
       if (socket.readyState === Socket.OPEN || socket.readyState === Socket.CONNECTING) socket.close();
     };
@@ -168,7 +159,6 @@ function createBrowserAdapter(options = {}) {
           reject(new Error(state.error ?? "Browser connection closed."));
           return;
         }
-        // A stalled page must not accumulate an unbounded command backlog.
         if (pending.size >= 64) {
           reject(new Error("The browser page is not responding."));
           return;
@@ -233,7 +223,6 @@ function createBrowserAdapter(options = {}) {
           if (typeof params.data !== "string" || params.data.length > MAX_FRAME || !(width > 0 && width <= 16384 && height > 0 && height <= 16384)) return;
           latest = { sequence: ++sequence, data: params.data, viewport: { width, height } };
           state = { ...state, ready: true, width, height };
-          // A copy: a frame callback may resubscribe to the capture.
           for (const listener of Array.from(listeners)) listener();
           return;
         }
@@ -257,7 +246,6 @@ function createBrowserAdapter(options = {}) {
     });
     socket.addEventListener("error", () => fail("Could not connect to the browser. Retry to reconnect."));
     const channel = {
-      // document.title changes raise no Page event; viewers poll status, so refresh the title at most once a second.
       status() {
         if (state.ready && Date.now() - historyAt > 1000) {
           historyAt = Date.now();
@@ -317,8 +305,6 @@ function createBrowserAdapter(options = {}) {
         } else if (event.kind === "text") {
           quiet(call("Input.insertText", { text: event.text }));
         } else if (event.kind === "viewport") {
-          // The page lays out at the viewer's size, not its window's. A Browser panel page resizes its own <webview> for
-          // this instead (browser-panel-pages.cjs): emulation there lays out the page but frames stay the guest's size.
           emulated = true;
           quiet(call("Emulation.setDeviceMetricsOverride", { width: event.width, height: event.height, deviceScaleFactor: 0, mobile: false }));
         } else if (event.action === "reload") {
@@ -330,7 +316,6 @@ function createBrowserAdapter(options = {}) {
       },
       async close() {
         if (localClosed) return;
-        // Stop Milagre's screencast and size only. Never Target.closeTarget or Browser.close.
         if (socket.readyState === Socket.OPEN && !state.error) {
           try {
             if (emulated) socket.send(JSON.stringify({ id: ++nextId, method: "Emulation.clearDeviceMetricsOverride", params: {} }));
@@ -381,10 +366,6 @@ function createBrowserAdapter(options = {}) {
     }
   }
 
-  /**
-   * A plain DevTools session on one page, for the agent's browser tools: commands with replies, and events. Unlike
-   * `connect` it starts no capture and sends no input of its own.
-   */
   async function session(browser, pageId) {
     if (!PAGE_ID.test(pageId) || ![...LOOPBACK.values()].includes(browser?.host) || !Number.isInteger(browser.port) || browser.port < 1 || browser.port > 65535)
       throw new Error("Invalid browser page.");
@@ -451,11 +432,6 @@ function createBrowserAdapter(options = {}) {
     };
   }
 
-  /**
-   * Puts a file of this computer on the computer whose browser shows a page, through that browser's DevTools endpoint
-   * (cdp-proxy.cjs `PUT <prefix>/files/<name>`): a paired desktop's Browser panel, reached over its forwarder. Resolves to
-   * the file's path there, for DOM.setFileInputFiles.
-   */
   async function upload(browser, file) {
     if (![...LOOPBACK.values()].includes(browser?.host) || !Number.isInteger(browser.port) || !/^\/[a-f0-9]{48}$/.test(browser.prefix ?? ""))
       throw new Error("This page's computer can't take files.");
@@ -479,14 +455,12 @@ function createBrowserAdapter(options = {}) {
               answer = JSON.parse(body);
             } catch {}
             if (response.statusCode === 200 && typeof answer?.path === "string") return resolve(answer.path);
-            // An older Milagre answers 403 to a PUT.
             if (response.statusCode === 403 || response.statusCode === 404)
               return reject(new Error("The computer showing this page runs an older Milagre that can't take files. Update Milagre there."));
             reject(new Error(`The computer showing this page refused the file: ${answer?.error ?? response.statusCode}.`));
           });
         },
       );
-      // A stalled channel, not a slow one: a big file over the relay can take minutes.
       request.setTimeout(60_000, () => request.destroy(new Error("The computer showing this page stopped taking the file.")));
       request.on("error", reject);
       fs.createReadStream(file)

@@ -30,22 +30,17 @@ export { Counts } from "./DiffIndicators";
 import { CommitFiles } from "./CommitFiles";
 import { ScrollArea } from "../primitives/ScrollArea";
 
-/** The Changes tab's lists: what isn't committed yet, and what the branch committed since its base. */
 export type ChangesLists = Record<DiffMode, DiffList>;
 
 const filesOf = (list: DiffList) => (list.state === "ready" && list.isRepo ? list.files : []);
 
-/** Files across both sections, the Changes tab's count; a file in both counts once. */
 export const changedFileCount = (lists: ChangesLists) => new Set([...filesOf(lists.uncommitted), ...filesOf(lists.committed)].map((file) => file.path)).size;
 
-/** The section a file opened from elsewhere (a transcript's link) shows in: the uncommitted one first. */
 export const sectionOf = (lists: ChangesLists, path: string): DiffMode =>
   !filesOf(lists.uncommitted).some((file) => file.path === path) && filesOf(lists.committed).some((file) => file.path === path) ? "committed" : "uncommitted";
 
-/** Diff comments per section, then per file path. */
 export type CommentCounts = Partial<Record<ChangesMode, Record<string, number>>>;
 
-/** The section the Changes tab opens the diff on: the uncommitted files, unless there are only committed ones. */
 export const firstSection = (lists: ChangesLists): DiffMode =>
   filesOf(lists.uncommitted).length || !filesOf(lists.committed).length ? "uncommitted" : "committed";
 
@@ -62,16 +57,12 @@ export function ChangesPanel({
 }: {
   lists: ChangesLists;
   comparison?: Comparison;
-  /** What the diff shows: one of the Changes tab's sections, or "pr" while a PR tab is selected. */
   mode: ChangesMode;
   onModeChange: (mode: ChangesMode) => void;
-  /** Its promise, when it returns one, keeps the refresh icon spinning until the read is done. */
   onRefresh: () => void | Promise<unknown>;
-  /** A file picked in the Changes tab, with the section it was picked in. */
   onSelectFile: (path: string, mode: DiffMode) => void;
   activePath?: string;
   commentCounts?: CommentCounts;
-  /** The Chat's PR the panel shows in "pr" mode, every PR it opened (a tab each), and what the panel shows in that mode. */
   pullRequest?: {
     number: number;
     choices?: PullRequest[];
@@ -83,7 +74,6 @@ export function ChangesPanel({
   const prShown = mode === "pr" && pullRequest;
   const prs = pullRequest?.choices ?? [];
   const tabs: PrTab[] = prs.map((pr) => ({ key: `pr:${pr.number}`, number: pr.number, pr }));
-  // The shown PR keeps its tab even when the Chat's list hasn't caught up with it.
   if (pullRequest && !prs.some((pr) => pr.number === pullRequest.number)) tabs.push({ key: `pr:${pullRequest.number}`, number: pullRequest.number });
   return (
     <aside
@@ -121,11 +111,9 @@ export function ChangesPanel({
   );
 }
 
-/** Both ends stay visible when a branch exceeds the row's available width. */
 function BranchLabel({ name }: { name: string }) {
   const split = Math.ceil(name.length * 0.55);
   return (
-    // Branch names in mono at the PR tab's size, so the branch line reads one way in both tabs.
     <span title={name} className="flex min-w-0 flex-1 text-left font-mono text-11">
       <span className="min-w-0 truncate">{name.slice(0, split)}</span>
       <span className="max-w-[45%] shrink-0 overflow-hidden whitespace-nowrap [direction:rtl]">{name.slice(split)}</span>
@@ -294,17 +282,14 @@ function CommitRow({ commit, comparison }: { commit: GitCommit; comparison: Comp
   );
 }
 
-/** A PR's tab: `key` names it to the caller; `pr` colours its icon by state; `hint` says whose PR it is (a Link's Project). */
 export type PrTab = { key: string; number: number; pr?: PullRequest; hint?: string };
 
-/** A PR tab's glyph, colour and state words; grey until its status is read. */
 function tabLook(pr: PullRequest | undefined) {
   if (!pr) return { glyph: GitPullRequestIcon, toneClass: "text-ink-3", state: "" };
   const look = prLook(pr);
   return { glyph: look.glyph, toneClass: look.toneClass, state: look.label || "Open" };
 }
 
-/** Left and right arrows select the next tab, as a tab row does. */
 function moveTab(event: KeyboardEvent<HTMLDivElement>) {
   const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
   if (!step) return;
@@ -318,10 +303,6 @@ function moveTab(event: KeyboardEvent<HTMLDivElement>) {
 
 const fade = (on: boolean) => (on ? "transparent, black 20px" : "black, black");
 
-/**
- * The panel's tab row, shared with a Link's panel: "Changes N", one tab per PR, and the refresh button. `selected` is
- * the shown PR tab's key, undefined for Changes. The row scrolls sideways when the PRs don't fit.
- */
 export function ChangesTabs({
   count,
   prs,
@@ -339,7 +320,6 @@ export function ChangesTabs({
 }) {
   const refreshLabel = selected ? "Refresh the PR" : "Refresh changes";
   const row = useRef<HTMLDivElement>(null);
-  // Which edges have tabs scrolled out of sight, so a fade there says there are more.
   const [clipped, setClipped] = useState({ start: false, end: false });
   useEffect(() => {
     const element = row.current;
@@ -358,7 +338,6 @@ export function ChangesTabs({
       observer.disconnect();
       element.removeEventListener("scroll", measure);
     };
-    // A PR tab coming or going changes what is clipped.
   }, [prs.length]);
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
@@ -440,10 +419,6 @@ const SECTIONS = [
   { mode: "committed", label: "On this branch" },
 ] as const;
 
-/**
- * The Changes tab's list: a section for each mode that has files, each its own tree. The open file is marked only in
- * the section the diff shows (`mode`), since a file can be in both.
- */
 export function ChangesSections({
   lists,
   mode,
@@ -459,7 +434,6 @@ export function ChangesSections({
 }) {
   const sections = SECTIONS.filter((section) => filesOf(lists[section.mode]).length > 0);
   const all = [lists.uncommitted, lists.committed];
-  // Outside a repository both lists say so; a failed read shows under whatever the other list has.
   const problem = all.find((list): list is Extract<DiffList, { message: string }> => list.state === "error" || (list.state === "ready" && !list.isRepo));
   const message = all.map((list) => (list.state === "ready" && list.isRepo ? list.message : undefined)).find(Boolean);
   return (
@@ -486,14 +460,11 @@ function ChangesSection({ label, list, ...treeProps }: { label: string; list: Di
   const base = list.state === "ready" && list.isRepo ? list.base : null;
   return (
     <section aria-label={label} data-changes-section={label} className="pb-1.5">
-      {/* A plain label: the count is on the Changes tab and the Files segment, the totals on each row. What the section
-          compares with goes in its tooltip; the comparison row above names the base when it shows. */}
       <h3 className="flex h-7 items-center px-3 text-12 text-ink-3">
         <Tooltip label={label === "Not committed" ? "Compared with the last commit" : `Compared with ${base ?? "the base branch"}`} side="bottom" align="start">
           <span>{label}</span>
         </Tooltip>
       </h3>
-      {/* A few files read best as a flat list in the diff's order; a larger set gets the folder tree. */}
       {files.length <= FLAT_LIST_MAX ? <FlatList files={files} {...treeProps} /> : <Tree nodes={tree} depth={0} {...treeProps} />}
     </section>
   );
@@ -503,7 +474,6 @@ function Notice({ children }: { children: string }) {
   return <p className="px-3 py-2 text-11 text-ink-3">{children}</p>;
 }
 
-/** Spins from the click until the read is done; see useRefreshSpin. */
 function RefreshButton({ label, onRefresh, loading }: { label: string; onRefresh: () => void | Promise<unknown>; loading: boolean }) {
   const spin = useRefreshSpin(onRefresh, loading);
   return (

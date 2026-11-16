@@ -2,7 +2,8 @@ import type { MouseEvent, ReactNode } from "react";
 import { Component, memo, useEffect, useMemo, useRef } from "react";
 import { Cancel01Icon, PinIcon, PinOffIcon } from "@hugeicons/core-free-icons";
 import { createPortal } from "react-dom";
-import { projectOfKey, sessionIdFromKey, type AgentRun, type AgentRuns } from "@milagre/shared/agent-runs";
+import { projectOfKey, sessionIdFromKey, type AgentRun } from "@milagre/shared/agent-runs";
+import { useRuns } from "../lib/agent-runs-store";
 import type { ChatMessage, CoordinatorState, LinkState, ModelOption } from "../model";
 import { chatMark, chatTitle, type ChatMark } from "../lib/chat-list";
 import { useChatMessages } from "../lib/chat-messages";
@@ -11,11 +12,11 @@ import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/c
 import { EditorLinks } from "./editor-links";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Button, IconButton } from "./primitives/Button";
-import { ChatMarkDot } from "./sidebar/ChatRow";
+import { ChatMarkDot } from "./sidebar/ChatMarks";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { ChatTranscript } from "./ChatComposer";
+import { ChatTranscript } from "./transcript/ChatTranscript";
 import { MessageSelection } from "./MessageSelection";
 import { sendQuote } from "../lib/quote-inbox";
 import { RoutineChip } from "./routines/RoutineChip";
@@ -33,7 +34,6 @@ type ChatGridProps = {
   /** The focused Chat's full view, composer and cards included; shown alone while there are no tiles. */
   children: ReactNode;
   states: Record<string, CoordinatorState | LinkState>;
-  runs: AgentRuns;
   delegated: ReadonlySet<string>;
   models: ModelOption[];
   onFocus: (key: string) => void;
@@ -50,7 +50,6 @@ type ChatGridProps = {
   menu?: TileMenuControls;
 };
 
-// What a press in an unfocused tile is meant for instead of focusing it: a control, a link or media in its transcript.
 const TILE_CONTROLS = "a, button, input, textarea, select, summary, label, img, video, [role=button], [role=link], [role=checkbox], [contenteditable]";
 
 /**
@@ -74,7 +73,6 @@ export function ChatGrid({
   focused,
   children,
   states,
-  runs,
   delegated,
   models,
   onFocus,
@@ -87,8 +85,7 @@ export function ChatGrid({
 }: ChatGridProps) {
   const grid = useRef<HTMLElement>(null);
   const shown = keys.length > 0;
-  // A tile focused from the keyboard, the sidebar or a click comes into view, and the prompt takes the keyboard unless
-  // something outside the grid (the sidebar's search, a dialog) has it.
+  const runs = useRuns(shown);
   useEffect(() => {
     if (!shown || !focused) return;
     const frame = requestAnimationFrame(() => {
@@ -103,13 +100,11 @@ export function ChatGrid({
   }, [focused, shown]);
   if (!shown) return children;
   return (
-    // The tiles scroll below the window's title bar, never under its transparent strip.
     <div className="flex h-full flex-col pt-[var(--window-chrome-height)]">
       <ScrollArea ref={grid} data-chat-grid className="min-h-0 flex-1">
         <div className="grid h-full grid-cols-[repeat(auto-fit,minmax(440px,1fr))] auto-rows-[minmax(320px,1fr)] gap-3">
           {keys.map((key) => (
             <ChatTile
-              // The focused tile keeps one key wherever focus goes, so React moves its composer instead of building a new one.
               key={key === focused ? "focused" : key}
               chatKey={key}
               focused={key === focused}
@@ -202,7 +197,6 @@ const ChatTile = memo(function ChatTile({
   const id = sessionIdFromKey(chatKey);
   const session = state?.sessions[id];
   const lean = isLean(state);
-  // The focused tile's composer reads the messages itself.
   const page = useChatMessages(!focused && lean ? scope : null, id);
   const messages = useMemo(
     () => (focused || !state ? NO_MESSAGES : lean ? page.messages : state.messages.filter((message) => message.session_id === id)),
@@ -313,12 +307,9 @@ const ChatTile = memo(function ChatTile({
         )}
       </header>
       {focused ? (
-        // A size container: the composer caps its approval and question cards to the tile's height (cqh), not the window's.
         <div className="flex min-h-0 flex-1 flex-col [container-type:size]">{children}</div>
       ) : (
-        // A tile's images, attachments and file links belong to its own Project (and Computer), not the focused one's.
         <TileBoundary onOpen={() => onFocus(chatKey)}>
-          {/* Quoting from a tile focuses it: the quote waits for its composer (see quote-inbox). */}
           <MessageSelection
             container={tile}
             provider={session && "provider" in session ? session.provider : undefined}

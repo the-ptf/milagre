@@ -3,18 +3,12 @@ import { DONE_DEFAULTS, normalizeDoneSettings, type DoneSettings } from "@milagr
 
 type Caller = { call<T>(method: string, args?: unknown[]): Promise<T> };
 
-/** One computer's Done settings: how long a Chat stays in the Done list before that Mac archives it. */
 export const readDoneSettings = (client: Caller) => client.call<DoneSettings>("done:settings:read", []).then(normalizeDoneSettings);
 export const saveDoneSettings = (client: Caller, patch: Partial<DoneSettings>) =>
   client.call<DoneSettings>("done:settings:save", [patch]).then(normalizeDoneSettings);
 
-/** A computer's retention from `useDoneRetention`'s answer, the default until it has one. */
 export const retentionOf = (hours: Record<string, number>, hostId: string) => hours[hostId] ?? DONE_DEFAULTS.retentionHours;
 
-/**
- * Each listed computer's retention, by host id, read while the list is on screen: a Done row counts down to its own
- * Mac's sweep. A Mac that can't say (older, or not answering) counts with the default.
- */
 export function useDoneRetention(hostIds: string[], clientOf: (hostId: string) => Caller | null, visible: boolean) {
   const [hours, setHours] = useState<Record<string, number>>({});
   const key = hostIds.join("\n");

@@ -35,8 +35,6 @@ import { routineIcon } from "./routine-icon";
 import { routineDeleteWarning, type RoutineWithRuns } from "../../lib/routines";
 import { bridgeForKey } from "../../lib/computer-bridge";
 
-// Fields are 36 in the form and 32 beside a 32px Select; aria-invalid draws the red border (focus wins while focused).
-// fieldClass is w-full, which a w-* beside it never beats: a narrower field takes a max-w-*.
 const FIELD = fieldClass();
 const FIELD_32 = fieldClass({ size: 32 });
 const labelClass = `block ${FIELD_LABEL}`;
@@ -45,12 +43,10 @@ const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 const DAY_MS = 864e5;
 const DEFAULT_SIGNATURE_HEADER = "sentry-hook-signature";
 
-/** A date input's value for `at`, in this computer's time zone. */
 function dateValue(at: number): string {
   const date = new Date(at);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
-/** The end of the picked day in this computer's time zone. */
 function dateAt(value: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 23, 59).getTime() : null;
@@ -74,7 +70,6 @@ function Labeled({ label, error, children, className = "" }: { label: string; er
   );
 }
 
-/** The Schedule chip's popover: Every (number and unit), At a time (time, weekdays, timezone), or Cron (with its timezone). */
 function SchedulePanel({ form }: { form: RoutineFormApi }) {
   const { state, update, errors } = form;
   const schedule = state.schedule;
@@ -107,7 +102,6 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
       {schedule.mode === "every" && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            {/* Only the steps a cron can repeat on evenly: minutes that divide an hour, hours that divide a day. */}
             <Select<string>
               label="Every"
               value={String(schedule.every)}
@@ -124,7 +118,6 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
                 { value: "h", label: "hours" },
               ]}
               onChange={(unit) => {
-                // A step the other unit doesn't offer becomes its nearest smaller one.
                 const steps = (unit === "h" ? form.every.hours : form.every.minutes) as readonly number[];
                 const every = steps.includes(schedule.every) ? schedule.every : (steps.findLast((step) => step <= schedule.every) ?? steps[0]!);
                 set({ unit, every });
@@ -190,7 +183,6 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
   );
 }
 
-/** The Where chip's popover: the Project, where each Run works, and the Chat a Heartbeat checks back on. */
 function WherePanel({ form }: { form: RoutineFormApi }) {
   const { state, update, errors, options, heartbeat, targets } = form;
   return (
@@ -231,7 +223,6 @@ function WherePanel({ form }: { form: RoutineFormApi }) {
   );
 }
 
-/** A Linear trigger's rows under the chips: When, the label or state it watches, Team, and Workspace when there are several. */
 function LinearRows({ form }: { form: RoutineFormApi }) {
   const { state, update, errors, linear, options } = form;
   const listOrInput = (kind: "label" | "state") => {
@@ -314,7 +305,6 @@ function LinearRows({ form }: { form: RoutineFormApi }) {
   );
 }
 
-/** A webhook's URL with Copy (and Rotate once it exists), or where it will appear. */
 export function HookUrl({ url, form, editing }: { url: string | null; form?: RoutineFormApi; editing: boolean }) {
   const [copied, setCopied] = useState(false);
   const copy = (value: string) => {
@@ -359,7 +349,6 @@ export function HookUrl({ url, form, editing }: { url: string | null; form?: Rou
   );
 }
 
-/** A webhook trigger's rows under the chips: its URL, the signature header and the signing secret. */
 function WebhookRows({ form, initial }: { form: RoutineFormApi; initial?: RoutineWithRuns }) {
   const { state, update, errors, hook, editing } = form;
   return (
@@ -401,17 +390,10 @@ function WebhookRows({ form, initial }: { form: RoutineFormApi; initial?: Routin
   );
 }
 
-/** The form's scroller, or none inside a page that scrolls already (a flow's Settings tab). */
 function Scroller({ embedded, children }: { embedded: boolean; children: ReactNode }) {
   return embedded ? children : <ScrollArea className="flex h-full flex-col">{children}</ScrollArea>;
 }
 
-/**
- * New Routine, or Edit with `initial`, in place of the Routine's page: the name as a field with Cancel and Save, a single
- * prompt or a flow and how it starts (new only), the settings as chips that open their pickers, Prompt (not for a flow,
- * whose steps have theirs), Stop after, and Delete Routine (edit only). Escape cancels; the form consumes it, so the page
- * behind stays. `embedded` is a flow's Settings tab: the form sits in the page's own scroller and takes no focus.
- */
 export function RoutineEditor({
   initial,
   models,
@@ -432,16 +414,11 @@ export function RoutineEditor({
   defaultProjectPath?: string;
   onCancel: () => void;
   onSaved: () => void;
-  /** A new Routine was made; a webhook's comes with its URL. */
   onCreated: (routine: Routine, hookUrl?: string) => void;
   onDeleted: () => void;
-  /** Whether the form has changes nobody saved, so whoever moves away from it asks first. */
   onDirtyChange?: (dirty: boolean) => void;
-  /** Somewhere else the window is going (another Routine, the list) while the form has changes: it asks to discard them. */
   leaving?: { onDiscard: () => void; onKeep: () => void } | null;
-  /** A problem reading the Routines after a save, shown with the form's own. */
   error?: string | null;
-  /** Inside a flow's page (its Settings tab) rather than in place of it. */
   embedded?: boolean;
 }) {
   const form = useRoutineForm({ initial, models, capabilities, defaultProjectPath });
@@ -450,9 +427,7 @@ export function RoutineEditor({
   const [confirming, setConfirming] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [now] = useState(() => Date.now());
-  // Created: the page is on its way to the new Routine, and Create stays off so the same form never makes a second one.
   const [created, setCreated] = useState(false);
-  // Cancel or Escape with changes asks to discard them first.
   const [asking, setAsking] = useState(false);
   const dirty = form.dirty && !created;
 
@@ -507,7 +482,6 @@ export function RoutineEditor({
           void save();
         }}
         onKeyDown={(event) => {
-          // Escape cancels and goes no further, so the Routines page (and App's Escape) stays put.
           if (event.key !== "Escape" || event.defaultPrevented) return;
           event.preventDefault();
           if (discard) discard.onKeep();
@@ -711,7 +685,6 @@ export function RoutineEditor({
                 value={dateValue(state.stop.at)}
                 onChange={(event) => {
                   const at = dateAt(event.target.value);
-                  // The last day offered ends a little before the store's 30 day limit, not at 23:59.
                   if (at !== null) update({ stop: { ...state.stop, at: Math.min(at, form.openedAt + 30 * DAY_MS - 60_000) } });
                 }}
               />

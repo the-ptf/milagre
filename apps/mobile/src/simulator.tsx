@@ -30,7 +30,6 @@ import { StatusPill } from "./status-pill";
 import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, SheetHeader, useStyles } from "./ui";
 import { usePanelTabs } from "./panel-tabs";
 
-/** Poll discovery only while this screen is visible. Discovery never starts a video session. */
 function useSimulators(client: Client | null, chatId?: string) {
   const [list, setList] = useState<SimulatorList | null>(null);
   const revision = useRef(0);
@@ -105,7 +104,6 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
   const docked = onClose !== goBack;
   const background = docked ? colors.surface : colors.page;
   const styles = useStyles();
-  // The viewer header's sub-lines, as SheetHeader's subtitle: caption1 12/16 ink3.
   const caption = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
   const { client } = useSession();
   const insets = useSafeAreaInsets();
@@ -137,7 +135,6 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
   useFocusEffect(
     useCallback(() => {
       if (AppState.currentState === "active") resume();
-      // Notification Center, Control Center and screenshots only make the app inactive; video keeps playing.
       const subscription = AppState.addEventListener("change", (state) => {
         if (state === "background") pause();
         else if (state === "active") resume();
@@ -148,7 +145,6 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
       };
     }, [pause, resume]),
   );
-  // Experimental: the Mac's Simlock pool, read when the attach list opens; null when it is off or the Mac lacks it.
   const [pool, setPool] = useState<{ models: SimlockModel[]; error?: string } | null>(null);
   const [leasing, setLeasing] = useState(false);
   useEffect(() => {
@@ -159,7 +155,6 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
       try {
         settings = await source.call<{ enabled: boolean }>("simlock:settings:read", []);
       } catch {
-        // A Mac without Simlock answers unknown command: show nothing rather than an error.
         settings = null;
       }
       if (!settings?.enabled) return live && setPool(null);
@@ -167,7 +162,6 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
         const { models } = await source.call<{ models: SimlockModel[] }>("simlock:models", []);
         if (live) setPool({ models });
       } catch (error) {
-        // Turned on but unreachable (a refused token, a stopped gateway): say why, as desktop does.
         if (live) setPool({ models: [], error: error instanceof Error ? error.message : "Could not reach the Simlock pool." });
       }
     })();
@@ -355,7 +349,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                     <Text style={styles.muted}>{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</Text>
                   </Pressable>
                   {!attaching && (
-                    <CircleButton // Detaching a Simlock lease returns it to the pool, wiped (the Mac releases it).
+                    <CircleButton
                       label={device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? `Return ${device.name} to the Simlock pool` : `Detach ${device.name} from Chat`}
                       icon={Cancel01Icon}
                       disabled={busy}
@@ -454,20 +448,16 @@ function SimulatorWebView({
     const drop = (file: File) => {
       try {
         if (file.exists) file.delete();
-      } catch {
-        /* The OS may purge cached frames. */
-      }
+      } catch {}
     };
     const currentBridge = createSimulatorBridge(
       (method, args) => client.call(`simulator:${method}`, [method === "open" ? { ...(args as object), chatId } : args]),
       (reply) => {
-        // Data stays JSON, never an executable string supplied by the remote peer.
         view.current?.injectJavaScript(`window.simulatorReply?.(${JSON.stringify(reply).replace(/</g, "\\u003c")});true;`);
       },
       (method, result) => {
         if (method !== "frame" || !result) return result;
         const frame = result as SimulatorFrame;
-        // Simlock video is a small H.264 batch the page decodes itself; it goes in as JSON data, never as code.
         if (frame.mimeType === "video/avcc") {
           if (!Number.isSafeInteger(frame.sequence) || frame.sequence < 1 || typeof frame.data !== "string" || frame.data.length > 2796204)
             throw new Error("Invalid simulator frame.");
@@ -481,7 +471,6 @@ function SimulatorWebView({
           frame.data.length > 2796204
         )
           throw new Error("Invalid simulator frame.");
-        // Image bytes stay out of injected JavaScript. Retain only the current and previous file.
         const file = new File(Paths.cache, `simulator-${token}-${++frameRevision}.${frame.mimeType === "image/png" ? "png" : "jpg"}`);
         frameFiles.push(file);
         file.writeSync(frame.data, { encoding: "base64" });
@@ -523,9 +512,7 @@ function SimulatorWebView({
       frameFiles.forEach(drop);
       try {
         if (file.exists) file.delete();
-      } catch {
-        /* The OS may purge cache files while backgrounding. */
-      }
+      } catch {}
     };
   }, [client, receiverConfig, chatId, revision, onConnection]);
   const failed = () => {

@@ -6,7 +6,6 @@ import { InlineError } from "../primitives/InlineError";
 import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
 import { SectionLabel } from "../primitives/SectionLabel";
 
-/** Export a snapshot of the current draft, without saving it to the Chat. */
 export function DesignExportDialog({ designs, onClose }: { designs: DesignExportItem[]; onClose: () => void }) {
   const alive = useRef(false);
   const working = useRef(false);
@@ -58,7 +57,6 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
   };
 
   return (
-    // The dialog is portalled, but its events still bubble through React to the canvas behind it.
     <div
       role="presentation"
       className="contents"
@@ -96,7 +94,6 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
           >
             <div className="space-y-2">
               {formats.map((option) => (
-                // Selection is ink: the filled radio and an ink edge.
                 <label
                   key={option.value}
                   className={`flex items-center gap-3 rounded-control border p-3 transition-colors ${format === option.value ? "border-ink" : "border-line hover:bg-hover"} ${exporting ? "opacity-40" : "cursor-pointer"}`}

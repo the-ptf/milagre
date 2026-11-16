@@ -2,10 +2,6 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createGit } = require("./git/client.cjs");
 
-// Brings the selected source branch up to its remote before a new Worktree is made. Only ever a fast-forward: a branch with
-// commits of its own, a dirty checkout or one mid-merge is left alone and the reason comes back.
-
-// Files in a checkout's git dir that mean an operation is half done.
 const IN_PROGRESS = [
   ["MERGE_HEAD", "merge"],
   ["rebase-merge", "rebase"],
@@ -23,7 +19,6 @@ const firstLine = (text) =>
     .replace(/^(error|fatal): /, "");
 
 function fetchFailure(remote, result) {
-  // A rejected key or password also prints "Could not read from remote", but git's own first line says what to fix.
   if (/permission denied|authentication failed|could not read username|terminal prompts disabled/i.test(result.message)) return firstLine(result.message);
   if (
     result.timedOut ||
@@ -70,22 +65,16 @@ async function syncMainBranch(projectPath, { branch: sourceBranch, client = crea
     const behind = await client.read.run(projectPath, ["merge-base", "--is-ancestor", "--end-of-options", before, after]);
     if (!behind.ok) return result("skipped", { message: `${branch} has commits that aren't on ${remote}`, commit: short(before) });
 
-    // Which Worktree has the branch checked out, if any. A detached Worktree never matches, whatever its folder is called.
     const checkout = await client.read.out(projectPath, ["for-each-ref", "--format=%(worktreepath)", local]);
-    // null is a failed lookup, not "checked out nowhere": moving the ref then could leave a checkout behind its HEAD.
     if (checkout === null) return result("failed", { message: `Could not tell where ${branch} is checked out`, commit: short(before) });
     if (!checkout) {
-      // Fetching from this repository into the branch only ever fast-forwards, and git refuses it while the
-      // branch is checked out anywhere, including a rebase or bisect that started from it (HEAD is detached then).
       const moved = await client.write.run(projectPath, ["fetch", "--quiet", ".", `refs/remotes/${tracking}:${local}`]);
       if (moved.ok) return result("updated", { commit: short(after) });
       const message = /refusing to fetch into/i.test(moved.message) ? `${branch} is in the middle of a rebase or bisect` : `${branch} moved during sync`;
       return result("skipped", { message, commit: short(before) });
     }
-    // Git reports real paths (/private/tmp, not /tmp), so a Project opened through a symlink compares by its real path.
     const realOf = (folder) => fs.realpath(folder).catch(() => path.resolve(folder));
     const where = (await realOf(checkout)) === (await realOf(projectPath)) ? "The main checkout" : path.basename(checkout);
-    // Still registered, folder deleted: git keeps the branch checked out there until it is pruned.
     if (
       !(await fs.access(checkout).then(
         () => true,
@@ -101,7 +90,6 @@ async function syncMainBranch(projectPath, { branch: sourceBranch, client = crea
       const message = where === "The main checkout" ? "The main checkout has uncommitted changes" : `${where} has uncommitted changes on ${branch}`;
       return result("skipped", { message, commit: short(before) });
     }
-    // The merge acts on whatever HEAD has now: if the checkout just switched away from the branch, leave it alone.
     const head = await client.read.out(checkout, ["symbolic-ref", "--quiet", "HEAD"]);
     if (head !== local) return result("skipped", { message: `${where} is no longer on ${branch}`, commit: short(before) });
     const merged = await client.write.run(checkout, ["merge", "--ff-only", "--quiet", after]);

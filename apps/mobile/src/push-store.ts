@@ -3,7 +3,6 @@ import type { NotificationChime } from "@milagre/shared/notification-chimes";
 
 import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
 
-/** `chime` is the notification chime; state saved before it existed has none, read as the system sound. */
 export type PushPreferences = { notifyWhenWaiting: boolean; notifyOnCompletion: boolean; chime?: NotificationChime; schedule?: NotificationSchedule | null };
 export type PushState = PushPreferences & {
   deviceId: string;
@@ -16,7 +15,6 @@ type Storage = { getItemAsync(key: string): Promise<string | null>; setItemAsync
 const KEY = "milagre.push.v1";
 const unique = <T extends SavedHost>(hosts: T[]) => [...new Map(hosts.map((host) => [host.id, host])).values()];
 
-/** Includes attempted registrations: even a lost RPC acknowledgement needs an unregister on Disable or Forget. */
 export function createPushStore(storage: Storage, newId: () => string) {
   let state: PushState | undefined;
   let writes: Promise<unknown> = Promise.resolve();

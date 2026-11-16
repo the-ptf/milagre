@@ -38,9 +38,7 @@ import { tap } from "./primitives/tap";
 import { markdownCellText, markdownColumnWidths, markdownTableRows, type MarkdownNode as Node } from "./markdown-table";
 import { orderedListLabels } from "./markdown-list";
 
-/** `remote` reads a web image the phone can't load itself (a private repository's), or returns null to load it directly. */
 type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string; remote?: (url: string) => MediaValue | null };
-/** What the plain render helpers need from the theme; components pass it in from their hooks. `basePath` resolves relative file links. */
 type MarkdownTheme = {
   colors: Palette;
   styles: Styles;
@@ -49,22 +47,17 @@ type MarkdownTheme = {
   codeSize: number;
   reachable?: ReachableHost | null;
   openChatLink?: ((url: string) => boolean) | null;
-  /** The Chat's steps, whose files a file named in inline code may be (see touchedFileMatches). */
   steps?: { readonly current: readonly { file?: string; files?: readonly string[] }[] };
   /** False where a long press switches the message to an inline selection view (chat replies on iOS). */
   selectable: boolean;
-  /** Selects the message text in place; set, it is also the VoiceOver action on each text block. */
   onMessageAction?: () => void;
   tableHeader?: boolean;
-  /** The paragraph, list and heading ink: ink2 for an agent's thoughts. Links, code and images keep their own colours. */
   tone: TextTone;
 };
 type TextTone = "ink" | "ink2";
 
-// Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger. `textPx` follows Settings > Appearance > Text size.
 const bodyOf = (colors: Palette, textPx = 15, tone: TextTone = "ink") => ({ color: colors[tone], fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
 
-/** Each retry reads the computer again, including when its target and media callback are unchanged. */
 function readImage(target: ReturnType<typeof resolveMarkdownImage>, media: ImageOptions["media"], remote: ImageOptions["remote"], attempt: number) {
   let source: MediaValue | null = null;
   if (target) {
@@ -72,9 +65,7 @@ function readImage(target: ReturnType<typeof resolveMarkdownImage>, media: Image
     else {
       try {
         source = media?.(target.path) ?? null;
-      } catch {
-        // An unavailable computer image keeps its retry control.
-      }
+      } catch {}
     }
   }
   return { attempt, source };
@@ -237,20 +228,14 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme, inLink = false): React.Rea
               ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: Math.round(t.codeSize + 1.5) }
               : {};
     const written = token.type === "link_open" ? String(token.attrGet("href") || "") : "";
-    // A localhost link is the Chat's computer, never the phone: it opens at that computer's IP (unless the Chat's ports
-    // show that server on loopback only), and a bare URL says so.
     const href = written && reachableUrl(written, t.reachable?.host, t.reachable?.loopbackOnly);
     if (href !== written && children.map((child) => child.token.content).join("") === written) text = href;
     const url = href ? safeLink(href) : null;
-    // A link to a file on the computer opens the file preview; the phone's browser can't reach it.
     const file = href && !url ? localFileLink(href, t.basePath) : null;
-    // Inline code that names a file of the Chat's folder opens it in the preview too. A path missing there may be one the
-    // agent named from a subfolder: the files the Chat worked on that end with it go along, for the preview to try next.
     const named = token.type === "code_inline" && !inLink && t.basePath ? fileLinkTarget(token.content) : null;
     const codeFile = named ? localFileLink(named.path, t.basePath) : null;
     const onPress = url
       ? () => {
-          // The internal Browser runs on the computer, so preserve its original localhost address.
           if (!t.openChatLink?.(safeLink(written) ?? url))
             void Linking.openURL(url).catch(() => Alert.alert("Cannot open link", "Try opening this address in your browser."));
         }
@@ -383,7 +368,6 @@ const MarkdownTable = memo(function MarkdownTable({ nodes, images, t }: { nodes:
   );
 });
 
-// An ordered list's marker column: every digit one width, so the widest label fits any number of its length.
 const listMarker: Record<"digits" | "sizer" | "label", TextStyle> = {
   digits: { fontVariant: ["tabular-nums"] },
   sizer: { opacity: 0 },
@@ -434,8 +418,6 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
           {children.map((child, i) => (
             <View key={i} style={{ flexDirection: "row", gap: space.lg }}>
               {ordered ? (
-                // The widest label, invisible, sizes the column; each number sits at its right edge so "9." and "10."
-                // end together and every item's text starts at the same edge.
                 <View>
                   <Text style={[body, listMarker.digits, listMarker.sizer]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
                     {ordered.widest}
@@ -472,7 +454,6 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
     );
   });
 }
-/** One top-level block; unchanged blocks skip parsing and rendering while the reply streams. */
 const Chunk = memo(function Chunk({ text, streaming, media, basePath, remote, selectable, onMessageAction, tone }: BlockProps) {
   const { colors, textPx, codeSize } = useTheme();
   const styles = useStyles();
@@ -488,22 +469,13 @@ const Chunk = memo(function Chunk({ text, streaming, media, basePath, remote, se
   return <MarkdownStreamingContext value={streaming}>{blocks(nodes, images, theme)}</MarkdownStreamingContext>;
 });
 type BlockProps = { text: string; streaming: boolean; selectable: boolean; onMessageAction?: () => void; tone: TextTone } & ImageOptions;
-/**
- * One block of the shared split, cut where the phone also sets list items apart. A finished block keeps its text from
- * batch to batch, so it never splits or renders again while the reply streams.
- */
 const Block = memo(function Block({ text, streaming, ...props }: BlockProps) {
   const chunks = useMemo(() => markdownChunks(text), [text]);
   return chunks.map((chunk, index) => <Chunk key={index} {...props} text={chunk} streaming={streaming && index === chunks.length - 1} />);
 });
 
-// A reply can stream dozens of batches a second; parsing the block being written faster than this shows nothing new.
 const STREAM_RENDER_MS = 50;
 
-/**
- * While `streaming`, `text` changes on screen at most once per STREAM_RENDER_MS, and the newest text always follows.
- * A text that doesn't continue the one on screen (a different reply) shows at once.
- */
 function useThrottledText(text: string, streaming: boolean): string {
   const [shown, setShown] = useState(text);
   const shownAt = useRef(0);
@@ -521,10 +493,6 @@ function useThrottledText(text: string, streaming: boolean): string {
   return streaming && text.startsWith(shown) ? shown : text;
 }
 
-/**
- * A reply in top-level blocks (the split desktop uses), each cut again where the phone sets list items apart. While it
- * streams, the finished blocks render from memo and only the block being written parses, at most every STREAM_RENDER_MS.
- */
 export const Markdown = memo(function Markdown({
   text,
   streaming = false,

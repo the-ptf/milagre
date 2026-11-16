@@ -58,13 +58,11 @@ function PartsCard({ gauge, onCleanup }: { gauge: ResourceGauge; onCleanup?: () 
   );
 }
 
-/** Settings › Computers › a computer › What Milagre uses: its memory and disk split by agent, terminal, app and folder. */
 export default function ComputerUsageScreen() {
   const { colors } = useTheme();
   const session = useSession();
   const { id } = useLocalSearchParams<{ id: string }>();
   const host = session.hosts.find((saved) => saved.id === id);
-  // One list per host: a fresh array each render would restart the status check after every answer, in a loop.
   const hosts = useMemo(() => (host ? [host] : []), [host]);
   const status = useComputerStatus(hosts);
   const online = host ? status[host.id] !== "offline" : false;

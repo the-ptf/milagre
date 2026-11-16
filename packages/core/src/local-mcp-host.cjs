@@ -7,7 +7,6 @@ const { IMAGE_TYPES } = require("@milagre/shared/limits");
 const { chatActivity } = require("@milagre/shared/chat-activity");
 const { queueStatus } = require("@milagre/shared/queued-messages");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
-// A tool never gives a Chat more than its caller has without the user's say.
 const { callerMode: asCaller, raisesMode } = require("./agents/permissions.cjs");
 const { inspectProject } = require("./project-identity.cjs");
 const { ancestorChats } = require("@milagre/shared/subchat-escalation");
@@ -16,7 +15,6 @@ const { isSecretRequest } = require("./chat-secrets.cjs");
 const { isBugReportRequest } = require("./bug-reports.cjs");
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
-/** The answers as the Chat shows them in the user's message, as the question card writes them. */
 function answerSummary(questions, answers) {
   const shown = (question) =>
     (answers[question.id] ?? []).map((value) => (question.secret && !question.options.some((option) => option.label === value) ? "••••••" : value)).join(", ");
@@ -24,10 +22,6 @@ function answerSummary(questions, answers) {
   return questions.map((question, index) => `${question.header || `Question ${index + 1}`}: ${shown(question)}`).join("\n");
 }
 
-/**
- * How `caller` stands to `chatId` in their family of Subchats: "ancestor", "family" for any other member, or null for a
- * Chat outside it (and an outside client), which goes by the older rules.
- */
 function kinOf(state, caller, chatId) {
   if (!caller || projectOfKey(caller) !== projectOfKey(chatId)) return null;
   const callerId = sessionIdFromKey(caller);
@@ -37,7 +31,6 @@ function kinOf(state, caller, chatId) {
   return (ancestorChats(state.sessions, callerId).at(-1) ?? callerId) === (above.at(-1) ?? chatSession) ? "family" : null;
 }
 
-/** `answers` kept to what `question` asked and with text in it: anything less reads as a dismissal (PendingQuestions.answer). */
 function givenAnswers(question, answers) {
   const asked = new Set(question.questions.map((item) => item.id));
   const given = Object.entries(answers ?? {}).flatMap(([id, values]) => {
@@ -50,38 +43,19 @@ function givenAnswers(question, answers) {
 
 const WAITS_ON_THE_USER = "This Subchat is waiting on the user, so only they can";
 
-/** What the receiving agent is told about who sent a chat_start message, which arrives as a plain user turn. */
 function senderLine(from, client) {
   if (from) return `Message from the agent of Chat ${from}, sent with Milagre's chat_start (not the user):`;
   return `Message sent by ${client || "an outside client"} through Milagre's MCP (not the user):`;
 }
 
-/**
- * What the Chat shows for a chat_start message: who sent it (`from`, the sending Chat's key, null for an outside client),
- * so it reads as one line from that Chat rather than as something the user typed.
- */
 function chatMessageContext(caller, label, client) {
   return caller ? { kind: "chat-message", from: caller, fromLabel: label } : { kind: "chat-message", from: null, fromLabel: client || "An outside client" };
 }
 
-/** `body` with the attached files listed, as the composer sends it. */
 function attachmentPrompt(body, files) {
   return files.length ? `${body}\n\nAttached files:\n${files.join("\n")}` : body;
 }
 
-// Narrow host ports; no caller-supplied method names or command payload forwarding.
-/**
- * Ports beyond reads: stopChat(chatId), setPermissionMode(chatId, mode), respondPermission(chatId, requestId, decision),
- * answerQuestion(chatId, requestId, answers, summary, sender), patchChat(projectPath, sessionId, patch),
- * suggestAnswer(callerChat, details), the card chat_respond leaves with suggest (SubchatEscalation.suggest),
- * searchChats(projectPath, query, limit), links: { list(), add(a, b), remove(id) }, activeWorktrees(projectPath) -> paths,
- * models(projectPath) -> { [provider]: [{ id, efforts, defaultEffort }] }, the pickers' catalog,
- * worktreeStatus(path, base) -> { uncommitted, unpushed, branch, removable } (worktree-cleanup.cjs),
- * removeWorktree(projectPath, worktreePath) -> { removed, branch, branchDeleted }, the safe removal only,
- * approve(callerChat, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled".
- * `caller` is the Chat whose agent called the tool; an outside client has none and counts as an Ask caller with nowhere
- * to show an approval card.
- */
 function createLocalMcpHost({
   projects,
   readProject,
@@ -129,7 +103,6 @@ function createLocalMcpHost({
   };
   const progress = (chatId, session) => {
     const run = chats.runs[chatId];
-    // A turn's end isn't the end of the Chat's work while background agents still run (chat-activity.mjs).
     const { activity, background } = chatActivity(session, run);
     return {
       chatId,
@@ -146,8 +119,6 @@ function createLocalMcpHost({
       queued: session.queued?.length ?? 0,
     };
   };
-  // Messages waiting for the running turn to end, on a provider that can't steer (chat-host.cjs), with the line the
-  // Chat shows above them.
   const queue = (chatId, session) =>
     session.queued?.length
       ? {
@@ -157,9 +128,6 @@ function createLocalMcpHost({
           },
         }
       : {};
-  // The caller's live agent's mode. An idle Chat (no agent process, as when a script runs a command for it) has none, so
-  // it counts as the mode it runs in next: its latest turn's, else the one saved with it (#973). `saved` is read once
-  // (savedMode, async); the rest is read again each time, so a check at delivery sees a switch made since.
   const savedMode = async (caller) => {
     try {
       return (await chat(projectOfKey(caller), caller)).session.permissionMode ?? "ask";
@@ -169,8 +137,6 @@ function createLocalMcpHost({
   };
   const callerModeWith = (caller, saved) => (caller ? asCaller(permissionMode(caller, null) ?? chats.turnSettings?.(caller)?.permissionMode ?? saved) : "ask");
   const callerMode = async (caller) => callerModeWith(caller, caller ? await savedMode(caller) : "ask");
-  // Past what the caller may do alone: the user decides on a card in the caller's Chat. An outside client has no Chat.
-  // A caller with no live agent has nowhere to show the card: that is no one's refusal, so it says so (#973).
   const confirm = async (caller, request) => {
     const action = request.title.replace(/\?$/, "");
     if (!caller) throw Error(`${action} needs approval in Milagre, which an outside client can't ask for. Do it in Milagre instead.`);
@@ -183,8 +149,6 @@ function createLocalMcpHost({
       throw Error(`APPROVAL_CANCELLED: the card for ${action} closed before anyone answered it (the calling Chat's turn ended). Nobody declined.`);
     if (decision !== "allow" && decision !== "allow-for-chat") throw Error("The user declined.");
   };
-  // `prompt`, for chat_start: what would run there. Without `asked` the Chat already runs in `mode`, above the caller's.
-  // True when the user allowed it on a card, false when the caller's own mode did.
   const checkMode = async (caller, chatId, mode, session, { prompt, asked = true, fromCaller } = {}) => {
     if (!raisesMode(mode, fromCaller ?? (await callerMode(caller)))) return false;
     const name = session?.title || session?.generatedTitle;
@@ -201,7 +165,6 @@ function createLocalMcpHost({
     });
     return true;
   };
-  // "Project / branch / title": which Chat sent it. The agent is also given its ref, to reach it again.
   const callerName = async (caller) => {
     try {
       const { state, session } = await chat(projectOfKey(caller), caller);
@@ -212,7 +175,6 @@ function createLocalMcpHost({
     }
   };
   const runOf = (chatId) => chats.runs[chatId];
-  // A Subchat that waits on the user is theirs until it is answered: the agents above it wait too.
   const assertNotWaiting = (state, caller, chatId, action) => {
     if (kinOf(state, caller, chatId) !== "ancestor") return;
     const { approvals, questions } = pending(chatId);
@@ -235,9 +197,6 @@ function createLocalMcpHost({
       questions: run?.questions ?? [],
     };
   };
-  // Inside a family the user keeps every decision that matters: an approval or a secret is never an agent's to answer, in
-  // any mode, nor is taking a question away. A question gets a suggestion, which the user sends; a caller in Full may also
-  // answer it alone, and both Chats then say so.
   const familyResponse = async ({ chatId, requestId, state, approval, question, answers, suggest }, caller) => {
     if (approval) throw Error(`${WAITS_ON_THE_USER} answer this approval. Tell them what it wants and what you recommend.`);
     if (isSecretRequest(requestId) || question.questions.some((item) => item.secret)) throw Error(`${WAITS_ON_THE_USER} give this secret.`);
@@ -258,7 +217,6 @@ function createLocalMcpHost({
       accepted: Boolean(await answerQuestion(chatId, requestId, given, undefined, { agent: caller, question: asked, answerLabel, answers: given })),
     };
   };
-  // A path the caller names for an attachment: inside the Chat's own Worktree, so a file elsewhere on the Mac can't ride along.
   const attachment = async (root, file) => {
     if (typeof file !== "string" || !path.isAbsolute(file)) throw Error("Attach files by absolute path inside the Chat's Worktree.");
     const real = await fs.realpath(file).catch(() => {
@@ -392,8 +350,6 @@ function createLocalMcpHost({
       const id = await chats.emptyChat(projectPath, worktreeId, { operationId, assertActive });
       return { chatId: `${projectPath}#${id}` };
     },
-    // A Chat with no live agent takes the mode of the Chat whose agent called the tool; other clients start it in Ask.
-    // A provider, model or effort named here switches the Chat as the composer's pickers do; a new provider hands off.
     async startChat(
       { projectPath, chatId, prompt, provider, model, effort, permissionMode: asked, files = [], images = [] },
       operationId,
@@ -409,12 +365,9 @@ function createLocalMcpHost({
       const chosenModel = model || latest.model || lastUserModel({ ...state, messages }, session.id);
       if (!chosenModel) throw Error("Choose a model for this Chat before starting it");
       const chosenProvider = provider || latest.provider || session.provider || "claude";
-      // The effort the pickers would allow: one named here must fit the model; a carried one falls back to its default.
       const entry = ((await models(projectPath))[chosenProvider] ?? []).find((item) => item.id === chosenModel);
       if (effort && entry && !entry.efforts.includes(effort)) throw Error(`${chosenModel} takes effort ${entry.efforts.join(", ") || "none"}, not ${effort}.`);
       const chosenEffort = effort ?? (entry && latest.effort && !entry.efforts.includes(latest.effort) ? entry.defaultEffort : latest.effort);
-      // The prompt runs in the asked mode, else the Chat's own (a Chat with no live agent takes the caller's): either way,
-      // more than the caller has needs the user's say first.
       const saved = caller ? await savedMode(caller) : "ask";
       const callerNow = () => callerModeWith(caller, saved);
       const modeNow = () => asked ?? permissionMode(chatId, callerNow());
@@ -438,7 +391,6 @@ function createLocalMcpHost({
         ...latest,
         projectPath,
         sessionId: session.id,
-        // The Chat shows `body` as the user's message; the agent is told who really sent it.
         body: prompt,
         prompt: `${senderLine(caller && (senderName ? `${senderName} (${caller})` : caller), client)}\n\n${attachmentPrompt(prompt, attached)}`,
         context: chatMessageContext(caller, senderName ?? caller, client),
@@ -451,18 +403,14 @@ function createLocalMcpHost({
         operationId,
         canStart: () => {
           assertActive();
-          // Again at delivery: a question that opened during the awaits above would be dismissed by this message's steer.
           assertNotWaiting(state, caller, chatId, "send");
           if (modeNow() !== mode) throw Error("Chat permission mode changed; inspect the Chat before retrying");
-          // No card was shown because the caller's own mode allowed `mode`. A caller switched lower since then no longer does.
           if (!approved && raisesMode(mode, callerNow()))
             throw Error("The calling Chat's permission mode changed to less than this needs; nothing was sent. Retry to ask the user.");
           return true;
         },
       });
-      // A running turn takes the asked mode at once, as the composer's switch does.
       if (asked) await setPermissionMode(chatId, asked);
-      // A provider that can't steer keeps this message in the durable Chat queue, so the caller hears it waits.
       return {
         chatId: `${projectPath}#${result.sessionId}`,
         accepted: true,
@@ -485,8 +433,6 @@ function createLocalMcpHost({
       await setPermissionMode(chatId, mode);
       return { chatId, permissionMode: mode };
     },
-    // Answering another Chat's approval is a decision the user makes, unless the caller runs in Full permission itself.
-    // Inside a family the user decides more: see `familyResponse`.
     async respond({ projectPath, chatId, requestId, decision, answers, suggest = false }, caller) {
       const { state, session } = await chat(projectPath, chatId);
       if (caller === chatId) throw Error("A Chat can't answer its own approvals or questions.");
@@ -494,7 +440,6 @@ function createLocalMcpHost({
       const approval = approvals.find((item) => item.requestId === requestId);
       const question = questions.find((item) => item.requestId === requestId);
       if (!approval && !question) throw Error("Nothing with that requestId is waiting in this Chat. chat_read lists what is.");
-      // A bug report goes to a public tracker: only the person who reads its exact text approves it, in any mode or family.
       if (question && isBugReportRequest(requestId))
         throw Error("Only the user can approve or cancel a Milagre bug report, after reading its exact text. Tell them it is waiting.");
       const kin = kinOf(state, caller, chatId);
@@ -503,7 +448,6 @@ function createLocalMcpHost({
       const asking = `"${session.title || session.generatedTitle || "Another Chat"}"`;
       if (approval) {
         if (!decision) throw Error("Give a decision: allow, allow-for-chat or deny.");
-        // The card shows what the other Chat would do, in the fields its own card uses.
         if (decision !== "deny" && (await callerMode(caller)) !== "full")
           await confirm(caller, {
             title: decision === "allow-for-chat" ? `Always allow this in ${asking}?` : `Allow this in ${asking}?`,
@@ -543,7 +487,6 @@ function createLocalMcpHost({
         snippet,
       }));
     },
-    // A Link reaches the other Worktree's files, git and Chats. From an agent in Ask mode the user approves it first.
     async linkWorktrees({ projectPath, worktreeId, targetProjectPath, targetWorktreeId }, caller, inScope) {
       if (!inScope(targetProjectPath) && !caller) throw Error("The target Project is outside this connection's scope");
       await validateProject(targetProjectPath);
@@ -561,7 +504,6 @@ function createLocalMcpHost({
       const added = (await links.add(a, b)).find((link) => !before.has(link.id));
       return { linkId: added?.id, created: true };
     },
-    // Only a Worktree-to-Worktree Link that has this Worktree at one end: Project Links stay the canvas's.
     async unlinkWorktrees({ projectPath, worktreeId, targetWorktreePath }) {
       const worktree = (await project(projectPath)).worktrees[worktreeId];
       if (!worktree) throw Error(`Worktree ${worktreeId} isn't in ${projectPath}`);
@@ -576,7 +518,6 @@ function createLocalMcpHost({
       for (const link of removable) await links.remove(link.id);
       return { removed: removable.map((link) => link.id) };
     },
-    // Only the safe removal (worktree-cleanup.cjs): a Worktree with uncommitted files, or commits on neither its base
     // nor its upstream, is kept, so nothing is lost but the checkout and the Chats the caller archived.
     async removeWorktree({ projectPath, worktreeId }, caller) {
       const state = await project(projectPath);
@@ -590,8 +531,6 @@ function createLocalMcpHost({
       const on = Object.values(state.sessions).filter((session) => session.worktree_id === worktree.id);
       const running = on.filter((session) => chats.runs?.[`${projectPath}#${session.id}`]);
       if (running.length) throw Error(`Stop ${running.map(name).join(", ")} first (chat_stop).`);
-      // An empty Chat (the one a Worktree reuses for its next send) has nothing to lose; one with messages the caller
-      // archives first, since its Chats go with the Worktree.
       const used = (session) => (session.summary?.count ?? 0) > 0 || (state.messages ?? []).some((message) => message.session_id === session.id);
       const open = on.filter((session) => !session.archived && used(session));
       if (open.length) throw Error(`Archive ${open.map(name).join(", ")} first (chat_update archived: true): the Worktree's Chats go with it.`);

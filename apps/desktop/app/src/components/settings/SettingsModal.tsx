@@ -12,12 +12,10 @@ import { IconButton } from "../primitives/Button";
 export function SettingsModal({ nav, children, onClose }: { nav: ReactNode; children: ReactNode; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
-  // A press that starts inside and ends on the scrim (a text drag out of a field) isn't a press on the scrim.
   const downInside = useRef(false);
   useEffect(() => {
     const node = dialog.current;
     if (!node?.open) node?.showModal();
-    // Focus the dialog, not its first control: the nav's search loads lazily, so showModal would land on the × and ring it.
     node?.focus({ preventScroll: true });
     return () => {
       const active = document.activeElement;
@@ -31,7 +29,6 @@ export function SettingsModal({ nav, children, onClose }: { nav: ReactNode; chil
       data-settings-modal
       tabIndex={-1}
       onCancel={(event) => {
-        // Nested dialogs portal to the body, but their cancel events still follow the React tree.
         if (event.target !== event.currentTarget) return;
         event.preventDefault();
         onClose();

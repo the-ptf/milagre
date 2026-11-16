@@ -9,7 +9,6 @@ import { useComposer, useSession } from "../session";
 import { CheckRow, CircleButton, Group, SheetHeader, useStyles } from "../ui";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 
-/** Desktop's permission picker as a sheet: Ask for approval, Auto mode, Full permissions, names only. A tap applies it and closes. */
 export default function PermissionSheet() {
   const styles = useStyles();
   const { chatId, busy } = useLocalSearchParams<{ chatId: string; busy?: string }>();
@@ -21,8 +20,6 @@ export default function PermissionSheet() {
   const project = session.snapshot?.project;
   const chatMode = !draft && project?.path === projectOfKey(chatId) ? project.state.sessions[sessionIdFromKey(chatId)]?.permissionMode : undefined;
   const current = useChatPermissionMode(chatId);
-  // Like desktop: the pick becomes the default for new Chats and applies to this Chat's agent right away, including a
-  // turn that is running (its next tool request uses the new mode). A Chat not yet sent has no agent to tell.
   const pick = async (mode: PermissionMode) => {
     if (saving) return;
     setSaving(true);

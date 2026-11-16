@@ -11,7 +11,6 @@ import { useRefreshSpin } from "./useRefreshSpin";
 const LAYOUT_KEY = "milagre:diff-layout";
 const WRAP_KEY = "milagre:diff-wrap";
 
-/** Unified/Split and Wrap, remembered across launches. */
 export function useDiffPreferences() {
   const [layout, setLayoutState] = useState<DiffLayout>(() => (localStorage.getItem(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrapState] = useState(() => localStorage.getItem(WRAP_KEY) === "on");
@@ -54,7 +53,6 @@ export function DiffToolbar({ changes, prefs }: { changes: Changes; prefs: Retur
       <ToolButton label="Split" active={prefs.layout === "split"} onClick={() => prefs.setLayout("split")} data-diff-layout="split">
         {icon(Layout2ColumnIcon)}
       </ToolButton>
-      {/* Unified and Split are one choice, 2px apart; a divider sets them off from Wrap and Refresh, as a Mac toolbar groups. */}
       <span aria-hidden data-diff-toolbar-divider className="mx-1 h-4 w-px shrink-0 bg-line" />
       <ToolButton
         label={prefs.layout === "split" ? "Split view always wraps" : "Wrap lines"}
@@ -78,10 +76,6 @@ export function DiffToolbar({ changes, prefs }: { changes: Changes; prefs: Retur
   );
 }
 
-/**
- * Whether the diff occupies the main column: while it shows and while it slides out, so the chat only comes back
- * once the diff has left instead of sharing the column with it.
- */
 export function useDiffPresence(showing: boolean) {
   const [leaving, setLeaving] = useState(false);
   const [wasShowing, setWasShowing] = useState(showing);

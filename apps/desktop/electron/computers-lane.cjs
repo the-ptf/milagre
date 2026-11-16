@@ -1,12 +1,7 @@
 // @ts-check
 const { connect } = require("@milagre/daemon/client");
 
-// A call to a paired computer holds its daemon request until the computer answers over the LAN or the relay: one remote
-// Chat's images (a media:read each, 60-300 ms over the relay) held 21-28 of the window's 32 slots (MAX_PENDING) at once,
-// and a Chat switch on this Mac queued its chat:messages behind them. Those calls get a daemon connection of their own:
-// the daemon gives each connection its own slots, and still holds each one to the limit.
 const METHODS = new Set(["computers:invoke"]);
-// A lane that couldn't open is not tried again for this long; its calls go over the window's connection meanwhile.
 const RETRY_MS = 10_000;
 const OPEN_TIMEOUT_MS = 2_000;
 const CHAT_PAGES = "chat-pages-v1";
@@ -15,8 +10,6 @@ const SUBAGENT_TAILS = "subagent-tails-v1";
 const ARCHIVED_SUMMARIES = "archived-subagent-summaries-v1";
 
 /**
- * The daemon sends each connection every event, in the form it asked for. The lane asks for the window's own form (as
- * runtime-client.cjs takeStatePatches does), so the daemon encodes nothing more for it; the lane drops them unread.
  * @param {string[]} capabilities
  */
 function eventForm(capabilities) {
@@ -34,9 +27,6 @@ function eventForm(capabilities) {
 }
 
 /**
- * The connection main sends paired computers' calls on (`handles(method)`). While the window's runtime is connected
- * (`available()`), a call opens the lane if needed; a lane that can't open, or a host that can't take one, sends it
- * over the window's connection instead (`fallback`), as before.
  * @param {{
  *   dataDir: string;
  *   available: () => boolean;
@@ -51,7 +41,6 @@ function createComputersLane({ dataDir, available, fallback, connect: open = con
   /** @type {Promise<Awaited<ReturnType<typeof connect>> | null> | null} */
   let opening = null;
   let closed = false;
-  // When the last lane failed to open; calls take the window's connection until RETRY_MS later.
   let failedAt = -Infinity;
 
   async function openLane() {
@@ -99,11 +88,9 @@ function createComputersLane({ dataDir, available, fallback, connect: open = con
         });
         lane = await opening;
       }
-      // A lane that closed before the call went out (its host stopped) sends nothing: the window's connection decides.
       if (!lane || lane !== client || closed || !available()) return fallback(method, args);
       return lane.call(method, args);
     },
-    /** The host was started again: it may take a lane now. */
     reset() {
       failedAt = -Infinity;
     },

@@ -1,17 +1,8 @@
-/* Dawn: the landing hero as the desktop app's first-launch intro (OnboardingIntro) draws it. A night sky, a falling star
- * that lands where the logo's sparkle sits, the legs rising under it, a halo and light rays, then dawn breaking into a
- * soft day sky with clouds rising under the apps.
- *
- * Every element's own style is the last frame, the day: that is what reduced motion sees. html[data-dawn] (set before
- * first paint in Base.astro) plays the keyframes, which all start from the night. The headline, the apps and the download button are on screen from the first frame; only colours move. */
-
 .dawn-hero {
   --mark: 44px;
   --halo: 520px;
   --hero-pad: clamp(12px, 2.5vh, 32px);
-  /* The logo's centre, from the top of the hero: the nav, the hero's top padding, half the logo. */
   --mark-y: calc(72px + var(--hero-pad) + var(--lift, 0px) + var(--mark) / 2);
-  /* Where the falling star starts, from where it lands: above the window, to the right. */
   --fall-x: min(36vw, 480px);
   --fall-y: calc(-1 * (var(--mark-y) + 32px));
   isolation: isolate;
@@ -25,7 +16,6 @@
   }
 }
 
-/* ── the sky ──────────────────────────────────────────────────────────── */
 .dawn-sky {
   position: absolute;
   inset: 0;
@@ -37,8 +27,6 @@
   position: absolute;
   inset: 0;
 }
-/* The sky's foot turns into the page, so the night never meets the cream below the hero in a hard line while the clouds
-   are still rising. On the day frame the sky already ends on the page's colour. */
 .dawn-sky::after {
   content: "";
   position: absolute;
@@ -61,7 +49,6 @@
   fill: #fff;
   opacity: 0;
 }
-/* Covered by the day on its last frame: not painted at all unless it plays. */
 html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   display: none;
 }
@@ -91,7 +78,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   mask: radial-gradient(circle, #000 0, rgb(0 0 0 / 0.6) 18%, transparent 52%);
 }
 
-/* ── the logo ─────────────────────────────────────────────────────────── */
 .dawn-mark {
   position: relative;
   flex-shrink: 0;
@@ -110,7 +96,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   transform-box: fill-box;
   transform-origin: center;
 }
-/* The star sits 32.5% down a mark 61% of the logo's size, where the logo draws its sparkle. */
 .dawn-comet {
   position: absolute;
   left: 50%;
@@ -141,7 +126,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   opacity: 0;
 }
 
-/* ── the clouds ───────────────────────────────────────────────────────── */
 .dawn-clouds {
   position: absolute;
   inset: auto 0 0;
@@ -164,7 +148,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   fill: var(--page);
   background: var(--page);
 }
-/* Fills the gaps the noise tears near the bottom of the drawing, then the plain page below it on tall windows. */
 .dawn-floor {
   position: absolute;
   inset: calc(var(--fade-h) - 48px) 0 0;
@@ -182,7 +165,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   }
 }
 
-/* ── the star that travels down the page ──────────────────────────────── */
 /* Trail.astro draws the path and moves the star along it with the page's scroll, from the trail's top at mid-window to
    the end of the page, where it lands on the footer logo. Timelines in CSS go through variables: the minifier would fold
    a plain value into the animation shorthand, which browsers reject. */
@@ -191,7 +173,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   inset: 0 0 auto;
   z-index: 0;
   display: none;
-  /* The star's light stops at the page's edges instead of widening the page. */
   overflow-x: clip;
   pointer-events: none;
 }
@@ -200,8 +181,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
     .dawn-trail {
       display: block;
     }
-    /* The footer logo waits for the star: its own sparkle is the travelling star, and the legs rise as it lands, over
-       the last stretch of the page. */
     .footer-mark {
       --dawn-end-tl: scroll(root);
     }
@@ -233,8 +212,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   stroke-dasharray: var(--tail) var(--len);
   stroke-dashoffset: var(--tail);
 }
-/* A soft glow along the last stretch, a brighter core close behind the star, and dust that only shows where the glow
-   is. */
 .dawn-trail-glow {
   --tail: 520px;
   stroke: rgb(240 180 80 / 0.22);
@@ -267,7 +244,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   offset-rotate: 0deg;
   opacity: 0;
 }
-/* Warm light spilling round the windows the star passes behind. */
 .dawn-traveller-light {
   position: absolute;
   left: 50%;
@@ -299,7 +275,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   }
 }
 
-/* ── night to day ────────────────────────────────────── */
 @media (prefers-reduced-motion: no-preference) {
   html[data-dawn] .dawn-dawn {
     animation: dawn-fade-in 1500ms 500ms ease-in-out both;
@@ -334,7 +309,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   html[data-dawn] .dawn-rise {
     animation: dawn-rise 2600ms 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
-  /* The words are there from the first frame, in the night's colours, and take the day's as it comes. */
   html[data-dawn] .dawn-hero :is(h1, .stars) {
     animation: dawn-ink 1700ms 1900ms ease-in-out both;
   }
@@ -352,7 +326,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
   }
 }
 
-/* The loading mark's twinkle (StartupSplash). */
 @keyframes dawn-twinkle {
   0%,
   55% {
@@ -384,7 +357,6 @@ html:not([data-dawn]) :is(.dawn-night, .dawn-dawn, .dawn-stars) {
     opacity: 1;
   }
 }
-/* The loading mark's own motion (StartupSplash): 240 ms, an 18% rise. */
 @keyframes dawn-leg {
   from {
     opacity: 0;

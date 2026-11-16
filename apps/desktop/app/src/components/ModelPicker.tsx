@@ -21,22 +21,17 @@ import { projectAccountOptions, useProjectAccounts } from "./ProjectAccountsSett
 import { Select } from "./primitives/Select";
 import { bridgeForKey } from "../lib/computer-bridge";
 
-/** The model's context window as the picker shows it: "1M", "272k". */
 function contextLabel(model: ModelOption) {
   const size = contextWindowFor(model);
   return size ? formatTokens(size) : undefined;
 }
 
-/** A Kiro model's credit multiplier ("2×"), else its context window. */
 function metaLabel(model: ModelOption) {
   return model.credits ? formatCredits(model.credits) : contextLabel(model);
 }
 
 const PERMISSION_ICONS = { shield: Shield01Icon, "security-check": SecurityCheckIcon, "shield-alert": ShieldAlertIcon } as const;
 
-/** Model, thinking effort, fast mode, Ultracode and the agent's permissions in one popover: a provider rail that scrolls
- * as providers grow, the provider's models, the selected model's settings beside them, and the permission in the
- * footer. Picking a model keeps it open. */
 export function ModelPicker({
   scope,
   style,
@@ -65,7 +60,6 @@ export function ModelPicker({
   providers: ModelProvider[];
   provider: ModelProvider;
   onProviderChange: (provider: ModelProvider) => void;
-  /** The open provider's models, filtered by the search. */
   models: ModelOption[];
   query: string;
   onQueryChange: (query: string) => void;
@@ -89,10 +83,8 @@ export function ModelPicker({
   const hasSettings = levels.length > 0 || capability.fastMode || capability.ultracode;
   const index = Math.max(0, levels.indexOf(effort ?? ""));
   const current = levels[index];
-  // The rail and the header already name the provider; a row repeats its logo only in a list that mixes providers.
   const mixed = new Set(models.map((model) => model.provider)).size > 1;
 
-  // Arrow keys move through the model rows, Enter picks; the search field keeps typing.
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) {
       event.stopPropagation();
@@ -127,7 +119,6 @@ export function ModelPicker({
           {providers.map((item) => {
             const warning = cliTabLabel(cliStatus?.[item]);
             const on = item === provider;
-            // asChild: the tabs stay the rail's direct children. A CLI message, when there is one, is also the tab's description.
             return (
               <Tooltip key={item} label={cliMessage(cliStatus?.[item]) ?? providerName(item)} wrap asChild>
                 <button
@@ -135,13 +126,9 @@ export function ModelPicker({
                   aria-label={providerName(item)}
                   aria-pressed={on}
                   onClick={() => onProviderChange(item)}
-                  // The picked provider is a hover-2 tile with an ink mark, like a pressed icon button; the others' marks rest in
-                  // ink-3. Flat one-colour marks at 18px, a solid one drawn smaller (ProviderLogo optical) so all three read at one weight.
                   className={`group/tile relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${on ? "bg-hover-2" : "hover:bg-hover"}`}
                 >
                   {item === "codex" ? (
-                    // Codex's mark is solid and reads as a blob beside the others' line marks: the rail alone draws OpenAI's
-                    // line mark (the composer chip keeps the brand mark).
                     <span className={`flex ${on ? "text-ink" : "text-ink-3 transition-colors group-hover/tile:text-ink-2"}`}>
                       <Icon icon={ChatGptIcon} size={18} />
                     </span>
@@ -157,9 +144,6 @@ export function ModelPicker({
 
         <div onKeyDown={handleKeyDown} className={`flex min-w-0 flex-col pt-2 pl-2 ${hasSettings ? "w-[240px] shrink-0 border-r border-line" : "flex-1"}`}>
           {scope && <ModelAccountPicker key={scope} scope={scope} provider={provider} />}
-          {/* PickerPanel's search field. */}
-          {/* Bare like the Settings search: its icon starts on the model names' line, and it ends with the rows (which keep 10px
-            for the scrollbar). */}
           <div className="mr-4.5 mb-1 shrink-0">
             <FieldGroup
               fill="bare"
@@ -254,7 +238,6 @@ export function ModelPicker({
           </div>
         )}
       </div>
-      {/* The 28px trigger sits 4px inside the picker's bottom-right corner, so its 6px corner nests in the 10px one. */}
       <div data-permission-footer className="flex shrink-0 items-center justify-end border-t border-line py-1 pr-2.5 pl-2">
         <Select
           label="Agent permissions"
@@ -330,8 +313,6 @@ function SettingRow({
   onChange,
   tone = "orange",
 }: {
-  /** The colour the row takes while on: Fast is orange, Ultracode purple like its Fatality overlay. The icon takes the
-   * plain fill (fills are for icons), the title the -ink shade. */
   tone?: "orange" | "purple";
   icon: typeof FlashIcon;
   label: string;
@@ -362,7 +343,6 @@ function SettingRow({
   );
 }
 
-/** A model row's description in a tooltip; a row without one is left bare. */
 function ModelTip({ description, children }: { description?: string; children: ReactNode }) {
   return description ? (
     <Tooltip label={description} wrap className="w-full">

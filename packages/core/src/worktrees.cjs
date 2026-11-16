@@ -9,13 +9,11 @@ const { outsideGit } = require("./project-identity.cjs");
 const client = createGit();
 const git = client.read.checked;
 
-// Worktrees live outside the project so they never show up as untracked files in it.
 const DEFAULT_WORKTREE_ROOT = path.join(os.homedir(), ".milagre", "worktrees");
 
 // The commit a new worktree starts from. A local branch that only trails its upstream (a `main` behind
 // `origin/main`) starts from the freshly fetched upstream; one with commits of its own, one without an
 // upstream, or one whose remote can't be reached starts from itself. `fetched` says the upstream was just fetched
-// (a source branch sync ran), so the Worktree doesn't wait on the network a second time.
 async function resolveStartRef(projectPath, baseBranch, { fetched = false } = {}) {
   let upstream = [];
   try {
@@ -55,7 +53,6 @@ async function listBranches(projectPath) {
   }
 }
 
-// The base comes from a client (a phone, a window): it must name an existing commit and can never be read as an option.
 async function checkBase(projectPath, baseBranch) {
   const valid = typeof baseBranch === "string" && baseBranch !== "" && !baseBranch.startsWith("-") && !/[\0\n]/.test(baseBranch);
   if (!valid || !(await client.read.refExists(projectPath, baseBranch)))
@@ -64,12 +61,9 @@ async function checkBase(projectPath, baseBranch) {
 
 const newSuffix = () => Math.random().toString(36).slice(2, 6);
 
-// The branch a worktree started from a Linear issue gets: the issue's own branch name, or its key and title when git
-// refuses that, plus the suffix when the name is already a branch. The caller gives the same suffix to the folder.
 async function issueBranch({ projectPath, issue, suffix }) {
   let branch = issue.branchName;
   if (!validBranchName(branch)) branch = [issue.key.toLowerCase(), slugify(issue.title)].filter(Boolean).join("-");
-  // A teammate's remote-tracking branch counts as taken too: a local copy of it would shadow their work.
   const taken =
     (await client.read.refExists(projectPath, `refs/heads/${branch}`)) || (await client.read.refExists(projectPath, `refs/remotes/origin/${branch}`));
   if (taken) branch = `${branch}-${suffix}`;
@@ -93,7 +87,6 @@ async function createWorktree({
   if (await outsideGit(projectPath))
     throw new Error(`${path.basename(projectPath)} has no Git, so its Chats work in the folder itself. Set up Git to give a Chat its own Worktree.`);
   await checkBase(projectPath, baseBranch);
-  // A named branch (from issueBranch) keeps its name; its folder takes the last segment of that name.
   if (named !== undefined && !validBranchName(named)) throw new Error(`${JSON.stringify(String(named))} is not a valid branch name.`);
   const name = `${folderSlug || (named ? slugify(named.split("/").pop()) : slugify(prompt)) || "chat"}-${suffix}`;
   const branch = named ?? `milagre/${name}`;
@@ -101,17 +94,11 @@ async function createWorktree({
   await fs.mkdir(path.dirname(worktreePath), { recursive: true });
   const start = await resolveStartRef(projectPath, baseBranch, { fetched });
   beforeCreate?.();
-  // --no-track: the chat's branch must not push to, or pull from, the branch it started on.
   await client.write.checked(projectPath, ["worktree", "add", trackBase ? "--track" : "--no-track", "-b", branch, "--end-of-options", worktreePath, start]);
-  // Ignored files the project needs (env files) come along; a failed copy never fails the worktree.
   const copy = await copyFilesToWorktree({ projectPath, worktreePath, setting: copyPatterns, limits: copyLimits });
-  // `base` is what the chat's changes are measured against (see diffstat.cjs).
   return { branch, path: worktreePath, base: start, ...(copy.copied.length || copy.notes.length ? { copy } : {}) };
 }
 
-// Gives a chat's branch the name picked for it once the chat is already running (see worktree-name.cjs).
-// The folder keeps its first name: moving it would pull it out from under the agent. Resolves to the new
-// branch, or null when there is nothing to rename or git refuses (the branch is gone, or the name is taken).
 async function renameWorktreeBranch({ worktreePath, branch, slug, policy, suffix: originalSuffix, ticket = "" }) {
   const suffix = originalSuffix ?? branch.match(/-([a-z0-9]+)$/)?.[1];
   const name = slugify(slug);
@@ -129,7 +116,6 @@ async function renameWorktreeBranch({ worktreePath, branch, slug, policy, suffix
 }
 
 // Whether a branch has been pushed: an upstream is set, or a copy of it exists on origin. Renaming such a branch
-// would split it from its remote, so the caller leaves it alone.
 async function branchPushed(worktreePath, branch) {
   const upstream = await client.read.checked(worktreePath, ["rev-parse", "--abbrev-ref", "--quiet", `${branch}@{u}`]).then(
     () => true,
@@ -138,8 +124,6 @@ async function branchPushed(worktreePath, branch) {
   return upstream || (await client.read.refExists(worktreePath, `refs/remotes/origin/${branch}`));
 }
 
-// Gives a worktree's branch an explicit name, e.g. the branch a Linear issue names (see issueBranch). The folder keeps
-// its name. Git's refusal (the branch moved, or the name is taken) throws.
 async function moveWorktreeBranch({ worktreePath, from, to }) {
   await client.write.checked(worktreePath, ["branch", "-m", from, to]);
   return to;

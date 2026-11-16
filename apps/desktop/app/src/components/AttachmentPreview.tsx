@@ -106,8 +106,6 @@ export function AttachmentPreview({ path, name, file, close }: { file?: File; pa
       />
     ) : null;
   return (
-    // Esc closes only this preview: it's consumed here, so it doesn't reach a preview this one opened from (React
-    // bubbles through the component tree) or the window, where it would stop the Chat's turn. A cancel is stopped too.
     <span
       className="contents"
       onKeyDown={(event) => {

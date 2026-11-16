@@ -20,7 +20,6 @@ import { durationText, flattenSteps, flowRunText, needsAnswer, stepSubtitle, typ
 import type { FlowStep, FlowStepKind, FlowStepRun, Routine, RoutineRun, RoutineTrigger } from "@milagre/shared/model";
 import type { IconData, Tone } from "./icons";
 
-/** A step type's icon and the colors of its tile: the icon's tone and the tile's fill (a palette key). */
 export type StepLook = { icon: IconData; tone: Tone; tint: Tone };
 
 const LOOKS: Record<FlowStepKind, StepLook> = {
@@ -32,12 +31,9 @@ const LOOKS: Record<FlowStepKind, StepLook> = {
   "linear-comment": { icon: Comment01Icon, tone: "green", tint: "greenTint" },
 };
 
-/** How a step type looks in the editor and the Run view, as desktop draws it. */
 export const stepLook = (kind: FlowStepKind): StepLook => LOOKS[kind] ?? LOOKS.agent;
-/** The trigger's card: a flash on purple. */
 export const TRIGGER_LOOK: StepLook = { icon: FlashIcon, tone: "purple", tint: "purpleTint" };
 
-/** The trigger card's title: "Linear label added", "On a schedule", "Webhook". */
 export function triggerTitle(trigger: RoutineTrigger | { kind: string }): string {
   if (trigger.kind === "schedule") return "On a schedule";
   if (trigger.kind === "webhook") return "Webhook";
@@ -49,14 +45,12 @@ export function triggerTitle(trigger: RoutineTrigger | { kind: string }): string
   return "Linear comment";
 }
 
-/** A step without the paths an If holds, so an If doesn't count as changed when only a step under it did. */
 const own = (step: FlowStep) => {
   if (step.kind !== "if") return JSON.stringify(step);
   const { yes: _yes, otherwise: _otherwise, ...rest } = step;
   return JSON.stringify(rest);
 };
 
-/** The ids of the steps a draft adds, changes or moves, against the published steps: the editor marks them with a dot. */
 export function changedStepIds(published: FlowStep[], draft: FlowStep[]): Set<string> {
   const before = new Map(flattenSteps(published).map((entry) => [entry.step.id, entry]));
   const changed = new Set<string>();
@@ -68,10 +62,6 @@ export function changedStepIds(published: FlowStep[], draft: FlowStep[]): Set<st
   return changed;
 }
 
-/**
- * A Run's number, as "Run 14": counted from the Routine's Run count, newest first, Test runs left out (they never count).
- * Null for a Test run.
- */
 export function runNumber(routine: Pick<Routine, "runCount"> & { runs?: RoutineRun[] }, run: RoutineRun): number | null {
   if (run.flow?.dryRun) return null;
   const counted = (routine.runs ?? []).filter((item) => !item.flow?.dryRun).sort((a, b) => b.startedAt - a.startedAt);
@@ -81,13 +71,11 @@ export function runNumber(routine: Pick<Routine, "runCount"> & { runs?: RoutineR
   return total - newer;
 }
 
-/** "Run 14", or "Test run". */
 export function runName(routine: Pick<Routine, "runCount"> & { runs?: RoutineRun[] }, run: RoutineRun) {
   const number = runNumber(routine, run);
   return number === null ? "Test run" : `Run ${number}`;
 }
 
-/** Where a flow Run stands, for its icon, color and filter. */
 export type FlowRunState = "you" | "running" | "waiting" | "paused" | "failed" | "ended" | "done";
 
 export function flowRunState(run: RoutineRun): FlowRunState {
@@ -107,7 +95,6 @@ export function flowRunState(run: RoutineRun): FlowRunState {
   return "done";
 }
 
-/** The Runs filter: a Run needs you while it waits for an answer or is paused; it stopped when a step failed. */
 export type FlowRunFilter = "all" | "you" | "stopped";
 export function flowRunMatches(run: RoutineRun, filter: FlowRunFilter) {
   if (filter === "all") return true;
@@ -115,10 +102,8 @@ export function flowRunMatches(run: RoutineRun, filter: FlowRunFilter) {
   return filter === "you" ? state === "you" || state === "paused" : state === "failed";
 }
 
-/** A Run's title: its Linear issue ("MIL-482 Retry webhook deliveries"), what it did, else the Routine's name. */
 export const flowRunTitle = (run: RoutineRun, routineName: string) => runTitle(run, routineName);
 
-/** "Linear label added", "agent added by Victor at 10:02": the trigger row of a Run's timeline. */
 export function triggerRunLine(run: RoutineRun) {
   const event = run.event;
   const at = clock(run.startedAt);
@@ -138,7 +123,6 @@ const firstLine = (text: string | undefined) =>
     .find((line) => line.trim())
     ?.trim() ?? "";
 
-/** What a step's row in a Run's timeline says under its name. `now` moves "running for" and "ends in" on. */
 export function stepRunLine(row: Extract<FlowRunRow, { kind: "step" }>, now: number): string {
   const { step, status, run } = row;
   if (status === "not-taken") return "Not taken";
@@ -170,7 +154,6 @@ export function stepRunLine(row: Extract<FlowRunRow, { kind: "step" }>, now: num
     const since = run.startedAt !== undefined ? ` for ${runDuration(now - run.startedAt)}` : "";
     return step.kind === "agent" ? `Running${since}${step.chat === "own" ? " in its own Chat" : ""}` : `Running${since}`;
   }
-  // Done.
   if (step.kind === "if") return run.taken === "yes" ? "Took Yes" : run.taken === "otherwise" ? "Took Otherwise" : "Done";
   const receipt = run.receipt;
   if (receipt?.kind === "pull-request") {
@@ -186,7 +169,6 @@ export function stepRunLine(row: Extract<FlowRunRow, { kind: "step" }>, now: num
   return "Done";
 }
 
-/** An agent step's output as chips: "complexity: large". Long texts are left out. */
 export function outputChips(output: Record<string, string | number | boolean> | undefined): string[] {
   if (!output) return [];
   return Object.entries(output)
@@ -195,16 +177,13 @@ export function outputChips(output: Record<string, string | number | boolean> | 
     .map(([key, value]) => `${key}: ${typeof value === "boolean" ? (value ? "yes" : "no") : value}`);
 }
 
-/** The flow Runs going on: still running, waiting or paused, Test runs left out. */
 export function runsInProgress(runs: RoutineRun[] | undefined) {
   return (runs ?? []).filter((run) => run.flow && !run.flow.dryRun && ["running", "waiting", "paused"].includes(run.flow.status));
 }
 
-/** The changes line's icon kind: added, removed, or changed. */
 export const changeKind = (line: string): "added" | "removed" | "changed" =>
   line.startsWith("Added ") ? "added" : line.startsWith("Removed ") ? "removed" : "changed";
 
-/** A Run's icon and its tone; no icon while it runs (the list draws a spinner). An approval that expired shows a clock. */
 export function runStateLook(run: RoutineRun): { icon: IconData | null; tone: Tone } {
   const state = flowRunState(run);
   if (state === "you") return { icon: PauseCircleIcon, tone: "orange" };
@@ -216,7 +195,6 @@ export function runStateLook(run: RoutineRun): { icon: IconData | null; tone: To
   return { icon: CheckmarkCircle02Icon, tone: "green" };
 }
 
-/** A step's icon in a Run's timeline: a tick when done, a pause while it waits, a dashed ring before it starts. */
 export function stepStateLook(status: FlowStepRun["status"] | "not-taken", run: FlowStepRun | null): { icon: IconData | null; tone: Tone } {
   if (run?.approval?.decision === "expired") return { icon: AlarmClockOffIcon, tone: "ink2" };
   if (run?.approval?.decision === "rejected") return { icon: UnavailableIcon, tone: "ink2" };
@@ -230,13 +208,11 @@ export function stepStateLook(status: FlowStepRun["status"] | "not-taken", run: 
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
-/** The pull request a Run opened, from its steps' receipts. */
 function runPullRequest(run: RoutineRun) {
   for (const step of Object.values(run.flow?.state ?? {})) if (step.receipt?.kind === "pull-request") return step.receipt;
   return null;
 }
 
-/** The line under a Run's title in the Runs list: "Run 14, done, draft PR #861", "Run 15, stopped at Implement after 3 tries". */
 export function runSubtitle(routine: Pick<Routine, "runCount"> & { runs?: RoutineRun[] }, run: RoutineRun) {
   const name = runName(routine, run);
   if (!run.flow) {

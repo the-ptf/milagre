@@ -40,21 +40,16 @@ type Page = {
   tabId: string;
   surface: HTMLDivElement;
   webview: WebviewTag;
-  /** Over the page, inside its surface: what the panel draws on the page (a comment being written). */
   overlay: HTMLDivElement;
   contentsId: number | null;
   shownAt: number;
-  /** The comment pins this page shows, put back after every load. */
   pins: PagePin[];
-  /** Viewed from the phone or another computer: parked where it still paints. */
   viewed: boolean;
-  /** The viewer's size, which the page takes while parked and viewed; null keeps the size it had. */
   viewport: { width: number; height: number } | null;
 };
 
 const pages = new Map<string, Page>();
 let layer: HTMLDivElement | null = null;
-/** The page on screen, the slot it is laid over, and the bottom corners' radius of the panel's card it rounds to. */
 let shown: { tabId: string; slot: HTMLElement; radius: number } | null = null;
 
 function ensureLayer() {
@@ -69,13 +64,11 @@ function ensureLayer() {
 const PARKED = { left: "-100000px", top: "0px" };
 
 function createPage(chatKey: string, tabId: string, address: string): Page {
-  // An address typed before the page existed is the one it opens on.
   const url = takeNavigation(tabId) ?? address;
   const surface = document.createElement("div");
   surface.dataset.browserPage = tabId;
   Object.assign(surface.style, { position: "absolute", width: "1280px", height: "800px", ...PARKED, pointerEvents: "none" });
   const webview = document.createElement("webview") as WebviewTag;
-  // A Chat on another computer opens its pages in a session of its own that reaches the web from that computer (#832);
   // the webview joins the page once main has routed it, below.
   const remote = isRemoteKey(chatKey);
   if (!remote) webview.setAttribute("partition", window.milagreBrowserPanel?.partition ?? "persist:milagre-browser");
@@ -94,7 +87,6 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
     if (page.contentsId !== before) reportPages();
     const typed = takeNavigation(tabId);
     if (typed) void call(page, (webview) => webview.loadURL(typed));
-    // A new document starts without pins.
     pinned.delete(page);
     applyPins(page);
   });
@@ -109,14 +101,12 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
   webview.addEventListener("page-title-updated", (event) => patchBrowserTab(chatKey, tabId, { title: event.title }));
   webview.addEventListener("page-favicon-updated", (event) => {
     const favicon = event.favicons[0];
-    // The tab's <img> would fetch it from this Mac; a remote Chat's page reads it through its computer instead (#832).
     if (!remote || !favicon) return patchBrowserTab(chatKey, tabId, { favicon });
     void call(page, (webview) => webview.executeJavaScript(faviconScript(favicon))).then((data) => {
       if (typeof data === "string" && data.startsWith("data:image/")) patchBrowserTab(chatKey, tabId, { favicon: data });
     });
   });
   webview.addEventListener("did-fail-load", (event) => {
-    // -3 is a load the next one replaced (a redirect, a new address typed).
     if (!event.isMainFrame || event.errorCode === -3) return;
     patchBrowserTab(chatKey, tabId, { loading: false, error: loadError(event.errorCode, event.errorDescription, event.validatedURL, remote) });
   });
@@ -152,12 +142,10 @@ async function attachRemote(page: Page, url: string) {
   }
 }
 
-/** Run in a page: its favicon as a data URL, fetched by the page itself (so through its session), or null past 64 KB. */
 const faviconScript = (url: string) =>
   `fetch(${JSON.stringify(url)}).then((r) => (r.ok ? r.blob() : null)).then((b) => !b || b.size > 65536 || !b.type.startsWith("image/") ? null : new Promise((done) => { const f = new FileReader(); f.onload = () => done(f.result); f.onerror = () => done(null); f.readAsDataURL(b); })).catch(() => null)`;
 
 function loadError(code: number, description: string, url: string, remote = false) {
-  // The usual one: the Chat's dev server isn't running (yet).
   if (code === -102) return `Nothing is answering at ${hostOf(url)}. Is the server running?`;
   // A remote Chat's page reaches the web from its computer (#832); Chromium names every way that fails this one code.
   if (remote && code === -120) return `Its computer couldn't reach ${hostOf(url)}. Is the server running there?`;
@@ -203,18 +191,14 @@ function reportPages() {
 /** The webview of a tab, if its page is alive. */
 export const browserWebview = (tabId: string): WebviewTag | null => pages.get(tabId)?.webview ?? null;
 
-/** Brings every Chat's pages in line with its tabs: new tabs get a page, closed ones lose theirs, typed addresses load. */
 export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
   const wanted = new Set<string>();
   for (const [chatKey, chat] of chats)
     for (const tab of chat.tabs) {
       wanted.add(tab.id);
       const page = pages.get(tab.id);
-      // Before its first load a page can't navigate; it takes the address when it is ready.
       const url = page?.contentsId ? takeNavigation(tab.id) : undefined;
       if (page && url) void call(page, (webview) => webview.loadURL(url));
-      // A tab gets its page the first time it shows, or when something opens it now (the agent's browser_open, a link)
-      // in a Chat that isn't on screen; a tab remembered from the last launch stays a URL until its panel shows.
       else if (!page && chat.open && chat.active === tab.id && tab.url !== "about:blank" && !tab.error && changedThisLaunch(chatKey))
         createPage(chatKey, tab.id, tab.url);
     }
@@ -227,7 +211,6 @@ export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
  */
 function park(page: Page) {
   if (page.viewed) {
-    // Only what is inside the window paints, so a viewer bigger than this window gets the window's size.
     const size = page.viewport
       ? { width: `${Math.min(page.viewport.width, window.innerWidth)}px`, height: `${Math.min(page.viewport.height, window.innerHeight)}px` }
       : {};
@@ -240,7 +223,6 @@ function place() {
   const page = pages.get(shown.tabId);
   if (!page) return;
   const rect = shown.slot.isConnected ? shown.slot.getBoundingClientRect() : null;
-  // The panel is out of the document (another view, a Link) or not laid out yet: the page waits off screen.
   if (!rect || rect.width < 2 || rect.height < 2) {
     park(page);
     return;
@@ -250,16 +232,12 @@ function place() {
   if (style.left !== next.left || style.top !== next.top || style.width !== next.width || style.height !== next.height) Object.assign(style, next);
   style.opacity = "1";
   style.pointerEvents = "auto";
-  // The page is outside the panel's card, so the card's clip misses it: it is cut at the dock's edges (sliding open or
-  // closed it would draw over the changes panel beside it) and takes the card's bottom corners.
   const dock = shown.slot.closest("[data-slot=browser-dock]")?.getBoundingClientRect();
   const cut = dock ? [Math.max(0, rect.right - dock.right), Math.max(0, dock.left - rect.left)] : [0, 0];
   const clip = `inset(0 ${cut[0]}px 0 ${cut[1]}px round 0 0 ${shown.radius}px ${shown.radius}px)`;
   if (style.clipPath !== clip) style.clipPath = clip;
 }
 
-// After anything that can move the slot (the panel springing open, a drag, the changes panel opening beside it), the
-// page follows it for a moment each frame; at rest nothing runs but a slow check that the panel is still on screen.
 let settleUntil = 0;
 let frame = 0;
 function settle() {
@@ -272,24 +250,18 @@ function settle() {
   frame = requestAnimationFrame(tick);
 }
 
-/**
- * Lays tab `tabId`'s page over `slot` until the returned function runs, which parks it again. The page is made if it
- * isn't alive; the least recently shown pages beyond LIVE_PAGES close.
- */
 export function showBrowserPage(chatKey: string, tabId: string, slot: HTMLElement): () => void {
   const tab = chatBrowser(chatKey).tabs.find((item) => item.id === tabId);
   const page = pages.get(tabId) ?? (tab ? createPage(chatKey, tabId, tab.url) : null);
   if (!page) return () => {};
   page.shownAt = performance.now();
   for (const old of [...pages.values()].toSorted((a, b) => b.shownAt - a.shownAt).slice(LIVE_PAGES)) if (old !== page) destroyPage(old);
-  // The slot is the card's last child, so its bottom corners are the card's.
   const radius = slot.parentElement ? parseFloat(getComputedStyle(slot.parentElement).borderBottomRightRadius) || 0 : 0;
   shown = { tabId, slot, radius };
   place();
   settle();
   const resize = new ResizeObserver(settle);
   resize.observe(slot);
-  // The docked panel moves by its style (`right`) when a panel right of it opens; its size alone wouldn't say so.
   const moves = new MutationObserver(settle);
   const dock = slot.closest<HTMLElement>("[data-slot=browser-dock]");
   if (dock) moves.observe(dock, { attributes: true, attributeFilter: ["style"] });
@@ -306,14 +278,12 @@ export function showBrowserPage(chatKey: string, tabId: string, slot: HTMLElemen
   };
 }
 
-/** Focuses the page on screen, so typing goes to it. */
 export function focusBrowserPage(tabId: string) {
   pages.get(tabId)?.webview.focus();
 }
 
 const pageOfContents = (contentsId: number) => [...pages.values()].find((page) => page.contentsId === contentsId);
 
-/** Main's events about pages: a page asking for a new window gets a tab beside it; ⌘L, ⌘R and ⌘W pressed in a page. */
 export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key: "l" | "r" | "w") => void): () => void {
   const bridge = window.milagreBrowserPanel;
   if (!bridge) return () => {};
@@ -358,13 +328,11 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
   };
 }
 
-/** Where the panel draws over a tab's page (the comment box), or null while the page isn't alive. */
 export const browserOverlay = (tabId: string): HTMLDivElement | null => pages.get(tabId)?.overlay ?? null;
 
 const accent = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#007df3";
 const green = () => getComputedStyle(document.documentElement).getPropertyValue("--green").trim() || "#199a4d";
 
-// Pages whose current document has pins: an empty list then has to take them away; otherwise it needs no script.
 const pinned = new WeakSet<Page>();
 function applyPins(page: Page) {
   if (!page.pins.length && !pinned.has(page)) return;
@@ -373,7 +341,6 @@ function applyPins(page: Page) {
   void call(page, (webview) => webview.executeJavaScript(pagePinsScript(page.pins, { accent: accent(), green: green(), showResolved: true })));
 }
 
-/** Shows `pins` on a tab's page now and after every load. */
 export function setPagePins(tabId: string, pins: PagePin[]) {
   const page = pages.get(tabId);
   if (!page || JSON.stringify(page.pins) === JSON.stringify(pins)) return;
@@ -381,10 +348,6 @@ export function setPagePins(tabId: string, pins: PagePin[]) {
   if (page.contentsId) applyPins(page);
 }
 
-/**
- * Lets the user pick an element on a tab's page: resolves to it; null when they press Escape, the page navigates or
- * cancelPagePick runs; undefined when a newer pick replaced this one. The page is focused so its keys reach the picker.
- */
 export async function pickOnPage(tabId: string): Promise<PageElement | null | undefined> {
   const page = pages.get(tabId);
   if (!page) return null;
@@ -398,7 +361,6 @@ export function cancelPagePick(tabId: string) {
   if (page) void call(page, (webview) => webview.executeJavaScript(PAGE_PICK_CANCEL));
 }
 
-/** A PNG of an element's box on a tab's page (with a margin, without the pins), or null. */
 export async function capturePageElement(tabId: string, box: PageElement["box"]): Promise<string | null> {
   const page = pages.get(tabId);
   const capture = window.milagreBrowserPanel?.capture;
@@ -406,7 +368,6 @@ export async function capturePageElement(tabId: string, box: PageElement["box"])
   const margin = 12;
   const contentsId = page.contentsId;
   try {
-    // Two of the page's own frames, so its last painted frame has neither the pins nor the picker's label.
     await call(page, (webview) =>
       webview.executeJavaScript(`${pagePinsHidden(true)}; new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))`),
     );
@@ -418,7 +379,6 @@ export async function capturePageElement(tabId: string, box: PageElement["box"])
   }
 }
 
-/** Read positions in the guest page; the renderer owns the same comment bubbles as Designs and Artifacts. */
 export async function pagePinPositions(tabId: string, pins: PagePin[]): Promise<PagePinPosition[]> {
   const page = pages.get(tabId);
   if (!page || !page.contentsId) return [];

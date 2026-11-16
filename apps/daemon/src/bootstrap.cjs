@@ -8,14 +8,12 @@ const { staleOwner } = require("@milagre/core/ownership");
 
 // A connection that failed this way has no host behind it. ECONNRESET, EPIPE and DAEMON_CLOSED are a host still exiting
 // (after a force quit or a crash): its socket accepted the connection, then closed it before the status reply, and which
-// of the three the desktop sees depends on whether its request was already written.
 const HOST_GONE = ["ENOENT", "ECONNREFUSED", "ECONNRESET", "EPIPE", "DAEMON_CLOSED"];
 
 async function compatibleClient(dataDir, timeoutMs = 30000) {
   const client = await connect({ dataDir, timeoutMs });
   try {
     const status = await client.call("daemon:status");
-    // result-pages-v1 is optional: an older host still serves the desktop, and fails only on very large Projects.
     const required = ["desktop-v1", "snapshot-pages-v1"];
     if (!required.every((capability) => status.capabilities?.includes(capability)) || !Array.isArray(status.methods)) {
       throw Object.assign(new Error("The running Milagre host is older than this desktop. Stop the host cleanly, then reopen Milagre."), {
@@ -35,8 +33,6 @@ function numbers(version) {
   return match ? match.slice(1).map(Number) : null;
 }
 
-// A host from another app version is replaced, unless it is certainly newer: an older desktop reusing a newer host keeps
-// working while its capabilities allow. A host with no version predates this check.
 function hostIsStale(hostVersion, appVersion) {
   if (!hostVersion) return true;
   if (hostVersion === appVersion) return false;
@@ -52,7 +48,6 @@ const failure = () =>
     code: "STALE_DAEMON",
   });
 
-// Stops the host the way an update does (it saves running chats, which the next host resumes), then waits for it to go.
 async function stopStaleHost(client, timeoutMs) {
   let timer;
   let onClose;
@@ -62,7 +57,6 @@ async function stopStaleHost(client, timeoutMs) {
     timer = setTimeout(() => reject(failure()), timeoutMs);
   });
   try {
-    // A failed call is not fatal by itself: another desktop may have stopped the host first. Only the close counts.
     await Promise.all([client.call("daemon:stop").catch(() => {}), closed]);
   } finally {
     clearTimeout(timer);
@@ -78,8 +72,6 @@ function rotateLog(logPath, maxBytes) {
   } catch {}
 }
 
-// Only connection establishment is retried. A caller must never replay a command
-// that may already have reached the runtime.
 async function ensureDaemon({
   dataDir,
   version,
@@ -96,8 +88,6 @@ async function ensureDaemon({
   if (process.platform === "win32") preparePrivateDirectory(dataDir);
   try {
     const existing = await compatibleClient(dataDir);
-    // A host whose close failed (closing) still answers but refuses every command: stop it again, which retries its
-    // close, rather than reuse it.
     if (!existing.status.closing && !hostIsStale(existing.status.version, version)) return existing;
     await stopStaleHost(existing, startupTimeoutMs);
   } catch (error) {
@@ -107,7 +97,6 @@ async function ensureDaemon({
   let child;
   let launchError;
   // An existing lock may be a concurrent launch; wait for it to listen. One whose owner has certainly exited (a crash)
-  // doesn't stop a start: the new host takes it over (see acquireOwnership). It is checked on every wait, since a
   // crashed host can still look alive for a moment while it exits.
   const lockPath = path.join(dataDir, "runtime.lock");
   function launch() {

@@ -4,7 +4,6 @@ import type { LinkedWork, OpenDelegation } from "../model";
 
 type State = { enabled: boolean; ready: boolean; saving: boolean; error: string };
 
-/** Settings › Church's "Delegate to other computers": this Mac's own switch, kept by its daemon. */
 export function useRemoteDelegationEnabled() {
   const [state, setState] = useState<State>({ enabled: false, ready: false, saving: false, error: "" });
   useEffect(() => {
@@ -40,7 +39,6 @@ export function useRemoteDelegationEnabled() {
   return { ...state, save };
 }
 
-/** The Delegations a Chat sent to other computers that are still open: the Chat mirrors each one's turn. */
 export function remoteDelegationsFrom(work: LinkedWork, chatKey: string | null): OpenDelegation[] {
   if (!chatKey) return [];
   return work.delegations.filter((item) => item.computer && item.from_chat === chatKey);
@@ -48,7 +46,6 @@ export function remoteDelegationsFrom(work: LinkedWork, chatKey: string | null):
 
 export type RemoteRunStatus = "sending" | "starting" | "approval" | "question" | "working";
 
-/** What a mirrored turn is doing, from the other computer's live run (absent until its turn starts). */
 export function remoteRunStatus(delegation: OpenDelegation, run: AgentRun | undefined): RemoteRunStatus {
   if (!delegation.to_chat) return "sending";
   if (!run) return "starting";
@@ -58,7 +55,6 @@ export function remoteRunStatus(delegation: OpenDelegation, run: AgentRun | unde
 }
 
 const TAIL = 600;
-/** The end of what the mirrored turn has written so far, cut at a line or word start. */
 export function replyTail(text: string): string {
   const trimmed = text.trimEnd();
   if (trimmed.length <= TAIL) return trimmed;

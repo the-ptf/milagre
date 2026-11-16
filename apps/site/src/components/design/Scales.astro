@@ -1,6 +1,4 @@
 ---
-// The spacing, radius, elevation, blur, motion and icon tables from DESIGN.md as specimens. Shadows, blurs and
-// curves use the values the apps ship (design-system.ts); the tables only add each token's use.
 import { CommandLineIcon, File01Icon, Mic01Icon, PencilEdit02Icon, Search01Icon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { desktop, phone, SCHEMES, type Table } from "../../design-system";
 import { icon } from "../../hugeicon";
@@ -14,7 +12,6 @@ const at = (name: string) => table.header.indexOf(name);
 const value = at("Value");
 const use = at("Use");
 
-// A cubic-bezier as an SVG path in a 100 x 100 box, y up.
 const curve = (bezier: string) => {
   const [x1, y1, x2, y2] = (bezier.match(/[\d.]+/g) ?? []).map(Number);
   return `M0 100 C${x1 * 100} ${100 - y1 * 100} ${x2 * 100} ${100 - y2 * 100} 100 0`;

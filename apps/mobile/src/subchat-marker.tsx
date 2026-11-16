@@ -8,10 +8,6 @@ import { Markdown } from "./markdown";
 import type { MediaValue } from "./viewer-store";
 import { useTheme } from "./theme";
 
-/**
- * A Subchat's Delegation report in the transcript, as one grey line ("Fix the login finished"): its name opens that Chat,
- * the chevron opens the report in place, in a bordered block. A failed report reads red, a stopped one grey.
- */
 export function SubchatMarker({
   marker,
   chat,
@@ -21,7 +17,6 @@ export function SubchatMarker({
   basePath,
 }: {
   marker: { text: string; kind: SubchatKind };
-  /** The Subchat's key, to open it; null when there is none to open. */
   chat: string | null;
   body: string;
   onOpenChat?: (chatKey: string) => void;

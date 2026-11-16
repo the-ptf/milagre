@@ -4,10 +4,6 @@ import type { CompactionContext } from "../model";
 import { SpinnerRing } from "./primitives/SpinnerRing";
 import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
-/**
- * A manual or automatic compaction: a hairline with "Context compacted  897k → 42k" centred on
- * it, as the handoff divider is drawn. It spins while the agent compacts.
- */
 export function CompactionDivider({ context }: { context: CompactionContext }) {
   const label = compactionLabel(context);
   if (context.quiet && context.status !== "failed") return null;

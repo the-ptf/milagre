@@ -4,7 +4,6 @@ import type { PersistenceFailure } from "@milagre/shared/model";
 import type { Client } from "./client";
 import { ErrorNotice } from "./ui";
 
-/** Kept in the measured composer dock, outside scrollable history and pending approval cards. */
 export function PersistenceNotice({
   client,
   scope,

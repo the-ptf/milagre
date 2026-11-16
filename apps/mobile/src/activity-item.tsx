@@ -12,7 +12,6 @@ import { lineHeight, radius, type } from "./design-tokens";
 type ActivityState = "idle" | "running" | "waiting" | "failed";
 const TITLE_LINE = lineHeight.subheadline;
 
-/** Activity titles share code chips and the running shimmer, including reduced-motion handling. */
 export function ActivityTitle({
   title,
   shimmer,
@@ -36,7 +35,6 @@ export function ActivityTitle({
           key={index}
           style={{
             fontFamily: fonts.mono,
-            // Inline code a step under the 15 title, as desktop's 0.92em.
             fontSize: type.footnote,
             backgroundColor: moving ? undefined : colors.field,
             color: shimmer ? colors.ink3 : colors.ink,
@@ -59,7 +57,6 @@ export function ActivityTitle({
   );
 }
 
-/** Shared tool/subagent disclosure. Adapters supply their data and output; presentation lives here. */
 export function ActivityItem({
   title,
   icon,
@@ -89,7 +86,6 @@ export function ActivityItem({
   loading?: boolean;
   onPress?: () => void;
   disclosureOnly?: boolean;
-  /** Open until the row is tapped; follows changes until then. */
   expanded?: boolean;
 }) {
   const { colors } = useTheme();
@@ -103,7 +99,6 @@ export function ActivityItem({
   const action = () => (onPress ? onPress() : setToggled(!expanded));
   const accessibilityState = expandable ? { expanded } : undefined;
   const headerStyle: ViewStyle = { minHeight: 44, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 12 };
-  // The icon sits in a box one title line tall, so it centers on the first line whether the title wraps or not.
   const heading = (
     <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
       <View style={{ height: TITLE_LINE, justifyContent: "center" }}>

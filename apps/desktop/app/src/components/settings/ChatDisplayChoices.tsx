@@ -19,10 +19,6 @@ import { DICTATION_SHORTCUT_MODES, type DictationShortcutMode } from "@milagre/s
 
 type Choice<T extends string> = { id: T; label: string; description: string; preview: ReactNode };
 
-/**
- * Two side-by-side cards for one setting, each a small picture of what it does, its name and one line. A radio group:
- * arrow keys move between the cards, and the chosen one carries an ink ring and a filled radio (selection is ink).
- */
 function ChoiceCards<T extends string>({
   label,
   value,
@@ -52,8 +48,6 @@ function ChoiceCards<T extends string>({
             value={choice.id}
             aria-label={choice.label}
             data-choice-card={choice.id}
-            // The selected card's 2px ink frame is drawn inside its box (an ink border plus a 1px inset ring), so every card keeps
-            // the same outer bounds and lines up with the cards above and below.
             className={`flex flex-col gap-2 rounded-card border bg-surface px-4 py-3 text-left transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "border-ink ring-1 ring-ink ring-inset" : "border-line"}`}
           >
             <span aria-hidden className={`flex w-full flex-col overflow-hidden rounded-control bg-inset ${compact ? "h-16 gap-1 p-2" : "h-[112px] gap-2 p-3"}`}>
@@ -120,7 +114,6 @@ const Avatar = ({ color, size = 6 }: { color: string; size?: number }) => (
 
 const AVATARS = ["#565f89", "#9e7b5a", "#bb9af7"];
 
-/** A line of small type with an icon, the way a reply's activity row reads. */
 function Line({ icon, text, chevron }: { icon: Parameters<typeof HugeiconsIcon>[0]["icon"]; text: string; chevron?: "right" | "down" }) {
   return (
     <span className="flex shrink-0 items-center gap-1.5 text-10 leading-3 text-ink-3">
@@ -154,7 +147,6 @@ function OneListPreview() {
   );
 }
 
-/** Title first rows: the title with the state at its right edge, then a small Project tile and the PR at the edge. */
 function TitleFirstPreview() {
   return (
     <>
@@ -203,7 +195,6 @@ function GroupedPreview() {
   );
 }
 
-/** Tree: a Link with its Projects under it, each with a Worktree and its Chats. */
 function TreePreview() {
   return (
     <span className="flex flex-col gap-[5px]">
@@ -225,7 +216,6 @@ function TreePreview() {
   );
 }
 
-/** The reply under the work: full-width bars, the last one short. */
 function AnswerBars({ lines }: { lines: number }) {
   return (
     <>
@@ -285,8 +275,6 @@ function FullToolsPreview() {
   );
 }
 
-// The phone's Settings › Chat names these the same way.
-/** The Chat list cards: One list in its two row styles (Appearance's `sidebarRows`), By Project and Tree. */
 export type ChatListPick = ChatList | "title-first";
 const CHAT_LIST_CHOICES: Choice<ChatListPick>[] = [
   { id: "list", label: "One list", description: "Newest first, Project on each row.", preview: <OneListPreview /> },
@@ -317,7 +305,6 @@ export function ChatListChoice({ value, onChange }: { value: ChatListPick; onCha
   return <ChoiceCards label="Chat list" value={value} onChange={onChange} choices={CHAT_LIST_CHOICES} />;
 }
 
-/** Folded or Expanded: the `expandReasoning` setting as two cards. */
 export function ReasoningChoice({ expanded, onChange }: { expanded: boolean; onChange: (expanded: boolean) => void }) {
   return (
     <ChoiceCards label="Reasoning" value={expanded ? "expanded" : "folded"} onChange={(value) => onChange(value === "expanded")} choices={REASONING_CHOICES} />
@@ -328,7 +315,6 @@ export function ToolCallChoice({ value, onChange }: { value: ToolCallDisplay; on
   return <ChoiceCards label="Tool calls" value={value} onChange={onChange} choices={TOOL_CALL_CHOICES} />;
 }
 
-/** How the Dictate shortcut works: held while talking, or pressed to start and again to stop. */
 export function DictationShortcutModeChoice({
   value,
   onChange,
@@ -354,7 +340,6 @@ export function DictationShortcutModeChoice({
   );
 }
 
-/** A key cap held down under a long wave, or pressed twice around a short one. */
 function ShortcutPreview({ hold, shortcut }: { hold: boolean; shortcut: string }) {
   const cap = (pressed: boolean) => (
     <span

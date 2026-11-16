@@ -31,18 +31,14 @@ const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 const QA_AGENTS = bundledAgents();
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
-// the user, through canUseTool, before edits and commands its rules don't already allow.
 const CLAUDE_MODES = { ask: "default", auto: "acceptEdits", full: "bypassPermissions" };
 
 // Claude Code's built-in terse output style. Unlike text appended to the system prompt, which the SDK
-// records with a conversation and ignores on later turns and resumes, the style applies to new chats, to
-// resumed chats and to the running query, all through applyFlagSettings before the turn's message.
 const CONCISE_STYLE = "Concise";
 
 // Claude Code prints this when --resume names a session it no longer has.
 const MISSING_CONVERSATION = /No conversation found/i;
 
-// Read the computer default, even when this query uses an extra Account's config directory.
 function promptSuggestionsEnabled(directory, env) {
   if (env.CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION === "false") return false;
   try {
@@ -82,7 +78,6 @@ class Inbox {
   }
 }
 
-// The uuid comes back in the result of the turn that reads the message (see mapClaudeMessage).
 function userMessage(prompt, images = []) {
   const content = promptImageBlocks(prompt, images).map((block) =>
     block.type === "text"
@@ -92,8 +87,6 @@ function userMessage(prompt, images = []) {
   return { type: "user", uuid: randomUUID(), message: { role: "user", content }, parent_tool_use_id: null };
 }
 
-// A Chat's linked tools, served in-process. The reads, the plan tools and the self-gated ones (`delegate` asks through
-// Milagre's own card, see Delegations) are allowed outright; every other one reaches canUseTool and follows the Chat's
 // permission mode, as on Codex and Antigravity (isUngatedMilagreTool).
 function linkedOptions(tools, sdk) {
   const server = sdk.createSdkMcpServer({
@@ -130,7 +123,6 @@ class ClaudeSession {
     emit,
     workspaceRoots,
     readOnlyRoots,
-    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
     access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
@@ -171,14 +163,11 @@ class ClaudeSession {
     this.cancelRequested = false;
     this.closed = false;
     this.permissions = new PendingPermissions((event) => this.emit(event));
-    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null, and a wake's EscalationTurn while
-    // its turn runs (see guardHook).
     this.guard = null;
     this.escalation = null;
     this.questions = new PendingQuestions((event) => this.emit(event));
     // Settles once the running turn's own message is in Claude Code's input (or the turn failed to start).
     this.turnReady = Promise.resolve();
-    // Settles when the running turn ends; a message sent while the turn is stopping waits on it.
     this.turnEnded = Promise.resolve();
     this.markEnded = () => {};
   }
@@ -207,7 +196,6 @@ class ClaudeSession {
     );
     this.implicitTurn = false;
     this.steeredTurn = false;
-    // Whether this turn's init announced a session id (session-started); see readMessages.
     this.announcedId = false;
     this.cancelRequested = false;
     this.turnEnded = new Promise((resolve) => {
@@ -241,7 +229,6 @@ class ClaudeSession {
           await this.query.setPermissionMode(mode);
           this.mode = mode;
         }
-        // A new effort level alone turns ultracode off, so both keys always travel together.
         if ((effort && effort !== this.effort) || ultracode !== this.ultracode) {
           await this.query.applyFlagSettings({ ...(effort ? { effortLevel: effort } : {}), ultracode });
           this.effort = effort;
@@ -277,15 +264,12 @@ class ClaudeSession {
   }
 
   // Claude Code's mode for Milagre's. A wake's turn runs in the strictest one that still reads: `permissions` keeps the
-  // Chat's own mode, so chat_respond still knows a parent in Full, and guardHook refuses everything else.
   nativeMode(permissionMode) {
     if (this.analysisOnly) return "dontAsk";
     return this.escalation ? "default" : (CLAUDE_MODES[permissionMode] ?? "default");
   }
 
   // Concise is Claude Code's flag-layer outputStyle; Normal clears it (null), which falls back to the style
-  // in the user's own Claude settings, exactly what the session would have without Milagre. A CLI that
-  // rejects the style costs only the style: it is dropped for this session, never retried, and the turn runs.
   async applyReplyStyle(replies) {
     const wanted = replies === "concise" && !this.styleFailed ? CONCISE_STYLE : null;
     if (wanted === this.outputStyle) return;
@@ -298,11 +282,9 @@ class ClaudeSession {
   }
 
   // A message for the running turn goes straight into Claude Code's input. Claude Code picks it up at
-  // the next tool boundary; if the turn ends first, it starts a new turn for it (see readMessages).
   async steer(request) {
     await this.turnReady;
     const ended = this.turnEnded;
-    // A turn that was asked to stop takes no more messages; this one starts the next turn.
     if (this.cancelRequested) {
       await ended;
       if (this.closed) throw sessionClosedError();
@@ -310,11 +292,8 @@ class ClaudeSession {
     }
     if (!this.turnActive || !this.inbox || this.closed) return this.startTurn(request);
     // Claude Code holds a message until the question it waits on is settled. The message is the user's
-    // reply, so the question is dismissed and the message reaches Claude right away.
     this.questions.dismissAll();
     this.steeredTurn = true;
-    // A message steered into a babysit Run doesn't lift its guard. A babysit Run itself never steers into a running turn
-    // (its delivery waits while the Chat is busy); one that did would still bring its guard.
     if (request.guard) this.guard = request.guard;
     if (request.permissionMode) await this.setPermissionMode(request.permissionMode);
     this.inbox.push(userMessage(request.prompt, request.images));
@@ -331,7 +310,6 @@ class ClaudeSession {
     this.turnEnded = new Promise((resolve) => {
       this.markEnded = resolve;
     });
-    // It runs a steering message the last turn didn't take; that message's sender learns which turn has it.
     this.emit({ type: "turn-started", turnId, ...(this.lastTurnId ? { continues: this.lastTurnId } : {}) });
   }
 
@@ -351,15 +329,12 @@ class ClaudeSession {
     // Claude Code takes every owned root as its own directory; one made later reaches it through askPermission.
     this.access.learned();
     // Settings › MCP: Everywhere servers join the Chat's servers; off servers are switched off once Claude Code has started.
-    // An advisor never gets them, and a failing read never stops the Chat from starting.
     const extras = this.mcpExtras && !this.analysisOnly ? await readMcpExtras(this) : null;
     if (this.closed) return;
     this.mcpOff = extras?.off ?? [];
     const linked = this.linked?.tools.length ? linkedOptions(this.linked.tools, sdk) : {};
     const extraServers = Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toClaudeConfig(def)]));
     const hooks = {};
-    // Subagents don't get the system prompt above: they are told to keep a to-do list for the Subagents panel, and to
-    // design on the Chat's canvas when they have Milagre's tools.
     if (!this.analysisOnly && !this.executionAdvisor)
       hooks.SubagentStart = [
         {
@@ -378,14 +353,11 @@ class ClaudeSession {
           ],
         },
       ];
-    // Every Chat gets the hook, whatever its mode: hooks are fixed for the session, and a babysit Run's turn can come to a
-    // session that started without one. It lets everything through unless the turn is guarded.
     if (!this.analysisOnly) hooks.PreToolUse = [{ hooks: [(input) => this.guardHook(input) ?? {}] }];
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
         // Headless Claude Code hides TaskCreate / TaskUpdate / TaskList. Subagents keep their to-do lists in them (the
-        // Subagents panel), and the parent falls back to them when Milagre's task tools are missing (the Tasks pill).
         env: { ...(this.env ?? process.env), CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" },
         cwd: this.cwd,
         ...(this.access.roots ? { additionalDirectories: this.access.roots.filter((root) => root !== this.cwd) } : {}),
@@ -407,7 +379,6 @@ class ClaudeSession {
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
         ...(Object.keys(hooks).length ? { hooks } : {}),
-        // The QA fleet's personas, launched as Agent subagent types (qa-fleet skill). Advisors don't launch agents.
         ...(!this.analysisOnly && !this.executionAdvisor ? { agents: QA_AGENTS } : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
@@ -426,18 +397,11 @@ class ClaudeSession {
       },
     });
     void this.readMessages(this.query);
-    // Switch the off servers off before the first message, so the first turn never offers them. The init pass in
-    // readMessages tries once more.
     for (const name of this.mcpOff) await this.query.toggleMcpServer?.(name, false)?.catch(() => {});
-    // Thinking arrives as readable summaries rather than empty blocks, for the reply's thinking steps.
-    // Only the display changes (null keeps the model's own thinking budget), so it suits every model.
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});
   }
 
   // A babysit Run: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "deny" holds even in
-  // bypassPermissions, so a command the Run's level doesn't allow is refused in every mode, subagents' included. The
-  // reason is what the agent reads and the step shows. Undefined lets the call go on.
-  // A wake's turn goes through the same hook, for every tool: `allowedTools` and bypassPermissions both come after it.
   guardHook(input) {
     const reason = this.escalation ? this.escalationDenial(input) : this.babysitReason(input);
     if (!reason) return undefined;
@@ -455,12 +419,8 @@ class ClaudeSession {
   }
 
   // Claude Code waits on this promise until the user answers in Milagre, the turn stops, or the SDK
-  // aborts the request.
   askPermission(toolName, input, options = {}) {
-    // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
-    // What the hook let through runs without asking; anything that still asks (a read outside the Worktree, or a Claude
-    // Code that skipped the hook) has nobody to ask, since a wake's turn opens no card.
     if (this.escalation) return Promise.resolve({ behavior: "deny", message: ONLY_READS });
     const request = claudeRequest(toolName, input, options);
     // The hook refused it already; this covers a Claude Code that skipped the hook.
@@ -494,7 +454,6 @@ class ClaudeSession {
   }
 
   // AskUserQuestion reaches canUseTool in every mode, Full included. Claude Code waits on this promise
-  // until the user answers or dismisses the card, a steering message dismisses it, the turn stops, or
   // the SDK aborts the request.
   askQuestion(input, options = {}) {
     if (this.executionAdvisor)
@@ -519,7 +478,6 @@ class ClaudeSession {
   }
 
   // The user switched modes, possibly mid-turn: Claude Code stops asking for what the new mode allows,
-  // and the waiting cards it allows are answered (see PendingPermissions).
   async setPermissionMode(permissionMode) {
     if (this.analysisOnly) return;
     this.permissions.setMode(permissionMode);
@@ -529,7 +487,6 @@ class ClaudeSession {
     try {
       await this.query.setPermissionMode(mode);
     } catch {
-      // Forget the mode so the next turn applies it again.
       this.mode = null;
     }
   }
@@ -547,15 +504,12 @@ class ClaudeSession {
   async readMessages(query) {
     try {
       for await (const message of query) {
-        // A suggestion is idle metadata, never the first event of an implicit turn.
         if (message.type === "prompt_suggestion") {
           if (this.promptSuggestions && !this.closed && !this.turnActive && !this.cancelRequested && !this.implicitTurn)
             for (const event of mapClaudeMessage(message, this.state)) this.emit(event);
           continue;
         }
         // Claude Code opens every turn with init. One arriving while no turn runs is a turn Claude Code
-        // started by itself, for a steering message that came in just as the last turn ended. It starts
-        // with its first event, so a turn that only records a task notification never shows.
         if (message.type === "system" && message.subtype === "init" && !this.turnActive && !this.closed) this.implicitTurn = true;
         if (message.type === "system" && message.subtype === "init" && this.mcpOff?.length) {
           const off = this.mcpOff;
@@ -571,9 +525,6 @@ class ClaudeSession {
           else if (event.type === "turn-failed" && this.resumeGone(`${event.message}\n${message.errors ?? ""}\n${message.result ?? ""}`)) this.resumeFailed();
           else {
             // A logged-out Claude Code keeps answering "not logged in" until it is restarted, so the session
-            // closes and the next message starts a fresh process. The chat forgets a session id only when this
-            // very turn's init created it: that chat never got an answer. An id from an earlier turn, or one the
-            // session resumed, is a real conversation and stays.
             if (event.login && this.announcedId) this.emit({ type: "session-reset" });
             this.finishTurn(event);
             if (event.login) void this.close();
@@ -587,7 +538,6 @@ class ClaudeSession {
     }
   }
 
-  // Only a "conversation is missing" failure may discard the saved id; spawn errors,
   // crashes and bad paths must keep it.
   resumeGone(text) {
     return Boolean(this.resumeId) && MISSING_CONVERSATION.test(`${text}\n${this.stderr}`);
@@ -621,7 +571,6 @@ class ClaudeSession {
     clearTimeout(this.interruptTimer);
     this.permissions.cancelAll();
     this.questions.cancelAll();
-    // Tool calls still waiting for a result never get one, nor does thinking that was cut off.
     this.state.tools?.clear();
     this.state.foregroundChildren?.clear();
     this.state.thinking = null;
@@ -633,14 +582,11 @@ class ClaudeSession {
     if (!this.turnActive) return;
     this.cancelRequested = true;
     clearTimeout(this.interruptTimer);
-    // If Claude never confirms, stop the process; the turn then ends as cancelled.
     this.interruptTimer = setTimeout(() => {
       void this.close().then(() => this.finishTurn({ type: "turn-cancelled" }));
     }, this.interruptGraceMs);
     this.permissions.cancelAll();
     this.questions.cancelAll();
-    // interrupt() rejects with "Query closed before response received" when the query
-    // closes first; that is expected during cancel and shutdown.
     await this.query?.interrupt().catch(() => {});
   }
 
@@ -653,7 +599,6 @@ class ClaudeSession {
     this.inbox?.end();
     const query = this.query;
     this.query = null;
-    // An async generator stuck on an await never settles return(), so don't wait forever.
     await Promise.race([query?.return?.().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 1000))]);
     await killTree(this.child);
     this.finishTurn({ type: "turn-cancelled" });

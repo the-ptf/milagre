@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Independent inspection of immutable model outputs. Never counts its own previews as model work.
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");

@@ -31,7 +31,6 @@ export default function ChatDetails() {
   if (!session.client || !session.snapshot || !chat) return <Redirect href="/" />;
   const { project, runs } = session.snapshot;
   const running = !!runs.runs[`${project.path}#${id}`];
-  // The Worktrees a Link joins to this Chat's, named as on the chat list's Link icon. A shared Link Chat has none.
   const worktreePath = links.available && !project.link ? project.state.worktrees[chat.worktree_id]?.path : undefined;
   const projectId = worktreePath ? links.projectIdOf(project.path) : undefined;
   const linked = linkedLabels(

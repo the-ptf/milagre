@@ -7,7 +7,6 @@ import { Findable } from "../settings-find";
 import { pressStyle } from "./press-style";
 import { tap } from "./tap";
 
-/** One item in a single-choice list, with an ink checkmark beside the active choice (selection is ink). */
 export function ChoiceRow({ title, selected, onPress }: { title: string; selected: boolean; onPress: () => void }) {
   const { colors } = useTheme();
   return (

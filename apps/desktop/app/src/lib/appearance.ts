@@ -12,7 +12,6 @@ import {
   type Appearance,
 } from "@milagre/shared/appearance";
 
-/** The bundled fontsource families are registered with a "Variable" suffix; try that name first. */
 const BUNDLED_FAMILIES = new Set([...UI_FONTS, ...MONO_FONTS].filter((f) => f.bundled && f.id !== "system").map((f) => f.label));
 
 export function withBundledNames(stack: string) {
@@ -64,10 +63,6 @@ const OPTIONAL_VARS = [
 
 const installedCache = new Map<string, boolean>();
 
-/**
- * Whether a font family is installed. `document.fonts.check` returns true for any family no @font-face declares,
- * so it is no real gate; the canvas probe (width differs from both fallbacks) does the work. Memoized per family.
- */
 export function isFontInstalled(family: string): boolean {
   const cached = installedCache.get(family);
   if (cached !== undefined) return cached;

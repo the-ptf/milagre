@@ -9,10 +9,6 @@ import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 
-/**
- * Under a reply the plan's usage limit stopped: when it resets, and the Project's other accounts for the provider.
- * Picking one moves the Project there and continues the Chat. Only the Chat's last message offers them, and only while no turn runs.
- */
 export function UsageLimitCard({
   limit,
   sessionId,
@@ -34,7 +30,6 @@ export function UsageLimitCard({
 }) {
   const bridge = useBridge();
   const scope = useScope();
-  // Another computer's Chat keeps the accounts its own Mac chose.
   const live = interactive && Boolean(scope) && !isRemoteKey(scope);
   const { title, detail } = limitHeadline(limit);
   const [snapshot, setSnapshot] = useState<ProjectAccountsSnapshot | null>(null);
@@ -72,7 +67,6 @@ export function UsageLimitCard({
       }
     }
     void load();
-    // An account added or signed in from Settings shows up here without reopening the Chat.
     const off = window.milagre.onAccountsChanged?.(() => void load());
     return () => {
       stale = true;

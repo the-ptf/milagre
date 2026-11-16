@@ -1,7 +1,3 @@
-// Browser check: a Project left for another keeps the PR chips its rows showed (the sidebar remembers each open
-// scope's rows); collapsed with two or more Projects, the sidebar shows one icon per scope with a ring for a running
-// chat and an orange dot for one asking or waiting (the dot wins), resting on an icon lists its live chats and one
-// opens on click, clicking another Project's icon switches to it; the Filters icon fills while a Project is hidden.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -109,11 +105,8 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
     await delay(200);
   };
-  // Where the page last saw the pointer: a hidden window never updates :hover, but pointer events still arrive.
   const pointerOn = (selector) => `!!window.__pointer?.closest(${JSON.stringify(selector)})`;
   const trackPointer = () => evaluate(`document.addEventListener("pointerover", (event) => { window.__pointer = event.target; }, true)`);
-  // Puts the pointer on an element and waits until the page has seen it arrive. A slow runner can coalesce moves, so
-  // a move that didn't land is sent again.
   const hover = async (selector) => {
     for (let attempt = 0; attempt < 5; attempt++) {
       window.webContents.sendInputEvent({ type: "mouseMove", ...(await centre(selector)) });
@@ -124,7 +117,6 @@ async function browserChecks() {
     }
     throw new Error(`The pointer never reached ${selector}`);
   };
-  // Takes the pointer off the rail, waiting until the page has seen it leave.
   const leaveRail = async () => {
     window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
     await waitFor(`!(${pointerOn("[data-scope-rail]")})`);
@@ -137,7 +129,6 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id]')`);
     assert.match(await chips("/work/atlas"), /#409/, "The open Project's row shows its PR");
     assert.equal(await chips("/work/shop"), "", "Another Project's row has no PR to show");
-    // Switching to shop: atlas's row keeps the PR chip it showed, so it doesn't shrink.
     await evaluate(`window.render("/work/shop")`);
     await waitFor(
       `!!document.querySelector('[data-sidebar-scope="/work/shop"][data-current]') && !!document.querySelector('[data-sidebar-scope="/work/atlas"] [data-chat-id="1"]')`,
@@ -152,7 +143,6 @@ async function browserChecks() {
     await evaluate(`window.render("/work/atlas")`);
     await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/atlas"][data-current]')`);
     assert.match(await chips("/work/atlas"), /#409/);
-    // The Filters funnel stays outlined; a hidden Project (api is) shows as the accent dot, gone with none hidden.
     const dot = () => evaluate(`document.querySelector("[data-filters] [data-filters-dot]")?.dataset.filtersDot ?? null`);
     assert.equal(await evaluate(`document.querySelector("[data-filters]").hasAttribute("data-filters-active")`), true);
     assert.equal(await dot(), "filtering", "the dot shows while a Project is hidden");
@@ -181,9 +171,7 @@ async function browserChecks() {
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-filters-panel]")`);
-    // Collapsed: one icon per Project, the open one marked, shop's dot over its ring, atlas's ring.
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
-    // The sidebar narrows over 280 ms: hover only once the icons have stopped moving.
     await waitFor(`!!document.querySelector("[data-scope-rail]") && Math.round(document.querySelector("aside").getBoundingClientRect().width) === 44`);
     await delay(100);
     assert.deepEqual(
@@ -224,7 +212,6 @@ async function browserChecks() {
       "Icons are centred on the rail",
     );
     await screenshot("rail");
-    // Resting on shop lists its live chat; clicking it opens the chat.
     await hover('[data-rail-scope="/work/shop"]');
     await waitFor(`!!document.querySelector('[data-scope-rail-popover="/work/shop"] [data-rail-chat="7"]')`);
     assert.match(await evaluate(`document.querySelector('[data-scope-rail-popover="/work/shop"]').textContent`), /shop[\\s\\S]*Shop chat/);
@@ -239,23 +226,19 @@ async function browserChecks() {
     await click('[data-scope-rail-popover="/work/shop"] [data-rail-chat="7"]');
     assert.equal(await evaluate("window.opened"), "/work/shop#7", "A live chat of another Project opens from the popover");
     await waitFor(`!document.querySelector("[data-scope-rail-popover]")`);
-    // Clicking another Project's icon switches to it; the open one's does nothing.
     await click('[data-rail-scope="/work/shop"]');
     assert.equal(await evaluate("window.switched"), "/work/shop");
     await evaluate(`window.switched = null`);
     await click('[data-rail-scope="/work/atlas"]');
     assert.equal(await evaluate("window.switched"), null, "The open Project's icon doesn't switch");
-    // Moving away closes the popover; the open Project's icon lists its own live chat and opens it in place.
     await leaveRail();
     await waitFor(`!document.querySelector("[data-scope-rail-popover]")`);
     await hover('[data-rail-scope="/work/atlas"]');
     await waitFor(`!!document.querySelector('[data-scope-rail-popover="/work/atlas"] [data-rail-chat="1"]')`);
     await click('[data-scope-rail-popover="/work/atlas"] [data-rail-chat="1"]');
     assert.equal(await evaluate("window.picked"), "1", "The open Project's chat opens through onPick");
-    // Expanded again, the groups are back.
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
     await waitFor(`!document.querySelector("[data-scope-rail]") && !!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id]')`);
-    // One list: every Chat, including idle and pinned, keeps its expanded position and opens directly.
     await evaluate(`window.oneList()`);
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
     const labels = await evaluate(
@@ -314,19 +297,16 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-scope-rail-popover="/work/atlas#2"] [data-rail-chat]').click()`);
     assert.equal(await evaluate("window.picked"), "2", "Idle Chat also opens from its hover popover");
     await screenshot("one-list-rail");
-    // Switching settings while collapsed changes the rail immediately and preserves the grouped behavior.
     await evaluate(`window.grouped()`);
     await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 3 && !!document.querySelector('[data-rail-scope="/work/atlas"]')`);
     await evaluate(`window.oneList()`);
     await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 5`);
-    // Narrow-window auto collapse uses the same list, then restores the expanded list when widened.
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
     await waitFor(`!document.querySelector("[data-scope-rail]")`);
     window.setSize(900, 640);
     await waitFor(`document.querySelectorAll("[data-rail-scope]").length === 5`);
     window.setSize(1280, 640);
     await waitFor(`!document.querySelector("[data-scope-rail]") && document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
-    // A single Project still uses its Project icons, and no-project Chats keep a place before Project Chats.
     await window.loadURL(process.argv[2] + "?single");
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 2`);
     await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
@@ -340,7 +320,6 @@ async function browserChecks() {
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     assert.equal(await evaluate(`window.newChatCount`), 1, "An empty collapsed One list still starts a new Chat");
     await window.loadURL(process.argv[2] + "?home");
-    // The One list has no groups: a Chat without a Project is one of its rows, with no Chats group around it.
     await waitFor(`!!document.querySelector('[data-chat-list-flat] [data-chat-id="11"]')`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 0, "No Chats group in the One list");
     assert.ok(
@@ -348,7 +327,6 @@ async function browserChecks() {
       "A Chat without a Project wears the Chats bubble for its icon",
     );
     await screenshot("one-list-home");
-    // Grouped by Project, the Chats group comes back as a group of its own, and its rows leave the merged list.
     await evaluate(`window.grouped()`);
     await waitFor(`!!document.querySelector('[data-sidebar-chats] [data-chat-id="11"]')`);
     await screenshot("grouped-home");

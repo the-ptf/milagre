@@ -6,22 +6,15 @@ import { PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { radius } from "./design-tokens";
 
-/** The row a Settings search result opened: its exact title, and where to scroll it into view. */
 type FindTarget = {
   title: string;
-  /** A new result, even for the same row, lights it again. */
   nonce: string;
   scroll: React.RefObject<ScrollViewInstance | null>;
-  /** How far the page is scrolled now. */
   offset: React.RefObject<number>;
 };
 
 const FindContext = createContext<FindTarget | null>(null);
 
-/**
- * A Settings page's scroll: the page opened from a search result (with `find` in its params) scrolls to the row with
- * that title and lights it up; opened any other way, it is a plain PageScroll.
- */
 export function SettingsScroll({ children, onScroll, ...props }: React.ComponentProps<typeof PageScroll>) {
   const params = useLocalSearchParams<{ find?: string; findAt?: string }>();
   const scroll = useRef<ScrollViewInstance>(null);
@@ -44,7 +37,6 @@ export function SettingsScroll({ children, onScroll, ...props }: React.Component
   );
 }
 
-/** Wraps a Settings row; only the row a search result named is wrapped in anything. */
 export function Findable({ title, children }: { title: string; children: ReactNode }) {
   const target = useContext(FindContext);
   if (!target || target.title !== title) return children;
@@ -60,13 +52,9 @@ function FoundRow({ target, children }: { target: FindTarget; children: ReactNod
   const row = useRef<ViewInstance | null>(null);
   const [tint] = useState(() => new Animated.Value(1));
   const laidOut = useRef(false);
-  // Brings the row to the upper middle of the page. Rows above it can still be arriving (a Mac's reply, a list), so it
-  // measures again once the page has settled.
   const scrollToRow = () => {
     const page = target.scroll.current;
     if (!row.current || !page) return;
-    // Both in window coordinates, so the page's insets and header don't matter: the row's distance below the page's
-    // top, plus where the page is scrolled now, is where to scroll for the row to sit at 40% of the page.
     row.current.measureInWindow((_x, rowY, _width, rowHeight) => {
       page.measureInWindow((_px, pageY, _pageWidth, pageHeight) => {
         const y = target.offset.current + rowY - pageY + rowHeight / 2 - pageHeight * 0.4;
@@ -75,7 +63,6 @@ function FoundRow({ target, children }: { target: FindTarget; children: ReactNod
     });
   };
   useEffect(() => {
-    // The tint holds while the page settles and the row scrolls in, then fades back to the card.
     const fade = Animated.sequence([Animated.delay(1100), Animated.timing(tint, { toValue: 0, duration: duration.slow, useNativeDriver: true })]);
     fade.start();
     AccessibilityInfo.announceForAccessibility?.(`${target.title}, found`);

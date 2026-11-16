@@ -30,13 +30,10 @@ import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import { thisComputer } from "../../lib/shortcut-hints";
 
-/** The host owns persistent associations; discovery never attaches a device. */
 export function SimulatorTrack({ chatId }: { chatId: string }) {
-  // Read once: the polling effect depends on it, and a bridge that hands out a new object per read would restart it every render.
   const bridge = useBridge();
   const [api] = useState(() => bridge?.simulators);
   const [simlock] = useState(() => bridge?.simlock);
-  // Experimental: models the Simlock pool can lease, read when the attach list opens; null when it is off.
   const [pool, setPool] = useState<{ models: SimlockModel[]; error?: string } | null>(null);
   const [leasing, setLeasing] = useState<string | null>(null);
   const trigger = useRef<HTMLButtonElement>(null),
@@ -48,7 +45,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   const [selected, setSelected] = useState<SimulatorDevice | null>(null);
   const [connection, setConnection] = useState<SimulatorConnection | null>(null);
   const connectionState = connection?.deviceId === selected?.id && connection ? connection.state : "connecting";
-  // A device's viewer always docks beside the chat; the device list is a popover over its pill.
   const docked = !!selected;
   const [loading, setLoading] = useState(true);
   const [attaching, setAttaching] = useState(false),
@@ -75,7 +71,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     width: 390,
     height: 650,
   });
-  // The list read, for the poll below; a no-op while unmounted.
   const refreshList = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     if (!api) return;
@@ -101,7 +96,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
         if (!disposed) setLoading(false);
       }
     };
-    // The receiver pauses its own video while hidden and reconnects when shown, so the panel stays open.
     const visibility = () => {
       if (!document.hidden) void refresh();
     };
@@ -109,8 +103,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     void refresh();
     document.addEventListener("visibilitychange", visibility);
     // With nothing attached nothing is polled (the pill shows nothing then): a simulator joins the Chat when its agent
-    // attaches one with its tool, so that step finishing, and each turn's end, read the list again; so does coming back
-    // to the window, after one was attached from the phone or another window.
     const focused = () => void refresh();
     window.addEventListener("focus", focused);
     const simulatorSteps = new Set<string>();
@@ -185,7 +177,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     try {
       await simlock.release({ deviceId: device.id });
     } catch {
-      // An ended lease only needs its attachment removed.
     } finally {
       revision.current++;
       setBusy(false);
@@ -193,7 +184,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     await mutate("detach", device);
   };
   const attachedCount = list.attached?.length ?? 0;
-  // While a device is attached, or the panel is open to attach one, the list is polled: devices come and go on their own.
   const polling = Boolean(api && (attachedCount > 0 || opened));
   useEffect(() => {
     if (!polling) return;
@@ -390,9 +380,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
               (docked ? (
                 <ResizableDockSlide
                   key="simulator-dock"
-                  // Docked, it opens like the git changes panel, lines up with the sidebar's card, and sits left of the
                   // changes panel; the chat makes room through --simulator-dock. A drag on its edge doesn't render the
-                  // viewer again.
                   panel="simulator"
                   label="Resize simulator"
                   width={resize.width}
@@ -414,7 +402,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
               ) : (
                 <motion.div
                   key="simulator"
-                  // Anchored over its pill, the device list rises from it.
                   initial={reduced ? false : { opacity: 0, y: 6, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: 6, scale: 0.98 }}
@@ -455,7 +442,6 @@ function SimulatorFrame({
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const deviceId = device.id;
-  // The keyed viewer lasts for this device. Discovery metadata must not reload its active stream.
   const [html] = useState(() => createSimulatorReceiverHtml({ deviceId, device, theme: viewerTheme() }));
   const syncTheme = useCallback(() => frame.current?.contentWindow?.postMessage({ channel: "milagre-simulator-theme", theme: viewerTheme() }, "*"), []);
   useEffect(() => {

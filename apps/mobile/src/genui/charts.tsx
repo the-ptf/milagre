@@ -21,7 +21,6 @@ function Labels({ labels, slot, color }: { labels: readonly string[]; slot: numb
   );
 }
 
-/** What a screen reader reads for a chart: its title, then each label with its value. */
 const summary = (title: string | undefined, labels: readonly string[], values: readonly number[]) =>
   `${title ?? "Chart"}: ${values.map((value, index) => `${labels[index] ?? index + 1} ${value}`).join(", ")}`;
 

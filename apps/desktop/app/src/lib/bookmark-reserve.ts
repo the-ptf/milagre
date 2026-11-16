@@ -1,7 +1,5 @@
 import { useSyncExternalStore } from "react";
 
-// How far the Subchat bookmark (components/agents/SubchatBookmark) reaches from <main>'s left edge, its gap included. The
-// Routine chip's strip shares that row of the window, so it keeps clear of it (chipStripInsets); 0 while no bookmark shows.
 let reserve = 0;
 const listeners = new Set<() => void>();
 

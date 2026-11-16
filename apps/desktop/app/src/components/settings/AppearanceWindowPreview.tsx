@@ -29,24 +29,16 @@ import { ProviderLogo } from "../ProviderLogo";
 import { Icon as ScaleIcon, type IconSize } from "../primitives/Icon";
 import { ProjectAvatar } from "../primitives/ProjectAvatar";
 
-/** The part of the window a setting changes. `ui` is the interface font: everything but code. */
 export type PreviewArea = "sidebar" | "chat" | "code" | "width" | "diff" | "ui" | "usage";
 
 // The miniature is drawn at a real window's size, at the real CSS variables, then scaled down to the card.
 const WINDOW_WIDTH = 1440;
 const WINDOW_HEIGHT = 900;
-// The preview's tallest size, whatever the window's size: past it, a wide Settings page gave the preview most of the screen.
 const MAX_HEIGHT = 300;
-// How long the Changes panel stays open when Panel animations replays it: long enough to finish opening at Normal.
 const PANEL_HOLD_MS = 1400;
 
 const HighlightContext = createContext<PreviewArea | null>(null);
 
-/**
- * One piece of the miniature. `keep`: the areas it belongs to; while another area is highlighted it drops to 40%.
- * Without `keep` it never dims (a container whose children dim themselves). `area` names it for `data-preview-area`;
- * it is outlined while `outline` (default: its area) holds the highlighted area.
- */
 function Part({
   area,
   keep,
@@ -61,7 +53,6 @@ function Part({
   area?: PreviewArea;
   keep?: readonly PreviewArea[];
   outline?: readonly PreviewArea[];
-  /** A small piece (a change count): a thinner outline, closer in. */
   tight?: boolean;
   inline?: boolean;
   className?: string;
@@ -90,7 +81,6 @@ function Icon({ icon, size = 16 }: { icon: IconSvgElement; size?: IconSize }) {
   return <ScaleIcon icon={icon} size={size} className="shrink-0" />;
 }
 
-/** `+12 −3` in the diff colors, mono, as the sidebar, canvas and changes panel draw it. */
 function Counts({ added, removed, className = "" }: { added: number; removed: number; className?: string }) {
   return (
     <Part inline area="diff" keep={["sidebar", "diff"]} tight className={`shrink-0 rounded-inline font-mono tabular-nums ${className}`}>
@@ -360,7 +350,6 @@ function Composer() {
   );
 }
 
-/** Edge markers and a dimension line across the chat column, with its width; a width wider than the miniature says it fills it. */
 function WidthMarkers({ px }: { px: number | null }) {
   const box = useRef<HTMLDivElement>(null);
   const [fills, setFills] = useState(false);
@@ -425,7 +414,6 @@ const PANEL_FILES = [
   { path: "src/styles.css", added: 2, removed: 0 },
 ] as const;
 
-/** The Changes panel, opening and closing as the real one does at the chosen Panel animations speed. */
 function ChangesPanel({ open }: { open: boolean }) {
   const scale = useMotionScale();
   return (
@@ -471,7 +459,6 @@ function ChangesPanel({ open }: { open: boolean }) {
   );
 }
 
-/** The chat width in px, or null for Full. */
 function chatWidthPx(chatWidth: string, customPx: number) {
   if (chatWidth === "custom") return clampChatWidth(customPx);
   return CHAT_WIDTHS.find((width) => width.id === chatWidth)?.px ?? null;
@@ -492,7 +479,6 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
   useLayoutEffect(() => {
     const node = frame.current;
     if (!node) return;
-    // Fits the card's width, but stays at most MAX_HEIGHT tall (and 40% of the window) so the sticky preview leaves room for the rows.
     const fit = () => setScale(Math.min(node.clientWidth / WINDOW_WIDTH, Math.min(MAX_HEIGHT, 0.4 * window.innerHeight) / WINDOW_HEIGHT));
     fit();
     const observer = new ResizeObserver(fit);
@@ -507,7 +493,6 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
   useEffect(() => {
     if (playMotion === 0) return;
     setPanel(true);
-    // Closes once it has finished opening and been seen for a moment.
     const timer = window.setTimeout(() => setPanel(false), PANEL_HOLD_MS);
     return () => window.clearTimeout(timer);
   }, [playMotion]);
@@ -535,7 +520,6 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
             }}
           >
             <Part area="ui" className="absolute inset-0 flex rounded-card outline-offset-[-8px]!">
-              {/* The title bar: traffic lights and the sidebar toggle over the sidebar, terminal and changes at the right. */}
               <Part keep={["ui"]} className="absolute top-0 right-0 left-0 flex h-11 items-center px-5 text-ink-3">
                 <span className="flex gap-2">
                   <span className="size-3 rounded-full bg-[#ff5f57]" />

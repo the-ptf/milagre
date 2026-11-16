@@ -9,7 +9,6 @@ export function useUltracodeAudio() {
     if (!isLoaded || started.current) return;
     started.current = true;
     let active = true;
-    // Match the desktop volume. Respect the phone's silent switch and mix with existing music.
     void setAudioModeAsync({ playsInSilentMode: false, shouldPlayInBackground: false, interruptionMode: "mixWithOthers" })
       .then(() => {
         if (active) {
@@ -22,9 +21,7 @@ export function useUltracodeAudio() {
       active = false;
       try {
         player.pause();
-      } catch {
-        /* The audio hook may have released its player already. */
-      }
+      } catch {}
     };
   }, [player, isLoaded]);
 }

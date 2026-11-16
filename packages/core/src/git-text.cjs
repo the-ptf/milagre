@@ -7,7 +7,6 @@ const { kiroAcp } = require("./agents/kiro-acp.cjs");
 const { KIRO_TEXT_MODEL, kiroModelId } = require("@milagre/shared/kiro-models");
 const { agentEnvironment } = require("./agents/command.cjs");
 
-// The commit message, PR title and PR body the "Commit and open PR" dialog starts with: one call to a
 // small model, which returns the three as JSON. Claude chats ask Claude Haiku 4.5, Codex chats ask
 // GPT-6 Luna, Antigravity chats ask Gemini 3.8 Flash, and each falls back to the others. The model call is injected, so tests use a fake.
 
@@ -20,7 +19,6 @@ const TIMEOUT_MS = 25_000;
 const GENERATION_FAILED = "Couldn't write a message. Type one to continue.";
 const CLAUDE_MODEL = "claude-haiku-4-5";
 const CODEX_MODEL = "gpt-6-luna";
-// Writing a commit message or a title needs no deep reasoning.
 const CODEX_EFFORT = "low";
 
 const SYSTEM = [
@@ -48,7 +46,6 @@ function section(name, body) {
   return `<${name}>\n${body}\n</${name}>`;
 }
 
-/** The user turn for the model: the rules, the chat, the tests run, the repo's style, a stat and the diff. */
 function buildGitTextPrompt({
   diff = "",
   stat = "",
@@ -110,7 +107,6 @@ const subjectOf = (message) =>
     .trim()
     .toLowerCase();
 
-/** Whether a generated message's subject repeats one already in the repo or on the branch. */
 function repeatsSubject(message, { recentSubjects = [], branchCommits = [] } = {}) {
   const subject = subjectOf(message);
   return Boolean(subject) && [...recentSubjects, ...branchCommits].some((earlier) => subjectOf(earlier) === subject);
@@ -120,7 +116,6 @@ function repeatNote(message) {
   return `Your commitMessage subject, "${String(message).trim().split("\n")[0]}", repeats an earlier commit. Write a new subject that says only what <diff> changes.`;
 }
 
-// Agents add these on their own; the brief is "no AI footer".
 const FOOTER = /^\s*(?:🤖\s*)?(?:generated with\b|co-authored-by:)/i;
 
 function withoutFooter(text) {
@@ -136,7 +131,6 @@ function textField(value, keys) {
   return "";
 }
 
-/** `{ commitMessage, prTitle, prBody }` from the model's reply (plain or fenced JSON), or null when none is in it. */
 function parseGitText(reply) {
   const text = String(reply ?? "");
   const candidates = [];
@@ -179,12 +173,6 @@ async function withTimeout(task, timeoutMs) {
   }
 }
 
-/**
- * Writes the dialog's text with the chat's own agent, else the others in picker order. Each gets `timeoutMs`. A
- * commit subject that repeats an earlier one is asked for again, once; if it still repeats, the
- * commit message comes back empty (`repeated: true`) and the dialog shows its note there. Never
- * throws: when neither agent answers, the result carries the note.
- */
 async function generateGitText(input, { provider = "claude", models = {}, timeoutMs = TIMEOUT_MS } = {}) {
   const prompt = buildGitTextPrompt(input);
   const order = [provider, ...PROVIDERS.filter((name) => name !== provider)];
@@ -196,11 +184,9 @@ async function generateGitText(input, { provider = "claude", models = {}, timeou
     try {
       parsed = parseGitText(await ask(call, prompt));
     } catch {
-      // Not installed, signed out, offline or too slow: the other agent may still answer.
       continue;
     }
     if (!parsed) continue;
-    // With nothing to commit, the commit message isn't used.
     if (input.hasChanges === false || !repeatsSubject(parsed.commitMessage, input)) return { ok: true, provider: name, ...parsed };
     const again = await ask(call, `${prompt}\n\n${repeatNote(parsed.commitMessage)}`).then(parseGitText, () => null);
     if (again?.commitMessage && !repeatsSubject(again.commitMessage, input)) {
@@ -232,7 +218,6 @@ function claudeModel({ getCommand, loadSdk = () => import("@anthropic-ai/claude-
           systemPrompt: system,
           tools: [],
           maxTurns: 1,
-          // No hooks, CLAUDE.md or saved transcript for a call the user never sees.
           settingSources: [],
           persistSession: false,
           cwd: os.tmpdir(),
@@ -266,7 +251,6 @@ const antigravityModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, ..
 /** One Claude Haiku 4.5 turn on Kiro (kiro-cli over ACP), the same way: a throwaway session, every permission turned down. */
 const kiroModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, config: kiroAcp, model: kiroModelId(KIRO_TEXT_MODEL), effort: undefined, ...options });
 
-/** One GPT-6 Luna turn in a short-lived, ephemeral, read-only `codex app-server` thread. */
 function codexModel({
   getCommand,
   createRpc = (options) => new CodexRpc(options),
@@ -295,7 +279,6 @@ function codexModel({
         else resolve();
       });
       rpc.on("exit", ({ detail } = {}) => reject(new Error(detail || "Codex stopped.")));
-      // With approvals off nothing should ask; anything that does is turned down.
       rpc.on("request", ({ id }) => {
         try {
           rpc.respondError(id, "Milagre doesn't answer requests in this call.");
@@ -309,12 +292,9 @@ function codexModel({
     else signal?.addEventListener("abort", abort, { once: true });
     try {
       rpc.start();
-      // `environments: []` below (no shell or tools for a text call) is an experimental field: without the capability,
       // thread/start refuses it and every title, commit message and Run name from Codex fails.
       await rpc.request("initialize", { clientInfo: { name: "milagre", title: "Milagre", version: clientVersion }, capabilities: { experimentalApi: true } });
       rpc.notify("initialized");
-      // thread/start alone would inherit the user's ~/.codex config: their MCP servers and shell tools. A text call
-      // gets none of them, as an advisor does, so the repository text it reads can't make it run anything.
       const inherited = (await rpc.request("config/read", { cwd: os.tmpdir() })).config;
       const { thread } = await rpc.request("thread/start", {
         model,

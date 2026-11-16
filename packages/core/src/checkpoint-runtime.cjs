@@ -2,7 +2,6 @@ const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs")
 const { createCheckpoints } = require("./checkpoints.cjs");
 const { checkpointRestoreText } = require("@milagre/shared/checkpoint-restore");
 
-/** What the agent is told with its next turn after a restore wrote files: the line in the Chat is only for the user. */
 function agentRestoreNote(context) {
   const files = `${context.restored} ${context.restored === 1 ? "file" : "files"}`;
   const what = context.redo
@@ -11,10 +10,6 @@ function agentRestoreNote(context) {
   return `<milagre_note>The user ${what}. Re-read files before editing.</milagre_note>`;
 }
 
-/**
- * `note` writes a line in the Chat after a restore wrote files, so its Redo stays in the transcript across restarts.
- * `tell(chatId, text)` queues the same news for the Chat's agent, which the line alone never reaches.
- */
 function registerCheckpoints(commands, { directory, states, busy, ready, note = async () => {}, tell = () => {}, assertWritable = async () => {} }) {
   const preparing = new Set();
   async function rootsFor(chatId) {

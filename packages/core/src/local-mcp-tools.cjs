@@ -36,7 +36,6 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
           return JSON.stringify(result);
         },
       });
-      // A write with no retry journal: stopping, switching and answering are safe to repeat or meaningless to replay.
       const act = (name, description, capability, input, execute) => ({
         name,
         description,
@@ -97,7 +96,6 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
             {},
             async () => {
               const activeScope = currentScope();
-              // The host also lists the Chats home (with a `kind`), which its tools accept but no Project list shows.
               const all = (await host.projects()).filter((item) => !item.kind);
               if (caller && activeScope?.capabilities?.includes("create"))
                 return all.map(({ id: projectId, path, name }) => ({ id: projectId, path, name, inScope: inProjectScope(activeScope, path) }));

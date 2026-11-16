@@ -7,39 +7,28 @@ import { getThemeSettings, initThemeStore, setThemeSettings, subscribeTheme, typ
 
 export const fonts = { mono: Platform.OS === "ios" ? "Menlo" : "monospace" };
 
-/** The themed palette plus the phone's short names. */
 export type Palette = ThemePalette & {
   bg: string;
   panel: string;
   text: string;
   muted: string;
   error: string;
-  /** Label on an ink fill: the surface, as desktop's on-ink. */
   onInk: string;
-  /** The idle Chat mark: a solid ink4 dot. */
   idleDot: string;
-  /** Behind a modal sheet or panel (desktop's --scrim). */
   scrim: string;
-  /** @deprecated Use `scrim`. */
   backdrop: string;
   purpleInk: string;
   purpleTint: string;
-  /** Label on the plain red fill (a recording mic, icon only). */
   onRed: string;
-  /** Label on a redInk fill: the filled destructive PillButton (desktop's --on-red on bg-red-ink). */
   onRedInk: string;
-  /** A page that is white in every theme: HTML artifacts, QR codes, design thumbnails. */
   paper: string;
-  /** Elevation as `boxShadow`, each with its hairline ring, so an elevated surface takes no border. Dark variants are deeper. */
   shadowCard: string;
   shadowRaised: string;
   shadowOverlay: string;
-  /** Camera and full-screen media: black behind, white on top, the same in every theme. */
   media: string;
   onMedia: string;
   onMedia2: string;
   onMediaTint: string;
-  /** Additions and deletions: the theme's green and red unless Diff colors picks another pair. */
   add: string;
   remove: string;
 };
@@ -59,7 +48,6 @@ function extend(p: ThemePalette, scheme: "light" | "dark"): Palette {
   const shadow = ELEVATION[scheme];
   return {
     ...p,
-    // Ultracode's purple is a brand color, the same in every theme (desktop keeps --purple out of the theme sheet too).
     ...ULTRACODE_PURPLE[scheme],
     bg: p.page,
     panel: p.surface,
@@ -81,12 +69,10 @@ function extend(p: ThemePalette, scheme: "light" | "dark"): Palette {
   };
 }
 
-/** A status tone as text: its -ink shade, 4.5:1 on page, card and its tint. Icons, dots and spinners keep the fill tone. */
 export function inkFor(colors: Palette, tone: "accent" | "green" | "orange" | "red" | "purple" | "ink" | "ink2" | "ink3"): string {
   return tone === "ink" || tone === "ink2" || tone === "ink3" ? colors[tone] : colors[`${tone}Ink`];
 }
 
-// Diff colors: swap the add/remove colors and the diff row tints; the theme's own green and red stay for status and errors.
 function withDiffColors(p: Palette, diffColors: PhoneThemeSettings["diffColors"], scheme: "light" | "dark"): Palette {
   const pair = DIFF_PAIRS.find((entry) => entry.id === diffColors)?.[scheme];
   if (!pair) return p;
@@ -107,7 +93,6 @@ function setTheme(patch: Partial<PhoneThemeSettings>) {
   if (patch.mode) applyMode(patch.mode);
 }
 
-// One palette object per theme, shared by every component, so per-palette style caches hit across the app.
 const paletteCache = new Map<string, Palette>();
 function paletteFor(settings: PhoneThemeSettings, scheme: "light" | "dark"): Palette {
   const key = `${settings.colorTheme}|${settings.diffColors}|${scheme}|${JSON.stringify(settings.customTheme ?? null)}`;
@@ -128,7 +113,6 @@ export function useTheme() {
   return { colors: palette, scheme, settings, set: setTheme, diff: { add: palette.add, remove: palette.remove }, ...scale } as const;
 }
 
-/** Text size in px for chat text (15 by default), code size in px (12), and the motion multiplier (1, 0.6, 0). */
 function appearanceScales(settings: Pick<PhoneThemeSettings, "textSize" | "codeSize" | "motion">) {
   const text = PHONE_TEXT_SIZES.find((entry) => entry.id === settings.textSize)?.px ?? 15;
   const code = PHONE_CODE_SIZES.find((entry) => entry.id === settings.codeSize)?.px ?? 12;
@@ -136,10 +120,8 @@ function appearanceScales(settings: Pick<PhoneThemeSettings, "textSize" | "codeS
   return { typeScale: text / 15, textPx: text, codeSize: code, motionScale };
 }
 
-/** The motion multiplier for code outside React (worklet setup, module-level animations). */
 export const getMotionScale = () => appearanceScales(getThemeSettings()).motionScale;
 
-/** A hook for a style sheet that depends on the palette: built once per palette, shared by every component that calls it. */
 export function createStylesHook<T>(make: (colors: Palette) => T): () => T {
   const cache = new WeakMap<Palette, T>();
   return () => {

@@ -22,11 +22,8 @@ import { useTheme } from "./theme";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { pressStyle } from "./primitives/press-style";
 
-/** One choice of a setting shown as a card: a small sketch of what it looks like, its name and a line about it. */
 export type VisualChoice<T extends string> = { value: T; title: string; description: string; preview: ReactNode };
 
-/** Two or more settings choices side by side, each a card with its sketch; the chosen one is outlined in ink, with an ink
- * mark (selection is ink, as on the Appearance theme tiles: accent is for focus and links). */
 export function ChoiceCards<T extends string>({
   label,
   value,
@@ -156,7 +153,6 @@ function Square({ color, size = 6 }: { color: string; size?: number }) {
   return <View style={{ width: size, height: size, borderRadius: radius.full, backgroundColor: color }} />;
 }
 
-/** One list: every Chat newest first, its Project on a small first line. */
 export function OneListPreview() {
   const { colors } = useTheme();
   const rows: [string, DimensionValue, DimensionValue][] = [
@@ -181,7 +177,6 @@ export function OneListPreview() {
   );
 }
 
-/** By Project: a group per Project with its Chats under it; the last group folded. */
 export function ByProjectPreview() {
   const { colors } = useTheme();
   const group = (color: string, width: DimensionValue) => (
@@ -210,7 +205,6 @@ export function ByProjectPreview() {
   );
 }
 
-/** Tree: a Link with its Projects under it, each with a Worktree and its Chats. */
 export function TreePreview() {
   const { colors } = useTheme();
   const sub = (width: DimensionValue) => (
@@ -265,7 +259,6 @@ function Answer({ widths }: { widths: DimensionValue[] }) {
   );
 }
 
-/** Reasoning folded: one "Thought for 12s" row above the answer. */
 export function FoldedReasoningPreview() {
   return (
     <View style={{ gap: space.md }}>
@@ -275,7 +268,6 @@ export function FoldedReasoningPreview() {
   );
 }
 
-/** Reasoning expanded: the thinking open under its row, ruled at the left, then the answer. */
 export function ExpandedReasoningPreview() {
   const { colors } = useTheme();
   return (
@@ -294,7 +286,6 @@ export function ExpandedReasoningPreview() {
   );
 }
 
-/** Tool calls compact: one line per reply. */
 export function CompactToolsPreview() {
   return (
     <View style={{ gap: space.md }}>
@@ -304,7 +295,6 @@ export function CompactToolsPreview() {
   );
 }
 
-/** Tool calls in full detail: each call on its own row. */
 export function FullToolsPreview() {
   return (
     <View style={{ gap: space.md }}>
@@ -317,7 +307,6 @@ export function FullToolsPreview() {
   );
 }
 
-/** A sample Chat row as the list draws it with `show`, above the switches that change it. */
 export function SampleChatRow({ show }: { show: ChatRowShow }) {
   const s = useS();
   const { colors } = useTheme();

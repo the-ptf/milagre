@@ -1,8 +1,6 @@
 import { CircleDotIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { pullRequestPresentation } from "./pr-blockers";
 
-// The glyph and colour of a PR's badge (pullRequestPresentation's icon and tone), the same in the sidebar and the PR tabs.
-
 const PR_ICONS = {
   merged: GitMergeIcon,
   closed: GitPullRequestClosedIcon,

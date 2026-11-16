@@ -161,8 +161,6 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!!document.querySelector("[data-diff-tree-file]")');
 
-    // The Changes tab counts both sections, a file in both once. Ten files or fewer list flat (name, then folder, in the
-    // diff's order) with their counts in columns; the folder tree is for larger sets.
     assert.equal(await evaluate('document.querySelector("[data-changes-tab=changes]").textContent'), "Changes6");
     assert.equal(
       await evaluate(`document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-folder]").length`),
@@ -174,8 +172,6 @@ async function browserChecks() {
       [CAL, "packages/app/src/components/Calendar/Calendar.tsx", "packages/app/src/index.ts", "README.md", "assets/data/big.json", "assets/logo.png"],
       "The flat list keeps the diff's order",
     );
-    // The folder shortens by whole segments from the middle to the room it has, never mid-word, keeping the first two
-    // and the last; the full path stays on the cell.
     assert.match(
       await evaluate(`document.querySelector(${JSON.stringify(`[data-diff-tree-file="${CAL}"]`)}).textContent`),
       /^CalendarEmptyState\.tsxpackages\/app\/(src\/components|…\/components|…)\/Calendar\+2−2M$/,
@@ -206,12 +202,10 @@ async function browserChecks() {
     await delay(200);
     await shot("panel");
 
-    // Clicking a file opens the diff and scrolls to it.
     await evaluate('document.documentElement.classList.add("dark")');
     await evaluate(`document.querySelector('[data-diff-tree-file="README.md"]').click()`);
     await waitFor('!!document.querySelector("[data-diff-view]")');
     assert.ok(await evaluate('!!document.querySelector("[data-diff-back]")'), "The diff shows a Back button");
-    // <main> starts at the window's left edge, as with the sidebar collapsed. Both decorations leave room for its toggle.
     const backLeft = 'Math.round(document.querySelector("[data-diff-back]").getBoundingClientRect().left)';
     assert.equal(await evaluate(backLeft), 52, "External decorations reserve only the sidebar toggle and its gap");
     await evaluate('window.setWindowDecoration("leading")');
@@ -229,7 +223,6 @@ async function browserChecks() {
       "Diff bar buttons sit above the drag strip",
     );
     // Chromium builds the window's drag region from every element with an app-region, in tree order: drag adds its box,
-    // no-drag subtracts it. Only the bar's buttons opt out; the empty stretch between Back and the toolbar still drags the window.
     const draggableAt = (x, y) =>
       evaluate(`(() => {
       let draggable = false;
@@ -267,7 +260,6 @@ async function browserChecks() {
     );
     await evaluate(`document.querySelector('[data-diff-view]').scrollTo(0, 0)`);
 
-    // Unified: two gutters, hunk header, tints, syntax and word highlight.
     await waitFor(`!!document.querySelector('${file(CAL)} [data-diff-row]')`);
     assert.equal(await evaluate(`document.querySelector('${file(CAL)} [data-diff-hunk]').textContent`), "@@ -1,7 +1,7 @@");
     assert.deepEqual(
@@ -291,14 +283,12 @@ async function browserChecks() {
     assert.notEqual(await evaluate(`getComputedStyle(document.querySelector('${file(CAL)} [data-diff-row=add]')).backgroundColor`), "rgba(0, 0, 0, 0)");
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('${file(CAL)} header').parentElement).position`), "sticky");
 
-    // Binary and large files.
     assert.ok(await evaluate(`document.querySelector('${file("assets/logo.png")}').textContent.includes("Binary file")`));
     assert.ok(await evaluate('!!document.querySelector("[data-diff-show]")'), "A large diff offers Show diff");
     assert.ok(await evaluate(`document.querySelector('${file("assets/data/big.json")}').textContent.includes("This diff is large")`));
     assert.equal(await evaluate('window.fileCalls.some(call => call.includes("big.json"))'), false, "Large files are not fetched on scroll");
     await shot("unified");
 
-    // Split pairs rows and pads the shorter side.
     await evaluate('document.querySelector("[data-diff-layout=split]").click()');
     await waitFor(`document.querySelectorAll('${file("README.md")} [data-diff-cell]').length > 0`);
     assert.equal(
@@ -312,14 +302,12 @@ async function browserChecks() {
     await evaluate(`document.querySelector('${file(CAL)}').scrollIntoView()`);
     await delay(150);
     await shot("split");
-    // Split never scrolls sideways: both halves stay on screen however long a line is.
     assert.equal(
       await evaluate(`[...document.querySelectorAll("[data-diff-body]")].filter(body => body.scrollWidth > body.clientWidth + 1).length`),
       0,
       "Split fits its card",
     );
     assert.equal(await evaluate('document.querySelector("[data-diff-wrap]").disabled'), true, "Wrap is fixed on in split");
-    // Scrolled: the bottom fades and the file header stays pinned.
     await evaluate('document.querySelector("[data-diff-view]").scrollTo(0, 120)');
     await waitFor('document.querySelector("[data-diff-view]").hasAttribute("data-fade-top")');
     await delay(300);
@@ -330,47 +318,38 @@ async function browserChecks() {
     await evaluate('document.documentElement.classList.add("dark")');
     await evaluate('document.querySelector("[data-diff-layout=unified]").click()');
 
-    // Show diff loads the large file.
     await evaluate('document.querySelector("[data-diff-show]").click()');
     await waitFor('!document.querySelector("[data-diff-show]")');
     await waitFor(`!!document.querySelector('${file("assets/data/big.json")} [data-diff-row]')`);
     assert.ok(await evaluate('window.fileCalls.some(call => call.includes("big.json"))'));
 
-    // Collapse hides the body.
     await evaluate(`document.querySelector('${file("README.md")} [data-diff-collapse]').click()`);
     await waitFor(`!document.querySelector('${file("README.md")} [data-diff-body]')`);
 
-    // The turn ending re-reads the list.
     const before = await evaluate("window.listCalls.length");
     await evaluate("window.endTurn()");
     await waitFor(`window.listCalls.length >= ${before + 1}`);
 
-    // Content can change while the file's added/removed totals stay identical.
     await evaluate("window.externalEdit = true");
     await waitFor(`document.querySelector('${file(CAL)}').textContent.includes("External edit")`);
 
-    // An external commit has no agent event: periodic reads must clear the tree by themselves.
     await evaluate("window.externalCommit = true");
     await waitFor(`!document.querySelector("[data-changes-section='Not committed']")`);
     await evaluate("window.externalCommit = false");
     await waitFor(`document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-file]").length > 0`);
 
-    // The branch's commits are their own section, since its base; a file there opens the committed diff.
     assert.equal(await evaluate(`document.querySelectorAll("[data-changes-section='On this branch'] [data-diff-tree-file]").length`), 1);
     assert.ok(await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).textContent.includes("main")'));
     await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-tree-file]").click()`);
     await waitFor('window.fileCalls.some(call => call.startsWith("committed:"))');
     await waitFor('document.querySelectorAll("[data-diff-view] [data-diff-file]").length === 1');
 
-    // Back slides the diff out, then the chat returns.
     await evaluate('document.querySelector("[data-diff-back]").click()');
     assert.equal(await evaluate('document.querySelector("[data-chat-stub]").classList.contains("hidden")'), true, "The chat waits for the diff to leave");
     await waitFor('!document.querySelector("[data-diff-view]") && !document.querySelector("[data-diff-bar]")');
     await waitFor('!document.querySelector("[data-chat-stub]").classList.contains("hidden")');
-    // The committed file opens its diff again.
     await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-tree-file]").click()`);
     await waitFor('!!document.querySelector("[data-diff-view]")');
-    // While the diff shows the committed files, a refresh re-reads only their patches, not the uncommitted ones.
     const uncommittedReads = await evaluate('window.fileCalls.filter(call => call.startsWith("uncommitted:")).length');
     const lists = await evaluate("window.listCalls.length");
     await evaluate("window.endTurn()");
@@ -378,7 +357,6 @@ async function browserChecks() {
     await delay(200);
     assert.equal(await evaluate('window.fileCalls.filter(call => call.startsWith("uncommitted:")).length'), uncommittedReads);
 
-    // A chosen comparison narrows committed files without changing the Worktree branch.
     await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
     await waitFor('!!document.querySelector("[role=listbox]")');
     await evaluate('[...document.querySelectorAll("[role=option]")].find(row => row.textContent === "parent").click()');
@@ -397,7 +375,6 @@ async function browserChecks() {
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "comparison-history.png"), (await window.webContents.capturePage()).toPNG());
     }
-    // A slow larger page keeps the visible commit card, its expansion and branch metadata in place.
     await evaluate('[...document.querySelectorAll("[data-commit-history] button")].find(button => button.textContent === "Show files in this commit").click()');
     await waitFor('document.querySelector("[data-commit-files] [data-diff-tree-file]")');
     assert.equal(await evaluate("window.commitFileCalls.at(-1).commit"), "a".repeat(40));
@@ -493,18 +470,15 @@ async function browserChecks() {
     await evaluate('document.querySelector(`[aria-label="Dismiss missing branch notice"]`).click()');
     assert.equal(await evaluate('!!document.querySelector("[role=status]")'), false);
 
-    // An older host keeps file diffs usable without an unavailable-history error card.
     await evaluate('window.historyError = "Unknown command: git:history"; window.refreshChanges()');
     await waitFor('!document.querySelector(`[aria-label="Comparison branch"]`) && !!document.querySelector("[data-diff-tree-file]")');
     assert.equal(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("Unknown command")'), false);
     await evaluate("window.historyError = null; window.refreshChanges()");
     await waitFor('!!document.querySelector(`[aria-label="Comparison branch"]`)');
 
-    // Closing the panel returns to Chat.
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!document.querySelector("[data-changes-panel]") && !document.querySelector("[data-diff-view]")');
     assert.equal(await evaluate('document.querySelector("[data-chat-stub]").classList.contains("hidden")'), false);
-    // Link panels own their member histories. This unused reader stays inactive for every refresh route.
     await evaluate("window.setPanelLists(false)");
     await waitFor("window.fixturePanelLists === false");
     const historyCalls = await evaluate("window.historyCalls.length");

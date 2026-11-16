@@ -12,8 +12,6 @@ export type PageSharingState = {
   availability: { available: boolean; reason?: string } | null;
 };
 
-/** A Chat page's one public link, or every published page on the host when chatId is absent.
- * Publishing again updates the snapshot behind the same link. */
 export function createDesignPageSharing(client: Caller, chatId?: string | null, kind: "designs" | "artifacts" = "designs") {
   const scope = kind === "artifacts" ? { kind } : {};
   let state: PageSharingState = {
@@ -82,7 +80,6 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null, 
         if (current === generation) update({ ...state, loading: false, error: errorText(error) });
       }
     },
-    /** The host names the page after its Chat; `title` only satisfies an older host, which requires one. */
     async publish(title: string) {
       if (disposed || !chatId || state.busy || !state.loaded || state.checking || !state.availability?.available || !title.trim()) return;
       const current = ++generation;
@@ -96,7 +93,6 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null, 
             shares: [share],
           });
       } catch (error) {
-        // An upload may have succeeded despite a lost acknowledgement. Read the link before allowing a retry.
         if (disposed || current !== generation) return;
         try {
           const shares = await history();
@@ -122,7 +118,6 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null, 
           update({
             ...state,
             busy: null,
-            // A Chat page drops its revoked link, so the next publish creates a new one. Host history keeps the row.
             shares: chatId ? state.shares.filter((item) => item.id !== id) : state.shares.map((item) => (item.id === id ? { ...item, revoked: true } : item)),
           });
       } catch (error) {

@@ -6,7 +6,6 @@ import { MacUpdatesSection } from "../../mac-settings-sections";
 import { MacFeatureRow } from "../../mac-feature-row";
 import { useSession } from "../../session";
 
-/** Settings › This computer (route `this-mac`): the connected computer's Milagre update and Computer use, like desktop's This Mac page. */
 export default function ThisMacScreen() {
   const session = useSession();
   const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;

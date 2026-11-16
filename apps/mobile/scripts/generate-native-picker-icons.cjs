@@ -1,6 +1,5 @@
 // Rasterize desktop's Hugeicons for SwiftUI menus without hosting React views in them.
 // Run: node apps/mobile/scripts/generate-native-picker-icons.cjs
-/* global __dirname, __filename */
 const { Buffer } = require("node:buffer");
 const fs = require("node:fs");
 const path = require("node:path");

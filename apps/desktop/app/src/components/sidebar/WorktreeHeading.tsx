@@ -2,10 +2,6 @@ import { Add01Icon } from "@hugeicons/core-free-icons";
 import Tooltip from "@/components/primitives/Tooltip";
 import { IconButton } from "../primitives/Button";
 
-/**
- * One Worktree under a Project in the Tree layout: a dot (green while one of its Chats runs) and
- * its branch. A label only: its Chats always show under it. With `onNewChat` a + shows on hover.
- */
 export function WorktreeHeading({
   name,
   running = false,

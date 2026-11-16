@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import type { ChatSendRequest, CoordinatorState, LinkState, PermissionDecision, QuestionAnswers, QuestionImages } from "../model";
 import {
@@ -13,71 +13,58 @@ import {
   replaceComputerEntries,
 } from "../lib/agent-runs";
 import { answerSummary } from "../lib/question-answers";
-import { createRunTextStore, onlyTextChanged } from "../lib/run-text";
+import { createAgentRunsStore, onlyTextChanged } from "../lib/agent-runs-store";
 import { stateEvents } from "../lib/state-events";
 import { bridgeFor, bridgeForKey } from "../lib/computer-bridge";
 import { useComputers } from "../lib/computers";
 import type { AgentRuns, QueuedRunEvent, SentAnswer } from "../lib/agent-runs";
 
 /**
- * Streams agent turns per chat, in every project of every computer, so a chat in a project that isn't open keeps
- * its run and its cards for when the project opens again, and a reload picks them up. Each computer's main process
- * saves its turns; an event that changed a project's state brings that state along, handed to `onState`.
- * `modelFor(chatId)` names the model of a turn that starts without a message from this window.
+ * Agent runs live in a store, so a tool step re-renders only what shows it. An event that carries a Project's state
+ * holds the store until the render with that state commits: `heldFor` is a render of this hook's owner, batched with
+ * the state update (and with any other update the event made), and the store is released from its layout effect,
+ * before that render paints. A run therefore never ends, starts or changes a frame before the transcript shows it.
  */
 export function useAgentRuns(onState: (projectPath: string, state: CoordinatorState | LinkState) => void, modelFor: (chatId: string) => string = () => "") {
-  const [runs, setRuns] = useState<AgentRuns>({});
-  const runsRef = useRef(runs);
+  const [store] = useState(createAgentRunsStore);
   const onStateRef = useRef(onState);
   const modelForRef = useRef(modelFor);
   onStateRef.current = onState;
   modelForRef.current = modelFor;
 
-  // The streamed text, read from the latest runs: a batch that only grows replies reaches the readers of their text and
-  // leaves `runs` (and the window it feeds) as it was. Every write below also tells the readers of each text it changed,
-  // so they render with the window in the same pass.
-  const [text] = useState(() => createRunTextStore((chatKey) => runsRef.current[chatKey]?.text));
-  const setAll = useCallback(
-    (next: AgentRuns) => {
-      const previous = runsRef.current;
-      runsRef.current = next;
-      setRuns(next);
-      text.notify([...Object.keys(previous), ...Object.keys(next)].filter((key) => previous[key]?.text !== next[key]?.text));
-    },
-    [text],
-  );
-  // Streamed events land once per frame, not once each: a reply streaming in a Chat that isn't on screen used to
-  // render the whole window per text delta. Every other write flushes them first, so the order stays the arrival order.
+  const [heldFor, setHeldFor] = useState(0);
+  const holds = useRef(0);
+  const hold = useCallback(() => {
+    store.hold();
+    holds.current += 1;
+    setHeldFor(holds.current);
+  }, [store]);
+  useLayoutEffect(() => {
+    if (heldFor === holds.current) store.release();
+  }, [heldFor, store]);
+
   const [events] = useState(() =>
     createCoalescer<QueuedRunEvent>((batch) => {
-      const previous = runsRef.current;
-      const next = applyRunEvents(previous, batch);
-      if (next === previous) return;
-      if (!onlyTextChanged(previous, batch)) return setAll(next);
-      runsRef.current = next;
-      text.notify(batch.map(({ chatId }) => chatId));
+      const previous = store.latest();
+      store.set(applyRunEvents(previous, batch), onlyTextChanged(previous, batch));
     }),
   );
-  // Per computer, the number of the last agent event its snapshot holds: events it already folded in are skipped.
   const taken = useRef(new Map<string, number>());
-  // Per computer, which snapshot is the latest: a getRuns() answer that lands after a newer one, or a removal, is stale.
   const generation = useRef(new Map<string, number>());
   const take = useCallback(
     (computerId: string, snapshot: { runs: AgentRuns; seq: number }) => {
       events.flush();
       generation.current.set(computerId, (generation.current.get(computerId) ?? 0) + 1);
       taken.current.set(computerId, snapshot.seq);
-      setAll(replaceComputerEntries(runsRef.current, computerId, snapshot.runs));
+      store.set(replaceComputerEntries(store.latest(), computerId, snapshot.runs));
     },
-    [events, setAll],
+    [events, store],
   );
 
-  // The run and the state change in one render, so a finished reply never shows twice or goes missing: an event that
-  // brings a state, like a turn's start and end and every card, flushes what is queued with it at once.
-  // A window that loads mid-turn takes the turns from the main process, and skips the events they hold.
   useEffect(() => {
     let recovered = false;
     const unsubscribe = stateEvents.onAgentEvent(({ chatId, event, state, seq }) => {
+      if (state) hold();
       if (eventIsNew(taken.current, chatId, seq))
         events.push({ chatId, event, model: event.type === "turn-started" ? modelForRef.current(chatId) : "" }, Boolean(state) || isUrgentRunEvent(event));
       else if (state) events.flush();
@@ -87,7 +74,6 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
       recovered = true;
       take(LOCAL_COMPUTER, snapshot.runs);
     });
-    // A computer's runtime sends a snapshot each time it reconnects (daemon-runtime.cjs).
     const recoverRemote = window.milagre.onComputerEvent?.((event) => {
       if (event.channel === "runtime:snapshot" && event.payload?.runs) take(event.computerId, event.payload.runs);
     });
@@ -104,10 +90,8 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
       recover?.();
       recoverRemote?.();
     };
-  }, [events, take]);
+  }, [events, hold, take]);
 
-  // A computer that comes online is asked for its turns: its runtime's first connection sends no snapshot. One that
-  // is removed, or every one once Other computers is off, takes its turns with it.
   const { computers } = useComputers();
   const online = computers
     .filter((computer) => computer.state === "online")
@@ -115,7 +99,6 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
     .join("\n");
   const known = computers.map((computer) => computer.id).join("\n");
   const away = computers
-    // Reconnecting is a blip: its turns stay until it is offline or refused.
     .filter((computer) => computer.state !== "online" && computer.state !== "connecting" && computer.state !== "reconnecting")
     .map((computer) => computer.id)
     .join("\n");
@@ -130,24 +113,22 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
         .catch(() => {});
     }
   }, [online, take]);
-  // A computer that isn't online has no turn running that this window can know of: its spinners and approvals go (its
-  // chats stay, from its offline copy), and the snapshot asked for when it comes back online brings its turns again.
   useEffect(() => {
     if (!away) return;
     events.flush();
-    let next = runsRef.current;
+    let next = store.latest();
     for (const id of away.split("\n").filter(Boolean)) {
       if (!Object.keys(next).some((key) => computerOfKey(key) === id)) continue;
       next = dropComputerRuns(next, id);
       taken.current.delete(id);
       generation.current.set(id, (generation.current.get(id) ?? 0) + 1);
     }
-    if (next !== runsRef.current) setAll(next);
-  }, [away, events, setAll]);
+    if (next !== store.latest()) store.set(next);
+  }, [away, events, store]);
   useEffect(() => {
     const ids = new Set(known.split("\n").filter(Boolean));
     events.flush();
-    let next = runsRef.current;
+    let next = store.latest();
     for (const key of Object.keys(next)) {
       const id = computerOfKey(key);
       if (id !== LOCAL_COMPUTER && !ids.has(id)) {
@@ -156,33 +137,31 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
         generation.current.set(id, (generation.current.get(id) ?? 0) + 1);
       }
     }
-    if (next !== runsRef.current) setAll(next);
-  }, [events, known, setAll]);
+    if (next !== store.latest()) store.set(next);
+  }, [events, known, store]);
 
-  /** Saves the message and starts or steers its chat's turn, on the chat's own Mac; resolves with the chat's session id. */
   const send = useCallback((request: ChatSendRequest) => bridgeForKey(request.projectPath).sendMessage(request), []);
 
   const interrupt = useCallback((chatId: string) => bridgeForKey(chatId).interruptAgent(chatId), []);
 
-  /** Sends the user's answer. The card shows it as sent until the agent takes it, and goes back to pending if it doesn't arrive. */
   const answer = useCallback(
     async (chatId: string, requestId: string, sent: SentAnswer, deliver: () => Promise<boolean>) => {
       events.flush();
-      setAll(markAnswered(runsRef.current, chatId, requestId, sent));
+      store.set(markAnswered(store.latest(), chatId, requestId, sent));
       try {
         const accepted = await deliver();
         if (!accepted) {
           events.flush();
-          setAll(clearAnswered(runsRef.current, chatId, requestId));
+          store.set(clearAnswered(store.latest(), chatId, requestId));
         }
         return accepted;
       } catch (error) {
         events.flush();
-        setAll(clearAnswered(runsRef.current, chatId, requestId));
+        store.set(clearAnswered(store.latest(), chatId, requestId));
         throw error;
       }
     },
-    [events, setAll],
+    [events, store],
   );
 
   const respond = useCallback(
@@ -191,18 +170,12 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
     [answer],
   );
 
-  /**
-   * Sends the answers to a question, or dismisses it (null). The main process shows the answers in the chat
-   * as the user's message, so whatever the agent streams next lands below them, and takes them back if they don't arrive.
-   */
   const answerQuestion = useCallback(
     (chatId: string, requestId: string, answers: QuestionAnswers | null, images?: QuestionImages, suggestionId?: string) => {
-      const request = runsRef.current[chatId]?.questions.find((item) => item.requestId === requestId);
+      const request = store.latest()[chatId]?.questions.find((item) => item.requestId === requestId);
       const summary = answers && request ? answerSummary(request.questions, answers, images) : "";
-      // Images go only with answers, and only when there are some: an older host takes the request without them.
       const attached = answers && images ? images : undefined;
       return answer(chatId, requestId, answers ? "answered" : "dismissed", () =>
-        // A suggestion's Send answer names its card, so the host marks the card "sent" rather than "answered".
         suggestionId
           ? bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary, attached, suggestionId)
           : attached
@@ -210,11 +183,10 @@ export function useAgentRuns(onState: (projectPath: string, state: CoordinatorSt
             : bridgeForKey(chatId).answerQuestion(chatId, requestId, answers, summary),
       );
     },
-    [answer],
+    [answer, store],
   );
 
-  /** Removes a suggestion's card from the Chat `chatId` it sits in; the Subchat's own question stays open. False when it is gone already. */
   const dismissSuggestion = useCallback((chatId: string, id: string) => bridgeForKey(chatId).dismissSuggestion(chatId, id), []);
 
-  return { runs, text, send, interrupt, respond, answerQuestion, dismissSuggestion };
+  return { store, send, interrupt, respond, answerQuestion, dismissSuggestion };
 }

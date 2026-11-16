@@ -4,28 +4,18 @@ const { WebSocketServer, WebSocket: NodeWebSocket } = require("ws");
 const { createPhoneChannels, frame, OPEN, DATA, CLOSE } = require("./phone-channels.cjs");
 
 const MAX_PHONES = 16;
-// One device on the LAN gets a few sockets (a reconnect overlapping its dying predecessor), not the whole table.
 const MAX_PER_ADDRESS = 4;
-// A phone that reads slower than the Mac writes is dropped rather than buffered without end. A response is written
-// all at once, base64 and sealed, so the cap holds the largest one (MAX_RESPONSE, 64 MiB, about 86 MiB on the wire)
-// with room for a few small ones beside it. A phone that stops reading altogether is caught by the ping.
 const MAX_BUFFERED = 96 * 1024 * 1024;
-// A socket that answers neither a ping nor anything else for two intervals is half open: the phone left the network.
 const PING_MS = 30_000;
-// Larger than one sealed 256 KiB upload chunk, base64 and all.
 const MAX_FRAME = 4 * 1024 * 1024;
 const HELLO_MS = 15_000;
-// The listener is on by default on every network, public Wi-Fi included, so it bounds what a stranger can hold open.
 const MAX_CONNECTIONS = 64;
-// A socket that has not finished its request line and headers, or sent anything at all, is not a phone.
 const HEADERS_MS = 5_000;
 const REQUEST_MS = 5_000;
 const IDLE_MS = 10_000;
-// The hello is a few hundred bytes; a bigger first message is not one.
 const MAX_HELLO = 4 * 1024;
 const notFound = "HTTP/1.1 404 Not Found\r\nconnection: close\r\ncontent-length: 0\r\n\r\n";
 
-/** A request target is attacker-controlled bytes: one that is not a URL is just a 404, never an exception. */
 function parseTarget(url) {
   try {
     return new URL(url, "http://lan");
@@ -58,9 +48,9 @@ function startLanHost({
   batchMs,
 }) {
   const channels = createPhoneChannels({ identity, phones, token, bridgeUrl, canPair, WebSocket, fetch, random, helloMs, openPeer, allowComputer, batchMs });
-  const sockets = new Map(); // conn id -> the phone's socket
-  const perAddress = new Map(); // remote address -> open sockets
-  const alive = new WeakSet(); // sockets that answered since the last ping
+  const sockets = new Map();
+  const perAddress = new Map();
+  const alive = new WeakSet();
   let nextConn = 1n;
   const session = {
     conns: new Map(),
@@ -77,7 +67,6 @@ function startLanHost({
         ws.close(1000);
       }
     },
-    /** What this device's socket holds unsent: bounds a desktop that stopped reading (peer-channel.cjs). */
     queued: (conn) => sockets.get(conn)?.bufferedAmount ?? 0,
   };
   const hello = JSON.stringify({ v: 1, hostId: identity.hostId });
@@ -93,7 +82,6 @@ function startLanHost({
   server.maxConnections = MAX_CONNECTIONS;
   server.headersTimeout = HEADERS_MS;
   server.requestTimeout = REQUEST_MS;
-  // Until a socket becomes a phone's, silence is a reason to drop it.
   server.on("connection", (socket) => socket.setTimeout(idleMs, () => socket.destroy()));
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
   server.on("upgrade", (req, socket, head) => {
@@ -109,7 +97,6 @@ function startLanHost({
       socket.end(notFound);
       return;
     }
-    // From here the liveness ping watches the socket.
     socket.setTimeout(0);
     wss.handleUpgrade(req, socket, head, (ws) => {
       const conn = nextConn++;
@@ -119,7 +106,6 @@ function startLanHost({
       ws.on("pong", () => alive.add(ws));
       channels.onFrame(session, frame(OPEN, conn));
       ws.on("message", (data, isBinary) => {
-        // Nothing a phone sends may take the daemon down.
         alive.add(ws);
         try {
           if (!isBinary) return ws.close(1003);
@@ -143,7 +129,6 @@ function startLanHost({
     server.once("error", reject);
     server.listen(port, hostname, () => {
       server.off("error", reject);
-      // Only a host that is listening has sockets to watch: a failed listen must leave no timer behind.
       const pinger = setInterval(() => {
         for (const ws of sockets.values()) {
           if (!alive.has(ws)) {

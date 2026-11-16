@@ -28,7 +28,6 @@ function detail(model: WhisperModel, state: DictationModelState | undefined, sel
   return `${model.name} · ${megabytes(model.size)} MB${selected ? " · Downloads on your next take" : ""}`;
 }
 
-/** A downloaded model's … menu: its one action is freeing the disk it takes. */
 function MoreMenu({ model }: { model: WhisperModel }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
@@ -73,10 +72,6 @@ function MoreMenu({ model }: { model: WhisperModel }) {
   );
 }
 
-/**
- * Settings › Chat › Dictation: the speech models this computer can run, named for what each is good at. Picking one uses
- * it and starts its download; the ring cancels it, and a downloaded model's … menu deletes it.
- */
 export function SpeechModelChoice({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const states = useDictationModels();
   const pick = (model: WhisperModel) => {

@@ -8,7 +8,6 @@ export function trimmedEllipsis(label: string, width: number, measure: (text: st
   const room = width - measure("…");
   let low = 0;
   let high = label.length;
-  // The longest prefix that fits beside the ellipsis.
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
     if (measure(label.slice(0, mid)) <= room) low = mid;

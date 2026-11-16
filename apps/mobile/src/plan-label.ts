@@ -12,7 +12,6 @@ export const PHASE_LABELS: Record<ChatPhase, string> = {
   done: "Done",
 };
 
-/** The composer pill's text: done/total over leaf tasks, else the current phase; null hides the pill. */
 export function planPillLabel(plan: ChatPlan | undefined): string | null {
   if (!plan) return null;
   const { done, total } = taskCounts(plan.tasks);

@@ -7,24 +7,15 @@ function protocolError(code, message) {
 }
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-// One frame stays bounded: a client reads a larger response in pages (server.cjs, `pages: true`), and an event
-// whose project state doesn't fit is sent without it, for the client to read in pages.
 function pageSize(maxFrameBytes) {
-  // JSON-encoding a fragment can expand each UTF-16 unit to six bytes.
   return Math.max(1, Math.min(1024 * 1024, Math.floor((maxFrameBytes - 512) / 6)));
 }
 
-// The start of an event frame as the daemon writes one (server.cjs eventFrame, and the events it sends a single
-// connection), so a client that takes no events can drop them unread.
 const EVENT_PREFIX = Buffer.from(`{"v":${VERSION},"event":`);
 /** @param {Buffer} frame */
 const isEventFrame = (frame) => frame.length > EVENT_PREFIX.length && frame.subarray(0, EVENT_PREFIX.length).equals(EVENT_PREFIX);
 
-// Each UTF-8 JSON frame ends in a newline. Bound both partial frames and queued
-// writes, so a stalled client cannot accumulate the daemon's event stream.
-// `skip(frame)`: frames dropped without parsing them.
 function wire(socket, { onMessage, onInvalid, maxFrameBytes = MAX_FRAME_BYTES, skip = /** @type {((frame: Buffer) => boolean) | null} */ (null) }) {
-  // Partial frame as chunks, joined once when a newline arrives: concatenating per chunk is quadratic for multi-MB frames.
   let pending = [];
   let pendingBytes = 0;
   let failed = false;
@@ -70,7 +61,6 @@ function wire(socket, { onMessage, onInvalid, maxFrameBytes = MAX_FRAME_BYTES, s
     }
   });
   return {
-    /** `json`, when given, is `message` already serialized (and `bytes` its frame's length), so one event is encoded and measured once for every client. */
     send(message, json, size) {
       if (socket.destroyed || socket.writableEnded) return false;
       const frame = (json ?? JSON.stringify(message)) + "\n";

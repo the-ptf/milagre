@@ -17,22 +17,13 @@ export function useDockArea() {
   useEffect(() => {
     const main = document.querySelector<HTMLElement>("[data-workspace-main]") ?? document.querySelector<HTMLElement>("[data-chat-pane]");
     if (!main) return;
-    // The workspace's own width, without the space a dock reserves in it. The changes panel opening narrows <main>.
     const measure = () => {
       const rect = main.getBoundingClientRect();
       const right = document.querySelector("[data-changes-slot]")?.getBoundingClientRect().width ?? 0;
-      // It springs open and closed beside the chat, which narrows with it, so <main>'s resizes follow it. Dragged, it
-      // keeps the room the designs saw at the start (the drag stops where the chat would get too narrow), and is
-      // measured again when the drag ends.
       const docked = document.querySelector("[data-slot=simulator-popover][data-docked]")?.getBoundingClientRect().width ?? 0;
       const browser = document.querySelector("[data-slot=browser-dock]")?.getBoundingClientRect().width ?? 0;
-      // Lined up with the sidebar's card, top and bottom. Settings hides the card without resizing <main>, so a card with
-      // no size keeps the last place it had: read as zeros, the docks would get no height and nothing would measure
-      // them again on the way back.
       const card = document.querySelector("aside[aria-label='Workspace navigation']")?.getBoundingClientRect();
       const sidebar = card && card.height > 0 ? card : null;
-      // Its owners render only when something they lay out by moved: <main> resizes on every frame a panel beside it
-      // slides or is dragged, most often without moving the area.
       setArea((current) => {
         const next: DockArea = {
           left: rect.left,
@@ -60,10 +51,8 @@ export function useDockArea() {
   return area;
 }
 
-/** Sent when the user expands the designs to fill the workspace: the other side panels close for them. */
 export const DESIGNS_EXPANDED = "milagre:designs-expanded";
 
-/** Runs `close` when the designs expand to fill the workspace. */
 export function useCloseWhenDesignsExpand(close: () => void) {
   useEffect(() => {
     window.addEventListener(DESIGNS_EXPANDED, close);
@@ -71,14 +60,8 @@ export function useCloseWhenDesignsExpand(close: () => void) {
   }, [close]);
 }
 
-// Narrower than this, the chat beside the side panels is no use.
 const MIN_CHAT_WIDTH = 420;
 
-/**
- * Which open side panels close so the chat keeps its room, oldest first: while the panels and the chat don't fit in
- * `room` (the window's width right of the sidebar), with more than two open. Two always stay: on a wide window all
- * three do.
- */
 export function panelsToClose(open: { name: string; width: number; openedAt: number }[], room: number): string[] {
   const left = [...open].sort((a, b) => a.openedAt - b.openedAt);
   const closing: string[] = [];
@@ -104,11 +87,6 @@ function makeRoom() {
 }
 let watching = false;
 
-/**
- * A side panel that counts against the window's room: on a window too narrow for every side panel beside a usable
- * chat, the third one opening closes the one opened first, and so does the window narrowing. `width` is what it takes,
- * gap included.
- */
 export function useSidePanelRoom(name: string, open: boolean, width: number, close: () => void) {
   const latest = useRef({ width, close });
   latest.current = { width, close };

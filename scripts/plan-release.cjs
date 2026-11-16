@@ -1,9 +1,3 @@
-// Plans a desktop release. Merges to main cut no tags: Publish cuts a beta from the newest main commit whose CI and
-// installer checks passed, with the changes since the previous beta, and promotes the newest beta to stable, with the
-// changes since the previous stable. CI keeps one untagged "Next beta" draft that lists what the next beta would ship.
-//   node scripts/plan-release.cjs plan        CHANNEL, REQUESTED, SCHEDULED, NOTES_FILE in; key=value lines for $GITHUB_OUTPUT out
-//   node scripts/plan-release.cjs preview     the next beta's version and notes, from origin/main
-//   node scripts/plan-release.cjs next-draft  rewrites the Next beta draft from origin/main
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -30,7 +24,6 @@ function parseTag(tag) {
 }
 const formatCore = (core) => core.join(".");
 const compareCore = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
-// A stable release sorts after every beta of its version, as electron-updater orders them.
 function compareVersions(a, b) {
   const byCore = compareCore(a.core, b.core);
   if (byCore || a.beta === b.beta) return byCore;
@@ -42,7 +35,6 @@ const newestOf = (versions) => versions.reduce((top, version) => (!top || compar
 
 function bump(core, level) {
   const [major, minor, patch] = core;
-  // Breaking changes stay minor bumps while Milagre is on 0.x.
   if (level === "breaking") return major === 0 ? [0, minor + 1, 0] : [major + 1, 0, 0];
   if (level === "minor") return [major, minor + 1, 0];
   return [major, minor, patch + 1];
@@ -57,7 +49,6 @@ function classify({ sha, subject, body }) {
   return { sha, subject, type, scope: match?.groups.scope || null, description: match ? match.groups.description : subject, breaking, level };
 }
 
-/** Published releases only: drafts never reached anyone, and the Next beta draft has no version tag. */
 function publishedVersions(exec) {
   const releases = JSON.parse(exec("gh", ["release", "list", "--json", "tagName,isDraft", "--limit", "1000"]));
   return releases.filter((release) => !release.isDraft).flatMap((release) => parseTag(release.tagName) ?? []);
@@ -90,11 +81,6 @@ function commitsSince(exec, fromTag, to) {
 // Betas ship macOS and Linux installers; a Windows build is optional, so its check doesn't hold a beta back.
 const REQUIRED_INSTALLERS = ["macos", "linux"];
 
-/**
- * Why the installer checks (package-candidates.yml) rule out shipping `sha`, or null. That workflow runs on main pushes
- * that touch the app, so the run that tested `sha` is the one on the newest commit at or before it. A run cancelled
- * because a newer push superseded it tested nothing, which leaves the commits above it untested.
- */
 function installerProblem(exec, sha, runs) {
   for (const commit of exec("git", ["rev-list", "--first-parent", "--max-count=500", sha]).split("\n").filter(Boolean)) {
     const own = runs.filter((run) => run.headSha === commit);
@@ -110,7 +96,6 @@ function installerProblem(exec, sha, runs) {
   return "no installer check has run on it";
 }
 
-/** The commit a beta ships: the one asked for, or the newest main commit whose CI and installer checks passed. */
 function greenCommit({ exec, requested }) {
   const ci = ["run", "list", "--workflow", "ci.yml", "--event", "push", "--status", "success", "--json", "headSha"];
   const installers = () =>
@@ -153,7 +138,6 @@ function greenCommit({ exec, requested }) {
 
 function line(commit, repo) {
   let text = commit.description.trim();
-  // Capitalize prose, not identifiers such as chat_start.
   if (/^[a-z]+(?=[\s,]|$)/.test(text)) text = text[0].toUpperCase() + text.slice(1);
   const pr = /\s*\(#(\d+)\)$/.exec(text);
   const link = pr ? `[#${pr[1]}](https://github.com/${repo}/pull/${pr[1]})` : `[${commit.sha.slice(0, 7)}](https://github.com/${repo}/commit/${commit.sha})`;
@@ -185,12 +169,6 @@ function renderNotes({ intro, commits, repo, outro }) {
   return `${parts.join("\n\n")}\n`;
 }
 
-/**
- * The next beta from `sha`. Its version line is the last stable plus the biggest change since it. A line already
- * shipped as a beta above that (only true on the switch from per-merge tags) is continued, since beta installs never
- * downgrade, or passed with a minor bump when its stable tag is a leftover. The notes cover the changes since the
- * previous beta (or stable, if it is newer).
- */
 function planBeta({ exec, repo, sha, scheduled = false }) {
   const published = publishedVersions(exec);
   const stable = newestOf(published.filter((version) => version.beta === null));
@@ -202,7 +180,6 @@ function planBeta({ exec, repo, sha, scheduled = false }) {
   let core = bump(stable.core, highestLevel(commitsSince(exec, stable.tag, sha)) ?? "patch");
   const tags = existingTags(exec);
   const shipped = newestOf(published.filter((version) => version.beta !== null && compareCore(version.core, stable.core) > 0));
-  // Continue the line beta installs already run; pass it only when its stable tag is taken (a per-merge leftover).
   if (shipped && compareCore(core, shipped.core) < 0) core = tags.has(`v${formatCore(shipped.core)}`) ? bump(shipped.core, "minor") : shipped.core;
   const base = formatCore(core);
   if (tags.has(`v${base}`)) throw new Error(`Tag v${base} already exists, so this line could never be promoted; delete the stray tag`);
@@ -221,7 +198,6 @@ function planBeta({ exec, repo, sha, scheduled = false }) {
   return { changed: true, sha, base, version, releaseTag, previous: previous.tag, notes };
 }
 
-/** Stable promotes the newest beta's commit. An older beta would hand beta installs a release missing changes they run. */
 function planStable({ exec, repo, requested }) {
   const published = publishedVersions(exec);
   const stable = newestOf(published.filter((version) => version.beta === null));
@@ -252,11 +228,6 @@ function nextDraft(plan) {
   return { title: `Next beta: ${plan.releaseTag}`, body: plan.notes.replace(/^Changes since [^\n]+\n/, `${intro}\n`) };
 }
 
-/**
- * Rewrites the one untagged Next beta draft, creating it the first time. An update that leaves out tag_name turns a
- * draft whose tag doesn't exist into "untagged-<random>", so every update sends it, and the lookup also matches the
- * title to find a draft that lost it.
- */
 function writeNextDraft({ exec, title, body }) {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-next-beta-")), "body.md");
   fs.writeFileSync(file, body);
@@ -297,7 +268,6 @@ if (require.main === module) {
       else if (channel === "stable") plan = planStable({ exec, repo, requested: requested || undefined });
       else throw new Error(`Unknown channel: ${channel}; one of beta, stable`);
       if (!plan.changed) {
-        // A scheduled beta with nothing to ship does nothing; one asked for by hand fails loudly.
         if (!scheduled) throw new Error(plan.reason);
         console.error(`${plan.reason}; skipping the scheduled beta.`);
         console.log("changed=false");

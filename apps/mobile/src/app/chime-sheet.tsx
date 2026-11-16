@@ -6,10 +6,6 @@ import { playNotificationChime } from "../notification-chime-audio";
 import { usePush } from "../push";
 import { CheckRow, Group, SheetBody, SheetHeader, useStyles } from "../ui";
 
-/**
- * Settings > Notifications > Notification chime. A tap picks the chime and plays it; the sheet stays open so the next
- * one can be tried. The choice rides along with this phone's push registration, so each Mac sends it as the sound.
- */
 export default function ChimeSheet() {
   const styles = useStyles();
   const push = usePush();

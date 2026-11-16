@@ -7,10 +7,8 @@ const { agentEnvironment } = require("./command.cjs");
 
 // The models each agent offers, asked from its CLI once per app run: Claude's supportedModels(), Codex's
 // model/list and Kiro's `model` option (kiro-model-list.cjs, which adds each model's `credits`). A model is { id, name, description, recommended, efforts, defaultEffort?, ultracode, fastMode },
-// where `efforts` are the levels it accepts, lightest first (none when it has no effort control) and `fastMode`
 // says whether it has a faster, costlier tier: Claude Code's fast mode, or Codex's "priority" service tier.
 
-// "claude-haiku-4-5-20251001" and "claude-opus-5-5[1m]" are the picker's "claude-haiku-4-5" and "claude-opus-5-5".
 const plainId = (id) =>
   String(id ?? "")
     .replace(/\[.*\]$/, "")
@@ -21,16 +19,12 @@ const sentence = (text) =>
     .trim()
     .replace(/\.$/, "");
 
-// Claude reports no ultracode flag. Ultracode needs a model with the full effort range, so
-// models that offer xhigh are treated as ultracode-capable. supportsFastMode comes only on the
 // models that have it (Opus 5.5, Opus 5 and Opus 4.8 as of Claude Code 2.1.288).
 function claudeCapability(info) {
   const efforts = info.supportsEffort ? (info.supportedEffortLevels ?? []) : [];
   return { efforts, ultracode: efforts.includes("xhigh"), fastMode: info.supportsFastMode === true };
 }
 
-// supportedModels() lists aliases first (default, opus, fable, sonnet, haiku), each resolving to a model,
-// then older models by id. The picker lists models by id, so a chat keeps its model when an alias moves
 // on to a newer one; "default" only says which model Claude Code recommends.
 function claudeModels(infos) {
   const recommended = plainId(infos.find((info) => info.value === "default")?.resolvedModel);
@@ -46,7 +40,6 @@ function claudeModels(infos) {
 // Codex's fast mode is the "priority" service tier, listed per model (turn/start's serviceTierForTurn).
 const CODEX_FAST_TIER = "priority";
 
-// model/list leaves hidden models out unless asked for them; any that come anyway are dropped.
 function codexModels(entries) {
   return entries
     .filter((model) => model?.id && model.hidden !== true)
@@ -98,7 +91,6 @@ async function listCodexModels({ command, cwd, env, clientVersion = "0.0.0", cre
 }
 
 // Antigravity's models come from session/new (configOptions). Discovery opens an empty session before the first
-// Chat, and SessionManager records later changes. Both are partitioned by account, including concurrent lookups.
 const reportedAntigravity = new Map();
 const pendingAntigravity = new Map();
 const antigravityKey = (accountId) => accountId ?? "default";
@@ -118,9 +110,6 @@ function forgetAntigravityModels(accountId) {
   }
 }
 
-// The agent reports one model per thinking level; they are grouped into families whose levels are the efforts
-// (antigravityFamilies). Its descriptions are only its ids, so the catalog's wording is shown per family; a model
-// without levels keeps a description of its own.
 function antigravityModels(offered, current) {
   const valid = Array.isArray(offered) ? offered.filter((model) => typeof model?.value === "string" && model.value) : [];
   return antigravityFamilies(valid.length ? valid : ANTIGRAVITY_AGENT_OPTIONS, current).map((family) => {
@@ -139,7 +128,6 @@ function antigravityModels(offered, current) {
   });
 }
 
-/** Discover once per signed-in account; a Chat's latest report wins. Failed lookups retry on the next read. */
 async function listAntigravityModels({ accountId, command, args, harness, env, clientVersion, discover = queryAntigravityModels } = {}) {
   const key = antigravityKey(accountId);
   if (!reportedAntigravity.has(key) && command && env?.GEMINI_HOME && hasToken(env.GEMINI_HOME)) {
@@ -147,7 +135,6 @@ async function listAntigravityModels({ accountId, command, args, harness, env, c
       const pending = Promise.resolve()
         .then(() => discover({ accountId, command, args, harness, env, clientVersion }))
         .then((result) => {
-          // An invalidation or a Chat's newer report must survive an older probe finishing.
           if (pendingAntigravity.get(key) === pending && !reportedAntigravity.has(key))
             return recordAntigravityModels(accountId, result?.offered, result?.current);
           return undefined;

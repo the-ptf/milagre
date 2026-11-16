@@ -11,20 +11,10 @@ import { Button } from "./primitives/Button";
 import { Dialog } from "./primitives/Dialog";
 import { InlineError } from "./primitives/InlineError";
 
-/** How often a Link with a running Chat is checked again, so Delete enables once the Chat stops. */
 const RECHECK_MS = 2000;
 
-/**
- * The Links this window is deleting now. Their link:state with `deletedAt` comes before link:delete answers; the
- * window leaves them when the answer comes, with the Worktrees it kept, not as a Link deleted on another device.
- */
 export const linkDeletesInFlight = new Set<string>();
 
-/**
- * Asks before a Named Link is deleted, saying how many Chats it archives. The daemon is asked first, so a Link with a
- * running Chat names it and can't be deleted until it stops: the check runs again every 2 s and on each change to the
- * Link while one runs. The delete itself checks again. A Link deleted elsewhere meanwhile closes this.
- */
 export function DeleteLinkDialog({
   link,
   onClose,
@@ -39,11 +29,9 @@ export function DeleteLinkDialog({
   const [error, setError] = useState("");
   const scope = `milagre-link:${link.id}`;
   const computerId = computerOfKey(scope);
-  // A computer too old to delete Links is asked to update, by name.
   const failed = useEvent((cause: unknown) =>
     linkDeleteFailure(ipcErrorMessage(cause), { computer: computerId === LOCAL_COMPUTER ? "this Mac" : computerNameOf(computerId) }),
   );
-  // Only the latest check lands, and none after the dialog closes.
   const checks = useRef(0);
   const read = useEvent(async () => {
     const asked = ++checks.current;

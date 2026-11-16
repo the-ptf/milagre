@@ -378,7 +378,6 @@ export function FloatingBar({
             >
               <Icon icon={InboxIcon} size={16} />
               {pending > 0 && (
-                // A count on a fill: orange-ink with its on-orange label (4.5:1), ringed off the bar like a pin.
                 <span
                   data-inbox-badge
                   className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-orange-ink px-0.5 text-10 leading-none font-semibold text-on-orange shadow-pin"
@@ -655,7 +654,6 @@ export function InboxPanel({
             )}
           </p>
         )}
-        {/* Secondary: it floats on the window's clear margin, so it carries its own surface. */}
         <IconButton
           label="Floating inbox settings"
           variant="secondary"
@@ -906,7 +904,6 @@ function OrdinaryInboxQuestion({
                       event.currentTarget.focus();
                       setDrafts(pickOption(drafts, question, option.label));
                     }}
-                    // Picked is ink, as in QuestionCard: a stronger line on the inset fill, never accent.
                     className={`flex min-h-8 w-full items-center gap-2 rounded-control border p-2 text-left text-12 transition-colors disabled:opacity-40 ${draft.picked.includes(option.label) ? "border-ink bg-inset text-ink" : "border-line bg-field text-ink-2 enabled:hover:bg-hover enabled:active:bg-hover-2"}`}
                   >
                     <ShortcutKeys shortcut={String(optionIndex + 1)} compact aria-hidden="true" />

@@ -22,6 +22,8 @@ import { AppMotionConfig } from "/src/components/motion/AppMotionConfig";
 import { useApplyTheme, updateSettings, getSettings } from "/src/lib/settings";
 import { attachTerminal } from "/src/lib/terminal-sessions";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 window.milagre = Object.freeze({ listEditors: async () => [], setWindowBackground: async () => {}, setTerminalFocused: () => {},
   terminals: { read: () => new Promise(() => {}), input: async () => {}, resize: async () => {} } });
 window.__update = (patch) => updateSettings({ appearance: { ...getSettings().appearance, ...patch } });
@@ -71,7 +73,7 @@ function Fixture() {
       <div data-chat-tile={tile ? "fixture" : undefined} className={tile ? "bg-surface" : undefined} style={{ height: "100%" }}>
       <ChatComposer messages={long ? longMessages : messages}
         imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-        projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={busy} sendBlocked={false}
+        projectPath="/fixture" store={draftStore} onSend={noop} isSending={busy} sendBlocked={false}
         models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
         capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
         fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}

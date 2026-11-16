@@ -1,5 +1,3 @@
-// Browser check: another project's waiting chat dots its group in the sidebar, and the dot goes once nothing waits there.
-// No agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");

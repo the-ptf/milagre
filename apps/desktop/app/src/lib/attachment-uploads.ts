@@ -3,7 +3,6 @@ import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ImageAttachment } from "../model";
 import { bridgeForKey } from "./computer-bridge";
 
-/** Files picked while offline stay in the composer until either the local queue or the computer saves their bytes. */
 export async function prepareLocalFileUploads(owner: string, files: string[], images: ImageAttachment[], localFiles: Map<string, File>) {
   const result: string[] = [];
   for (const path of files) {
@@ -45,7 +44,6 @@ export async function uploadFile(
   );
 }
 
-/** Upload each image separately so the send carries paths, regardless of total attachment bytes. */
 export async function prepareImageUploads(owner: string, images: ImageAttachment[]) {
   const prepared: ImageAttachment[] = [];
   for (const image of images) {
@@ -54,8 +52,6 @@ export async function prepareImageUploads(owner: string, images: ImageAttachment
       continue;
     }
     const file = await uploadFile(owner, image.name, image.dataUrl.slice(image.dataUrl.indexOf(",") + 1));
-    // The upload's path is a temporary copy. The file the user chose stays the image's source, so the sent message, which also
-    // lists that file, shows the image once.
     prepared.push({
       id: image.id,
       name: image.name,

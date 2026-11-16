@@ -1,7 +1,3 @@
-// Real desktop renderer + a loopback-only mobile fixture. No provider or personal data is read.
-// node scripts/capture-readme.cjs /tmp/milagre-readme
-// Pair a simulator with the printed demo link, capture its navigation, then:
-// node scripts/capture-readme.cjs /tmp/milagre-readme --compose /absolute/mobile.png
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
@@ -213,7 +209,6 @@ async function main() {
     if (code) throw new Error("Screenshot capture failed");
     if (compose) return;
   }
-  // Read-only fixture: accepts only a public demo token, never opens a real Project.
   const token = "0".repeat(64);
   const http = require("node:http").createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${token}`) {

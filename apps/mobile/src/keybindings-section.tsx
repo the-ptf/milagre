@@ -24,7 +24,6 @@ import { ErrorNotice, showActions } from "./ui";
 import { promptText } from "./text-prompt";
 
 // Settings › Keybindings on an iPad: the connected Mac's keybindings.json, which the Mac and this iPad's keyboard both
-// run (desktop's Settings › Keybindings edits the same file). A key is typed as text, `cmd+shift+k`, as in the file.
 
 const label = (key: string) => keyLabelFor(key, true) ?? key;
 const title = (command: KeybindingCommandId) => keybindingCommand(command)?.title ?? command;

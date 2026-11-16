@@ -2,11 +2,6 @@ import type { ReactNode, Ref } from "react";
 import { Text, View, type StyleProp, type TextInstance, type TextStyle } from "react-native";
 import { useStyles } from "./styles";
 
-/**
- * A group's heading above its card: footnote 13 medium in ink3, sentence case, no tracking, read as a header. It sits 16
- * in from the card's edge, lined up with the rows' text; `flush` drops that for a heading over plain content. `trailing`
- * sits at the other end (a count, a refresh button); `ref` reaches the text, to move focus to it.
- */
 export function SectionLabel({
   children,
   trailing,

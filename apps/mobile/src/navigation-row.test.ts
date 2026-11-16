@@ -4,10 +4,10 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 
 // Exercise the production cell cache without loading the screen's native controls in Node.
-const source = readFileSync(new URL("./project-navigation.tsx", import.meta.url), "utf8");
-const helper = source.slice(source.indexOf("export function createNavigationRowCache"), source.indexOf("/** One row of the list; memoized"));
+const source = readFileSync(new URL("./navigation-row.tsx", import.meta.url), "utf8");
+const helper = source.slice(source.indexOf("export function createNavigationRowCache"), source.indexOf("export const NavigationRow"));
 const { createNavigationRowCache } = (await import("data:text/javascript," + encodeURIComponent(stripTypeScriptTypes(helper)))) as {
-  createNavigationRowCache: typeof import("./project-navigation").createNavigationRowCache;
+  createNavigationRowCache: typeof import("./navigation-row").createNavigationRowCache;
 };
 
 test("unchanged rows keep all props when a different computer publishes", () => {

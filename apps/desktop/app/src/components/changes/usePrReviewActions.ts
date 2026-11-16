@@ -9,20 +9,7 @@ import type { ThreadActions } from "./PullRequestReview";
 import type { Changes } from "./useChanges";
 import type { PullRequestReview } from "./usePullRequest";
 
-/**
- * What a PR shown in a Changes panel does: its threads, line comments and review in the diff, and a thread's
- * "Fix in Chat" through the Chat it belongs to. A Link Chat's PRs use it; a Project's Chat wires the same pieces in App.
- */
-export function usePrReviewActions({
-  review,
-  changes,
-  send,
-}: {
-  review: PullRequestReview;
-  changes: Changes;
-  /** Sends a fix to the Chat, as a send from its composer. */
-  send: (text: string) => void;
-}) {
+export function usePrReviewActions({ review, changes, send }: { review: PullRequestReview; changes: Changes; send: (text: string) => void }) {
   const latest = useRef(review);
   latest.current = review;
   const sendFix = useEvent((text: string) => {

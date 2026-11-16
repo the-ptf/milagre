@@ -126,13 +126,13 @@ function generate() {
   }
   visit(program.getSourceFile(file));
   const native = [];
-  const main = ts.createSourceFile("main.cjs", fs.readFileSync(path.join(root, "apps/desktop/electron/main.cjs"), "utf8"), ts.ScriptTarget.Latest, true);
   function nativeVisit(node) {
     if (ts.isCallExpression(node) && node.expression.getText() === "ipcMain.handle" && ts.isStringLiteral(node.arguments[0]))
       native.push(node.arguments[0].text);
     ts.forEachChild(node, nativeVisit);
   }
-  nativeVisit(main);
+  for (const name of ["main.cjs", "main-window.cjs", "host-methods.cjs", "quit-flow.cjs"])
+    nativeVisit(ts.createSourceFile(name, fs.readFileSync(path.join(root, "apps/desktop/electron", name), "utf8"), ts.ScriptTarget.Latest, true));
   return { commands, native: [...new Set(native)].sort(), $defs: defs };
 }
 function write(check = false) {

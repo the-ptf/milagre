@@ -2,13 +2,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-// Use the OS copy, never a program from a Project's PATH. Encoded commands contain
-// constant code and base64 data; paths never become PowerShell expressions.
 const powershell = () => path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32/WindowsPowerShell/v1.0/powershell.exe");
 function powershellEnvironment(environment = process.env) {
   const safe = { ...environment };
   // PS7 exports modules that Windows PowerShell 5.1 cannot load. Do not import
-  // user or Project modules into privileged ACL/process helper scripts either.
   for (const name of Object.keys(safe)) if (name.toLowerCase() === "psmodulepath") delete safe[name];
   safe.PSModulePath = path.win32.join(path.win32.dirname(powershell()), "Modules");
   return safe;
@@ -68,7 +65,6 @@ if (-not $ownAccess) { throw 'Private path must allow the current Windows user t
       env: powershellEnvironment(),
       encoding: "utf8",
       // Windows PowerShell 5.1 can take over 10 s to start on a busy machine (CI runners hit it); a slow start isn't a
-      // permissions failure.
       timeout: 30000,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -78,7 +74,6 @@ if (-not $ownAccess) { throw 'Private path must allow the current Windows user t
   }
 }
 const XML_ENTITIES = { "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&amp;": "&" };
-// PowerShell writes a failed check to stderr as CLIXML, and Node's message holds the whole encoded command: the error
 // says the script's own reason and the path instead. Its code (ENOENT, ETIMEDOUT) stays for callers that read it.
 function aclError(error, file) {
   const stderr = String(error?.stderr ?? "");
@@ -104,8 +99,6 @@ function aclError(error, file) {
   return Object.assign(new Error(`${reason}: ${file}`, { cause: error }), error?.code ? { code: error.code } : {});
 }
 // Windows folders this process has protected, by path, with the file ID each had then. Each check starts PowerShell
-// (250 ms or more, blocking), and a daemon start asked for the same folders up to five times. A folder deleted and made
-// again gets a new ID, so it is protected again; a junction in its place fails the lstat check first.
 const protectedFolders = new Map();
 function folderId(directory) {
   const stat = fs.lstatSync(directory, { bigint: true });
@@ -128,7 +121,6 @@ function preparePrivateDirectory(directory) {
   if (!fs.lstatSync(directory).isDirectory()) throw new Error(`Not a private directory: ${directory}`);
   if (process.platform !== "win32") return assertPrivate(directory);
   if (protectedHere(directory)) return;
-  // Read before protecting: a folder swapped in meanwhile has another ID, so the next call protects it again.
   const id = folderId(directory);
   windowsAcl(directory, { mode: "protect" });
   if (id !== null) protectedFolders.set(path.resolve(directory), id);

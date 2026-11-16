@@ -3,7 +3,6 @@ import { useCallback } from "react";
 import { projectOfKey } from "@milagre/shared/agent-runs";
 import { useSession } from "./session";
 
-/** What every PR page needs in its address: the Chat's Worktree, the PR number and the Chat to send to. */
 export type PrRoute = { worktreeId: string; number: string; chat?: string; cwd?: string };
 
 export type PrPage = "threads" | "review" | "diff" | "labels" | "reviewers";
@@ -16,7 +15,6 @@ const PATHS = {
   reviewers: "/pr-reviewers",
 } as const;
 
-/** Opens the PR sheet over the Chat. */
 export function openPullRequest(route: PrRoute) {
   router.push({ pathname: "/pull-request", params: route });
 }
@@ -31,11 +29,9 @@ export function openPrFile(route: PrRoute, path: string) {
   router.push({ pathname: "/pr-file", params: { ...route, path } });
 }
 
-/** The PR page's address, with the Worktree's folder looked up in the open Project. */
 export function usePrRoute() {
   const params = useLocalSearchParams<PrRoute & Record<string, string>>();
   const session = useSession();
-  // A Link Chat's PR lives in one of its Projects' Worktrees, which the route names; only a member's own folder is taken.
   const link = session.snapshot?.project.link;
   const linkChat = link && params.chat ? link.state.sessions[params.chat.slice(params.chat.lastIndexOf("#") + 1)] : undefined;
   const member = linkChat?.worktrees.find((entry) => entry.worktreePath === params.cwd);
@@ -47,8 +43,6 @@ export function usePrRoute() {
     ...(params.chat ? { chat: params.chat } : {}),
     ...(member ? { cwd: member.worktreePath } : {}),
   };
-  // The sheet can open before its Chat's Project is here (a row's PR link switches Project first) or while the phone
-  // reconnects; it waits for them rather than giving up.
   const project = params.chat ? projectOfKey(params.chat) : undefined;
   const waiting = !session.client || !session.snapshot || (!!project && session.snapshot.project.path !== project);
   return {
@@ -62,7 +56,6 @@ export function usePrRoute() {
   };
 }
 
-/** Closes the whole PR sheet from any page in it, back to the Chat. */
 export function useCloseSheet() {
   const navigation = useNavigation();
   return useCallback(() => {

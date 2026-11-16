@@ -1,4 +1,3 @@
-// Install the release tarball outside the checkout, then exercise the installed command.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");

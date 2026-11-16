@@ -1,11 +1,6 @@
 import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-/**
- * How wide each side panel is, dragged by its left edge like the sidebar by its right one. The width survives restarts
- * and is the same in every Chat; `default` is what a panel opens at until it is dragged, and what a double-click on
- * its edge goes back to.
- */
 const PANEL_WIDTHS = {
   changes: { min: 280, default: 320, max: 640 },
   simulator: { min: 320, default: 400, max: 800 },
@@ -16,7 +11,6 @@ const PANEL_WIDTHS = {
 
 export type ResizablePanel = keyof typeof PANEL_WIDTHS;
 
-// The narrowest the chat gets while a panel beside it is dragged wider.
 export const MIN_CHAT_WIDTH = 420;
 
 const key = (panel: ResizablePanel) => `milagre.panelWidth.${panel}`;
@@ -37,7 +31,6 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
-// Another window dragging a panel resizes it here too.
 globalThis.window?.addEventListener("storage", (event) => {
   const panel = (Object.keys(PANEL_WIDTHS) as ResizablePanel[]).find((name) => event.key === key(name));
   if (!panel) return;
@@ -72,8 +65,6 @@ export function usePanelWidth(panel: ResizablePanel) {
     },
     [panel],
   );
-  // A window narrowed under a wide panel: show it narrower so the chat keeps MIN_CHAT_WIDTH, without forgetting the
-  // saved width, which comes back as the window widens. ponytail: measures on window resize only, not on sidebar toggles.
   const [cap, setCap] = useState(Infinity);
   useEffect(() => {
     const fit = () => {
@@ -95,10 +86,6 @@ export function usePanelWidth(panel: ResizablePanel) {
   };
 }
 
-/**
- * The widest the panel may be dragged now: as wide as it is plus what the chat has beyond MIN_CHAT_WIDTH, and never
- * past its own maximum. Read when a drag starts.
- */
 export function roomToWiden(panel: ResizablePanel, width: number) {
   const main = document.querySelector<HTMLElement>("[data-workspace-main]") ?? document.querySelector<HTMLElement>("[data-chat-pane]");
   const chat = main?.getBoundingClientRect().width ?? Infinity;

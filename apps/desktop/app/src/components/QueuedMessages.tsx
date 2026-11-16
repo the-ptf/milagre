@@ -9,7 +9,6 @@ import { Button, IconButton } from "./primitives/Button";
 
 export interface QueueControls {
   items: QueuedMessage[];
-  /** Stop (or a failure) ended the turn they waited on: they wait for Send now. */
   held: boolean;
   running: boolean;
   canSteer?: boolean;
@@ -17,10 +16,6 @@ export interface QueueControls {
   onRemove: (id: string) => void;
 }
 
-/**
- * Messages waiting for the running turn to finish (chat-host.cjs queues them). They sit above
- * the composer, oldest first, each with Send now and Remove; the line above says when they go.
- */
 export function QueuedMessages({ items, held, running, canSteer = false, onSendNow, onRemove, disabled }: QueueControls & { disabled?: boolean }) {
   if (!items.length) return null;
   return (
@@ -59,7 +54,6 @@ export function QueuedMessages({ items, held, running, canSteer = false, onSendN
   );
 }
 
-/** The queue controls of a Chat on screen, or undefined when nothing waits in it. */
 export function queueControls(
   bridge: Pick<MilagreBridge, "sendQueuedNow" | "removeQueued">,
   chatId: string,

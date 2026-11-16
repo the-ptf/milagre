@@ -22,13 +22,9 @@ const makeStyles = (colors: Palette) =>
     muted: { color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
     label: { color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" },
     caption: { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
-    /** A meta line: footnote 13/18 in ink3. */
     footnote: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote },
-    /** A sheet's or card's title: 17/22 semibold ink (SheetHeader draws it). */
     sheetTitle: { color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" },
-    /** @deprecated Render `SectionLabel`; this is its text style (13 medium ink3). */
     section: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" },
-    /** A text field: field fill with a 1px lineStrong edge (Field turns it accent while focused, redInk when invalid). */
     input: {
       backgroundColor: colors.field,
       color: colors.ink,
@@ -48,5 +44,4 @@ const makeStyles = (colors: Palette) =>
 
 export type Styles = ReturnType<typeof makeStyles>;
 
-/** The shared styles for the current theme, built once per palette. */
 export const useStyles = createStylesHook(makeStyles);

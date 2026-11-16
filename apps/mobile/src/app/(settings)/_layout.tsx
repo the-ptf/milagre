@@ -5,7 +5,6 @@ import { stackScreenOptions } from "../../stack-options";
 import { useTheme } from "../../theme";
 import { SettingsSplit } from "../../settings-split";
 
-// Opening a settings page by its own address (a link, the usage card's Manage accounts) still puts Settings under it.
 export const unstable_settings = { anchor: "settings" };
 
 const closeButton = () => <HeaderButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />;
@@ -22,7 +21,6 @@ export default function SettingsLayout() {
       layout={SettingsSplit}
       screenOptions={({ navigation, route }) => ({
         ...stackScreenOptions(colors),
-        // A page opened by its own address (Manage accounts on a usage card) is the first one in the sheet: nothing to go back to, so it closes.
         ...(!navigation.canGoBack() && route.name !== "settings" ? { headerLeft: closeButton } : {}),
       })}
     >

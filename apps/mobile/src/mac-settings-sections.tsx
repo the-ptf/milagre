@@ -10,15 +10,12 @@ import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/
 import { readDoneSettings, saveDoneSettings } from "./done-retention";
 import { MacUpdateRows, useMacUpdate } from "./mac-update";
 
-/** Settings › This Mac: the connected Mac's Milagre update and its Auto update (desktop's About). */
 export function MacUpdatesSection() {
   const styles = useStyles();
   const session = useSession();
   const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;
   const macName = host?.name || session.hostName || "your computer";
-  // The Mac's desktop app update, checked and installed from here; hidden on a Mac too old to answer.
   const macUpdate = useMacUpdate(session.client);
-  // The Mac's Auto update (desktop Settings › About); null until it answers (an older Mac never does).
   const [autoUpdate, setAutoUpdate] = useState<boolean | null>(null);
   const [autoUpdateError, setAutoUpdateError] = useState("");
   useFocusEffect(
@@ -75,12 +72,9 @@ export function MacUpdatesSection() {
   );
 }
 
-/** Settings › Worktrees: whether new Worktrees sync their source branch first, the connected Mac's default. */
 export function MainSyncSection() {
   const styles = useStyles();
   const session = useSession();
-  // The computer's global default for source branch sync; null until it answers (an older Mac never does). Re-read on
-  // focus: it may have changed on the Mac while the phone was on another screen.
   const [syncMain, setSyncMain] = useState<boolean | null>(null);
   const [syncMainError, setSyncMainError] = useState("");
   useFocusEffect(
@@ -131,10 +125,6 @@ export function MainSyncSection() {
   );
 }
 
-/**
- * How long a Chat waits in the list's Done section before the connected Mac archives it. Kept by that Mac, so it is
- * read on every visit; a Mac too old to have it shows nothing.
- */
 export function DoneRetention() {
   const styles = useStyles();
   const client = useSession().client;

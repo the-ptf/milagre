@@ -24,7 +24,6 @@ export function AdvisorResultCard({
   basePath?: string;
 }) {
   const { colors } = useTheme();
-  // Collapsed, the card keeps a fixed height and scrolls; expanded, it grows to show the whole result.
   const [expanded, setExpanded] = useState(false);
   const resultLabel = context.mode === "execution" ? "execution result" : "advisor result";
   const resultMedia = useMemo(

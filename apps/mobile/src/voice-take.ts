@@ -1,6 +1,4 @@
 // The lifecycle of one microphone take, free of the native audio module so it can be driven by a test. A take can be
-// cancelled at any point of its start; whatever it had allocated by then is released before `discard` resolves, and
-// the next take waits for every earlier one to finish releasing the audio session before it activates it again.
 import { meterLevel } from "@milagre/shared/voice-dictation";
 
 export type RecorderStatus = { hasError?: boolean; mediaServicesDidReset?: boolean; isFinished?: boolean; metering?: number };
@@ -17,19 +15,14 @@ export type RecorderLike = {
   release(): void;
 };
 
-/** What a take needs from the phone: the audio session, a recorder, and deleting a file. */
 export type AudioPort = {
-  /** Puts the audio session in recording mode. */
   configure(): Promise<void>;
-  /** Activates the audio session. */
   activate(): Promise<void>;
-  /** Leaves recording mode and deactivates the session, so music that was playing resumes. */
   deactivate(): Promise<void>;
   createRecorder(): RecorderLike;
   deleteFile(path: string): void;
 };
 
-/** Every take's disposal in progress, so a take that starts next can wait for the ones before it. */
 export function createTakeLock() {
   const pending = new Set<Promise<unknown>>();
   return {
@@ -39,7 +32,6 @@ export function createTakeLock() {
       work.then(forget, forget);
       return work;
     },
-    /** What is being released now; later work does not count, so a take never waits on its own disposal. */
     snapshot: () => [...pending],
   };
 }
@@ -52,7 +44,6 @@ export type TakeLock = ReturnType<typeof createTakeLock>;
 export class VoiceTake {
   private recorder: RecorderLike | null = null;
   private listener: { remove(): void } | null = null;
-  /** The audio session was claimed (or is being) and has not been given back. */
   private audio = false;
   private cancelled = false;
   private starting: Promise<unknown> | null = null;
@@ -68,9 +59,7 @@ export class VoiceTake {
     this.limitSeconds = limitSeconds;
   }
 
-  /** Resolves true once recording, false when the take was cancelled on the way (everything it had is already released). */
   start(onStatus: (status: RecorderStatus) => void): Promise<boolean> {
-    // Taken now, not when the first await ends: later disposals belong to takes that come after this one.
     const before = this.lock.snapshot();
     const run = this.begin(before, onStatus);
     this.starting = run;
@@ -105,7 +94,6 @@ export class VoiceTake {
     return true;
   }
 
-  /** The mic level now, 0..1. */
   level() {
     try {
       return meterLevel(this.recorder?.getStatus().metering);
@@ -129,10 +117,6 @@ export class VoiceTake {
     });
   }
 
-  /**
-   * Ends the take: a start still under way is waited for and undone, the recorder and the audio session are released and
-   * the recording at `uri` (and the recorder's own file) is deleted. Resolves once all of it is done.
-   */
   discard(uri?: string | null): Promise<void> {
     this.cancelled = true;
     return this.queue(async () => {
@@ -164,7 +148,6 @@ export class VoiceTake {
         if (recorder.isRecording) await recorder.stop();
       } catch {}
       try {
-        // A recorder that was still starting knows its file only once stopped.
         file ??= recorder.uri;
       } catch {}
       try {
@@ -184,11 +167,9 @@ export class VoiceTake {
   }
 }
 
-/** The one microphone of the app: whoever claims it ends the take of the previous holder. */
 export function createMicrophone() {
   let holder: { owner: symbol; cancel: () => Promise<void> } | null = null;
   return {
-    /** Claims the microphone; resolves once the previous holder's take is gone and its audio session given back. */
     claim(owner: symbol, cancel: () => Promise<void>): Promise<void> {
       const previous = holder && holder.owner !== owner ? holder.cancel() : Promise.resolve();
       holder = { owner, cancel };

@@ -8,9 +8,7 @@ import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 
 const PREVIEW_TITLE_LENGTH = 56;
 const PREVIEW_DESCRIPTION_LENGTH = 88;
-// The last messages can still be streaming, so only older ones keep a cached preview.
 const LIVE_TAIL = 3;
-// Streamed growth refreshes the live previews this often instead of on every chunk.
 const RAIL_REFRESH_MS = 250;
 
 function truncateMessageText(text: string, limit: number) {
@@ -26,7 +24,6 @@ function getMessageText(message: HTMLElement) {
     message.querySelector<HTMLElement>('[data-slot="message-content"]') ??
     message;
   if (surface !== message) return (surface.textContent ?? "").replace(/\s+/g, " ").trim();
-  // Answerless replies preview their summary, independent of which activity rows were opened.
   const walker = document.createTreeWalker(message, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
     acceptNode: (node) =>
       node instanceof Element ? (node.matches('[data-slot="activity-body"]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP) : NodeFilter.FILTER_ACCEPT,
@@ -73,28 +70,15 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
   viewportRef?: Ref<HTMLElement>;
   viewportProps?: Omit<ComponentPropsWithRef<"section">, "children" | "className" | "ref">;
   contentProps?: Omit<ComponentPropsWithRef<"div">, "children" | "className" | "ref">;
-  /** Compatibility with the previous local API. */
   autoScrollKey?: string | number;
-  /**
-   * Hands the "Go to bottom" action to the parent while the transcript is scrolled up, null once at the bottom. With it,
-   * the parent draws the button (the Chat puts it on the composer's chip row, clear of the text); without it, it floats
-   * over the transcript.
-   */
   onJumpToBottomChange?: (jump: (() => void) | null) => void;
-  /**
-   * Whether the transcript rests at its end (within END_SLACK px), so the bottom pad is empty and nothing of it sits under
-   * what floats over that pad. Reported on scroll; content that grows without scrolling only moves away from the end.
-   */
   onAtEndChange?: (atEnd: boolean) => void;
 }
 
-/** Below the bottom pad the transcript's column keeps 16px of its own, so this much scroll still leaves the pad empty. */
 const END_SLACK = 16;
 
-/** Whether the scroller around a transcript follows its bottom now: read when it matters, so following renders nothing. */
 export const MessageFollowContext = createContext<{ readonly current: boolean } | null>(null);
 
-/** Dispatched on the viewport of a parked transcript that is back in the document and needs measuring again. */
 export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
 /**
  * Dispatched on the viewport to show a transcript at its latest message and follow it from there. Code outside the
@@ -141,7 +125,6 @@ export function MessageScroller({
   const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(followOutput);
   const programmaticScrollRef = useRef(false);
-  // User intent wins even inside the follow threshold. Layout/anchor events cannot resume it.
   const readingRef = useRef(false);
   const inputDirectionRef = useRef(0);
   const previousTopRef = useRef(0);
@@ -160,8 +143,6 @@ export function MessageScroller({
   const [activeRailId, setActiveRailId] = useState("");
   const [railOverflowing, setRailOverflowing] = useState(false);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
-  // A newly opened conversation lays out every message at its real size once, so the skipped ones keep that size
-  // instead of a guess that would shift the scroll position after it opens at the bottom.
   const [measuring, setMeasuring] = useState(true);
   const {
     onScroll: onViewportScroll,
@@ -218,7 +199,6 @@ export function MessageScroller({
       return;
     }
 
-    // Messages sit in document order, so their centres only grow: binary-search the first one past the viewport centre.
     const viewportCenter = viewport.getBoundingClientRect().top + viewport.clientHeight / 2;
     const centerOf = (index: number) => {
       const target = targets[index];
@@ -254,7 +234,6 @@ export function MessageScroller({
     if (!content || !viewport) return;
 
     const messages = Array.from(content.querySelectorAll<HTMLElement>('[data-slot="message"]'));
-    // The first assistant message after each one, found in a single backwards pass.
     // oxlint-disable-next-line unicorn/no-new-array -- array is pre-sized and filled by index on purpose
     const responses: Array<HTMLElement | undefined> = new Array(messages.length);
     let nextAssistant: HTMLElement | undefined;
@@ -265,7 +244,6 @@ export function MessageScroller({
     }
     const cache = previewCacheRef.current;
     const targets = new Map<string, HTMLElement>();
-    // Sample the whole Chat, including both ends, rather than growing a tick per message.
     const nextItems = messageNavigationIndices(messages.length).flatMap((index) => {
       const message = messages[index];
       if (!message) return [];
@@ -310,7 +288,6 @@ export function MessageScroller({
     setRailOverflowing(viewport.scrollHeight > viewport.clientHeight + 1 && messages.length > 1);
   }, [navigation]);
 
-  // Scroll events and layout changes ask for the active item at most once a frame.
   const scheduleActiveRailItem = useCallback(() => {
     if (navigation !== "rail" || activeFrameRef.current) return;
     activeFrameRef.current = requestAnimationFrame(() => {
@@ -328,7 +305,6 @@ export function MessageScroller({
     });
   }, [navigation, syncRailItems, updateActiveRailItem]);
 
-  // Streamed growth: the last previews change but the list doesn't, so refresh them on a timer, not per chunk.
   const scheduleRailRefresh = useCallback(() => {
     if (navigation !== "rail" || railRefreshTimerRef.current) return;
     railRefreshTimerRef.current = window.setTimeout(() => {
@@ -346,8 +322,6 @@ export function MessageScroller({
     if (scrollTimerRef.current) window.clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = undefined;
     if (scrollSettleFrameRef.current) cancelAnimationFrame(scrollSettleFrameRef.current);
-    // A correction at the end may produce no scroll event. Check after queued
-    // layout and scroll events so later Find navigation can leave the live edge.
     scrollSettleFrameRef.current = requestAnimationFrame(() => {
       scrollSettleFrameRef.current = undefined;
       if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1) programmaticScrollRef.current = false;
@@ -375,12 +349,9 @@ export function MessageScroller({
     if (!viewport) return;
     const previousTop = previousTopRef.current;
     previousTopRef.current = viewport.scrollTop;
-    // The active item follows every scroll, including the ones that chase streamed output.
     scheduleActiveRailItem();
     updateJumpToBottom();
     const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-    // Long jumps and image layout changes can outlast a fixed animation timer.
-    // Keep following until the actual end is reached or user input interrupts the jump.
     if (programmaticScrollRef.current) {
       if (distance <= 1) programmaticScrollRef.current = false;
       return;
@@ -412,8 +383,6 @@ export function MessageScroller({
     [setFollowing],
   );
 
-  // A parked transcript put back in the document (ChatComposer's TranscriptSlots) with messages whose size
-  // contain-intrinsic-size never learned measures every message once more.
   const [measurePass, setMeasurePass] = useState(0);
   const shownBefore = useRef(false);
   useEffect(() => {
@@ -424,14 +393,11 @@ export function MessageScroller({
       setMeasurePass((pass) => pass + 1);
     };
     viewport.addEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
-    // Effects run again when a hidden <Activity> shows this scroller again; display:none dropped the remembered sizes.
     if (shownBefore.current) remeasure();
     shownBefore.current = true;
     return () => viewport.removeEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
   }, []);
-  // The end through scrollToEnd: its scroll events don't count as the reader's, so following survives the growth of
   // messages that measure right after, and the ResizeObserver keeps the end in view as they do. Listening from the
-  // layout phase, the end is reached before paint.
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport || !followOutput) return;
@@ -457,7 +423,6 @@ export function MessageScroller({
 
   useLayoutEffect(() => {
     followingRef.current = followOutput;
-    // Position a newly opened conversation before the browser can paint its top.
     if (followOutput) scrollToEnd("instant");
     updateJumpToBottom();
   }, [followOutput, scrollToEnd, updateJumpToBottom]);
@@ -472,8 +437,6 @@ export function MessageScroller({
     const viewport = viewportRef.current;
     if (!content || !viewport || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      // Images and skipped messages may change height several times. Correct the live edge
-      // immediately instead of repeatedly restarting a smooth jump to an outdated height.
       if (followOutput && followingRef.current) scrollToEnd("instant");
       updateJumpToBottom();
     });
@@ -495,8 +458,6 @@ export function MessageScroller({
     if (!content || !viewport) return;
 
     scheduleRailSync();
-    // Only messages being added or removed rebuild the list; text streaming inside one never reaches this observer.
-    // A list that doesn't exist yet (or is replaced) is found again through the content's own children.
     const listOf = () =>
       content.querySelector<HTMLElement>('[data-slot="message"]')?.parentElement ?? (content.firstElementChild as HTMLElement | null) ?? content;
     let list = listOf();
@@ -512,10 +473,8 @@ export function MessageScroller({
     });
     mutationObserver.observe(content, { childList: true });
     if (list !== content) mutationObserver.observe(list, { childList: true });
-    // While a panel edge is dragged the viewport resizes on every frame: the list is rebuilt once, when the drag ends.
     let rebuildAfterDrag = false;
     const resizeObserver = new ResizeObserver((entries) => {
-      // A resized viewport can change what fits, so it rebuilds the list; content growth only checks overflow and the active item.
       if (panelResizing()) rebuildAfterDrag = true;
       else {
         if (entries.some((entry) => entry.target === viewport)) scheduleRailSync();
@@ -622,7 +581,6 @@ export function MessageScroller({
       onKeyDown={(event) => {
         onViewportKeyDown?.(event);
         if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
-        // Space activates controls; arrows edit fields. Neither is transcript navigation.
         if (
           event.target instanceof Element &&
           event.target.closest('input, textarea, select, button, a[href], [contenteditable="true"], [role="textbox"], [role="slider"]')

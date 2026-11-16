@@ -47,6 +47,8 @@
     "typecheck:mobile": "npm run typecheck --workspace @milagre/mobile",
     "package:repositories": "node scripts/generate-linux-repository.cjs",
     "lint": "oxlint",
+    "code-health": "node scripts/code-health-report.cjs",
+    "lint:baseline": "node scripts/code-health-report.cjs --write-baseline",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "prepare": "node scripts/prepare-node-pty.cjs && node -e \"require('node:fs').existsSync('.git') && require('node:child_process').execSync('lefthook install', { stdio: 'inherit' })\"",

@@ -1,13 +1,11 @@
 const { computerNoun } = require("@milagre/shared/host-computer");
 // A scripted agent for demos (`npm run mobile:demo`, `npm run review:demo`). Never selected by the real daemon CLI:
-// a host passes `demoRuntimeOptions()` to startDaemon explicitly. It reads, runs and changes nothing.
 
 const DEFAULT_COPY = {
   ack: `Demo agent: your message reached the daemon on your ${computerNoun}. `,
   reply: "The reply made it back to your simulator. Your Chat is saved locally.",
 };
 
-/** The one model the demo reports. */
 const DEMO_MODEL = Object.freeze({
   id: "demo",
   name: "Demo agent",
@@ -20,7 +18,6 @@ const DEMO_MODEL = Object.freeze({
 const DEMO_ONLY = "This demo computer runs only the demo agent.";
 const NO_PULL_REQUESTS = "Pull requests are not available on the demo computer.";
 
-/** A createSession for core's SessionManager. `copy` replaces the plain reply's two parts. */
 function createDemoSession(copy = {}) {
   const { ack, reply } = { ...DEFAULT_COPY, ...copy };
   return function demoSession(_provider, { emit }) {
@@ -139,11 +136,6 @@ function createDemoSession(copy = {}) {
 
 const demoSession = createDemoSession();
 
-/**
- * Runtime options that put only the demo agent behind a daemon: every turn, whichever provider the phone picks, goes
- * to `createSession`; no CLI is looked up, no account's usage is read, and the model list is the demo model alone.
- * The CLI lookup answers with a path that does not exist, so a background helper that tries to start one fails.
- */
 function demoRuntimeOptions({ cwd, worktreeRoot, copy } = {}) {
   const agentCliStatus = Object.assign(
     async () => ({
@@ -164,7 +156,6 @@ function demoRuntimeOptions({ cwd, worktreeRoot, copy } = {}) {
     agentModels: async () => ({ codex: [{ ...DEMO_MODEL }], claude: null, antigravity: null, kiro: null }),
     agentCliStatus,
     readUsage: async () => ({ providers: [] }),
-    // The owner's personal skills stay on the Mac: `/skill` reaches the agent as typed.
     expandSkills: false,
     // Never `gh`, which would use the owner's GitHub login.
     readPullRequest: async () => {

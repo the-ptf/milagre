@@ -135,7 +135,6 @@ async function electronChecks() {
     await type("echo clip-value\r");
     await showsText("clip-value");
 
-    // Ctrl+C copies a selection and leaves the shell alone, and clears it so the next one interrupts.
     await clipboard.writeText("");
     await evaluate("window.selectAll()");
     press("C", ["control"]);
@@ -143,21 +142,18 @@ async function electronChecks() {
     assert.equal(await evaluate("window.selection()"), "", "Copying clears the selection");
     assert.ok(!(await shown()).includes("^C"), "Copying sends no interrupt");
 
-    // Without a selection, Ctrl+C interrupts: a 60-second ping ends and the next command runs at once.
     await type("ping -n 60 127.0.0.1\r");
     await delay(1500);
     press("C", ["control"]);
     await type("echo after-interrupt\r");
     await showsText("after-interrupt");
 
-    // Ctrl+V pastes the clipboard at the prompt.
     await clipboard.writeText("echo pasted-value");
     press("V", ["control"]);
     await showsText("echo pasted-value");
     press("Return");
     await waitFor(async () => (await shown()).split("pasted-value").length >= 3, "the pasted command's output");
 
-    // Right click with a selection: Copy works, and the menu closes.
     await clipboard.writeText("");
     await evaluate("window.selectAll()");
     await rightClick();
@@ -168,14 +164,12 @@ async function electronChecks() {
     await waitFor(() => evaluate('!document.querySelector("[data-terminal-menu]")'), "the menu to close");
     assert.equal(await evaluate('document.activeElement?.classList.contains("xterm-helper-textarea")'), true, "Focus returns to the Terminal");
 
-    // Right click with nothing selected: Copy is off, Paste works.
     await clipboard.writeText("echo menu-paste");
     await rightClick();
     assert.equal(await evaluate(`${row("Copy")}.disabled`), true, "Copy is off without a selection");
     await evaluate(`${row("Paste")}.click()`);
     await showsText("echo menu-paste");
 
-    // A press outside closes the menu without pasting or copying.
     await rightClick();
     await evaluate('document.querySelector("[data-terminal-menu]") && document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))');
     await waitFor(() => evaluate('!document.querySelector("[data-terminal-menu]")'), "the menu to close on a press outside");

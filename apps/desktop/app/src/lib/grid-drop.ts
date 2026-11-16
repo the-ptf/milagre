@@ -1,10 +1,5 @@
 import { useSyncExternalStore } from "react";
 
-/**
- * Where a Chat dragged out of the sidebar lands in the Chat view: before or after a grid tile, or beside the one Chat on
- * screen (`tile` null), which turns the view into a grid of the two. `area` is the part of the screen the drop takes, for
- * the highlight, and `bar` the edge it inserts at.
- */
 export type GridDropTarget = {
   tile: string | null;
   side: "before" | "after";
@@ -13,7 +8,6 @@ export type GridDropTarget = {
 };
 
 type GridDropHandle = {
-  /** The drop target under a point, or null when the point is not over the Chat view or the Chat can't go there. */
   hit: (x: number, y: number, chatKey: string) => GridDropTarget | null;
   drop: (chatKey: string, target: GridDropTarget) => void;
 };
@@ -75,7 +69,6 @@ export function dropSide(
   };
 }
 
-/** The tiles after a drop puts `key` before or after `tile`, or beside `focused` when the view had no tiles yet. */
 export function placeDropped(tiles: readonly string[], key: string, target: Pick<GridDropTarget, "tile" | "side">, focused: string | null): string[] {
   const anchor = target.tile ?? focused;
   const rest = (tiles.length ? tiles : focused ? [focused] : []).filter((item) => item !== key);
@@ -86,8 +79,6 @@ export function placeDropped(tiles: readonly string[], key: string, target: Pick
 }
 
 const PINS_KEY = "milagre.chatGridPins";
-// Bumped from "milagre.chatSplit" when a split stopped following focus: splits kept under the old key came from a Chat
-// taking its neighbour's slot, not from a choice, so they clear once instead of coming back.
 const SPLIT_KEY = "milagre.chatSplit2";
 
 function readKeys(storage: Pick<Storage, "getItem">, name: string): string[] {
@@ -99,7 +90,6 @@ function readKeys(storage: Pick<Storage, "getItem">, name: string): string[] {
   }
 }
 
-/** The Chats kept in the grid on this Mac, by key (`<project>#<id>`), whether or not they are active. */
 export function readGridPins(storage: Pick<Storage, "getItem">) {
   return readKeys(storage, PINS_KEY);
 }
@@ -108,12 +98,10 @@ export function saveGridPins(storage: Pick<Storage, "setItem">, pins: readonly s
   storage.setItem(PINS_KEY, JSON.stringify(pins));
 }
 
-/** The Chats of the split view on this Mac, in order: the ones dragged beside the open Chat. */
 export function readSplitChats(storage: Pick<Storage, "getItem">) {
   return readKeys(storage, SPLIT_KEY);
 }
 
-/** A new Chat's draft tile is left out: it has no Chat to come back to. */
 export function saveSplitChats(storage: Pick<Storage, "setItem">, keys: readonly string[]) {
   storage.setItem(SPLIT_KEY, JSON.stringify(keys.filter((key) => !key.endsWith("#0"))));
 }

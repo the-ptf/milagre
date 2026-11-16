@@ -15,13 +15,8 @@ type Found = { path: string; name: string };
 
 type Results = { query: string; items: Found[]; error?: string };
 
-/** A home-folder path as the Mac's Finder would show it. */
 const shortPath = (value: string) => value.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
 
-/**
- * Finds a Project on the computer by name: the Git repositories in its home folder (project:find). A full path still
- * opens directly, for a folder outside the home or a Mac whose Milagre can't search yet.
- */
 export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   const styles = useStyles();
   const session = useSession();
@@ -29,24 +24,19 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Results | null>(null);
   const [cloning, setCloning] = useState(false);
-  // A typed folder with repositories inside: the step that adds them takes the search's place.
   const [scan, setScan] = useState<FolderScan | null>(null);
   const [checking, setChecking] = useState(false);
-  // A typed path is checked for repositories inside it first (the Mac's Settings › Worktrees › Detect repositories in a
-  // folder can turn that off); a computer whose Milagre can't check opens it as one Project, as before.
   async function openTyped(folder: string) {
     if (!client || checking) return;
     setChecking(true);
     const found = await client.call<FolderScan>("project:scan-children", [folder]).catch(() => null);
     setChecking(false);
-    // A repository with repositories inside (submodules, a monorepo) opens as one Project.
     if (found?.detect && !found.git && found.children.some((child) => child.git)) setScan(found);
     else onOpen(folder);
   }
   useEffect(() => {
     if (!client || cloning) return;
     let live = true;
-    // Typing waits a beat; the Mac scans once and answers later queries from that scan.
     const timer = setTimeout(
       () => {
         void client
@@ -147,10 +137,6 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   );
 }
 
-/**
- * Clones a repository on the computer (onboarding:clone, as desktop's Add Project) and opens it. The folder is typed, since
- * a phone can't browse the computer's folders; empty is ~/Code, where the computer makes it when missing.
- */
 function CloneForm({ onBack, onOpen }: { onBack: () => void; onOpen: (path: string) => void }) {
   const client = useSession().client;
   const [url, setUrl] = useState("");
@@ -210,11 +196,6 @@ function CloneForm({ onBack, onOpen }: { onBack: () => void; onOpen: (path: stri
   );
 }
 
-/**
- * Adds a folder that holds repositories, as desktop's Add Project does: repositories start checked, other folders
- * unchecked. The checked ones open as Projects and, two or more, get a Named Link named after the folder; the Tree
- * layout comes on to draw it. "Open as one Project" opens the folder itself.
- */
 function ImportFolderForm({ scan, onBack, onOpen }: { scan: FolderScan; onBack: () => void; onOpen: (path: string) => void }) {
   const client = useSession().client;
   const styles = useStyles();

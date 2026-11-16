@@ -571,6 +571,24 @@ async function browserChecks() {
       await screenshot("long-chat-search-history");
     }
 
+    await loadFixture(process.argv[2]);
+    await waitFor(`${transcript}?.textContent.includes('Previous chat')`);
+    await evaluate(`window.emitAgent(2, { type: 'turn-started' }); window.emitAgent(2, { type: 'text-delta', text: 'Turn end reply' })`);
+    await waitFor(`document.querySelector('[data-streaming]')?.textContent.includes('Turn end reply')`);
+    const turnEnd = await evaluate(`new Promise(resolve => {
+      const seen = [];
+      const channel = new MessageChannel();
+      const count = () => [...document.querySelectorAll('[data-slot="message"]')].filter(el => el.textContent.includes('Turn end reply')).length;
+      channel.port1.onmessage = () => {
+        seen.push(count() + (document.querySelector('[data-streaming]') ? 's' : ''));
+        if (seen.length < 400) channel.port2.postMessage(0);
+        else resolve(seen.filter((sample, index) => sample !== seen[index - 1]).join(","));
+      };
+      channel.port2.postMessage(0);
+      window.finishTurn(2, 'Turn end reply');
+    })`);
+    assert.ok(["1s,1", "1"].includes(turnEnd), `the finished reply shows once at every task boundary, never twice or not at all: ${turnEnd}`);
+
     assert.deepEqual(consoleErrors, []);
     console.log(
       "PASS: immediate first messages and follow-ups, steering, acknowledgement without remounting, next drafts, attachment recovery, retries, background navigation and memoized long-chat history during sends and streaming",
@@ -594,23 +612,22 @@ async function main() {
         enforce: "pre",
         transform(code, id) {
           if (id.split("?")[0].endsWith("/components/useAgentRuns.ts")) {
-            // A passive effect observes committed React state, not just receipt of an event.
-            const committed = "const runsRef = useRef(runs);";
-            assert.ok(code.includes(committed));
-            // Streamed text reaches its readers through the run text store, without committing runs (lib/run-text.ts).
-            return code.replace(committed, "useEffect(() => { window.committedRuns = runs; window.runText = text; }, [runs]); " + committed);
+            const created = "const [store] = useState(createAgentRunsStore);";
+            assert.ok(code.includes(created));
+            return code.replace(created, created + " window.runText = store.text;");
           }
           if (id.split("?")[0].endsWith("/motion/PreviewRail.tsx")) {
             assert.ok(code.includes("const scale = highlighted"));
             return code.replace("const scale = highlighted", "window.railItemsRendered++; const scale = highlighted");
           }
-          if (id.split("?")[0].endsWith("/components/ChatComposer.tsx")) {
-            // Count real saved-card renders without changing production components or timing assertions.
+          // Count real saved-card renders without changing production components or timing assertions.
+          if (id.split("?")[0].endsWith("/transcript/MessageSection.tsx")) {
             assert.ok(code.includes("const linked = linkedContext(message);"));
+            return code.replace("const linked = linkedContext(message);", "window.renderedMessageIds.push(message.id); const linked = linkedContext(message);");
+          }
+          if (id.split("?")[0].endsWith("/transcript/MessageTranscript.tsx")) {
             assert.ok(code.includes("const transcript = grouped.slice(start).filter((entry) => !entry.hidden);"));
-            return code
-              .replace("const linked = linkedContext(message);", "window.renderedMessageIds.push(message.id); const linked = linkedContext(message);")
-              .replace("const transcript = grouped.slice(start)", "window.transcriptRenders++; const transcript = grouped.slice(start)");
+            return code.replace("const transcript = grouped.slice(start)", "window.transcriptRenders++; const transcript = grouped.slice(start)");
           }
         },
         resolveId(id) {

@@ -17,11 +17,6 @@ const ICONS: Record<DictationErrorKind, typeof MicOff01Icon> = {
 const MAX_WIDTH = 300;
 const ARROW = 6;
 
-/**
- * A take's message in a bubble over the mic, its arrow on the mic, so the words sit by the button that tries again.
- * Rendered inside the mic's own box (`micSize` wide) and anchored to its right edge. Tapping it dismisses it; a refused
- * microphone adds a button to the app's Settings instead.
- */
 export function DictationNotice({
   error,
   micSize,
@@ -36,7 +31,6 @@ export function DictationNotice({
   const { colors, motionScale } = useTheme();
   const permission = error.kind === "permission";
   const ms = Math.round(duration.fast * motionScale);
-  // The notice mounts with its message, so it is read as it shows.
   useAnnounce(error.message, { onMount: true });
   return (
     <Animated.View
@@ -45,7 +39,6 @@ export function DictationNotice({
       pointerEvents="box-none"
       style={{ position: "absolute", right: 0, bottom: micSize + ARROW + 2, width: MAX_WIDTH, alignItems: "flex-end" }}
     >
-      {/* With the Settings button the bubble isn't one element, so the button stays reachable on its own. */}
       <Pressable
         accessible={!permission}
         accessibilityRole="alert"
@@ -86,12 +79,10 @@ export function DictationNotice({
             <Text style={{ color: colors.onInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>Open Settings</Text>
           </Pressable>
         ) : null}
-        {/* Centred on the mic under the bubble's right edge. */}
         <View
           pointerEvents="none"
           style={{
             position: "absolute",
-            // A percentage top doesn't resolve here and drew the arrow inside the bubble, over the text.
             bottom: -ARROW,
             right: micSize / 2 - ARROW,
             width: 0,

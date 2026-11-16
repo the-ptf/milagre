@@ -14,7 +14,6 @@ export default function ArtifactScreen() {
     comment?: string;
     requestId?: string;
   }>();
-  // A Chat's designs open on their canvas; its one HTML artifact keeps the page sheet.
   if (kind === "html")
     return (
       <ArtifactSheet key={`${hostId}:${chatId}:${id}`} hostId={hostId} chatId={chatId} id={id} kind={kind} tab={tab} comment={comment} requestId={requestId} />

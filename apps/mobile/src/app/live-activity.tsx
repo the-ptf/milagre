@@ -42,7 +42,6 @@ export default function ActivityTargetScreen() {
     return () => {
       stopped = true;
     };
-    // Session changes while opening the target; restarting would cancel its own navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.booted, params.hostId, params.target]);
   return (

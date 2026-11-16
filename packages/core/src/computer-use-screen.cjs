@@ -2,23 +2,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
-// The live screen of computer use: while a Chat's agent works in an app, the host captures the window it last read or
-// acted on about twice a second, and viewers (the Chat's card on desktop and phone) long-poll for the next frame. The
-// loop stops a while after the agent's last desktop tool, and the last frame is kept on disk so the card still shows
-// it after the turn, or after a restart.
-
 const INTERVAL_MS = 500;
 const IDLE_MS = 20_000;
 const WAIT_MS = 15_000;
-// Its own ref namespace, so captures never wait on the agent's session.
 const CAPTURE_SESSION = "milagre-capture";
 
 const fileName = (chatId) => `${crypto.createHash("sha256").update(chatId).digest("hex").slice(0, 24)}.json`;
 
-/**
- * `exec(args, options)` runs agent-desktop and answers its envelope. `dir` keeps each Chat's last frame.
- * `touch({ chatId, app, windowId, title })` after every desktop tool; `next({ chatId, after })` for viewers.
- */
 function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout }) {
   const feeds = new Map();
   const feed = (chatId) => {
@@ -44,9 +34,7 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
       const temporary = `${file}.${crypto.randomUUID()}.tmp`;
       fs.writeFileSync(temporary, JSON.stringify(frame), { mode: 0o600 });
       fs.renameSync(temporary, file);
-    } catch {
-      // A frame that can't be kept only costs the card its picture after a restart.
-    }
+    } catch {}
   }
 
   const view = (state, live) => {
@@ -64,12 +52,10 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
     if (!target) return;
     const args = ["screenshot", ...(target.windowId ? ["--window-id", target.windowId] : ["--app", target.app]), "--session", CAPTURE_SESSION];
     const envelope = await exec(args, { timeoutMs: 10_000 });
-    // A deleted Chat's in-flight capture must never publish or recreate its persisted image.
     if (feeds.get(chatId) !== state) return;
     const previous = state.frame;
     if (!envelope.ok) {
       const code = envelope.error?.code;
-      // The window closed: fall back to the app's front window next time.
       if (code === "WINDOW_NOT_FOUND" && target.windowId) target.windowId = null;
       const error = code === "PERM_DENIED" ? "screen-recording" : null;
       if (error && previous?.error !== error) publish(state, { seq: (previous?.seq ?? 0) + 1, app: target.app, title: target.title, at: now(), error });
@@ -113,7 +99,6 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
     }, interval);
   }
 
-  /** An agent read or acted on `app` (its window `windowId` when known): show it, and keep capturing for a while. */
   function touch({ chatId, app, windowId, title }) {
     if (!chatId || !app) return;
     const state = feed(chatId);
@@ -128,7 +113,6 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
     return !!state && (state.timer !== null || state.capturing);
   };
 
-  /** Wait for a frame even before the first tool completes and starts capture. */
   function next({ chatId, after = 0, timeoutMs = WAIT_MS }) {
     if (typeof chatId !== "string" || !chatId) throw new Error("Name the Chat.");
     const state = feed(chatId);
@@ -153,7 +137,6 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
       state.target = null;
       for (const waiter of state.waiters) waiter();
     }
-    // Also remove unloaded frames, including ones saved by a previous host process.
     fs.rmSync(path.join(dir, fileName(chatId)), { force: true });
   }
 

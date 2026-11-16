@@ -11,15 +11,12 @@ import type { RecentProject } from "../client";
 import { CheckboxBox, CircleButton, ErrorNotice, PageScroll, SectionLabel, SheetHeader, pressStyle, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-// By name, not by recency: opening a Project reorders the recent list, and a row must not move under the finger.
 const byName = (list: RecentProject[]) =>
   list
     .map((item) => ({ ...item, name: item.name || item.path.split("/").at(-1) || "Project" }))
-    // oxlint-disable-next-line unicorn/no-array-sort -- sorts the copy map made; toSorted crashed this sheet in a 2026-10-26 simulator build
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 const keyOf = (hostId: string, path: string) => `${hostId}\n${path}`;
 
-/** One computer's section. A computer that has not answered yet says why it lists nothing. */
 type Computer = { hostId: string; name: string; projects: RecentProject[]; unread?: "offline" | "checking" };
 const listed = (view: HostView): Computer => ({
   hostId: view.hostId,
@@ -28,16 +25,12 @@ const listed = (view: HostView): Computer => ({
   unread: view.loaded ? undefined : view.state === "offline" ? "offline" : "checking",
 });
 
-/** Project and Link visibility in the Projects list on this phone, for every shown computer, as desktop's Filters. */
 export default function ChooseProjects() {
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
   const views = useComputerViews();
-  // "" before the session has a client: its own Projects still list, and save through the session.
   const currentHostId = session.client?.url ?? "";
-  // The session's own computer lists from its live Project list, even before the sidebar's store has it; the others as
-  // the sidebar last read them.
   const own = (hostId: string, name: string): Computer => ({ hostId, name, projects: byName(session.recent) });
   const computers = views.map((view) => (view.hostId === currentHostId ? own(view.hostId, view.name) : listed(view)));
   if (!views.some((view) => view.hostId === currentHostId)) computers.unshift(own(currentHostId, session.hostName || "Computer"));
@@ -119,7 +112,6 @@ export default function ChooseProjects() {
       <SheetHeader title="Choose Projects" trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => router.back()} />} />
       <View style={{ gap: 16, padding: 16, paddingTop: 8 }}>
         <Text style={styles.muted}>Checked Projects and Links show in your Projects list on this phone.</Text>
-        {/* With two or more computers, each one's Projects sit under its name, as in desktop's Filters › Projects. */}
         {grouped
           ? computers.map((computer) => (
               <View key={computer.hostId} style={{ gap: 8 }}>

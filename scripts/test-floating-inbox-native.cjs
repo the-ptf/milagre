@@ -1,4 +1,3 @@
-// Real main process and renderer: native panel activation, hover IPC and saved placement.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -15,7 +14,6 @@ async function waitFor(read, label) {
   }
   throw new Error("Timed out: " + label);
 }
-/** Resolves once two reads 100 ms apart agree: a native window has stopped moving. */
 async function settled(read, label) {
   let last = await read();
   for (let i = 0; i < 100; i++) {
@@ -88,7 +86,7 @@ async function nativeChecks() {
   assert.equal(preview.hasShadow(), false);
   assert.equal(await preview.webContents.executeJavaScript('getComputedStyle(document.querySelector("[data-inbox-preview]")).borderTopWidth'), "0px");
   if (process.env.MILAGRE_SCREENSHOT_DIR) {
-    await delay(200); // Let the first native frame paint before capture.
+    await delay(200);
     await fs.mkdir(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
     await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-hover.png"), (await preview.webContents.capturePage()).toPNG());
   }
@@ -242,8 +240,6 @@ async function nativeChecks() {
     await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-bottom.png"), (await dock.webContents.capturePage()).toPNG());
   }
   await dock.webContents.executeJavaScript("window.milagre.closeFloatingInbox()");
-  // Closing collapses the bar over 180 ms. On a slow runner the hover used to land mid-collapse and the preview never
-  // showed (CI timed out here), so wait for the dock to come to rest, then hover again until the preview is up.
   await settled(() => JSON.stringify(dock.getBounds()), "dock after closing the inbox");
   const agentMouse = (type) =>
     dock.webContents.executeJavaScript(`document.querySelector("[data-inbox-agent]").dispatchEvent(new MouseEvent(${JSON.stringify(type)},{bubbles:true}))`);

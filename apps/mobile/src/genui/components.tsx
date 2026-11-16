@@ -13,7 +13,6 @@ export type GenuiRenderer<K extends GenuiComponentName> = (args: ComponentRender
 
 const GAP = { s: 4, m: 8, l: 16 } as const;
 
-/** Generated UI sits in the transcript, so its text follows the chat text size (Settings › Appearance), as markdown does. */
 function useChatText() {
   const { textPx, typeScale } = useTheme();
   const at = (size: number) => ({ fontSize: size, lineHeight: Math.round(size * 1.4667) });
@@ -115,7 +114,6 @@ const Callout: GenuiRenderer<"Callout"> = ({ props }) => {
   const { colors } = useTheme();
   const text = useChatText();
   const tone = props.tone ?? "info";
-  // Info is neutral, as on desktop: accent is kept for focus and links.
   const tint = { info: colors.field, success: colors.greenTint, warning: colors.orangeTint, danger: colors.redTint }[tone];
   const edge = { info: colors.lineStrong, success: colors.green, warning: colors.orange, danger: colors.red }[tone];
   return (
@@ -144,7 +142,6 @@ const Progress: GenuiRenderer<"Progress"> = ({ props }) => {
   const percent = Math.round(value * 100);
   return (
     <View style={{ gap: 4 }}>
-      {/* The bar reads the label and its value; the row above only shows them. */}
       <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text style={{ color: colors.ink2, ...text.scaled(13) }}>{props.label}</Text>
         <Text style={{ color: colors.ink2, ...text.scaled(13), fontVariant: ["tabular-nums"] }}>{percent}%</Text>

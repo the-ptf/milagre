@@ -30,7 +30,5 @@ export function saveComposerPreferences(storage: Storage, chatKey: string, patch
         [chatKey]: { ...previous, ...patch },
       }),
     );
-  } catch {
-    // Ignore storage errors.
-  }
+  } catch {}
 }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useBridge } from "../lib/computer-bridge";
 
-// Per Project root: the mentioned paths found in it, and every path already looked up.
 const cache = new Map<string, { known: Set<string>; asked: Set<string> }>();
 
 function entry(root: string) {
@@ -10,19 +9,16 @@ function entry(root: string) {
   return found;
 }
 
-/** A path picked from the Project's file list is known without another search. */
 function markFileKnown(root: string, path: string) {
   const found = entry(root);
   found.known.add(path);
   found.asked.add(path);
 }
 
-/** How long a lookup that found nothing stands: a file created meanwhile becomes a chip after this. */
 const MISS_TTL_MS = 30_000;
 
 const TRAILING_PUNCTUATION = /[.,!?;:)\]}]+$/;
 
-/** The paths a draft's `@` mentions could name: quoted ones as written, bare ones also without trailing punctuation. */
 function mentionCandidates(draft: string): string[] {
   const paths = new Set<string>();
   for (const match of draft.matchAll(/(^|\s)@(?:"([^"\n]+)"|([^\s"]\S*))/g)) {
@@ -37,12 +33,6 @@ function mentionCandidates(draft: string): string[] {
   return [...paths];
 }
 
-/**
- * Which of the draft's `@` mentions name a file in the Project, so they show as chips (spec "Chips": the text is the
- * source of truth, so chips survive restarts and drafts from the phone). Each path is searched once per root, 100 ms
- * after it appears; `skip` is the mention being typed, which the @ menu is already searching (its results go to
- * `markKnown`).
- */
 export function useKnownFiles(
   root: string,
   draft: string,
@@ -64,7 +54,6 @@ export function useKnownFiles(
         bridge.searchProjectFiles(root, path).then(
           (files) => {
             if (!files.includes(path)) {
-              // Asked again after the TTL, when the next render sees the mention unasked.
               setTimeout(() => {
                 current.asked.delete(path);
                 setVersion((count) => count + 1);
@@ -75,7 +64,6 @@ export function useKnownFiles(
             setVersion((count) => count + 1);
             return true;
           },
-          // Looked up again the next time the draft changes.
           () => current.asked.delete(path),
         );
       }

@@ -3,15 +3,12 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { z } = require("zod");
 
-// Associations live in the host profile: a device on another Mac cannot inherit them.
-// Android serials are reusable, so match the AVD name as well as its serial.
 const matches = (a, b) => a.id === b.id && a.platform === b.platform && (a.platform !== "android" || a.name === b.name);
 function createChatSimulators({ simulators, file, validateChat, ended = () => false }) {
   let saved,
     queue = Promise.resolve(),
     stopped = false;
   const viewers = new Map();
-  // The inner service expires its own capabilities. Retire idle bookkeeping too.
   const expiry = setInterval(() => {
     for (const [viewerId, v] of viewers)
       if (!v.inFlight && Date.now() - v.lastUsed > 60000) {
@@ -54,16 +51,12 @@ function createChatSimulators({ simulators, file, validateChat, ended = () => fa
     }
     saved = next;
   }
-  // Whether this host can show simulators, as its last device list said.
   let supported = true;
-  // The window asks every 5 s for each Chat on screen (`attachedOnly`): a Chat with nothing attached shows nothing, so it
-  // is answered from its saved attachments without listing devices, which starts a process each time.
   async function listing(chatId, { attachedOnly = false } = {}) {
     let attached = await records(chatId);
     if (attachedOnly && !attached.length) return { chatId, attached: [], devices: [], available: [], supported };
     const list = await simulators.list();
     supported = list.supported !== false;
-    // A device that cannot come back once gone (a Simlock lease) leaves the Chat with it, instead of showing as stopped.
     const gone = attached.filter((a) => ended(a) && !list.devices.some((d) => matches(a, d)));
     if (gone.length) await save(chatId, (attached = attached.filter((a) => !gone.includes(a))));
     return {
@@ -170,7 +163,6 @@ function simulatorToolDefinitions(chatId, api) {
     },
   ];
 }
-/** Experimental: leasing devices from the Simlock pool set up in Settings. Offered only while it is turned on. */
 function simlockToolDefinitions(chatId, simlock) {
   const usage = (lease) => ({
     ...lease,

@@ -1,10 +1,5 @@
 const { thisComputer, ThisComputer } = require("@milagre/shared/host-computer");
 
-/**
- * What the window says when a computer turned this Mac away or can't be reached (spec "Errors"), by PeerError code
- * (peer-client.cjs). `name` is the computer's name; `pairing` is set during Add computer, before it was saved, where
- * unknown-phone means the link's pairing window closed rather than a removal.
- */
 function computerProblem(code, { name, pairing = false }) {
   switch (code) {
     case "denied":
@@ -17,7 +12,6 @@ function computerProblem(code, { name, pairing = false }) {
       return `${name} was reset. Pair again with a new link.`;
     case "bad-token":
       return pairing ? `This link is out of date. Copy a new one on ${name}.` : `${name} has a new pairing link. Pair again with it.`;
-    // A Mac from before PR 1 takes the hello as a phone's, and PR 1's refuse it with reason "kind".
     case "kind":
     case "outdated":
       return `Update Milagre on ${name} to connect.`;

@@ -14,7 +14,6 @@ const MAX_LABEL = 120;
 
 const stripMarkers = (text: string) => text.replace(/\*\*|__|`/g, "").trim();
 
-/** Takes the "recommended" marker off a label; reports whether there was one. */
 function takeMarker(label: string): { label: string; recommended: boolean } {
   const trailing = /\s*(?:\(\s*recommended\s*\)|[\u2014\u2013,-]\s*recommended)\s*\.?\s*$/i;
   const leading = /^recommended:\s*/i;
@@ -26,10 +25,6 @@ function offersChoices(label: string): boolean {
   return (/\(a\)/i.test(label) && /\(b\)/i.test(label)) || (/\ba\)/i.test(label) && /\bb\)/i.test(label));
 }
 
-/**
- * A card only when a finished reply ends with a short question followed by 2-6 short answers.
- * Anything else stays plain Markdown.
- */
 export function parseRecommendation(body: string): Recommendation | null {
   const lines = body.split(/\r?\n/);
   let end = lines.length;

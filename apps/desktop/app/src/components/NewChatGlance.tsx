@@ -31,8 +31,6 @@ const PR_REFRESH_MS = 60_000;
 const NO_ROWS: GlancePullRequest[] = [];
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
-// The repository's open PRs (the host reads gh at most once a minute), again each minute and when a Project PR changes.
-// An older host without the command answers nothing, and the card stays away.
 function useOpenPullRequests(projectKey: string | null) {
   const [found, setFound] = useState<{ key: string; rows: GlancePullRequest[] } | null>(null);
   useEffect(() => {
@@ -40,7 +38,6 @@ function useOpenPullRequests(projectKey: string | null) {
     const bridge = bridgeForKey(projectKey);
     let disposed = false;
     const read = () =>
-      // An older host, or a bridge without the command, answers nothing: the card stays away.
       (bridge.listOpenPullRequests?.(projectKey) ?? Promise.resolve([]))
         .then((list) => {
           if (!disposed) setFound({ key: projectKey, rows: openPullRequestRows(list) });
@@ -58,11 +55,9 @@ function useOpenPullRequests(projectKey: string | null) {
       off?.();
     };
   }, [projectKey]);
-  // Another Project's rows never show while its own read is on the way.
   return found && found.key === projectKey ? found.rows : NO_ROWS;
 }
 
-// Today's tokens on the Project's computer, read by the hour; a scan or price refresh reads it again.
 function useToday(scopeKey: string) {
   const [today, setToday] = useState<GlanceToday | null>(null);
   useEffect(() => {
@@ -114,7 +109,6 @@ function PullRequestsCard({ rows }: { rows: GlancePullRequest[] }) {
       <ul className="-mx-2 -mb-1 flex flex-col">
         {rows.slice(0, GLANCE_PR_LIMIT).map((pr) => (
           <li key={pr.url}>
-            {/* ChatComposer opens a PR link in the PR panel (onOpenPullRequestLink), or in the browser. */}
             <a href={pr.url} className="flex min-w-0 items-center gap-2.5 rounded-control px-2 py-2 transition-colors hover:bg-hover">
               <span className={`flex shrink-0 ${TONE[pr.tone]}`}>
                 <Icon icon={pr.draft ? GitPullRequestDraftIcon : GitPullRequestIcon} size={14} />
@@ -143,9 +137,7 @@ function providerSummary(usage: ProviderUsage, display: "used" | "remaining") {
 
 function UsageCard({ providers }: { providers: ProviderUsage[] }) {
   const { usageDisplay } = useSettings();
-  // When the card opened: a new Chat's screen is short-lived, and the next one reads the reset again.
   const [now] = useState(Date.now);
-  // The closest limit's reset: what decides whether to start something big now.
   const closest = providers
     .flatMap((usage) => usage.windows.map((window) => ({ provider: usage.provider, window })))
     .sort((a, b) => b.window.usedPercent - a.window.usedPercent)[0];
@@ -212,10 +204,6 @@ function TodayCard({ today }: { today: GlanceToday }) {
   );
 }
 
-/**
- * Under a new Chat's composer: the repository's open PRs, plan usage and today's tokens. Each card shows only with something
- * in it; a Chats home draft has no Project, so no PRs.
- */
 export function NewChatGlance({ projectKey, scopeKey, chatWidth }: { projectKey: string | null; scopeKey: string; chatWidth?: string }) {
   const prs = useOpenPullRequests(projectKey);
   const usage = useUsage(scopeKey);

@@ -8,7 +8,6 @@ const { startMobileBridge } = require("../apps/daemon/src/mobile-bridge.cjs");
 const { connect } = require("../apps/daemon/src/client.cjs");
 const { startMetro } = require("./start-mobile.cjs");
 const { printPairing } = require("./mobile-pairing.cjs");
-// Explicit demo provider, never selected by the real daemon CLI.
 const { demoRuntimeOptions } = require("../apps/daemon/src/demo-agent.cjs");
 
 async function startDemo({ port = 8787 } = {}) {

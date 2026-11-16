@@ -53,11 +53,6 @@ function confirmRemove(count: number, onConfirm: () => void) {
     ]);
 }
 
-/**
- * Settings › Computers › a computer › What Milagre uses › Clean up worktrees: that computer's worktrees no Chat has used
- * for 30, 60 or 90 days, those with nothing unsaved picked at first. Removing goes one at a time with progress and Stop,
- * then the list reads again.
- */
 export default function ComputerCleanupScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -65,7 +60,6 @@ export default function ComputerCleanupScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const host = session.hosts.find((saved) => saved.id === id);
   const client = useMemo(() => (host ? createClient(host, fetch, 5000, relayRuntime) : null), [host]);
-  // The list with the time it was read, so "unused for" counts from that read.
   const [read, setRead] = useState<{ list: IdleWorktree[]; at: number } | null>(null);
   const list = read?.list ?? null;
   const now = read?.at ?? 0;

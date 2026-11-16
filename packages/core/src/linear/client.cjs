@@ -25,19 +25,15 @@ async function postGraphql({ fetchImpl, apiBase, accessToken, query, variables =
   if (response.status >= 500) throw new LinearError("Linear is having trouble. Try again in a minute.", "offline");
   if (!response.ok || errors.length) {
     const error = new LinearError(errors[0]?.message || `Linear answered ${response.status}.`, "failed");
-    // Kept so a caller can tell a missing entity from a broken query (see linear/issues.cjs).
     error.extensions = errors[0]?.extensions;
     throw error;
   }
   return body.data;
 }
 
-// Queries as the connected user, refreshing the access token shortly before it expires.
 function createLinearClient({ store, clientId, apiBase, fetchImpl = globalThis.fetch, now = Date.now, revoked = () => {} }) {
   let refreshing = null;
   let clearedToken = null;
-  // Clears the store only while it still holds the token that was rejected, so a token rotated
-  // by a concurrent refresh survives a late 401. `revoked()` runs at most once per token.
   function signOut(accessToken) {
     if (store.readToken()?.accessToken === accessToken) {
       store.clearToken();
@@ -53,7 +49,6 @@ function createLinearClient({ store, clientId, apiBase, fetchImpl = globalThis.f
     try {
       next = { ...saved, ...(await refreshTokens({ fetchImpl, apiBase, clientId, refreshToken: saved.refreshToken, now: now() })) };
     } catch (error) {
-      // Offline or Linear down: keep the token and try again on the next call.
       if (error.code === "revoked") throw signOut(saved.accessToken);
       throw error;
     }
@@ -64,7 +59,6 @@ function createLinearClient({ store, clientId, apiBase, fetchImpl = globalThis.f
     }
     return next;
   }
-  // Linear rotates the refresh token on every use, so concurrent callers share one refresh.
   function refreshShared(saved) {
     refreshing ??= refresh(saved).finally(() => (refreshing = null));
     return refreshing;
@@ -82,9 +76,7 @@ function createLinearClient({ store, clientId, apiBase, fetchImpl = globalThis.f
       if (error.code !== "revoked") throw error;
       const stored = store.readToken();
       if (!stored) throw notConnected();
-      // Rotated while the request was in flight: retry once with the newer token.
       if (stored.accessToken !== saved.accessToken) return retryOnce(stored, run);
-      // Rejected though the token looked fresh: refresh once (or reuse a refresh another caller did), then retry once.
       const next = await refreshShared(stored);
       return retryOnce(next, run);
     }
@@ -102,7 +94,6 @@ function createLinearClient({ store, clientId, apiBase, fetchImpl = globalThis.f
       const saved = await current();
       return attempt(saved, (accessToken) => postGraphql({ fetchImpl, apiBase, accessToken, query: document, variables }));
     },
-    /** A file uploaded to Linear (uploads.linear.app), which answers only to a signed-in user: its type and bytes. */
     async download(url, { maxBytes }) {
       const saved = await current();
       return attempt(saved, (accessToken) => getUpload({ fetchImpl, url, accessToken, maxBytes }));

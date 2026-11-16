@@ -104,7 +104,6 @@ function InboxDot({ status, monochrome = false }: { status: InboxStatus; monochr
           : status === "question"
             ? colors.accentInk
             : colors.orange;
-  // Under reduced motion the ring pulses instead of turning, so working still reads as working.
   if (status === "working") return <SpinnerRing size={12} stroke={1.5} tone="accent" color={monochrome ? color : undefined} />;
   return <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: color }} />;
 }

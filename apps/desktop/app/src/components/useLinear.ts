@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react";
 
-/**
- * Whether Linear is on for this Mac (Settings › Integrations › Linear) and connected. Both reads start inside a promise,
- * so a bridge without the command (an older host) reads as off instead of throwing.
- */
 export function useLinear(): { ready: boolean; active: boolean } {
   const [enabled, setEnabled] = useState(false);
   const [connected, setConnected] = useState(false);

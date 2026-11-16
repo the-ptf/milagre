@@ -17,7 +17,6 @@ export const outbox = createOutbox({
       if (!folder.exists) return null;
       const files = folder.list().filter((entry): entry is File => entry instanceof File && /^\d+\.json$/.test(entry.name));
       files.sort((a, b) => Number.parseInt(b.name) - Number.parseInt(a.name));
-      // A damaged latest write blocks delivery; never fall back to a copy that may contain cancelled messages.
       return files.length ? (JSON.parse(await files[0]!.text()) as OutboxData) : null;
     },
     async write(data) {
@@ -27,15 +26,12 @@ export const outbox = createOutbox({
       await file.write(text);
       if ((await file.text()) !== text) throw new Error("The saved queue could not be verified.");
       await file.move(new File(folder, `${data.revision}.json`));
-      // Each write has its own file. Never overwrite the last committed revision.
       try {
         for (const old of folder.list())
           if (old instanceof File && /^\d+\.json$/.test(old.name) && Number.parseInt(old.name) < data.revision - 1) {
             old.delete();
           }
-      } catch {
-        /* A committed write stays successful even when optional pruning fails. */
-      }
+      } catch {}
     },
   },
   available: (item) => AppState.currentState === "active" && hosts.some((host) => host.id === item.computerId),

@@ -28,14 +28,11 @@ import { duration, easing, hitSlopFor, lineHeight, radius, type } from "./design
 import { inkFor, useTheme } from "./theme";
 import { DISABLED_OPACITY, PRESSED_OPACITY } from "./ui";
 
-// The Terminal and Ports pills set the size every status pill above the composer shares.
 const HEIGHT = 24;
 const FONT_SIZE = type.caption2;
 const LINE_HEIGHT = lineHeight.caption2;
 const ICON_SIZE = 12;
-/** Pill text grows with the text size up to this, and the pill with it. */
 const MAX_SCALE = 1.5;
-/** Status words take their tone's -ink shade (4.5:1); the icon keeps the fill tone. */
 const INK_TONES = new Set<Tone>(["accent", "green", "orange", "red", "purple"]);
 
 const EASE_OUT = Easing.bezier(...easing.enter);
@@ -50,12 +47,10 @@ type PillKit = {
   scale: number;
 };
 const kits = new Map<number, PillKit>();
-/** The pills' layout and entering animations for an Animations setting: Fast shortens them, Off drops them. */
 function kitFor(scale: number): PillKit {
   let kit = kits.get(scale);
   if (kit) return kit;
   const ms = (value: number) => Math.round(value * scale);
-  // Worklets run on the UI thread and cannot call `ms`: every duration they use is computed here and captured as a number.
   const d90 = ms(90);
   const fast = ms(duration.fast);
   const base = ms(duration.base);
@@ -66,7 +61,6 @@ function kitFor(scale: number): PillKit {
       scale,
       layout: LinearTransition.duration(slow).easing(EASE_OUT).reduceMotion(ReduceMotion.System),
       // A pill grows in from a slightly smaller size while the pills beside it slide over. Only its contents fade: UIKit
-      // drops the Liquid Glass effect for good when an ancestor's alpha animates, so nothing above the glass may fade in.
       pillIn: () => {
         "worklet";
         return {
@@ -87,7 +81,6 @@ function kitFor(scale: number): PillKit {
       contentIn: FadeIn.delay(d90).duration(base).reduceMotion(ReduceMotion.System),
       countIn: FadeIn.duration(base).reduceMotion(ReduceMotion.System),
       countOut: FadeOut.duration(fast).reduceMotion(ReduceMotion.System),
-      /** One letter of a changed label rises into place after the letters before it. */
       letterIn: (delay: number) => {
         const wait = ms(delay);
         return () => {
@@ -107,14 +100,8 @@ function kitFor(scale: number): PillKit {
 }
 const useKit = () => kitFor(useTheme().motionScale);
 
-/** A pill's frame and the gap between its icon and text, shared with the Tasks panel that grows out of one. */
 export const STATUS_PILL = { height: HEIGHT, paddingHorizontal: 8, gap: 6 } as const;
 
-/**
- * The status pills above the composer (Terminal, Ports, Tasks, Simulators, Browser, Subagents, the PR action): one
- * height, a solid body, counts that roll up or down when they change and labels whose letters fade in when they change.
- * `count` and `total` show as "count" or "count/total", after the label when there is one.
- */
 export function StatusPill({
   label,
   count,
@@ -141,9 +128,7 @@ export function StatusPill({
   tint?: ColorValue;
   accessibilityLabel?: string;
   accessibilityHint?: string;
-  /** Set on a pill that opens a panel: whether it is open. */
   expanded?: boolean;
-  /** Keeps the pill's place in the row while something drawn over it stands in for it. */
   hidden?: boolean;
   chipRef?: Ref<ViewInstance>;
   onLayout?: (event: LayoutChangeEvent) => void;
@@ -185,10 +170,8 @@ export function StatusPill({
       >
         {({ pressed }) => (
           <>
-            {/* Solid like the composer under it: the surface, then the pill's own tint over it. */}
             <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]} />
             {tint && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: tint }]} />}
-            {/* Pressed and disabled dim the contents only, so the pill's fill stays as it is. */}
             <View style={{ opacity: disabled ? DISABLED_OPACITY.control : pressed ? PRESSED_OPACITY : 1 }}>
               <Animated.View entering={kit.contentIn} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 {leading}
@@ -216,10 +199,6 @@ export function StatusPill({
   );
 }
 
-/**
- * A pill's contents without its body or motion, for a stand-in drawn where the pill is (the Tasks panel fades one out as
- * it grows). Sized exactly like StatusPill's.
- */
 export function StatusPillFace({ label, icon, tone = "ink2" }: { label: string; icon?: IconData; tone?: Tone }) {
   const { colors } = useTheme();
   return (
@@ -230,7 +209,6 @@ export function StatusPillFace({ label, icon, tone = "ink2" }: { label: string; 
   );
 }
 
-/** Shows the label whole; when it changes, the new letters fade up one after another. */
 function Letters({ text, style }: { text: string; style: TextStyle }) {
   const reduced = useReducedMotion();
   const kit = useKit();
@@ -245,7 +223,6 @@ function Letters({ text, style }: { text: string; style: TextStyle }) {
   return (
     <View key={shown.generation} style={{ flexDirection: "row" }}>
       {[...text].map((letter, index) => (
-        // The letters only ever remount together (the parent is keyed by generation), so an index key is stable.
         <Animated.Text key={index} maxFontSizeMultiplier={MAX_SCALE} style={style} entering={kit.letterIn(Math.min(index * 18, 300))}>
           {letter}
         </Animated.Text>
@@ -254,7 +231,6 @@ function Letters({ text, style }: { text: string; style: TextStyle }) {
   );
 }
 
-/** An odometer: each digit place rolls to its new digit, upward when the number grows and downward when it shrinks. */
 function RollingNumber({ value, style }: { value: number; style: TextStyle }) {
   const [last, setLast] = useState({ value, direction: 1 });
   if (last.value !== value) setLast({ value, direction: value > last.value ? 1 : -1 });
@@ -263,7 +239,6 @@ function RollingNumber({ value, style }: { value: number; style: TextStyle }) {
   return (
     <View style={{ flexDirection: "row" }}>
       {digits.map((digit, index) => (
-        // Keyed by place from the right, so the ones digit stays the same view when the number gains a digit.
         <Animated.View key={digits.length - index} entering={kit.countIn} exiting={kit.countOut} layout={kit.layout}>
           <Digit digit={digit} direction={last.direction} style={style} />
         </Animated.View>
@@ -275,7 +250,6 @@ function RollingNumber({ value, style }: { value: number; style: TextStyle }) {
 function Digit({ digit, direction, style }: { digit: string; direction: number; style: TextStyle }) {
   const reduced = useReducedMotion();
   const { scale } = useKit();
-  // The digit's box is its line, grown with the text so a large digit isn't clipped.
   const line = LINE_HEIGHT * Math.min(useWindowDimensions().fontScale, MAX_SCALE);
   const [state, setState] = useState<{ digit: string; previous: string | null; direction: number }>({ digit, previous: null, direction });
   if (state.digit !== digit) setState({ digit, previous: state.digit, direction });

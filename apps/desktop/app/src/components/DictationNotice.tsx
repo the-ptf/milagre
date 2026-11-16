@@ -9,10 +9,6 @@ const ICONS: Record<DictationErrorKind, typeof MicOff01Icon> = {
   interrupted: PauseCircleIcon,
 };
 
-/**
- * A take's message in a bubble over the mic, its arrow on the mic, so the words sit by the button that tries again.
- * Clicks pass through to the draft under it; a refused microphone adds a way to the system's settings.
- */
 export function DictationNotice({ error, onOpenSettings }: { error: DictationError; onOpenSettings: () => void }) {
   return (
     <div
@@ -35,7 +31,6 @@ export function DictationNotice({ error, onOpenSettings }: { error: DictationErr
           </button>
         </>
       )}
-      {/* Centred on the 28 px mic under the bubble's right edge. */}
       <span aria-hidden className="absolute top-full right-2 size-0 border-x-[6px] border-t-[6px] border-x-transparent border-t-ink" />
     </div>
   );

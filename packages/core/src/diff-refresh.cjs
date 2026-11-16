@@ -1,20 +1,11 @@
 const { isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { withDiffStats } = require("@milagre/shared/project-edits");
 
-// A burst of edits makes one git call; focusing a window again re-reads at most this often.
 const EDIT_DEBOUNCE = 1200;
 const FOCUS_THROTTLE = 5000;
-// Only these steps can change files; reads, searches, thinking, setup and image steps leave the stat as it was.
 const FILE_STEP_KINDS = new Set(["edit", "shell", "other"]);
 
-// Keeps each worktree's diff stat in its project's state, in every project, so a chat's hover card
-// shows it at once. Re-read when a project is read, when a window regains focus (edits made outside
-// Milagre), and after an agent's tool step or turn ends in one of the worktree's chats.
 class DiffRefresher {
-  /**
-   * `readDiffStat(path, base)` reads a worktree's stat; `update(projectPath, change)` changes a project's
-   * state as ProjectStates.update does, telling the windows.
-   */
   constructor({ states, readDiffStat, update, debounceMs = EDIT_DEBOUNCE, throttleMs = FOCUS_THROTTLE, now = Date.now }) {
     Object.assign(this, { states, readDiffStat, update, debounceMs, throttleMs, now });
     this.timers = new Map();
@@ -24,10 +15,8 @@ class DiffRefresher {
     this.active = 0;
   }
 
-  /** Re-reads a chat's worktree shortly after one of its agent's tool steps or turns ends. */
   observe(chatId, event) {
     if (this.closed) return;
-    // step-completed doesn't carry its kind; remember it from step-started. A step seen only at its end still refreshes.
     if (event.type === "step-started" && event.step) {
       if (!this.stepKinds.has(chatId)) this.stepKinds.set(chatId, new Map());
       this.stepKinds.get(chatId).set(event.step.id, event.step.kind);
@@ -49,7 +38,6 @@ class DiffRefresher {
     this.timers.set(chatId, timer);
   }
 
-  /** Cancels queued reads; an already running Git process is allowed to finish. */
   close() {
     this.closed = true;
     for (const timer of this.timers.values()) clearTimeout(timer);
@@ -58,7 +46,6 @@ class DiffRefresher {
     for (const job of this.pending.splice(0)) job.resolve(null);
   }
 
-  /** Refresh only the Project currently on screen. Switching Projects has its own throttle. */
   focused(projectPath) {
     if (this.closed || !projectPath || !this.states.has(projectPath)) return;
     if (this.now() - (this.lastFocus.get(projectPath) ?? -Infinity) < this.throttleMs) return;
@@ -66,11 +53,6 @@ class DiffRefresher {
     void this.refresh(projectPath).catch(() => {});
   }
 
-  /**
-   * Refresh only the Worktree of a Chat a window opens, throttled per Worktree as focus is per Project (a focus read that
-   * included this Worktree within the throttle covers it too; one that left it out, an archived or Run Chat's, doesn't).
-   * A switch between Chats never reads the Project's other Worktrees.
-   */
   focusedChat(chatId) {
     const projectPath = typeof chatId === "string" ? projectOfKey(chatId) : null;
     if (this.closed || !projectPath || !this.states.has(projectPath)) return;
@@ -118,12 +100,10 @@ class DiffRefresher {
     if (worktreeId !== undefined) await this.refresh(projectPath, [worktreeId]);
   }
 
-  /** Re-reads the given worktrees, or every worktree that has a chat, and saves their stats. */
   async refresh(projectPath, worktreeIds) {
     if (this.closed) return;
     const state = await this.states.get(projectPath);
     const ids = worktreeIds ?? worktreesWithChats(state);
-    // A whole-Project read covers each Worktree it read for an opened Chat's throttle (refreshOpened).
     if (!worktreeIds) for (const id of ids) this.lastFocus.set(`${projectPath}\0${id}`, this.now());
     const stats = await Promise.all(
       ids.map(async (id) => {
@@ -132,18 +112,10 @@ class DiffRefresher {
       }),
     );
     if (this.closed) return;
-    // Applied to the latest state: turns may have finished while git ran.
     await this.update(projectPath, (latest) => withDiffStats(latest, Object.fromEntries(stats)), { chats: [] });
   }
 }
 
-/**
- * The Worktrees that have a Chat with a message: from Chat summaries, or the messages of a state without them. Left
- * out: archived Chats and the hidden Chats of Routine Runs. No list shows their stat, and agent steps already refresh a
- * Run's own Worktree (observe); this read is for edits made outside Milagre. In a long-lived Project they are almost
- * every Worktree (milagre-ade: 158 of 161), each read costing three to eleven git processes, on every window focus:
- * about 25 s of CPU per focus there, 0.5 s without them.
- */
 function worktreesWithChats(state) {
   const sessions = Object.values(state.sessions ?? {}).filter((session) => !session.archived && session.routine?.hidden !== true);
   if (sessions.every((session) => session.summary))

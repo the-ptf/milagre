@@ -8,9 +8,7 @@ import { Icon } from "./primitives/Icon";
 
 const keyOf = (chip: Pick<McpChip, "provider" | "accountId">) => `${chip.provider}:${chip.accountId}`;
 
-/** The name without the group it already sits under: "notion" for plugin:engineering:notion, "Gmail" for claude.ai Gmail. */
 const shortName = (row: McpRow) => (row.source ? row.name.replace(/^plugin:[^:]+:/, "").replace(/^claude\.ai /, "") : row.name);
-/** "Claude · personal", or just "Antigravity" when the account has no name of its own. */
 const accountName = (chip: McpChip) =>
   chip.label && chip.label !== providerName(chip.provider) ? `${providerName(chip.provider)} · ${chip.label}` : providerName(chip.provider);
 
@@ -31,7 +29,6 @@ function Failed() {
   );
 }
 
-/** A row that needs sign-in: Sign in, or Cancel while the browser is open. Compact inside a group. */
 export function McpSignInRow({
   row,
   signingIn,
@@ -86,8 +83,6 @@ function AccountLines({ row, onSwitch }: { row: McpRow; onSwitch: (chip: McpChip
   ));
 }
 
-/** A server row; open, it lists each account with a switch, then Edit and Remove when editable. Remove asks first,
- * in place, naming where it removes from (`removePlaces`). */
 export function McpServerRow({
   row,
   open,
@@ -154,7 +149,6 @@ export function McpServerRow({
                     Edit
                   </Button>
                 )}
-                {/* The first step is quiet red text; the confirm is the red-filled danger Button. */}
                 {onRemove && (
                   <Button variant="danger-ghost" data-mcp-remove onClick={() => setConfirming(true)}>
                     Remove
@@ -169,7 +163,6 @@ export function McpServerRow({
   );
 }
 
-/** A row set up outside Milagre. One account: its line and switch sit on the row. Several: it opens like a server row. */
 export function McpOutsideRow({
   row,
   open,

@@ -6,17 +6,14 @@ import { CodeBlock } from "../markdown/CodeBlock";
 import { Button } from "../primitives/Button";
 import { StepDiff } from "./StepDiff";
 
-/** Output stays lazy and bounded; revealing lines never changes which call the user opened. */
 export function StepOutput({ step, detail }: { step: ChatStep; detail?: string }) {
   const [all, setAll] = useState(false);
   const sections = stepSections(step, detail);
-  // An edit's unified diff draws like the Changes view; anything that doesn't parse as one stays a code block.
   const hunks = useMemo(() => (step.kind === "edit" && sections.output ? parsePatch(sections.output) : []), [step.kind, sections.output]);
   const lines = sections.output.replace(/\n$/, "").split("\n");
   const clipped = !all && lines.length > 40;
   const consoleOutput = step.kind === "shell" || step.kind === "setup";
   const output = clipped ? (consoleOutput ? lines.slice(-40) : lines.slice(0, 40)).join("\n") : sections.output;
-  // An input that is only the file's path repeats the row's own title; it adds nothing.
   const input = sections.input && sections.input !== step.file ? sections.input : "";
   return (
     <div className="min-w-0">

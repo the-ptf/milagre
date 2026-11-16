@@ -70,6 +70,8 @@ jobs:
             run: npm run typecheck
           - name: Lint
             run: npm run lint
+          - name: Size baseline is current
+            run: node scripts/code-health-report.cjs --check
           - name: Lint suppression reasons
             run: node scripts/check-suppressions.cjs
           - name: Format check

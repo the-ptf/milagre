@@ -9,18 +9,13 @@ const { antigravityAcp, antigravitySpawn, isSubscriptionError, signInUrl } = req
 // Antigravity Accounts (docs/providers.md). A profile is a
 // GEMINI_HOME directory; Antigravity keeps its token in <home>/antigravity-acp/acp_token.json (file storage,
 // never the keychain). Antigravity's ACP server reads every path from GEMINI_HOME (its paths.py):
-//   <home>/config/skills, <home>/antigravity-cli/skills   user skills (read only)
-//   <home>/antigravity-acp/                                settings, tokens, trusted workspaces
-//   <home>/antigravity-acp/conversations, .../brain        session history and per-session artifacts
 
 const SUBSCRIPTION_MESSAGE = "This Google account needs an eligible Antigravity subscription.";
 const INITIALIZE_TIMEOUT_MS = 90_000;
 // The two skill folders Antigravity reads under its home, shared from the user's ~/.gemini when present.
 const SKILL_FOLDERS = [path.join("config", "skills"), path.join("antigravity-cli", "skills")];
-// History that must be shared so switching Accounts can resume a Chat.
 const HISTORY_FOLDERS = [path.join(AGENT_NAME, "conversations"), path.join(AGENT_NAME, "brain")];
 
-// Errors whose message is meant for the user; anything else becomes a generic message.
 const userError = (message, extra = {}) => Object.assign(new Error(message), { forUser: true }, extra);
 const link = (target, at) => fs.symlinkSync(target, at, process.platform === "win32" ? "junction" : "dir");
 const exists = (file) => {
@@ -32,11 +27,6 @@ const exists = (file) => {
   }
 };
 
-/**
- * Prepares a profile's shared folders. Skills are linked from the user's own ~/.gemini only when they exist
- * there; nothing is ever created or written under ~/.gemini. `history` is the profile whose conversations
- * this one shares (the default profile), or null for the default profile itself.
- */
 function prepareAntigravityProfile(dir, { home = os.homedir(), history = null } = {}) {
   fs.mkdirSync(path.join(dir, AGENT_NAME), { recursive: true, mode: 0o700 });
   for (const folder of SKILL_FOLDERS) {
@@ -56,8 +46,6 @@ function prepareAntigravityProfile(dir, { home = os.homedir(), history = null } 
   }
 }
 
-// The `email` claim of an id_token JWT, when the token file has one. Only that claim leaves this function:
-// the token file holds secrets and nothing else from it is ever returned or logged.
 function tokenEmail(home) {
   try {
     const token = JSON.parse(fs.readFileSync(tokenFile(home), "utf8"))?.id_token;
@@ -78,7 +66,6 @@ function inspectAntigravityAccount({ env }) {
   return { state: "ready", ...(email ? { email } : {}) };
 }
 
-// Google's loopback OAuth URL, redirecting to a local port, is the only link a sign-in may open.
 function validSignInUrl(raw) {
   try {
     const url = new URL(raw);
@@ -91,7 +78,6 @@ function validSignInUrl(raw) {
   }
 }
 
-// The computer's default browser, without a shell: the URL is one argument.
 function openInBrowser(url, { platform = process.platform, execFileImpl = execFile } = {}) {
   const [file, args] =
     platform === "darwin"
@@ -104,8 +90,6 @@ function openInBrowser(url, { platform = process.platform, execFileImpl = execFi
 }
 
 // Antigravity opens the sign-in link itself through Python's webbrowser, which honors BROWSER. Milagre opens
-// the link instead, so BROWSER names a helper that does nothing. webbrowser splits BROWSER on os.pathsep, so
-// the path must not contain one; a plain path to an executable (no "%s") is run as `<path> <url>`.
 function noBrowserHelper(dir, platform = process.platform) {
   const file = path.join(dir, platform === "win32" ? "milagre-no-browser.cmd" : "milagre-no-browser");
   if (file.includes(platform === "win32" ? ";" : ":")) return null;
@@ -178,7 +162,6 @@ function signInAntigravity({
       },
       { timeoutMs: initializeTimeoutMs },
     );
-    // No timeout here: the account manager's five-minute sign-in limit cancels the whole flow.
     await rpc.request("authenticate", { methodId: "oauth-personal" }, { timeoutMs: 0 });
     if (!hasToken(home)) throw userError("Sign-in did not finish. Try again.");
   };
@@ -186,7 +169,6 @@ function signInAntigravity({
     .catch((error) => {
       if (cancelled) throw userError("Sign-in cancelled.", { cancelled: true });
       if (isSubscriptionError(error)) throw userError(SUBSCRIPTION_MESSAGE, { subscription: true });
-      // Never forward the agent's own output: it may quote the link or local paths.
       throw error?.forUser ? error : userError("Sign-in did not finish. Try again.");
     })
     .finally(async () => {

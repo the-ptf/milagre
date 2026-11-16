@@ -63,15 +63,9 @@ import { ToastPill } from "./primitives/toast";
 import { showChoiceSheet } from "./choice-store";
 import { ChatReply, type MediaSource } from "./chat-reply";
 
-/**
- * The pages of Settings › Design system: each section's specimens, drawn by the app's own primitives with the current
- * theme, then the section's platform notes for the platform the index's switch picked.
- */
-
 const noop = () => {};
 const running: DesignPlatform = Platform.OS === "android" ? "android" : "ios";
 
-/** A specimen block: its SectionLabel, then what it shows. */
 function Block({ title, children, caption }: { title: string; caption?: string; children: React.ReactNode }) {
   const styles = useStyles();
   return (
@@ -83,13 +77,11 @@ function Block({ title, children, caption }: { title: string; caption?: string; 
   );
 }
 
-/** A card holding specimens in a wrapping row. */
 function Wrap({ children, align = "center" }: { children: React.ReactNode; align?: "center" | "flex-start" }) {
   const styles = useStyles();
   return <View style={[styles.card, { flexDirection: "row", flexWrap: "wrap", alignItems: align, gap: space.lg }]}>{children}</View>;
 }
 
-/** A token's name in mono, its value, and what it is for. */
 function TokenLine({ name, value, use }: { name: string; value: string; use?: string }) {
   const styles = useStyles();
   return (
@@ -139,7 +131,6 @@ export function DesignSystemPage({ section, platform }: { section: DesignSection
   );
 }
 
-/** The section's rules, in the words for the platform the switch picked. */
 function PlatformNotes({ section, platform }: { section: DesignSection; platform: DesignPlatform }) {
   const styles = useStyles();
   const rules = platformRulesFor(section.id);
@@ -162,7 +153,6 @@ function PlatformNotes({ section, platform }: { section: DesignSection; platform
   );
 }
 
-/** Every rule with both texts, the picked platform's in a hover2 well. */
 function PlatformRules({ platform }: { platform: DesignPlatform }) {
   const styles = useStyles();
   const rules = platformRulesFor("platforms");
@@ -199,8 +189,6 @@ function PlatformText({ rule, side, picked }: { rule: PlatformRule; side: Design
     </View>
   );
 }
-
-// Foundations
 
 /** The Terminal's 16 colours in xterm order (`Ansi` in the shared themes). */
 const ANSI_BASE = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
@@ -460,8 +448,6 @@ function SurfacesSpecimen() {
     </>
   );
 }
-
-// Components
 
 function ButtonsSpecimen() {
   const { colors } = useTheme();

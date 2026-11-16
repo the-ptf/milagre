@@ -7,7 +7,6 @@ import { pressStyle } from "./primitives/press-style";
 import { useTheme } from "./theme";
 import { Icon } from "./icons";
 
-/** A ring that fills as the agent's context window does, orange past the compact threshold. A tap opens the details. */
 export function ContextRing({
   onPress,
   canCompact = false,

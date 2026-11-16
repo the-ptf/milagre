@@ -22,7 +22,6 @@ async function within(operation, milliseconds) {
 }
 
 // A cold Vite transform on a fresh Linux runner gets its own startup deadline. Later interaction waits stay short.
-// Navigation + readiness: 30 s; asynchronous failure diagnostics: at most 1 s more (subject to event-loop scheduling).
 async function openRenderer(window, url, readySource, { timeoutMs = 30_000 } = {}) {
   const contents = window.webContents;
   const started = performance.now();
@@ -61,7 +60,6 @@ async function openRenderer(window, url, readySource, { timeoutMs = 30_000 } = {
         );
       } catch (error) {
         lastEvaluationError = bounded(error.message);
-        // Vite may reload while re-optimizing dependencies; do not hide syntax errors or fixture exceptions.
         if (!/execution context was destroyed|frame was disposed|context (?:was )?released/i.test(error.message)) throw error;
       }
       if (performance.now() >= deadline) break;
@@ -87,7 +85,6 @@ async function openRenderer(window, url, readySource, { timeoutMs = 30_000 } = {
       lastEvaluationError,
     };
     console.error("Initial renderer failure:", JSON.stringify(diagnostic));
-    // Both probes share one budget; a hung renderer must not trap the caller's failure path either.
     const diagnosticDeadline = performance.now() + diagnosticMs;
     const screenshotAbort = new AbortController();
     let attachedForScreenshot = false;

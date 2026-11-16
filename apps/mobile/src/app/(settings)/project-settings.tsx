@@ -13,7 +13,6 @@ import { ProjectIcon, setProjectImage } from "../../project-icon";
 import { ProjectAccountsGroup } from "../../project-accounts-section";
 import { ErrorNotice, PageScroll, PillButton, SectionLabel, Segmented, Toggle, useStyles } from "../../ui";
 
-// Same size as desktop's: the icon is shown small everywhere, and the computer keeps it under 450 KB.
 async function pickIcon() {
   const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1] });
   if (result.canceled) return undefined;
@@ -36,7 +35,6 @@ export default function ProjectSettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const client = session.client;
-  // Re-read on every focus: the phone doesn't get main-sync:status, and a sync may have run on the Mac since.
   const [sync, setSync] = useState<MainSyncSettings | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useFocusEffect(

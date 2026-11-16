@@ -19,7 +19,6 @@ type NativeActivity = {
 export const nativeActivity = requireOptionalNativeModule<NativeActivity>("MilagreLiveActivity");
 const handling = new Set<string>();
 let installed = false;
-/** Runs independently of screens so AppIntent can drain actions during a cold background launch. */
 export function installActivityAnswers() {
   if (!nativeActivity || installed) return;
   installed = true;

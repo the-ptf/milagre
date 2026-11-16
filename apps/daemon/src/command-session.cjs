@@ -1,4 +1,3 @@
-/** A persistent owner connection for viewer controls and scripts. Requests and events share bounded NDJSON framing. */
 async function session(client, { input = process.stdin, output = process.stdout } = {}) {
   const pending = new Set();
   const ids = new Set();
@@ -49,7 +48,6 @@ async function session(client, { input = process.stdin, output = process.stdout 
     if (pending.size >= 32) await Promise.race(pending);
     const work = request(line);
     pending.add(work);
-    // Observe failures immediately, including while no further input arrives.
     void work.then(
       () => pending.delete(work),
       (error) => {

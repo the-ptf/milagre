@@ -4,7 +4,6 @@ const { toClaudeConfig, safeDetail } = require("./definitions.cjs");
 const { agentEnvironment } = require("../agents/command.cjs");
 
 // One Claude account's MCP servers, from an idle SDK session's mcpServerStatus() (the listClaudeModels pattern in
-// agents/models.cjs). The session sends no prompt, so it costs no tokens; it only starts the servers.
 
 const SCOPES = { user: "user", local: "local", project: "project", dynamic: "plugin", claudeai: "claude.ai" };
 const STATES = { connected: "connected", failed: "failed", "needs-auth": "needs-sign-in", disabled: "disabled", pending: "pending" };
@@ -20,7 +19,6 @@ function transportOf(type) {
 function claudeServer(status, { timedOut = false, everywhereNames = new Set() } = {}) {
   if (status.config?.type === "sdk") return null;
   const pending = status.status === "pending";
-  // The idle check session never gets Milagre's off list, so "disabled" here comes from Claude's own config.
   return {
     name: status.name,
     transport: transportOf(status.config?.type),
@@ -76,8 +74,6 @@ async function checkClaude({
   }
 }
 
-// A CLI call with no shell; a failure carries the CLI's own stderr, which the sheet shows. Node's error.message
-// repeats the whole command line (config JSON with tokens), so it is never used, and long arguments are redacted.
 function runCli(command, args, { env } = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { env: agentEnvironment(env), timeout: 30_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
@@ -90,8 +86,6 @@ function runCli(command, args, { env } = {}) {
   });
 }
 
-// The config travels as argv because `claude mcp add-json` has no stdin form, so it is briefly visible in `ps`.
-// `extra` is the stored config's keys the sheet doesn't know (oauth, timeout, headersHelper, …), kept on an edit.
 async function addClaude({ command, env, def, extra = {}, run = runCli }) {
   await run(command, ["mcp", "add-json", def.name, JSON.stringify({ ...extra, ...toClaudeConfig(def) }), "--scope", "user"], { env });
 }
@@ -103,9 +97,6 @@ async function removeClaude({ command, env, name, run = runCli }) {
 const SIGN_IN_TIMEOUT = "Sign-in timed out after 5 minutes. Try again.";
 
 // One account's OAuth sign-in to one server through the SDK's unlisted mcpAuthenticate (probed 2026-10-15):
-// the CLI listens on a localhost port and swaps the code for a token itself; Milagre only opens the browser and
-// watches mcpServerStatus. The session stays open until then because it hosts the callback. Everywhere servers
-// are passed exactly as a Chat passes them, because the CLI keys the token by name and config.
 async function signInClaude({
   command,
   env,

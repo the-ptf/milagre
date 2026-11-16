@@ -8,13 +8,8 @@ import { useDisplayNow } from "../../lib/display-clock";
 import { SPRING_SWAP } from "../../lib/ease";
 import type { QuestionAnswers, QuestionRequest } from "../../model";
 
-/** The last minute reads in the attention tone, so a running-out request is noticed before it closes. */
 const URGENT_MS = 60_000;
 
-/**
- * Secret drafts stay in this mounted form, outside the inbox's retained answer drafts.
- * "card" sits above the composer like QuestionCard; "inline" goes inside an inbox card, which brings its own frame.
- */
 export function SecretCard({
   request,
   busy,
@@ -69,7 +64,6 @@ export function SecretCard({
           </ScrollArea>
         )}
       </div>
-      {/* The field takes the row; the buttons wrap below it, right-aligned, when the card is narrow. */}
       <div className="flex flex-wrap items-start gap-x-2 gap-y-3">
         <div className="min-w-0 flex-[1_1_240px]">
           <div className="relative">
@@ -88,7 +82,6 @@ export function SecretCard({
               onChange={(event) => setValue(event.target.value)}
               onBlur={() => setRevealed(false)}
               onKeyDown={(event) => {
-                // Escape clears what was typed first; on an empty field it reaches the window, which declines.
                 if (event.key === "Escape" && !event.nativeEvent.isComposing && value) {
                   event.preventDefault();
                   setValue("");

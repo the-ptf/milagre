@@ -6,7 +6,6 @@ import { PILL_TONES, PillSlot, StatusPill } from "../primitives/StatusPill";
 import Tooltip from "../primitives/Tooltip";
 import { HIDDEN_FACE, MORPH_SURFACE, morphFace, useSize } from "./morph";
 
-// The panel keeps this far from the window's edges and never takes more than this share of its height.
 const EDGE = 12;
 const VIEWPORT_SHARE = 0.7;
 
@@ -37,35 +36,24 @@ export function PillMorph({
   children,
 }: {
   shown: boolean;
-  /** data-slot of the row's spot and of the panel, e.g. "port-track" and "port-popover". */
   slot: string;
   panelSlot: string;
-  /** The panel's accessible name. */
   title: string;
   tooltip: string;
   opened: boolean;
   onOpenChange: (opened: boolean) => void;
   width: number;
-  /** The tallest the panel grows; shorter content gives a shorter panel, unless `fill` holds it at that height. */
   height: number;
-  /** Hold the panel at its full height, for content with no height of its own (a live viewer). */
   fill?: boolean;
   /**
    * Pin the open surface to the whole window over a scrim, keeping its content mounted (the browser's Expand). The
    * composer row lifts itself above the window's chrome while it holds an expanded panel (ChatComposer).
    */
   expanded?: boolean;
-  /** Placement of the pill's spot in the composer row (`mr-auto` for a pill at the row's left). */
   className?: string;
-  /** The pill corner the panel hangs from: the bottom-right (opens to the left) or, for a pill at the row's left, the bottom-left. */
   anchor?: "left" | "right";
-  /**
-   * A tap on the pill does this instead of opening the panel: the pill stays one button, so a pill that names the one thing
-   * it counts (the Subchats pill with a single question) can take you straight there.
-   */
   onActivate?: () => void;
   pill: Omit<ComponentProps<typeof StatusPill>, "ref" | "bare" | "onClick">;
-  /** The panel; as a function it gets a close that hands focus back to the pill, for the panel's own close control. */
   children: ReactNode | ((close: () => void) => ReactNode);
 }) {
   return (
@@ -103,7 +91,6 @@ function Morph({
   const panelId = useId();
   const scale = useMotionScale();
   const reduce = scale === 0;
-  // The panel's size, and how far its right edge moves past the pill's so a narrow window still fits it.
   const [room, setRoom] = useState({ width: preferredWidth, height: preferredHeight, shift: 0 });
   const [pillSize, measurePill] = useSize();
   const [panelSize, measurePanel] = useSize();
@@ -113,7 +100,6 @@ function Morph({
     if (!box) return;
     const width = Math.round(Math.max(0, Math.min(preferredWidth, window.innerWidth - 2 * EDGE)));
     const height = Math.round(Math.max(0, Math.min(preferredHeight, window.innerHeight * VIEWPORT_SHARE, box.bottom - EDGE)));
-    // Anchored to the pill's edge when that fits; otherwise moved just enough to clear the window's padding on the far side.
     const shift = anchor === "left" ? Math.max(0, box.left + width - (window.innerWidth - EDGE)) : Math.max(0, EDGE - (box.right - width));
     setRoom((current) => (current.width === width && current.height === height && current.shift === shift ? current : { width, height, shift }));
   };
@@ -127,7 +113,6 @@ function Morph({
     (target) => !!root.current?.contains(target),
     fit,
   );
-  // The room is measured before the box starts growing, whichever way the panel was opened.
   useLayoutEffect(() => {
     if (opened) fit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,10 +138,8 @@ function Morph({
     refocus.current = false;
     trigger.current?.focus();
   }, [opened]);
-  // The open box comes from the room measured at the click; the observed panel height (capped by the room) fills in the content fit.
   const size = opened ? { width: room.width, height: Math.min(panelSize?.height ?? room.height, room.height) } : pillSize;
   return (
-    // Holds the pill's spot in the composer row; the surface hangs from its bottom-right corner.
     <PillSlot
       ref={root}
       slot={slot}
@@ -164,8 +147,6 @@ function Morph({
       className={`relative shrink-0 ${className}`}
       style={pillSize ? { width: pillSize.width, height: pillSize.height } : undefined}
     >
-      {/* One surface morphs between the pill and the panel; both faces stay mounted and crossfade over it. Closed, it is
-      the row's frosted glass pill; open, a raised card. */}
       {opened && expanded && <div className="fixed inset-0 z-40 bg-scrim backdrop-blur-overlay" aria-hidden />}
       <div
         data-slot={slot.replace(/-track$/, "-surface")}
@@ -184,7 +165,6 @@ function Morph({
             return measurePanel(node);
           }}
           id={panelId}
-          // A dialog only while it is on show; the hidden face is inert and not one.
           role={opened ? "dialog" : undefined}
           aria-label={opened ? title : undefined}
           aria-modal={opened ? "false" : undefined}
@@ -199,7 +179,6 @@ function Morph({
           {typeof children === "function" ? children(() => close(true)) : children}
         </motion.div>
       </div>
-      {/* The pill face sits over the surface at the pill's spot, so it never travels when the panel is moved right. */}
       <motion.div
         ref={measurePill}
         data-face="pill"

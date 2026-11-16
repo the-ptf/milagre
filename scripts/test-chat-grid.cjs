@@ -13,9 +13,11 @@ import { gridDrop, dropSide } from "/src/lib/grid-drop";
 import { useScopeStates } from "/src/lib/sidebar-scopes";
 import { ScopeContext } from "/src/lib/computer-bridge";
 import { ChatComposer } from "/src/components/ChatComposer";
-import { RunTextContext, createRunTextStore } from "/src/lib/run-text";
+import { AgentRunsContext, createAgentRunsStore } from "/src/lib/agent-runs-store";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore, useDraftQuotes } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 const unsubscribe = () => () => {};
 // The sidebar's first read of another Project answers a little later, as the main process does.
 const beta = { worktrees: {}, sessions: { 7: { id: 7, title: "Unread in beta", unread: true } }, messages: [] };
@@ -55,13 +57,12 @@ const runs = {
 const model = MODEL_CATALOG[0];
 // The focused tile's composer, as App's: the focused Chat's key, and its quotes.
 function FocusedChat({ chatKey }) {
-  const [quotes, setQuotes] = useState([]);
+  const quotes = useDraftQuotes(draftStore);
   window.composerQuotes = quotes;
   return (
   <ChatComposer messages={state.messages.filter((item) => item.session_id === 1)} chatId={Number(chatKey.split("#")[1])} agentChatId={chatKey}
-    quotes={quotes} onQuotesChange={setQuotes}
     imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-    projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
+    projectPath="/fixture" store={draftStore} onSend={noop} isSending={false} sendBlocked={false}
     models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
     capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
     fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}
@@ -83,23 +84,23 @@ function Harness() {
   return (
     <>
       <ChatGrid keys={["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused={focused}
-        states={{ "/fixture": state }} runs={runs} delegated={new Set()} models={MODEL_CATALOG}
+        states={{ "/fixture": state }} delegated={new Set()} models={MODEL_CATALOG}
         onFocus={(key) => (window.focusedTo = key)} onDismiss={(key) => (window.dismissed = key)}
         pinned={pinned} onTogglePin={togglePin}><FocusedChat chatKey={focused} /></ChatGrid>
       <GridDropOverlay />
     </>
   );
 }
-// The window reads a running turn's text from the run text store (lib/run-text.ts), as App provides it.
-const runText = createRunTextStore((key) => runs[key]?.text);
+const agentRuns = createAgentRunsStore();
+agentRuns.set(runs);
 createRoot(document.getElementById("root")).render(
   <div style={{ height: "100vh", padding: 12 }}>
     <ScopeProbe />
-    <RunTextContext.Provider value={runText}>
+    <AgentRunsContext.Provider value={agentRuns}>
       <ScopeContext.Provider value="mac-b|/remote">
         <Harness />
       </ScopeContext.Provider>
-    </RunTextContext.Provider>
+    </AgentRunsContext.Provider>
   </div>,
 );
 `;

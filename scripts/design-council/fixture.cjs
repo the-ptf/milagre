@@ -1,10 +1,3 @@
-// Design council phone fixture: a real Milagre daemon + mobile bridge on loopback, seeded with a fixed demo Project
-// whose Chats come from a scripted agent. No provider account, network call or personal data is used.
-//
-//   node scripts/design-council/fixture.cjs            # bridge on 127.0.0.1:8901, data under /tmp/council/fixture
-//
-// Env: COUNCIL_FIXTURE_PORT (8901), COUNCIL_FIXTURE_ROOT (/tmp/council/fixture), COUNCIL_FIXTURE_TOKEN (fixed demo token).
-// The root is wiped and rebuilt on every start, so every round sees the same Project, Chats and uncommitted diff.
 // It writes <root>/connection.json ({ url, token, project, chats }) for capture-phone.sh and stays up until SIGINT/SIGTERM.
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -19,13 +12,10 @@ const { demoRuntimeOptions } = require(path.join(repo, "apps/daemon/src/demo-age
 
 const PORT = Number(process.env.COUNCIL_FIXTURE_PORT || 8901);
 const ROOT = path.resolve(process.env.COUNCIL_FIXTURE_ROOT || "/tmp/council/fixture");
-// Public demo token: the bridge only listens on loopback and serves throwaway data.
 const TOKEN = process.env.COUNCIL_FIXTURE_TOKEN || "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf";
 
-// Static model lists so the model picker has realistic content. Nothing calls a provider.
 const effortsClaude = ["low", "medium", "high", "max"];
 const effortsCodex = ["low", "medium", "high"];
-// Ids from the app's own catalog (packages/shared/src/model-options.ts), so the picker shows them by name.
 const model = (id, name, description, efforts, more = {}) => ({ id, name, description, efforts, ultracode: false, fastMode: false, ...more });
 const MODELS = {
   claude: [
@@ -72,7 +62,6 @@ const FILES = {
   "src/screens/Settings.tsx": 'export function Settings() {\n  return <main className="settings">Settings</main>;\n}\n',
 };
 
-// What the working tree looks like after the agent's "fix": shown on the Changes screen.
 const CHANGED = {
   "src/auth/session.ts": [
     'import { readCookie } from "../lib/cookies";',
@@ -128,8 +117,6 @@ const MAIN_REPLY = [
   "All 14 tests pass.",
 ].join("\n");
 
-// Token usage: a fixed, made-up report. Core's own reader would scan ~/.claude and ~/.codex on this Mac (the owner's
-// real spend) and fetch a price list, so the fixture answers instead. The shape repeats every round.
 const PATTERN = [0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 9, 6, 3, 8, 12, 7, 4, 6, 3, 1, 0, 0, 0, 0];
 function totals(tokens, costUsd) {
   const input = Math.round(tokens * 0.2),
@@ -154,7 +141,6 @@ function fakeTokenUsage(project, chats) {
       const range = ["24h", "7d", "30d", "90d"].includes(request.range) ? request.range : "24h";
       const hour = 3600e3,
         day = 24 * hour;
-      // Hours are laid on the local day (the requested one, else today) so each bar lands on the same hour every round.
       const midnight = request.days?.from ? new Date(`${request.days.from}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0));
       const until = range === "24h" ? midnight.getTime() + day : Math.ceil(Date.now() / day) * day;
       const hourly = range === "24h";
@@ -218,7 +204,6 @@ function fakeTokenUsage(project, chats) {
   };
 }
 
-// Each prompt (matched by a keyword) plays a fixed script of steps and text.
 function script(prompt, cwd) {
   const file = (rel) => path.join(cwd, rel);
   if (/redirect/i.test(prompt))
@@ -316,8 +301,6 @@ function scriptedSession(cwd) {
   };
 }
 
-// The Project's own icon (public/logo.png), so Milagre never falls back to the signed-in GitHub user's avatar.
-// A 128 px amber tile with a white notebook mark, drawn here so the fixture carries no image asset.
 function logoPng(size = 128) {
   const rows = [];
   for (let y = 0; y < size; y++) {
@@ -382,7 +365,6 @@ async function main() {
   git("add", "-A");
   git("commit", "-qm", "Fieldnotes 2.3");
 
-  // Filled in once the Chats exist; the token usage report reads it lazily.
   const chatList = [];
   const runtimeOptions = {
     ...demoRuntimeOptions({ cwd: project, worktreeRoot: path.join(root, "worktrees") }),
@@ -394,7 +376,6 @@ async function main() {
       { invalidate() {} },
     ),
   };
-  // "Keep the Mac awake" already on, so opening a Chat doesn't ask (the fixture's keepAwake is core's no-op stub).
   await fs.mkdir(dataDir, { recursive: true });
   await fs.writeFile(path.join(dataDir, "keep-awake.json"), JSON.stringify({ enabled: true }));
   const daemon = await startDaemon({ dataDir, version: "0.1.0-council", runtimeOptions });
@@ -403,11 +384,9 @@ async function main() {
   const first = Object.values(opened.state.sessions)[0];
   const worktreeId = first.worktree_id;
 
-  // Oldest first, so the main Chat is the most recent row in the list.
   const chats = [
     { title: "Polish onboarding copy", body: "Tighten the onboarding copy so it fits one screen.", provider: "codex", model: "gpt-6.1-sol" },
     { title: "Release notes for 2.3", body: "Draft release notes for 2.3 from the git log.", provider: "codex", model: "gpt-6.1-sol" },
-    // The one Chat left unread: the capture never opens it, so the list looks the same every round.
     { title: "Dark mode in Settings", body: "Can we add dark mode to the settings page?", provider: "claude", model: "claude-sonnet-5-5", unread: true },
     {
       title: "Fix the expired-session redirect",
@@ -425,7 +404,6 @@ async function main() {
     ids[chat.title] = sessionId;
     chatList.push({ id: sessionId, title: chat.title });
   }
-  // The "fix" the main Chat describes, left uncommitted for the Changes screen.
   await writeFiles(project, CHANGED);
 
   const bridge = await startMobileBridge({ dataDir, port: PORT, token: TOKEN });

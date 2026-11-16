@@ -12,7 +12,6 @@ import type { UsageState } from "./useUsage";
 const OPEN_DELAY_MS = 120;
 const CLOSE_DELAY_MS = 150;
 const STALE_AFTER_MS = 60_000;
-// The glyph takes the status colour once any provider's window nears its limit (80% orange, 95% red), as the meters do.
 
 /**
  * Settings › General › Plan usage › Show in sidebar › Button: one footer button beside Filters. Hovering it (or focusing
@@ -27,9 +26,6 @@ export function UsageButton({ usage, scope, chatsHome }: { usage: UsageState; sc
   const closeTimer = useRef<number | null>(null);
   // The pointer is over the button or the popover: a click there moves focus off the button, which mustn't close it.
   const pointerInside = useRef(false);
-  // An account picker's panel opens outside the popover (portalled to the body): pressing in it, leaving the popover
-  // for it, or the Escape that closes it must not close the popover. `pickerClosing` covers that Escape, which
-  // closes the picker first and then bubbles (through React's tree) to the popover.
   const pickerOpen = useRef(false);
   const pickerClosing = useRef(false);
   const spin = useRefreshSpin(() => usage.refresh(), usage.loading);
@@ -84,7 +80,6 @@ export function UsageButton({ usage, scope, chatsHome }: { usage: UsageState; sc
     if (next) return;
     pickerClosing.current = true;
     // A choice or Escape hands focus back to the picker after this runs; a press elsewhere leaves the pointer
-    // wherever it is, possibly outside the popover, which then closes as a hover popover would.
     window.setTimeout(() => {
       pickerClosing.current = false;
       const panel = document.querySelector("[data-usage-popover]");
@@ -101,8 +96,6 @@ export function UsageButton({ usage, scope, chatsHome }: { usage: UsageState; sc
   useEffect(() => {
     if (!open) return;
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    // Capture on window runs before App's window-level Escape handler, which cancels the running agent: Escape closes
-    // the popover, with focus still on the button, and goes no further.
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || pickerOpen.current) return;
       event.preventDefault();
@@ -182,7 +175,6 @@ export function UsageButton({ usage, scope, chatsHome }: { usage: UsageState; sc
                         account && <span className="min-w-0 truncate text-12 text-ink-3">{account}</span>
                       )}
                     </span>
-                    {/* The last read failed: its last-known numbers stay, and this says so. */}
                     {item.status === "error" && (
                       <span data-usage-error title="Couldn't read usage" className="flex shrink-0 text-red-ink">
                         <Icon icon={Alert02Icon} size={12} />
@@ -202,7 +194,6 @@ export function UsageButton({ usage, scope, chatsHome }: { usage: UsageState; sc
                 onClick={() => {
                   if (!spin.busy) spin.refresh();
                 }}
-                // aria-disabled, not disabled: a disabled button drops focus to <body>, which would close the popover.
                 aria-disabled={spin.busy}
               >
                 <span

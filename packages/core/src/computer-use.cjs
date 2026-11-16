@@ -5,17 +5,12 @@ const { spawn } = require("node:child_process");
 const { z } = require("zod");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
 
-// Experimental: agents see and operate desktop apps through agent-desktop (vercel-labs/agent-desktop), pinned in this
-// package. Milagre runs its native CLI itself, always headless (accessibility calls, no pointer, no focus), and asks the
 // user once per app per Chat before an agent touches it. macOS grants Accessibility and Screen Recording to the app that
-// launches it: Milagre.app, or the daemon's launcher on a computer without the desktop app.
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const OUTPUT_LIMIT = 4 * 1024 * 1024;
-// Apps an agent never drives: Milagre itself, shells that run anything, the OS's own settings and password stores.
 const BLOCKED_APPS = ["Milagre", "Terminal", "iTerm2", "Ghostty", "Warp", "System Settings", "System Preferences", "Passwords", "Keychain Access", "1Password"];
 const REF = /^@(s[a-z0-9]+):e\d+$/i;
-// The agent cursor gets a moment to travel to the element before the action lands, so the user sees what it acts on.
 const CURSOR_DWELL_MS = 350;
 const CURSOR_HIDE_MS = 4000;
 const ACTIONS = ["click", "type", "set-value", "clear", "select", "toggle", "check", "uncheck", "expand", "collapse", "focus", "scroll", "scroll-to"];
@@ -35,9 +30,7 @@ function agentDesktopBinary({ platform = process.platform, arch = process.arch }
   return { binary, helper, version: JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version };
 }
 
-/** The switch in Settings › Experimental, kept by the host. */
 function createComputerUseSettings({ file, emit = () => {} }) {
-  // `cursor`: draw Milagre's agent cursor and the step beside it on the screen while an agent acts (on by default).
   function read() {
     try {
       const stored = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -124,10 +117,6 @@ function failure(envelope) {
   return out;
 }
 
-/**
- * The host side: status and the permission guide for Settings, and the agent tools for a Chat. `approve(chatId,
- * request)` shows Milagre's approval card and answers "allow" | "allow-for-chat" | "deny" | "cancelled".
- */
 /** macOS's own launcher, for when agent-desktop's launch can't read the app list (a process record with pid -1). */
 function openApp(app) {
   return new Promise((resolve) => {
@@ -151,7 +140,6 @@ function createComputerUse({
 }) {
   const home = path.join(dataDir, "agent-desktop");
   const exec = (args, options) => run({ ...cli, home }, args, options);
-  // chatId -> { apps: Set of app names allowed for the Chat, snapshots: Map snapshot id -> app }
   const chats = new Map();
   const asking = new Map();
   const chat = (chatId) => {
@@ -159,8 +147,6 @@ function createComputerUse({
     if (!state) chats.set(chatId, (state = { apps: new Set(), snapshots: new Map(), cursorTimer: null, session: null }));
     return state;
   };
-  // Each Chat works in an agent-desktop session of its own, for its refs. Sessions are opened once per Chat while the
-  // host runs, without tracing (it records the screen). A failed start falls back to a plain namespace.
   const session = (chatId) => {
     const state = chat(chatId);
     state.session ??= exec(["session", "start", "--no-trace", "--name", "Milagre"], { timeoutMs: 15_000 }).then((envelope) =>
@@ -192,7 +178,6 @@ function createComputerUse({
     return { guide: envelope.data?.guide ?? "started" };
   }
 
-  /** Asks the user once per app per Chat; concurrent calls for the same app share one card. */
   async function allowApp(chatId, app) {
     const name = String(app ?? "").trim();
     if (!name) throw new Error("Name the app (desktop_apps lists them).");
@@ -228,11 +213,6 @@ function createComputerUse({
     return app;
   }
 
-  /**
-   * Before an action: where it lands, for Milagre's agent cursor on the screen (the desktop app draws it, design
-   * cu-cursor). `ref` puts the cursor on its element; without one the cursor stays and only the step changes. A failure
-   * never stops the action, it only costs the user the cursor.
-   */
   async function showStep(chatId, app, intent, ref) {
     if (!settings.read().cursor) return;
     const state = chat(chatId);
@@ -260,7 +240,6 @@ function createComputerUse({
     return JSON.stringify(envelope.data ?? {});
   }
 
-  /** The Chat ended or was archived: its grants go, and so does its cursor. */
   async function forget(chatId) {
     const state = chats.get(chatId);
     chats.delete(chatId);
@@ -382,8 +361,6 @@ function createComputerUse({
         run: async ({ app: name, intent: step }) => {
           await allowApp(chatId, name);
           const result = await call(chatId, name, ["launch", name], { timeoutMs: 45_000 }, step ?? `Opening ${name}`);
-          // agent-desktop 1.0.2 gives up when NSWorkspace lists a process with pid -1, which can last for minutes on a
-          // busy Mac. LaunchServices opens the app anyway; the agent's next snapshot finds its window.
           if (platform === "darwin" && JSON.parse(result).details?.kind === "application_inventory_unstable" && (await open(name))) {
             onAction({ chatId, app: name, command: "launch", data: {} });
             return JSON.stringify({

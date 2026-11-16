@@ -3,8 +3,6 @@ const { mcpContent } = require("./linked-tools.cjs");
 const { createCommandDispatcher } = require("./command-dispatcher.cjs");
 const VERSIONS = ["2025-03-26", "2025-06-18"];
 const MAX_BODY = 1024 * 1024;
-// A 1,000,000 UTF-16-unit design can encode each unit as six ASCII bytes.
-// Allow one design call's envelope too; all other calls keep the ordinary cap.
 const MAX_DESIGN_BODY = 6 * 1000000 + 64 * 1024;
 
 function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {

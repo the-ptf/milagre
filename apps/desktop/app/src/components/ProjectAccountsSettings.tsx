@@ -15,7 +15,6 @@ import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { ProviderLogo } from "./ProviderLogo";
 import { bridgeForKey } from "../lib/computer-bridge";
 
-/** The Chats home's mark, as the sidebar's Chats group shows it: it has no repository picture of its own. */
 function ChatsHomeMark() {
   return (
     <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-chip bg-ink text-on-ink">
@@ -35,7 +34,6 @@ function AccountIcon({ plan }: { plan?: string }) {
   ) : null;
 }
 
-/** An inline link in a sentence: accent-ink, with a 24px target past its text. */
 const INLINE_LINK = "relative font-medium text-accent-ink before:absolute before:-inset-x-1 before:-inset-y-1 hover:underline disabled:opacity-40";
 
 const statusLabel = (state: string) =>
@@ -43,7 +41,6 @@ const statusLabel = (state: string) =>
 
 type ProviderAccounts = ProjectAccountsSnapshot["providers"][number];
 
-/** The choices for one provider in a Project or Link: the computer default, then each saved account. Settings and the usage card share them. */
 export function projectAccountOptions(group: ProviderAccounts): SelectOption<string>[] {
   const effective = group.accounts.find((account) => account.id === group.effectiveId);
   const missing = group.accountId !== null && (!effective || effective.missing === true);
@@ -72,7 +69,6 @@ export function projectAccountOptions(group: ProviderAccounts): SelectOption<str
   ];
 }
 
-// Loads one Project's or Link's accounts and keeps them current while sign-ins finish.
 export function useProjectAccounts(scope: string) {
   const [snapshot, setSnapshot] = useState<ProjectAccountsSnapshot | null>(null);
   const [error, setError] = useState("");
@@ -130,8 +126,6 @@ export function useProjectAccounts(scope: string) {
   return { shown, error, busy, signingIn, load, act };
 }
 
-/* One row per provider. The trigger shows the account the next turn uses;
- * a second line appears only when that account needs attention. */
 function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string }) {
   const { shown, error, busy, signingIn, load, act } = useProjectAccounts(scope);
   if (error)
@@ -200,7 +194,6 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
   });
 }
 
-// Without onManageAccounts the saved accounts are on the same page, so there is no link to them.
 function Footnote({ onManageAccounts }: { onManageAccounts?: () => void }) {
   return (
     <p className="mt-2 px-1 text-12 text-ink-3">
@@ -296,7 +289,6 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
   );
 }
 
-// The same choice inside a Project's own settings, fixed to that Project.
 export function ProjectAccountsGroup({ projectPath, onManageAccounts }: { projectPath: string; onManageAccounts: () => void }) {
   return (
     <section className="mt-6" data-project-accounts-group>

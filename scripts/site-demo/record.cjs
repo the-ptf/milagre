@@ -1,10 +1,3 @@
-// Records the landing page demo: the real desktop renderer and the real phone app on one scripted run.
-//   node scripts/site-demo/record.cjs <out-dir>
-// Prints the phone pairing link, then reads commands from <out-dir>/cmd (one per write):
-//   shot <file>     screenshot the desktop
-//   take            record desktop.mp4 while the hero Chat runs: Read, Edit, an approval to answer from the phone, reply
-//   quit
-// Pair the phone and start its screen recording before `take`; approve on the phone when the card shows.
 const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
@@ -26,7 +19,6 @@ async function main() {
   console.log(`pair: ${demo.pairing}`);
   fs.writeFileSync(path.join(out, "demo.json"), JSON.stringify({ pairing: demo.pairing, heroChatId: demo.heroChatId, url: demo.bridgeUrl }, null, 2));
 
-  // The production renderer, as packaged builds load it: lazy views like the approval card are already bundled.
   execFileSync("npm", ["run", "build:renderer", "--workspace", "milagre"], { cwd: root, stdio: "ignore" });
   const appUrl = pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
 
@@ -81,7 +73,6 @@ async function main() {
         const started = Date.now();
         await new Promise((resolve) => setTimeout(resolve, 1000));
         await demo.play();
-        // AUTO_APPROVE=<ms> answers the approval from the host, for a desktop-only take.
         if (process.env.AUTO_APPROVE) void until("hero:approval").then(() => setTimeout(() => demo.approve(), Number(process.env.AUTO_APPROVE)));
         await until("hero:done");
         await new Promise((resolve) => setTimeout(resolve, 3000));

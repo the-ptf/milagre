@@ -10,7 +10,6 @@ const disconnected = () => DESIGNS_DISCONNECTED;
 const noChange = async () => {};
 const noStatus = (_open: boolean) => {};
 
-/** Reuse the open Project's live socket. Before it opens, listen on an allowed recent scope or the host. */
 export function useDesigns(client: Client | null, projectPath?: string, availableScope?: string) {
   const idleScope = projectPath ? undefined : availableScope;
   const setting = useMemo(() => (client ? createDesignsSetting(client) : null), [client]);

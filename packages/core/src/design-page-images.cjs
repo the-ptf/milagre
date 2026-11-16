@@ -4,7 +4,6 @@ const { isIP } = require("node:net");
 const { isSnapshotRaster } = require("@milagre/shared/design-page");
 const { resizeImagePng, imageSize } = require("./design-raster.cjs");
 
-// A design's image src holds at most 500,000 characters. A larger download is redrawn at the size the design shows it.
 const MAX_SRC = 500_000;
 const MAX_DOWNLOAD = 20 * 1024 * 1024;
 
@@ -24,7 +23,6 @@ function publicAddress(address) {
       (a === 203 && b === 0 && c === 113)
     );
   }
-  // Permit ordinary global-unicast IPv6 only. Reject mapped IPv4, NAT64, Teredo, 6to4 and documentation ranges.
   if (isIP(address) !== 6) return false;
   const [first, second] = address.split(":").map((part) => parseInt(part || "0", 16));
   return first >= 0x2000 && first <= 0x3fff && first !== 0x2002 && first !== 0x3fff && !(first === 0x2001 && (second < 0x200 || second === 0xdb8));
@@ -32,7 +30,6 @@ function publicAddress(address) {
 
 // The design view loads images through Chromium, so downloads send the headers Chromium sends for an <img>:
 // CDN bot rules (CloudFront, Cloudflare, Akamai) answer 403 to requests that don't look like a browser.
-// The Accept list stays to the formats a shared page can embed, so content negotiation never picks AVIF.
 const chrome = (process.versions.chrome ?? "152.0.0.0").split(".")[0];
 const IMAGE_HEADERS = {
   accept: "image/webp,image/png,image/jpeg,image/gif;q=0.9",
@@ -44,7 +41,6 @@ const IMAGE_HEADERS = {
 };
 const transient = (error) => error.retryable === true || ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"].includes(error.code);
 
-/** DNS answers are checked and pinned to the socket; every redirect goes through the same checks. */
 async function fetchRaster(source, { lookup = dns.lookup, request = https.request, signal } = {}, redirects = 0) {
   const url = new URL(source);
   if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) throw Error("Shared images must use public HTTPS URLs.");
@@ -125,7 +121,6 @@ async function fetchRaster(source, { lookup = dns.lookup, request = https.reques
   });
 }
 
-/** Fits an image under MAX_SRC: redrawn as a PNG that covers its largest drawn box at 2x, then 1x, never enlarged. */
 async function fitImage(data, box, resize) {
   if (data.length <= MAX_SRC) return data;
   const size = imageSize(Buffer.from(data.slice(data.indexOf(",") + 1), "base64"));
@@ -145,9 +140,7 @@ async function embedPageImages(snapshot, { fetchImage = fetchRaster, resize = re
   const result = structuredClone(snapshot);
   const images = new Map();
   const signal = AbortSignal.timeout(30_000);
-  // The largest box each image is drawn in across the page, so one download serves every use.
   const boxes = new Map();
-  // Interactive designs load their own images in the page; only layer designs embed theirs.
   const layered = result.designs.filter((design) => design.document);
   for (const design of layered)
     for (const node of design.document.nodes) {
@@ -160,7 +153,6 @@ async function embedPageImages(snapshot, { fetchImage = fetchRaster, resize = re
       if (node.type !== "image" || !/^https:/i.test(node.src ?? "")) continue;
       if (!images.has(node.src)) {
         if (images.size >= 40) throw Error("A shared page can embed up to 40 distinct remote images.");
-        // One retry covers a rate limit, a server hiccup or a dropped connection; the page deadline bounds both tries.
         const download = () => fetchImage(node.src, { signal });
         const data = await download().catch((error) => {
           if (!transient(error) || signal.aborted) throw error;

@@ -5,7 +5,6 @@ import { RECENT_PROJECTS_CHANGED } from "./project-list.ts";
 export const HIDDEN_REMOTE_SCOPES_KEY = "milagre.hiddenRemoteScopes";
 const NONE: ReadonlySet<string> = new Set();
 
-/** Other computers' Projects and Links hidden from this Mac's sidebar (`${computerId}|/path`, `milagre-link:${computerId}|uuid`). */
 export function readHiddenRemoteScopes(): ReadonlySet<string> {
   try {
     const saved = JSON.parse(localStorage?.getItem(HIDDEN_REMOTE_SCOPES_KEY) ?? "[]");
@@ -26,9 +25,7 @@ export function setRemoteScopeHidden(key: string, hidden: boolean): void {
   try {
     if (next.size > 0) localStorage?.setItem(HIDDEN_REMOTE_SCOPES_KEY, JSON.stringify([...next]));
     else localStorage?.removeItem(HIDDEN_REMOTE_SCOPES_KEY);
-  } catch {
-    /* ignore storage errors */
-  }
+  } catch {}
   if (typeof Event === "function") window.dispatchEvent?.(new Event(RECENT_PROJECTS_CHANGED));
 }
 
@@ -38,7 +35,6 @@ function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return true;
 }
 
-/** The Projects hidden from this Mac's sidebar (local and paired computers'), read again each time one is hidden or shown. */
 export function useHiddenProjects(): ReadonlySet<string> {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => readHiddenRemoteScopes());
   useEffect(() => {
@@ -76,28 +72,19 @@ export function useHiddenProjects(): ReadonlySet<string> {
 
 const HIDDEN_COMPUTERS_KEY = "milagre.hiddenComputers";
 const HIDDEN_COMPUTERS_CHANGED = "milagre:hidden-computers-changed";
-// The last read, so useSyncExternalStore gets the same set until the saved list changes.
 let computersRead: { raw: string | null; set: ReadonlySet<string> } = { raw: null, set: NONE };
 
-/**
- * Computers whose Projects this Mac's sidebar leaves out (their ids, "local" for This Mac), unchecked in the computers
- * popover. Only what the sidebar lists: the computer stays paired and connected, and its Projects keep their own choices.
- */
 export function readHiddenComputers(): ReadonlySet<string> {
   let raw: string | null = null;
   try {
     raw = localStorage?.getItem(HIDDEN_COMPUTERS_KEY) ?? null;
-  } catch {
-    /* ignore storage errors */
-  }
+  } catch {}
   if (raw === computersRead.raw) return computersRead.set;
   let set = NONE;
   try {
     const saved = JSON.parse(raw ?? "[]");
     if (Array.isArray(saved)) set = new Set(saved.filter((item): item is string => typeof item === "string" && item.length > 0));
-  } catch {
-    /* a broken list hides nothing */
-  }
+  } catch {}
   computersRead = { raw, set };
   return set;
 }
@@ -109,9 +96,7 @@ export function setComputerHidden(id: string, hidden: boolean): void {
   try {
     if (next.size > 0) localStorage?.setItem(HIDDEN_COMPUTERS_KEY, JSON.stringify([...next]));
     else localStorage?.removeItem(HIDDEN_COMPUTERS_KEY);
-  } catch {
-    /* ignore storage errors */
-  }
+  } catch {}
   if (typeof Event === "function") window.dispatchEvent?.(new Event(HIDDEN_COMPUTERS_CHANGED));
 }
 

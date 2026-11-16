@@ -1,4 +1,3 @@
-// Real App and browser file APIs, isolated agent IPC. No paid agent calls.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -158,7 +157,6 @@ async function browserChecks() {
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview stored.png"] img').src.startsWith('milagre-media:')`));
     await screenshot("legacy-and-stored-images");
 
-    // A selected passage becomes a quote chip over this Chat's prompt, without sending or touching the draft; several stack.
     const { quoteMarkdown } = require("../packages/shared/src/prompt-parts.mjs");
     const quoteButton = '[aria-label="Quote selected text"]';
     const select = (from, to = from) =>
@@ -169,7 +167,6 @@ async function browserChecks() {
         return selection.toString();
       })()`);
     const chips = () => evaluate(`[...document.querySelectorAll('[data-quote-chip]')].map(chip => chip.textContent + '|' + chip.dataset.source)`);
-    // Visit another Chat and come back: the composer keeps the first transcript parked, and a shortcut still quotes once.
     await key("1", { metaKey: true });
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Other chat")`);
     await key("2", { metaKey: true });
@@ -188,11 +185,9 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question", "Quote keeps the draft as typed");
     assert.equal(await evaluate("window.calls.length"), 0, "Quote does not send");
     assert.equal(await evaluate(`window.getSelection().isCollapsed`), true, "Quote clears the selection");
-    // A selection across two messages offers nothing to quote.
     await select("article#message-4 [data-quotable]", "article#message-7 [data-quotable]");
     await delay(150);
     assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(quoteButton)})`), false, "No Quote across messages");
-    // The shortcut quotes too. A passage of the user's own message says so, and reads as typed: its chips are their tokens.
     await select("article#message-8 [data-quotable]");
     const own = "Fix @src/greeting.ts using /frontend-design";
     await waitFor(`!!document.querySelector(${JSON.stringify(quoteButton)})`);
@@ -204,8 +199,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelectorAll('[data-quote-chip]').length`), 2, "One shortcut press quotes once");
     assert.equal((await chips())[1], `“${own}|Your message`);
     await screenshot("quote-chips");
-    // The message goes out as the quotes' blockquotes, then the text. Held, it shows them as quotes in its bubble;
-    // when it fails, the quotes come back as chips and the text as typed.
     await evaluate(`window.holdSend = true`);
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await key("Enter");
@@ -222,7 +215,6 @@ async function browserChecks() {
     await click('[data-quote-chip] [aria-label="Remove quote"]');
     await waitFor(`document.querySelectorAll('[data-quote-chip]').length === 1`);
     assert.match((await chips())[0], /\|Your message$/, "X removes that quote alone");
-    // Backspace at the start of the prompt takes back the quote chip before it, and leaves the text.
     await evaluate(`(() => {
       const editor = document.querySelector('[data-prompt-editor]'); editor.focus();
       const range = document.createRange(); range.setStart(editor, 0); range.collapse(true);
@@ -233,7 +225,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "My question", "Backspace at the start removes only the quote");
     await type("");
 
-    // A sent message shows its @file mention and /skill as chips; the mentioned file gets no second tile, an unmentioned one keeps its tile.
     await waitFor(`!!document.querySelector('article [data-chip="skill"]')`);
     assert.equal(await evaluate(`document.querySelectorAll('article [data-chip="file"]').length`), 1);
     assert.equal(await evaluate(`document.querySelector('article [data-chip="file"] .truncate').textContent`), "greeting.ts");
@@ -269,7 +260,6 @@ async function browserChecks() {
     await key("Escape");
     await waitFor(`!document.querySelector('dialog')`);
 
-    // A reply's link to a file on this computer opens the file viewer; markdown opens formatted, with the source a click away.
     assert.equal(await evaluate(`${replyLink("the site")}.target`), "_blank", "Web links still leave the app");
     await evaluate(`${replyLink("written design")}.click()`);
     await waitFor(`!!document.querySelector('dialog[open] h1')`);
@@ -278,7 +268,6 @@ async function browserChecks() {
     assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/docs/spec.md");
     assert.equal(await evaluate(`document.querySelector('dialog[open] [aria-checked=true]').getAttribute('aria-label')`), "Formatted");
     await screenshot("markdown-link-formatted");
-    // A relative link inside the document resolves against the document's folder.
     await evaluate(`[...document.querySelectorAll('dialog[open] a')].find(a => a.textContent === 'goals').click()`);
     await waitFor(`window.fileReads.at(-1) === '/fixture/docs/goals.md'`);
     await waitFor(`document.querySelectorAll('dialog[open]').length === 2`);
@@ -290,7 +279,6 @@ async function browserChecks() {
     await screenshot("markdown-link-source");
     await key("Escape");
     await waitFor(`!document.querySelector('dialog')`);
-    // A relative link in a reply resolves against the chat's worktree; other files open as code.
     await evaluate(`${replyLink("the helper")}.click()`);
     await waitFor(`!!document.querySelector('dialog[open] [data-file-code]')`);
     assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/src/greeting.ts");
@@ -353,7 +341,6 @@ async function browserChecks() {
     await key("Escape");
     await waitFor(`!document.querySelector('dialog')`);
     assert.equal(await evaluate('document.activeElement?.getAttribute("aria-label")'), "Preview note.txt");
-    // The lightbox steps through every image and video in the attachments, and zooms images.
     const counter = String.raw`document.querySelector("dialog [aria-live]")?.textContent`;
     await click('[aria-label="Preview photo.png"]');
     await waitFor(String.raw`document.querySelector("dialog[open] img")?.naturalWidth > 0`);
@@ -365,7 +352,6 @@ async function browserChecks() {
     );
     await delay(500);
     await screenshot("lightbox-image");
-    // Real mouse input, so pointer capture decides where each click lands, as it does for a user.
     const mouseClick = async (x, y) => {
       for (const type of ["mouseDown", "mouseUp"]) {
         window.webContents.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: "left", clickCount: 1 });
@@ -392,10 +378,7 @@ async function browserChecks() {
     await waitFor(`${counter} === '1 / 2' && !!document.querySelector('dialog video[controls]')`);
     await key("ArrowRight");
     await waitFor(`${counter} === '2 / 2'`);
-    // A click on the empty area around the image closes the viewer.
-    // Let the slide that ArrowRight started settle first: a click right after it left the viewer open about half the runs.
     await delay(600);
-    // A point found by hit-testing, so it is certain to be empty stage and not a control or the image.
     const empty = await evaluate(
       `(() => { for (const fy of [0.5, 0.3, 0.7, 0.2, 0.8]) for (const fx of [0.1, 0.9, 0.25, 0.75, 0.5]) {
         const x = Math.round(innerWidth * fx), y = Math.round(innerHeight * fy), el = document.elementFromPoint(x, y);
@@ -408,7 +391,6 @@ async function browserChecks() {
     assert.equal(await evaluate('document.activeElement?.getAttribute("aria-label")'), "Preview photo.png", "Focus returns to the thumbnail");
     assert.equal(await evaluate(`document.querySelector('[data-promptbar] [aria-label="Preview photo.png"] img').classList.contains('opacity-0')`), false);
     assert.equal(await evaluate("window.interrupted"), undefined);
-    // Right-clicking an image, as a thumbnail or full size, offers Copy Image and Save Image.
     const rightClick = (selector) =>
       evaluate(`document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`);
     await rightClick('[data-promptbar] [aria-label="Preview photo.png"]');
@@ -438,9 +420,7 @@ async function browserChecks() {
     assert.ok(await evaluate('window.calls[0].prompt.includes("/fixture/files/note.txt") && window.calls[0].prompt.includes("/fixture/files/clip.mp4")'));
     assert.deepEqual(await evaluate("window.saved.messages.at(-1).files"), ["/fixture/files/note.txt", "/fixture/files/clip.mp4", "/fixture/files/photo.png"]);
     assert.equal(await evaluate("window.saved.messages.at(-1).body"), "[Image #1]");
-    // A send that is only its image mentions shows the photo tile alone, with no text bubble carrying an [Image #1] chip.
     await waitFor(String.raw`!!document.querySelector("article [aria-label=\"Preview photo.png\"]")`);
-    // The image also sits in the message's files (by its original path) but shows once: the sent copy keeps that path as its source.
     assert.equal(
       await evaluate(`document.querySelector('article:has([aria-label="Preview note.txt"])').querySelectorAll('[aria-label="Preview photo.png"]').length`),
       1,
@@ -462,7 +442,6 @@ async function browserChecks() {
     await waitFor(String.raw`document.querySelector("[aria-label=\"Project files and Chats\"]")?.textContent.includes("my app.ts")`);
     await screenshot("file-mentions");
     await key("Enter");
-    // A picked file is a chip in the draft (its mention, quoted for the space) and an attachment.
     const mentions = '@"src/my app.ts" @media/photo.png @media/clip.mp4 ';
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), '@"src/my app.ts" ');
     await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 1`);
@@ -486,10 +465,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector("[data-promptbar] [aria-label=Attachments]")`), false, "Mentioned files show as chips, not tiles");
     await screenshot("file-attachments-selected");
     await type(mentions + "Review these");
-    // Settings › Chat › Messages during a turn defaults to steering, so a steerable agent's follow-up sends now.
     await waitFor(`!!document.querySelector('[data-composer-submit][aria-label="Send now"]')`);
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Stop agent"]')`), false, "A nonempty draft offers Send now, not Stop");
-    // With a follow-up draft, the submit button sends it; Escape still stops without losing the draft or attachments.
     await key("Escape");
     assert.equal(await evaluate("window.interrupted"), "/fixture#3", "Stop targets the open chat");
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions + "Review these", "Stopping preserves the draft");
@@ -505,7 +482,6 @@ async function browserChecks() {
     );
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Images above the old limit remain image attachments");
-    // With text beside it, the image mention stays a chip in the sent message and opens the viewer.
     await type("look [Image #1]");
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await key("Enter");
@@ -544,7 +520,6 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-promptbar] [aria-label="Preview Pasted image.png"]')`);
     await screenshot("clipboard-image");
     await chooseFiles([["discard.txt", "text/plain"]]);
-    // Sidebar chats keep creation order, newest first: Other chat (session 5) is ⌘1, Attachment test (session 3) is ⌘2.
     await key("1", { metaKey: true });
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Other chat")`);
     assert.equal(
@@ -573,7 +548,6 @@ async function browserChecks() {
     await screenshot("subagent-delta");
     await click('[aria-label="Collapse subagents"]');
     await key(",", { metaKey: true });
-    // Settings opens on General; the notification switches live in their own section.
     const notificationsNav = `[...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Notifications")`;
     await waitFor(`!!${notificationsNav}`);
     await evaluate(`${notificationsNav}.click()`);

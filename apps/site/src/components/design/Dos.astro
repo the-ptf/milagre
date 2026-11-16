@@ -1,6 +1,4 @@
 ---
-// DESIGN.md's "Do and don't" table, each row drawn as a pair on the light scheme. A don't that breaks contrast is
-// drawn with text-shaped bars instead of text, so the page itself stays readable.
 import { Cancel01Icon, SecurityCheckIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { Table } from "../../design-system";
 import { icon } from "../../hugeicon";
@@ -9,7 +7,6 @@ interface Props {
   table: Table;
 }
 const { table } = Astro.props;
-// One drawing per row of the table, in its order.
 const DRAWINGS = ["primary", "selection", "switch", "status", "case", "elevation", "focus", "unread"] as const;
 if (table.rows.length !== DRAWINGS.length) throw new Error(`Dos.astro draws ${DRAWINGS.length} pairs; DESIGN.md's table has ${table.rows.length}`);
 const pairs = table.rows.map(([doText, dontText], index) => ({ doText, dontText, drawing: DRAWINGS[index] }));

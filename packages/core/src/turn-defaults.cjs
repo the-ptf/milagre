@@ -9,7 +9,6 @@ function normalize(value) {
   };
 }
 
-// The host keeps the last explicit choices so clients without these controls inherit them.
 function createTurnDefaults({ file }) {
   let cached;
   function read() {

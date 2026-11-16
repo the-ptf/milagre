@@ -1,6 +1,3 @@
-// A throwaway host for the landing page recordings: a temporary "milagre" Project with a few Chats in their own
-// Worktrees and a scripted agent. Nothing reads a provider account, runs a command or touches a real Project.
-// The desktop recorder (record-desktop.cjs) and the phone both attach to it, so they show the same run.
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -19,7 +16,6 @@ const MODELS = {
   kiro: null,
 };
 
-// The Chat the recordings follow, and the others around it in the sidebar.
 const HERO = {
   title: "Swipe between Chat and Changes",
   history: "Add swipe navigation between Chat and Changes on the phone.",
@@ -59,7 +55,6 @@ const PAGER_DIFF = `--- a/apps/mobile/src/chat-pager.tsx
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** The scripted agent: the hero Chat reads, edits, asks to run the checks and finishes; a "running" Chat never ends. */
 function scriptedSession(log) {
   return function createSession(_provider, { emit }) {
     let pending = null;
@@ -106,7 +101,6 @@ function scriptedSession(log) {
       session.turnActive = false;
       emit({ type: "turn-completed" });
     };
-    // Streams text a few words at a time, like a real model.
     async function stream(text) {
       for (const word of text.match(/\S+\s*/g) ?? []) {
         say(word);
@@ -204,7 +198,6 @@ function fakePullRequests(byPath) {
 }
 
 async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
-  // A fixed folder keeps the Project path, and so the phone's open Chat, the same from one take to the next.
   const fixed = process.env.MILAGRE_SITE_DEMO_ROOT;
   if (fixed) {
     await fs.rm(fixed, { recursive: true, force: true });
@@ -231,7 +224,6 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
   const daemon = await startDaemon({
     dataDir,
     version: VERSION,
-    // Chats live under the home folder the host serves (~/.milagre/chats): a temporary one keeps the user's untouched.
     homeDir: path.join(root, "home"),
     runtimeOptions: {
       ...demoRuntimeOptions({ cwd: project, worktreeRoot: path.join(project, ".milagre", "worktrees") }),
@@ -247,10 +239,8 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
     },
   });
   const client = await connect({ dataDir });
-  // Otherwise the phone opens on a "Keep My Mac awake?" sheet. It only lasts while the recording runs.
   await client.call("keep-awake:settings:save", [{ enabled: true }]);
   const opened = await client.call("project:open", [project]);
-  // The Project's first Chat (on main) is not part of the demo.
   for (const session of Object.values(opened.state.sessions)) await client.call("chat:patch", [project, session.id, { title: "Release notes" }]);
   const icon = await fs.readFile(path.resolve(__dirname, "../../apps/desktop/build/icons/128x128.png"));
   await client.call("project:set-icon", [project, `data:image/png;base64,${icon.toString("base64")}`]);
@@ -263,7 +253,6 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
     if (send) await client.call("chat:send", [{ projectPath, sessionId: chat.id, body: prompt, provider: "claude", model: "claude-opus-5-5" }]);
     return { chat, worktree };
   }
-  // A second Project, so the every-Project sidebar has more than one group.
   const relayOpened = await client.call("project:open", [relay]);
   for (const session of Object.values(relayOpened.state.sessions)) await client.call("chat:patch", [relay, session.id, { title: "Release notes" }]);
   const relayIcon = await fs.readFile(path.join(__dirname, "relay-icon.png"));
@@ -284,7 +273,6 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
   await wait(1500);
   const heroChatId = `${project}#${hero.chat.id}`;
 
-  // A fixed token keeps the phone paired across takes; every take needs a fresh host.
   const token = process.env.MILAGRE_SITE_DEMO_TOKEN || randomBytes(32).toString("hex");
   const bridge = await startMobileBridge({ dataDir, port, token });
   const pairing = `milagre://pair?address=${encodeURIComponent(bridge.url)}&token=${token}&name=${encodeURIComponent("My Mac")}`;
@@ -297,9 +285,7 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
     pairing,
     bridgeUrl: bridge.url,
     token,
-    /** Approves the hero's check run from the host, for a take without the phone. */
     approve: () => client.call("agent:respond-permission", [{ chatId: heroChatId, requestId: "approve-tests", decision: "allow" }]),
-    /** Sends the hero prompt: the run the recordings show. */
     play: () => client.call("chat:send", [{ projectPath: project, sessionId: hero.chat.id, body: HERO.prompt, provider: "claude", model: "claude-opus-5-5" }]),
     async close() {
       await bridge.close();

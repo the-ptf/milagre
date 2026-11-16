@@ -52,7 +52,6 @@ function createComputerKeys({ file, safeStorage, random }) {
     return next;
   }
   return {
-    /** This Mac's box key pair, made the first time a computer needs it. */
     identity() {
       making ??= (async () => {
         const value = await state();
@@ -84,7 +83,6 @@ function createComputerKeys({ file, safeStorage, random }) {
       try {
         await persist(value);
       } catch (error) {
-        // What is kept in memory must be what is sealed on disk.
         if (before === undefined) delete value.computers[id];
         else value.computers[id] = before;
         throw error;

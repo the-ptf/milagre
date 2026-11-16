@@ -1,7 +1,4 @@
 ---
-// The Designs panel, rebuilt from the app's own markup (apps/desktop/app/src/components/agents/ArtifactCard.tsx and
-// ArtifactCanvas.tsx): the agent's designs side by side on a canvas, pinned comments and a choice, all sent to the agent
-// with Send. Plain markup and a small script, so it costs the page nothing until it's used.
 import {
   Add01Icon,
   ArrowLeft01Icon,
@@ -141,7 +138,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
     </div>
   </div>
   <p class="status" data-status role="status"></p>
-  <!-- The tour's two cursors: the visitor's, and the agent's named one, as Designs draws a live agent's. -->
   <div class="cursor" data-cursor="you" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 1v15.5l4.2-4 2.9 6.6 2.6-1.1-2.9-6.5H14z" /></svg><span>You</span></div>
   <div class="cursor agent" data-cursor="claude" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 1v15.5l4.2-4 2.9 6.6 2.6-1.1-2.9-6.5H14z" /></svg><span>Claude</span></div>
   <div class="cursor agent codex" data-cursor="codex" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 1v15.5l4.2-4 2.9 6.6 2.6-1.1-2.9-6.5H14z" /></svg><span>Codex</span></div>
@@ -160,7 +156,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
     const sendButton = $<HTMLButtonElement>("[data-send]");
     const commentButton = $<HTMLButtonElement>("[data-comment]");
     const status = $("[data-status]");
-    // World units: each design is a 390×844 phone screen, 80 apart; the title row stays 28px on screen at any zoom.
     const FRAMES = root.querySelectorAll("[data-frame]").length;
     const WIDTH = FRAMES * 390 + (FRAMES - 1) * 80;
     const HEAD = 28;
@@ -197,8 +192,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
     };
     new ResizeObserver(() => (view.moved ? apply() : fit())).observe(viewport);
 
-    // Drag pans; ⌘ or Ctrl with the wheel (and a trackpad pinch) zooms. A plain wheel keeps scrolling the page.
-    // The pressed design is remembered: with the pointer captured, the release event lands on the viewport.
     let drag: { x: number; y: number; px: number; py: number; travelled: number; body: HTMLElement | null } | null = null;
     viewport.addEventListener("pointerdown", (event) => {
       const target = event.target as HTMLElement;
@@ -207,7 +200,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
       try {
         viewport.setPointerCapture(event.pointerId);
       } catch {
-        // A pointer the browser no longer tracks; the drag still follows the moves the viewport sees.
       }
     });
     viewport.addEventListener("pointermove", (event) => {
@@ -228,7 +220,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
       const body = drag.body;
       drag = null;
       viewport.classList.remove("dragging");
-      // A tap on a design in comment mode pins a comment where it landed.
       if (tapped && commenting && body) {
         const rect = body.getBoundingClientRect();
         const pin: Pin = { id: nextId++, frame: Number(body.dataset.body), x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height, text: "", sent: false };
@@ -261,7 +252,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
       viewport.classList.toggle("commenting", commenting);
     });
 
-    // One design can be chosen; choosing it again takes the choice back.
     root.querySelectorAll<HTMLButtonElement>("[data-choose]").forEach((button) =>
       button.addEventListener("click", () => {
         const index = Number(button.dataset.choose);
@@ -391,9 +381,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
       return wrap;
     }
 
-    // The tour: once the panel is in view, the visitor pins comments on the designs and sends them, and Claude and Codex
-    // each take one, working side by side, and apply it as that design's next version. Seven changes in five rounds before
-    // it starts over. It plays while in view and stops for good at the visitor's first click or key, leaving a clean panel.
     type Change = { frame: number; target: (mock: HTMLElement) => HTMLElement; fx: number; fy: number; comment: string; apply: (mock: HTMLElement) => void };
     const all = (mock: HTMLElement, selector: string) => [...mock.querySelectorAll<HTMLElement>(selector)];
     const CHANGES: Change[] = [
@@ -466,7 +453,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
     ];
     type Agent = "claude" | "codex";
     const AGENT_NAMES: Record<Agent, string> = { claude: "Claude", codex: "Codex" };
-    // Each round's comments go out with one Send; a round's changes are on different designs, so the agents never collide.
     const ROUNDS: [number, Agent][][] = [[[0, "claude"]], [[1, "codex"], [2, "claude"]], [[3, "claude"]], [[4, "codex"], [5, "claude"]], [[6, "codex"]]];
     const cursors = { you: $("[data-cursor='you']"), claude: $("[data-cursor='claude']"), codex: $("[data-cursor='codex']") };
     const mocks = [...root.querySelectorAll<HTMLElement>("[data-body] .mock")];
@@ -484,7 +470,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
     };
     const wait = (ms: number, id: number) =>
       new Promise<void>((resolve, reject) => setTimeout(() => (id === run ? resolve() : reject(new Error("stopped"))), ms));
-    // Where an element sits, in the panel's own pixels.
     const spot = (element: Element, fx = 0.5, fy = 0.5) => {
       const box = root.getBoundingClientRect();
       const rect = element.getBoundingClientRect();
@@ -519,7 +504,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
       status.classList.remove("shown");
       render();
     }
-    // The visitor pins one comment and types it; comment mode stays on for the next one in the round.
     async function comment(step: Change, id: number) {
       const mock = mocks[step.frame]!;
       const target = step.target(mock);
@@ -544,7 +528,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
       await wait(300, id);
       return pin;
     }
-    // An agent comes to its comment, works on that spot, and the design moves to its next version.
     async function edit(step: Change, agent: Agent, pin: Pin, edits: number[], id: number, delay: number) {
       await wait(delay, id);
       const mock = mocks[step.frame]!;
@@ -567,7 +550,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
       version.classList.remove("editing", agent);
       pins.splice(pins.indexOf(pin), 1);
       render();
-      // Done: the agent leaves as soon as its fix lands.
       await wait(250, id);
       cursor.classList.remove("shown");
       return `${AGENT_NAMES[agent]} updated ${titles[step.frame]} to version ${next}`;
@@ -608,7 +590,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
         await wait(1200, id);
         if (visible && !finished) void tour();
       } catch {
-        // Stopped: the visitor took over, or the panel scrolled away.
       }
     }
     if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -654,7 +635,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
   .viewport.commenting .body { cursor: crosshair; }
   .world { --s: 1; position: absolute; top: 0; left: 0; display: flex; gap: 80px; transform-origin: 0 0; }
   .frame { display: flex; width: 390px; flex: none; flex-direction: column; }
-  /* The title row stays the same size on screen however far the canvas zooms, as in the app. */
   .head { position: relative; height: calc(28px / var(--s)); }
   .head-row { position: absolute; bottom: 0; left: 0; display: flex; width: calc(390px * var(--s)); height: 28px; align-items: center; gap: 4px; padding-bottom: 6px; color: var(--ink); font-size: 12px; transform: scale(calc(1 / var(--s))); transform-origin: bottom left; }
   .num { color: var(--ink-3); }
@@ -673,7 +653,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
   .mock { height: 100%; overflow: hidden; border-radius: 10px; }
   .pins { position: absolute; inset: 0; pointer-events: none; }
 
-  /* Pins and bubbles are made by the script, outside the scoped reset above: they reset their buttons themselves. */
   :global([data-designs] .pin), :global([data-designs] .bubble-row button) { margin: 0; border: 0; font-family: var(--font-sans); cursor: pointer; appearance: none; }
   :global([data-designs] .bubble textarea) { user-select: text; -webkit-user-select: text; }
   :global([data-designs] .pin-wrap) { position: absolute; z-index: 1; pointer-events: auto; transform: translateY(-100%) scale(calc(1 / var(--s))); transform-origin: bottom left; }
@@ -691,7 +670,6 @@ const check = icon(CheckmarkCircle02Icon, 13);
   .status:global(.shown) { opacity: 1; transform: translate(-50%, 0); }
   @keyframes pop { from { opacity: 0; transform: scale(0.9); } }
 
-  /* The tour's cursors glide between spots; the label sits below the arrow, as on the app's canvas. */
   .cursor { position: absolute; top: 0; left: 0; z-index: 5; display: flex; align-items: flex-start; gap: 2px; pointer-events: none; opacity: 0; transition: transform 750ms cubic-bezier(0.45, 0, 0.2, 1), opacity 200ms; }
   .cursor:global(.shown) { opacity: 1; }
   .cursor svg { flex: none; fill: var(--accent); stroke: #fff; stroke-width: 1.2; filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.4)); transition: transform 120ms; }
@@ -716,14 +694,12 @@ const check = icon(CheckmarkCircle02Icon, 13);
   .m-book:global(.orange) { background: #e5703f; }
   .m-head h4, .m-sheet > span { transition: color 300ms; }
 
-  /* The agent's designs: a light Reservations app, nothing to do with Milagre's own look. */
   .mock { color: #18181b; font: 15px/1.35 var(--font-sans); }
   .m-status { display: flex; justify-content: space-between; padding: 14px 24px 8px; font-size: 14px; font-weight: 600; }
   .m-dots { letter-spacing: 1px; font-size: 9px; }
   .m-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; }
   .m-head h4 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }
   .m-pill { padding: 6px 12px; border-radius: 999px; background: #f4f4f5; font-size: 13px; font-weight: 500; }
-  /* A chip bar scrolls sideways in the app: chips keep one line and the row runs off the screen's edge. */
   .m-chips { display: flex; gap: 8px; padding: 4px 20px 16px; overflow: hidden; }
   .m-chip { flex: none; padding: 7px 14px; border: 1px solid #e4e4e7; border-radius: 999px; font-size: 13px; white-space: nowrap; }
   .m-chip.on { border-color: #18181b; background: #18181b; color: #fff; }

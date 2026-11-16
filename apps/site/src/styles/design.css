@@ -1,6 +1,3 @@
-/* /design: the app's looks, drawn in HTML from its tokens. A .scheme block takes the app palette for one scheme (the
- * variables come from design-system.ts at build time); the ds- classes copy the desktop primitives' values. */
-
 .scheme {
   padding: 20px;
   border-radius: var(--radius-window);
@@ -44,7 +41,6 @@
   gap: 8px;
 }
 
-/* Buttons: Button and IconButton */
 .ds-btn {
   display: inline-flex;
   flex-shrink: 0;
@@ -154,7 +150,6 @@
   outline-offset: 2px;
 }
 
-/* Chips, labels and badges */
 .ds-chip {
   display: inline-flex;
   align-items: center;
@@ -231,7 +226,6 @@
   line-height: 14px;
 }
 
-/* Rows */
 .ds-list {
   display: flex;
   flex-direction: column;
@@ -297,7 +291,6 @@
   }
 }
 
-/* Cards: the approval row, the question card */
 .ds-card {
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -367,7 +360,6 @@
   color: var(--on-ink);
 }
 
-/* Toast */
 .ds-toast {
   display: inline-flex;
   align-items: center;
@@ -386,7 +378,6 @@
   font-weight: 600;
 }
 
-/* Model picker */
 .ds-tile {
   display: flex;
   align-items: center;
@@ -465,7 +456,6 @@
   translate: -50% -50%;
 }
 
-/* Activity: stacked circular marks and the running logo */
 .ds-marks {
   display: flex;
   align-items: center;

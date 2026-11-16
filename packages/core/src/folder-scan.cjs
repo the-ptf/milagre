@@ -2,12 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { SKIP, scanRepositories } = require("./project-finder.cjs");
 
-// Add Project's folder check (project:scan-children): the repositories inside a folder that isn't one, which it then adds
-// as Projects with a Named Link that groups them. Only folder names are read, as the remote folder picker (fs:list-dirs)
-// reads them; nothing runs inside a repository and nothing is saved.
-
 const MAX_CHILDREN = 200;
-// How deep under a child folder that isn't a repository the scan looks for repositories (client/api, client/web).
 const NESTED_DEPTH = 2;
 
 async function hasGit(folder) {
@@ -20,8 +15,6 @@ async function hasGit(folder) {
 }
 
 /**
- * Each repository directly in a folder, each repository a level or two down in a child folder that isn't one, and each
- * other child folder. Hidden, system and dependency folders are skipped. Repositories start checked (`chosen`).
  * @param {string} folder
  * @returns {Promise<Omit<import("@milagre/shared/project-list").FolderScan, "detect">>}
  */

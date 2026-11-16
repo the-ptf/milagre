@@ -17,7 +17,6 @@ import { clock } from "@milagre/shared/routines";
 
 export type HugeIconData = typeof BotIcon;
 
-/** A step type's icon and its tile's fill and ink, in the editor and the Run view. */
 export const STEP_LOOK: Record<FlowStepKind | "trigger", { icon: HugeIconData; tile: string }> = {
   trigger: { icon: ZapIcon, tile: "bg-purple-tint text-purple-ink" },
   agent: { icon: BotIcon, tile: "bg-accent-tint text-accent-ink" },
@@ -28,7 +27,6 @@ export const STEP_LOOK: Record<FlowStepKind | "trigger", { icon: HugeIconData; t
   "linear-comment": { icon: Message01Icon, tile: "bg-green-tint text-green-ink" },
 };
 
-/** An output field's glyph on its chip and in the Output table. */
 export const FIELD_ICON: Record<FlowField["type"], HugeIconData> = {
   text: TextFontIcon,
   choice: LeftToRightListBulletIcon,
@@ -45,7 +43,6 @@ export const FIELD_TYPE_WORDS: Record<FlowField["type"], string> = {
   link: "link",
 };
 
-/** What starts the flow, as its trigger card's title: "Linear label added", "Schedule", "Webhook". */
 export function triggerTitle(trigger: RoutineTrigger): string {
   if (trigger.kind === "schedule") return "Schedule";
   if (trigger.kind === "webhook") return "Webhook";
@@ -62,19 +59,16 @@ export function triggerTitle(trigger: RoutineTrigger): string {
   }
 }
 
-/** The Linear issue a Run is for, as its key, or null. */
 export function runIssueKey(run: RoutineRun | undefined): string | null {
   return run?.event?.kind === "linear" ? run.event.issue.key : null;
 }
 
-/** A Run's issue in a few words for the run bar: "MIL-482 Retry webhook deliveries", else its title, else when it started. */
 export function runHeadline(run: RoutineRun): string {
   if (run.event?.kind === "linear") return `${run.event.issue.key} ${run.event.issue.title}`.trim();
   if (run.title?.trim()) return run.title.trim();
   return run.flow?.dryRun ? "Test run" : `Started ${clock(run.startedAt)}`;
 }
 
-/** What the trigger did for a Run, under the trigger's row: "label added on MIL-482 at 10:02", "at 10:02". */
 export function triggerRunText(routine: Routine, run: RoutineRun): string {
   const at = clock(run.startedAt);
   if (run.event?.kind === "linear") {
@@ -95,10 +89,6 @@ export function triggerRunText(routine: Routine, run: RoutineRun): string {
   return run.flow?.dryRun ? `Test run at ${at}` : `Started at ${at}`;
 }
 
-/**
- * The number a Run goes by on the page ("Run 14"), or 0 for a Test run, which never counts. Runs are kept newest first and
- * the oldest trimmed, so the count starts from the Routine's total.
- */
 function runNumber(routine: Routine & { runs: RoutineRun[] }, run: RoutineRun): number {
   if (run.flow?.dryRun) return 0;
   const counted = routine.runs.filter((entry) => !entry.flow?.dryRun);
@@ -107,13 +97,11 @@ function runNumber(routine: Routine & { runs: RoutineRun[] }, run: RoutineRun): 
   return Math.max(0, routine.runCount - counted.length) + (counted.length - index);
 }
 
-/** A Run's name on the page: "Run 14", or "Test run". */
 export const runName = (routine: Routine & { runs: RoutineRun[] }, run: RoutineRun) => {
   const number = runNumber(routine, run);
   return number > 0 ? `Run ${number}` : "Test run";
 };
 
-/** A flow Run's state as its chip says it: the words and the chip's fill and ink. */
 export function flowStatusLook(flow: FlowRun, waitingForYou: boolean): { text: string; tone: string } {
   switch (flow.status) {
     case "running":
@@ -131,7 +119,6 @@ export function flowStatusLook(flow: FlowRun, waitingForYou: boolean): { text: s
   }
 }
 
-/** "4 min", "41 s": how long something took. */
 export function tookText(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
   if (seconds < 60) return `${seconds} s`;
@@ -141,7 +128,6 @@ export function tookText(ms: number): string {
   return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
 }
 
-/** The first line of an error, as a row shows it. */
 export const firstLine = (text: string | undefined) =>
   text
     ?.split("\n")

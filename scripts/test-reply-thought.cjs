@@ -12,6 +12,8 @@ import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+import { createDraftStore } from "/src/lib/draft-store";
+const draftStore = createDraftStore();
 window.milagre = Object.freeze({ listEditors: async () => [] });
 const noop = () => {};
 const thought = (id, detail, durationMs) => ({ id, kind: "thinking", title: "Thought for " + Math.round(durationMs / 1000) + "s", status: "done", detail, durationMs, offset: 0 });
@@ -31,7 +33,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={!done} sendBlocked={false}
+      projectPath="/fixture" store={draftStore} onSend={noop} isSending={!done} sendBlocked={false}
       streamingText={state === "preamble" ? preamble : ""}
       streamingSteps={done ? undefined : state === "preamble" ? silentSteps.map((step) => ({ ...step, offset: preamble.length })) : silentSteps}
       asking={state === "asking" || state === "preamble"}

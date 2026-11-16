@@ -112,7 +112,6 @@ async function resolveProjectImage(projectPath, { account = githubAccount, readG
   if (ownerAccount?.type === "Organization" && avatar(ownerAccount)) return avatar(ownerAccount);
   const profile = avatar(await account("user", projectPath));
   if (profile) return profile;
-  // Without a logged-in CLI, a personal repository still identifies a Git profile.
   return ownerAccount?.type === "User" ? avatar(ownerAccount) : null;
 }
 

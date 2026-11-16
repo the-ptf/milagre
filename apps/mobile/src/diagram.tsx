@@ -12,7 +12,6 @@ import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
 import { useTheme, type Palette } from "./theme";
 import { CircleButton, pressStyle, SheetHeader, tap } from "./ui";
 
-/** The diagram the full-screen page shows (app/diagram-sheet.tsx): set before it opens. */
 let opened: { code: string; title: string } | null = null;
 
 /** Pele's drawing of `code` at most `width` wide, coloured for React Native's SVG; null with the reason when it doesn't draw. */
@@ -26,11 +25,6 @@ function draw(code: string, width: number, colors: Palette) {
   }
 }
 
-/**
- * A ```mermaid block in a reply, drawn by Pele as wide as the reply: narrower than a wide flowchart, it lays the chart
- * out top-down, and turning the phone lays it out again. The block being written stays code until its fence closes;
- * a diagram that doesn't draw shows its code with the reason. Expand opens it full screen, where it pinches.
- */
 export function MermaidBlock({ code, plain }: { code: string; plain: ReactNode }) {
   const streaming = useContext(MarkdownStreamingContext);
   const { colors } = useTheme();
@@ -94,10 +88,8 @@ export function MermaidBlock({ code, plain }: { code: string; plain: ReactNode }
   );
 }
 
-/** SheetHeader's height: 16 above and 8 below a 40pt CircleButton. */
 const HEADER = 64;
 
-/** The diagram full screen: drawn as wide as the screen (turned sideways, a wide chart lies flat again), pinch to zoom. */
 export function DiagramSheet() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -128,7 +120,6 @@ export function DiagramSheet() {
             paddingBottom: 16 + insets.bottom,
           }}
         >
-          {/* As wide as the screen, up to twice its own size: the full screen is for reading it. */}
           <SvgXml xml={drawn.svg} width={drawn.width * grow} height={drawn.height * grow} />
         </ScrollView>
       ) : (

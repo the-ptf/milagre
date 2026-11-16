@@ -1,7 +1,4 @@
 // Run with npm test -- --only test-computer-settings. A computer's Settings in Electron against a stand-in for main: the
-// Computers group lists This Mac and each computer; its section shows how it is connected and which route is in use, what
-// lives there, saves its name when the field is left, and Remove asks once more before it goes to Settings › Devices.
-// Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -143,8 +140,6 @@ async function browserChecks() {
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
     assert.match(await text("[data-computer-projects]"), /atlas-web, infra\. Accounts and simulators stay on atlas\./);
-    // Its memory and disk come from that computer; Milagre's amount lives in the bar's hover, and the computer's own page
-    // opens with what Milagre uses there.
     await waitFor(`!!document.querySelector('[data-computer-settings] [data-resource-meter=disk]')`);
     assert.equal(await text("[data-computer-settings] [data-resource-meter=memory]"), "20 GBfree of 32 GB");
     assert.equal(await text("[data-computer-settings] [data-resource-meter=disk]"), "1.5 TBfree of 2 TB");
@@ -158,16 +153,13 @@ async function browserChecks() {
       "Worktrees · 1275 GB",
       "Other app data5 GB",
     ]);
-    // Its disk breakdown offers the worktree cleanup for that computer.
     assert.equal(await text("[data-computer-settings] [data-resource-cleanup]"), "Clean up worktrees…");
-    // Auto update flips on that computer, through its own calls.
     await waitFor(`document.querySelector('[data-computer-auto-update] [role=checkbox]')?.getAttribute('aria-checked') === 'false'`);
     await evaluate(`document.querySelector('[data-computer-auto-update] [role=checkbox]').click()`);
     await waitFor(
       `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=checkbox]').getAttribute('aria-checked') === 'true'`,
     );
     assert.deepEqual(await evaluate("window.autoSaves"), [["c-atlas", true]]);
-    // Its desktop app's update: Install & restart asks first, since it restarts Milagre over there.
     await waitFor(`document.querySelector('[data-computer-update]')?.dataset.computerUpdate === 'downloaded'`);
     assert.match(await text("[data-computer-update]"), /^Update available: v0\.122\.0atlas runs Milagre 0\.121\.0\. Milagre 0\.122\.0 is ready to install\./);
     await evaluate(`document.querySelector('[data-computer-update-install]').click()`);

@@ -7,26 +7,17 @@ import { setBookmarkReserve } from "../../lib/bookmark-reserve";
 import { useDisplayNow } from "../../lib/display-clock";
 import { useShortcutLabel } from "../../lib/keybindings";
 import { useRoutines } from "../../lib/routines";
+import { useRuns } from "../../lib/agent-runs-store";
 import type { SubchatSource } from "../../lib/subchat-track";
 import { useControlsClearance } from "../../lib/window-chrome";
 import { Icon } from "../primitives/Icon";
 import Tooltip from "../primitives/Tooltip";
 import { FamilyMenu } from "./FamilyMenu";
 
-// Both ends are capped and truncate at the tail, the parent first, so the open Chat's title is the last thing to go.
 const CRUMB = "no-drag flex h-7 min-w-0 items-center rounded-control text-13 font-medium transition-colors active:scale-press focus-visible:outline-2";
 
-type Reads = Omit<SubchatSource, "parentKey">;
+type Reads = Omit<SubchatSource, "parentKey" | "runs">;
 
-/**
- * Where the open Subchat lives, in the 44px strip at the left of <main>: `Parent title / Subchat title ⇅`. The parent's
- * title goes up one level (App's openAlone on the parent) and the current title opens the family menu. It is read from the
- * Chat's own `parent`, never from how it was opened, so it survives a reload. A Chat that delegated further up shows only
- * its nearest listed ancestor, the older ones collapsing into a "…" that opens the same menu.
- *
- * Its right edge goes into `chipStripInsets` (bookmark-reserve.ts), so the Routine chip and the window's corner buttons
- * keep clear of it. `corner` is the width of those buttons.
- */
 export function SubchatBookmark({
   chatKey,
   reads,
@@ -49,13 +40,13 @@ export function SubchatBookmark({
   const { bar, inset } = useControlsClearance<HTMLDivElement>(bookmark !== null, corner);
   const group = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const full = { ...reads, routines, now };
+  const runs = useRuns();
+  const full = { ...reads, runs, routines, now };
   const hasParent = bookmark !== null;
   const parent = bookmark ? familyEntry(bookmark.parent, full, false) : null;
   const model = menuOpen ? familyMenuModel(chatKey, full) : null;
   const shortcut = useShortcutLabel("chat.parent");
   const session = reads.sessions?.[Number(chatKey.slice(chatKey.lastIndexOf("#") + 1))];
-  // Tell <main>'s other top-strip occupant (the Routine chip) where this one ends; nothing when it unmounts.
   useLayoutEffect(() => {
     const host = bar.current?.offsetParent;
     const box = group.current;
@@ -152,7 +143,6 @@ function ParentButton({ entry, needsYou, shortcut, onOpen }: { entry: FamilyEntr
         className={`${CRUMB} shrink-[4] decoration-ink-3 underline-offset-2 hover:text-ink hover:underline focus-visible:underline ${needsYou ? "max-w-[260px] text-ink" : "max-w-[180px] text-ink-2"}`}
       >
         <span className="min-w-0 truncate">{entry.title}</span>
-        {/* Never truncated: it is the reason the button is tinted. */}
         {needsYou && <span className="ml-1.5 shrink-0 text-12 font-medium text-orange-ink">Needs you</span>}
       </button>
     </Tooltip>

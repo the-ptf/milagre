@@ -1,13 +1,9 @@
-// Milagre's design system at build time: the rules in DESIGN.md and the tokens the apps ship, read from their sources
-// (the theme builder, the desktop stylesheet, the phone's design-tokens.ts), so /design can't drift from the code.
-// design-system.test.ts checks every token table in DESIGN.md against these values.
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { contrastRatio, DEFAULT_THEME_ID, hexToOklch, oklchToHex, over, resolvePalette, ULTRACODE_PURPLE } from "@milagre/shared/themes";
 import * as phoneTokens from "../../mobile/src/design-tokens.ts";
 
-// Astro builds from apps/site, but tests and npm workspaces can start elsewhere: find the repository.
 function repoRoot() {
   for (let dir = process.cwd(); ; dir = path.dirname(dir)) {
     if (existsSync(path.join(dir, "DESIGN.md")) && existsSync(path.join(dir, "apps/desktop/app/src/styles.css"))) return dir;
@@ -22,8 +18,6 @@ export const DESIGN_MD = read("DESIGN.md");
 export const SCHEMES = ["light", "dark"] as const;
 export type Scheme = (typeof SCHEMES)[number];
 
-// ── Colour: the default theme as the builder makes it, plus Ultracode's purple (a brand colour no theme overrides).
-
 const PALETTE_ONLY = new Set(["ansi", "syntax", "cursor", "selection"]);
 export const palette = Object.fromEntries(
   SCHEMES.map((scheme) => {
@@ -32,15 +26,12 @@ export const palette = Object.fromEntries(
   }),
 ) as Record<Scheme, Record<string, string>>;
 
-/** The palette keys DESIGN.md's colour tables list: every key but the terminal and editor colours. */
 export const COLOR_KEYS = Object.keys(palette.light).filter((key) => !PALETTE_ONLY.has(key));
-/** A palette key as desktop names it: `ink2` → `ink-2`, `accentInk` → `accent-ink`. */
 export const tokenName = (key: string) =>
   key
     .replace(/([A-Z])/g, "-$1")
     .replace(/(\d+)/g, "-$1")
     .toLowerCase();
-/** A desktop token as the palette (and the phone) names it: `ink-2` → `ink2`, `accent-ink` → `accentInk`. */
 export const paletteKey = (token: string) => token.replace(/-(\w)/g, (_, c: string) => (/\d/.test(c) ? c : c.toUpperCase()));
 
 const groundsFor = (colors: Record<string, string>, ground: string, text: string): string[] => {
@@ -55,13 +46,11 @@ export interface ContrastCheck {
   text: string;
   ground: string;
   floor: number;
-  /** The lowest ratio over every surface the ground can sit on, and that surface as an opaque colour. */
   ratio: number;
   background: string;
   color: string;
 }
 
-/** DESIGN.md's contrast floors, measured on the default theme. */
 export function contrastChecks(scheme: Scheme): ContrastCheck[] {
   const table = specimenTables(DESIGN_MD).get("contrast");
   if (!table) return [];
@@ -81,12 +70,8 @@ export function contrastChecks(scheme: Scheme): ContrastCheck[] {
   );
 }
 
-// ── Desktop: apps/desktop/app/src/styles.css. Its :root and .dark hold the first-frame colours and the shadows, its
-// @theme blocks the type, radius, blur and easing scales.
-
 const STYLES = read("apps/desktop/app/src/styles.css").replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** The custom properties declared in the first top-level block that opens with `opener` and declares `--marker`. */
 function cssBlock(css: string, opener: string, marker?: string): Record<string, string> {
   for (let from = 0; ;) {
     const start = css.indexOf(`\n${opener} {`, from);
@@ -104,7 +89,6 @@ const desktopDark = cssBlock(STYLES, ".dark", "page");
 const themeInline = cssBlock(STYLES, "@theme inline");
 const themeScale = cssBlock(STYLES, "@theme", "text-13");
 
-/** A colour or shadow from :root (light) or .dark over :root (dark), with var() references to its own block resolved. */
 export function desktopValue(name: string, scheme: Scheme): string | undefined {
   const block = scheme === "dark" ? { ...desktopRoot, ...desktopDark } : desktopRoot;
   let value = block[name];
@@ -143,7 +127,6 @@ export const desktop = {
       .map(([name, value]) => [name.slice("ease-".length), value]),
   ) as Record<string, string>,
   pressScale: Number(desktopRoot["press-scale"]),
-  /** Each icon size's stroke, from the Icon primitive. */
   iconStroke: Object.fromEntries(
     [...(/const STROKE = \{([^}]*)\}/.exec(read("apps/desktop/app/src/components/primitives/Icon.tsx"))?.[1] ?? "").matchAll(/(\d+):\s*([\d.]+)/g)].map(
       ([, size, stroke]) => [Number(size), Number(stroke)],
@@ -151,7 +134,6 @@ export const desktop = {
   ) as Record<number, number>,
 };
 
-// A PR label keeps its GitHub hue at a fixed lightness per theme (.pr-label in styles.css): its text and chip colours.
 const labelRule = (selector: string) => {
   const start = STYLES.indexOf(`\n${selector} {`);
   const body = STYLES.slice(start, STYLES.indexOf("\n}", start + 1));
@@ -172,15 +154,11 @@ export function prLabelColors(hex: string, scheme: Scheme) {
   };
 }
 
-// Tailwind's shadow scale as shadow-plugin redefines it; the desktop shadow tokens build on its sm, md and lg.
 const shadowScale = cssBlock(
   `\n${readFileSync(createRequire(path.join(ROOT, "apps/desktop/package.json")).resolve("shadow-plugin/unprefixed"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "")}`,
   "@theme",
 );
-/** A desktop shadow with Tailwind's scale filled in, ready for a style attribute outside the app. */
 const resolveShadow = (value: string) => value.replace(/var\(--(shadow-\w+)\)/g, (match, name: string) => shadowScale[name] ?? match);
-
-// ── Phone: apps/mobile/src/design-tokens.ts, plus the elevation in theme.ts (which imports React Native, so it's read).
 
 const elevationSource = /const ELEVATION = \{([\s\S]*?)\n\};/.exec(read("apps/mobile/src/theme.ts"))?.[1] ?? "";
 export const phone = {
@@ -218,7 +196,6 @@ function parseTable(lines: string[]): Table {
   return { header, rows };
 }
 
-/** DESIGN.md as alternating markdown and specimens, in reading order. */
 export function designChunks(markdown: string): Chunk[] {
   const chunks: Chunk[] = [];
   const lines = markdown.split("\n");
@@ -245,12 +222,10 @@ export function designChunks(markdown: string): Chunk[] {
   return chunks;
 }
 
-/** Every table that follows a specimen marker, by the marker's id. */
 export function specimenTables(markdown: string): Map<string, Table> {
   return new Map(designChunks(markdown).flatMap((chunk) => (chunk.kind === "specimen" && chunk.table ? [[chunk.id, chunk.table] as const] : [])));
 }
 
-/** The specimens /design knows how to draw; a marker in DESIGN.md with any other id fails the test and the build. */
 export const SPECIMENS = [
   "color-surfaces",
   "color-ink",
@@ -281,7 +256,6 @@ export const SPECIMENS = [
 export type SpecimenId = (typeof SPECIMENS)[number];
 export const isSpecimen = (id: string): id is SpecimenId => (SPECIMENS as readonly string[]).includes(id);
 
-/** CSS custom properties that put a block on the app's palette in one scheme: `--page`, `--ink-2`, `--shadow-card` … */
 export function schemeVariables(scheme: Scheme): string {
   const colors = COLOR_KEYS.map((key) => `--${tokenName(key)}:${palette[scheme][key]}`);
   const shadows = desktop.shadows.map((shadow) => `--${shadow.token}:${resolveShadow(shadow[scheme])}`);

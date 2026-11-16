@@ -3,41 +3,24 @@ import { ArrowExpandDiagonal01Icon, UnfoldMoreIcon } from "@hugeicons/core-free-
 import { useDisplayNow } from "../../lib/display-clock";
 import { familyMenuModel, type FamilyReads } from "../../lib/family-menu";
 import { useRoutines } from "../../lib/routines";
+import { useRuns } from "../../lib/agent-runs-store";
 import { Icon } from "../primitives/Icon";
 import { MenuRow, MenuSeparator, Popover } from "../primitives/Popover";
 import { FamilyRow } from "./FamilyMenu";
 
-/** What a split tile's title menu does, held by App with one identity so the tiles keep their memo. */
 export interface TileMenuControls {
-  /** The sessions of the Chat's Project, the live runs and the open Delegations, as they stand when its menu opens. */
-  reads: (chatKey: string) => Omit<FamilyReads, "routines" | "now">;
-  /** Ends the split and shows the Chat alone. */
+  reads: (chatKey: string) => Omit<FamilyReads, "routines" | "now" | "runs">;
   onOpenAlone: (key: string) => void;
-  /** The one explicit swap: `next` takes the place of the tile `tile`, so comparing siblings is one click. */
   onReplace: (tile: string, next: string) => void;
 }
 
-/**
- * A split tile's title. It opens a menu: "Open alone" first, then the Chats of its family that aren't on screen, with their
- * states in words; picking one replaces this tile. The only place a split changes its Chats on its own.
- */
-export function TileTitle({
-  chatKey,
-  title,
-  tiles,
-  controls,
-}: {
-  chatKey: string;
-  title: string;
-  /** Every Chat the split shows: a family row for one of them would only duplicate a tile. */
-  tiles: readonly string[];
-  controls: TileMenuControls;
-}) {
+export function TileTitle({ chatKey, title, tiles, controls }: { chatKey: string; title: string; tiles: readonly string[]; controls: TileMenuControls }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const { routines } = useRoutines();
   const now = useDisplayNow(1000, open);
-  const model = open ? familyMenuModel(chatKey, { ...controls.reads(chatKey), routines, now }) : null;
+  const runs = useRuns(open);
+  const model = open ? familyMenuModel(chatKey, { ...controls.reads(chatKey), runs, routines, now }) : null;
   const rows = model ? [...model.ancestors, ...model.subchats].filter((entry) => !tiles.includes(entry.key)) : [];
   const close = () => setOpen(false);
   return (
@@ -50,7 +33,6 @@ export function TileTitle({
         aria-expanded={open}
         aria-label={`${title}, Chat options`}
         onClick={(event) => {
-          // An unfocused tile focuses on a click; this one opens the menu instead.
           event.stopPropagation();
           setOpen(!open);
         }}

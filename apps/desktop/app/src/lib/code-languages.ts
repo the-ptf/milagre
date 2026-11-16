@@ -1,5 +1,3 @@
-// Languages that code blocks in agent replies are highlighted in, keyed by Shiki language id, with the fence names that mean each one.
-// Anything else renders as plain monospace.
 const CODE_LANGUAGES = {
   typescript: ["ts", "mts", "cts"],
   tsx: [],
@@ -54,7 +52,6 @@ export function resolveCodeLanguage(name: string | undefined): CodeLanguage | un
   return name ? BY_NAME.get(name.toLowerCase()) : undefined;
 }
 
-// react-markdown marks a fenced block's language as a `language-<name>` class on its code element.
 export function codeLanguageFromClassName(className: string | undefined): string | undefined {
   return className?.match(/(?:^|\s)language-(\S+)/)?.[1];
 }

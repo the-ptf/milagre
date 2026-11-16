@@ -8,6 +8,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { createDraftStore } from "/src/lib/draft-store";
 import { PanelToggles } from "/src/components/agents/PanelToggles";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
@@ -113,11 +114,11 @@ function Fixture() {
   const archiveFinished = () => setChildren(items=>items.map(child=>["completed","failed","cancelled"].includes(child.status) ? {...child,archived:true} : child));
   window.setChildren = setChildren;
   window.finishChildren = () => {setChildren(items=>items.map(item=>({...item,status:"completed",endedAt:Date.now()})));setSending(false);};
-  const [draft, setDraft] = useState("");
+  const [draftStore] = useState(createDraftStore);
   const [model, setModel] = useState(MODEL_CATALOG[0]);
   const [fastMode, setFastMode] = useState(false);
   window.setMessageCount = setCount;
-  window.setDraft = setDraft;
+  window.setDraft = draftStore.setText;
   window.setModel = (id) => setModel(MODEL_CATALOG.find((item) => item.id === id));
   const messages = Array.from({ length: count }, (_, index) => ({
     id: index + 1, session_id: 1, context: null, role: index === 0 ? "user" : "assistant",
@@ -126,7 +127,7 @@ function Fixture() {
   return <div data-chat-pane style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={messages}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture/.worktrees/login" messageScope="/fixture" agentChatId="/fixture#1" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false} tasks={tasks} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} waitingForSubagents={true}
+      projectPath="/fixture/.worktrees/login" messageScope="/fixture" agentChatId="/fixture#1" store={draftStore} onSend={noop} isSending={sending} sendBlocked={false} tasks={tasks} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} waitingForSubagents={true}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={fastMode} onFastModeChange={setFastMode} permissionMode="auto" onPermissionModeChange={noop}

@@ -24,10 +24,8 @@ import { confirmSheet } from "./confirm-store";
 import { duration, easing, hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
 import { createTerminalHtml, scriptValue, xtermTheme, type TerminalTheme, type TerminalViewMessage } from "./terminal-receiver";
 
-/** A Worktree a new Terminal can start in; a shared Chat has one per member Project. */
 export type TerminalPlace = { path: string; label: string };
 
-/** A shared Chat's Worktrees, by the folder name its workspace gives each; none for a Project Chat, which has one. */
 export function terminalPlaces(chat: object): TerminalPlace[] | undefined {
   const worktrees = (chat as Partial<LinkChatSession>).worktrees;
   if (!Array.isArray(worktrees)) return undefined;
@@ -37,7 +35,6 @@ export function terminalPlaces(chat: object): TerminalPlace[] | undefined {
   }));
 }
 
-/** This Chat's Terminals, read again every few seconds while the screen shows. */
 function useTerminals(client: Client | null, chatId: string | undefined) {
   const [terminals, setTerminals] = useState<TerminalInfo[] | null>(null);
   const refresh = useRef<() => Promise<void>>(async () => {});
@@ -53,7 +50,6 @@ function useTerminals(client: Client | null, chatId: string | undefined) {
           const { terminals } = await client.call<TerminalList>("terminal:list", [{ chatId }]);
           if (!disposed) setTerminals(terminals);
         } catch {
-          // A Mac without Terminals: the pill stays hidden.
           if (!disposed) setTerminals(null);
         } finally {
           busy = false;
@@ -73,7 +69,6 @@ function useTerminals(client: Client | null, chatId: string | undefined) {
   return { terminals, setTerminals, refresh: () => refresh.current() };
 }
 
-/** A Terminal's tab title: its own, numbered when another of the Chat's Terminals has the same one ("zsh 2"). */
 function tabTitle(terminals: TerminalInfo[], terminal: TerminalInfo) {
   const same = terminals.filter((item) => item.title === terminal.title);
   return same.length > 1 ? `${terminal.title} ${same.indexOf(terminal) + 1}` : terminal.title;
@@ -90,9 +85,7 @@ export function TerminalChip({
   chatId?: string;
   places?: TerminalPlace[];
   onOpen?: () => void;
-  /** The Terminals are docked below the Chat now: the count is read again as they open and close. */
   docked?: boolean;
-  /** The docked Terminals' own count, which is current as tabs open and close; the polled one trails it. */
   liveCount?: number;
 }) {
   const { client } = useSession();
@@ -118,16 +111,13 @@ export function TerminalChip({
   );
 }
 
-/** Taps on New Terminal closer together than this are one double tap, which opens one Terminal. */
 const DOUBLE_TAP_MS = 600;
 
 // What the key bar sends: keys a phone keyboard lacks. Ctrl is held for the next key instead.
 // The most output one read brings to the phone: about a tenth of a second for xterm in the WebView to parse.
 const PHONE_READ_LIMIT = 64 * 1024;
-// How long a write waits for the page's word before the next read goes ahead anyway.
 const WRITE_ACK_MS = 3000;
 
-/** A key of the key bar: what it shows, what it sends, what VoiceOver says, and whether holding it repeats it. */
 type BarKey = { label: string; send: string; name: string; repeat?: boolean };
 
 // The key bar, in groups as Orca's mobile terminal has it: the keys a touch keyboard lacks, then the control shortcuts a
@@ -163,7 +153,6 @@ const EDIT_KEYS: BarKey[] = [
   { label: "/", send: "/", name: "Slash" },
   { label: "-", send: "-", name: "Dash" },
 ];
-/** A held key waits this long, then repeats this often, as a hardware key does. */
 const REPEAT_DELAY_MS = 400;
 const REPEAT_EVERY_MS = 60;
 
@@ -184,7 +173,6 @@ export function TerminalSheet({
   chatId?: string;
   places?: TerminalPlace[];
   onClose?: () => void;
-  /** How many Terminals the Chat has, each time that changes. */
   onCount?: (count: number) => void;
 }) {
   const docked = !!onClose;
@@ -224,9 +212,7 @@ export function TerminalSheet({
         try {
           const next = await source.call<TerminalProfiles>("terminal:profiles", []);
           if (!disposed && revision === profileRevision.current) setProfileState({ source, profiles: next });
-        } catch {
-          /* Older computers have no shell selector. */
-        }
+        } catch {}
       };
       void load();
       const timer = setInterval(load, 5000);
@@ -253,7 +239,6 @@ export function TerminalSheet({
 
   useFocusEffect(
     useCallback(() => {
-      // Docked, the Terminal comes back on its own when a sheet over the Chat closes: it was on screen all along.
       if (docked && AppState.currentState === "active") {
         setRevision((value) => value + 1);
         setPaused(false);
@@ -272,7 +257,6 @@ export function TerminalSheet({
     }, [docked]),
   );
 
-  // A second tap before the first Terminal answers, or right after (a double tap), opens nothing more.
   const openingNow = useRef(false);
   const openedAt = useRef(0);
   const open = useCallback(
@@ -312,7 +296,6 @@ export function TerminalSheet({
     if (count !== undefined) onCount?.(count);
   }, [count, onCount]);
 
-  // Opening the screen for a Chat with no Terminal starts its first one.
   useEffect(() => {
     if (openedFirst.current || !terminals || terminals.length) return;
     openedFirst.current = true;
@@ -320,7 +303,6 @@ export function TerminalSheet({
   }, [terminals, add]);
 
   function close(terminal: TerminalInfo) {
-    // Docked, ending the last Terminal puts the panel away too, rather than leaving it empty.
     const last = docked && terminals?.length === 1;
     const end = async () => {
       try {
@@ -342,10 +324,8 @@ export function TerminalSheet({
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.page, paddingTop: docked ? 0 : insets.top }}>
-      {/* Docked, the button only puts the Terminals away (they keep running, as the pill's count says); each tab's X ends one. */}
       <SheetHeader
         title={shown?.title ?? "Terminal"}
-        // The folder, not its whole path: a Worktree's path is long and mostly the same for every Terminal.
         subtitle={shown?.cwd ? shown.cwd.split(/[\\/]/).findLast(Boolean) || shown.cwd : "This Chat"}
         subtitleEllipsis="middle"
         style={docked ? { paddingHorizontal: 12, paddingTop: 0, paddingBottom: 4 } : undefined}
@@ -358,7 +338,6 @@ export function TerminalSheet({
         }
         trailing={<CircleButton label="New Terminal" icon={Add01Icon} onPress={opening ? undefined : add} />}
       />
-      {/* Docked, the Terminal keeps its rows for output; the computer's shell is picked on the phone page or desktop. */}
       {profiles && !docked && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 8, gap: 4 }}>
           <PullDown
@@ -548,12 +527,10 @@ export function TerminalSheet({
   );
 }
 
-/** A little more room between the key bar's groups. */
 function KeyGap() {
   return <View style={{ width: 6 }} />;
 }
 
-/** A key of the key bar: a label or an icon; `repeat` keys send again while held, as a hardware key does. */
 function KeyButton({
   label,
   name,
@@ -585,7 +562,6 @@ function KeyButton({
       accessibilityRole="button"
       accessibilityLabel={name ?? label}
       accessibilityState={held ? { selected: true } : undefined}
-      // A repeating key sends as the finger lands and again every REPEAT_EVERY_MS once held; the rest send on release.
       onPressIn={
         repeat
           ? () => {
@@ -599,7 +575,6 @@ function KeyButton({
       }
       onPressOut={repeat ? stop : undefined}
       onPress={repeat ? undefined : onPress}
-      // The bar's keys sit 6 apart, so only the height reaches 44.
       hitSlop={{ top: hitSlopFor(34), bottom: hitSlopFor(34) }}
       style={({ pressed }) => ({
         minWidth: 40,
@@ -657,7 +632,6 @@ function TerminalView({
   const follower = useRef<TerminalFollower | null>(null);
   const ready = useRef(false);
   const queued = useRef<string[]>([]);
-  // Output the page has not parsed yet, by id: the follower's next read waits for it.
   const unwritten = useRef(new Map<number, () => void>());
   const writeId = useRef(0);
   const [uri, setUri] = useState<string | null>(null);
@@ -717,7 +691,6 @@ function TerminalView({
       file.writeSync(createTerminalHtml(latestTheme.current));
       setUri(file.uri);
     });
-    // Output waits for the page: what arrives before it is ready is written once it is.
     const current = followTerminal({
       terminalId: terminal.id,
       api: {
@@ -727,10 +700,8 @@ function TerminalView({
       },
       write: (data) => draw("terminalWrite", data),
       reset: (data) => draw("terminalReset", data),
-      // A read the phone parses in a few frames; a flood comes as many of them, or as a reset to its newest part.
       readLimit: PHONE_READ_LIMIT,
       ended: () => latestEnded.current(),
-      // Each read carries what runs in front, so the tab's name follows a command as it starts and ends.
       info: (latest) => latestInfo.current(latest),
     });
     follower.current = current;
@@ -743,13 +714,10 @@ function TerminalView({
       queued.current = [];
       try {
         if (file.exists) file.delete();
-      } catch {
-        /* The OS may purge cache files. */
-      }
+      } catch {}
     };
   }, [client, terminal.id, draw, settleWrites]);
 
-  // The page is gone: what it was sent will never be answered, and what follows waits for the reloaded page.
   function stopped() {
     ready.current = false;
     settleWrites();
@@ -801,14 +769,12 @@ function TerminalView({
   );
 }
 
-/** The least and most of the window's height the docked Terminal takes; it opens at about a third. */
 const DOCK_MIN = 200;
 const DOCK_MAX_SHARE = 0.6;
 const DOCK_SHARE = 0.3;
 /** It rises and sinks with iOS's own sheet timing, as the iPad's side panels slide. */
 const DOCK_SLIDE = { duration: duration.slow, easing: Easing.bezier(...easing.slide), reduceMotion: ReduceMotion.System };
 
-/** A drag on the docked Terminal's grabber: up makes it taller, down shorter, within its bounds. */
 function resizeGesture(height: SharedValue<number>, start: SharedValue<number>, max: number) {
   return Gesture.Pan()
     .onStart(() => {
@@ -834,12 +800,10 @@ export function TerminalDock({
   onClosed,
 }: {
   chatId: string;
-  /** Shown: it rises from below the Chat; put away, it sinks and then calls `onClosed` to unmount. */
   open: boolean;
   places?: TerminalPlace[];
   /** The Terminal has the keyboard (see ChatPane): it rises with it, over the composer. */
   keyboard: boolean;
-  /** Its height, which the composer rises past when it is typed into instead. */
   onHeight: (height: number) => void;
   onCount?: (count: number) => void;
   onClose: () => void;
@@ -852,7 +816,6 @@ export function TerminalDock({
   useEffect(() => {
     closed.current = onClosed;
   });
-  // Defined on the JS side: the animation's end can only hand Worklets a function from here, never one made in the worklet.
   const finishClosing = useCallback(() => closed.current(), []);
   const progress = useSharedValue(0);
   useEffect(() => {
@@ -870,8 +833,6 @@ export function TerminalDock({
   const resize = useMemo(() => resizeGesture(height, start, max), [height, start, max]);
 
   const sized = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) }));
-  // The room it takes grows with the rise, so the Chat above gives it up as it comes; the Terminal itself keeps its full
-  // height and is uncovered from the top, so nothing inside it squeezes on the way.
   const room = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) * progress.get() }));
   return (
     // Lifted by the keyboard when it is typed into, over the composer; the composer rises past it otherwise.

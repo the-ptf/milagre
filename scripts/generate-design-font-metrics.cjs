@@ -1,4 +1,3 @@
-// Regenerate the small, fixed metric table used for design wrapping. Requires the named fonts on this computer.
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -11,7 +10,6 @@ async function measureFonts(inter, extraCharacters) {
       { weight },
     );
     document.fonts.add(await face.load());
-    // Canvas silently falls back to another font when a face is missing, so prove each weight is really loaded.
     if (!document.fonts.check(`${weight} 16px "Milagre Inter"`)) throw new Error(`Inter ${weight} did not load`);
   }
   const context = document.createElement("canvas").getContext("2d");
@@ -31,7 +29,6 @@ async function measureFonts(inter, extraCharacters) {
       result[name][weight] = Array.from({ length: 95 }, (_, index) => Math.round(context.measureText(String.fromCharCode(32 + index)).width) / 1000);
     }
   }
-  // Inter also measures its non-ASCII characters, keyed by code point, the same way as the ASCII advances.
   result.inter.extra = {};
   for (const weight of families.inter[1]) {
     context.font = `${weight} 1000px "Milagre Inter"`;

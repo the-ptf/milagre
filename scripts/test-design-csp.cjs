@@ -1,5 +1,4 @@
 // Production CSP regression: the real minified renderer must run its trusted
-// design preview inside an opaque srcdoc iframe without allowing arbitrary scripts.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -22,7 +21,6 @@ async function check() {
   });
   try {
     await window.loadFile(path.join(process.argv[2], "index.html"));
-    // Opaque frame pointer routing needs a composited surface, even in this isolated check.
     window.showInactive();
     await delay(100);
     const frame = window.webContents.mainFrame.frames.find((item) => item.url === "about:srcdoc");
@@ -66,8 +64,6 @@ async function check() {
       "HTML artifact cannot read the parent app",
     );
     assert.equal(await htmlFrame.executeJavaScript("fetch('https://example.com').then(()=>false,()=>true)"), true, "artifact script requests remain blocked");
-    // An interactive design: its own inline scripts and Babel's evaluation run, scripts off the pinned CDNs and its
-    // own requests don't, and it can't reach the app.
     const { DESIGN_CODE_CSP } = require("@milagre/shared/artifact-document");
     const code = previews.register(
       window.webContents.id,

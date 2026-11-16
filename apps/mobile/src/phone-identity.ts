@@ -19,7 +19,6 @@ function parse(value: string | null): KeyPair | null {
   }
 }
 
-/** Whether this phone has a pairing key, which it makes the first time it pairs; reading it never makes one. */
 export async function hasPhoneKey() {
   return parse(await SecureStore.getItemAsync(KEY)) !== null;
 }
@@ -27,7 +26,6 @@ export async function hasPhoneKey() {
 let cached: Promise<KeyPair> | null = null;
 
 async function load(): Promise<KeyPair> {
-  // A failed read is thrown, not replaced: a new key would silently unpair this phone from every Mac.
   const existing = parse(await SecureStore.getItemAsync(KEY));
   if (existing) return existing;
   const created = boxKeyPair(phoneRandom);
@@ -37,7 +35,6 @@ async function load(): Promise<KeyPair> {
   return created;
 }
 
-/** This phone's key pair for the relay. It is made on first use and stays in the Keychain on this device. */
 export function phoneIdentity(): Promise<KeyPair> {
   cached ??= load().catch((error) => {
     cached = null;

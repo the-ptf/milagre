@@ -52,7 +52,6 @@ async function checks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('#branch-template')`);
-    // Token chips build the template at the caret, with a dash between parts.
     await evaluate(`document.querySelector('[data-branch-token="username"]').click()`);
     await evaluate(`document.querySelector('[data-branch-token="slug"]').click()`);
     await waitFor(`document.querySelector('#branch-template').value === '{username}-{slug}'`);
@@ -61,7 +60,6 @@ async function checks() {
     await fill('input[aria-label="Base branch"]', "release/example-app/v2");
     await evaluate(`document.querySelector('[aria-label="Dashes only"]').click()`);
     await waitFor(`document.querySelector('[data-branch-preview]').textContent === 'developer-eng-123-fix-login'`);
-    // Saves as you type, without a Save button.
     await waitFor(`window.saved.local.baseBranch === 'release/example-app/v2' && window.saved.local.username === 'developer'`);
     assert.equal(await evaluate(`window.saved.local.dashesOnly`), true);
     assert.equal(await evaluate(`window.saved.local.trackBase ?? false`), false);

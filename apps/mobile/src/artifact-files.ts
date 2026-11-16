@@ -4,7 +4,6 @@ import { downloadAttachment } from "@milagre/shared/attachment-download";
 import { rewriteAssetUrls } from "@milagre/shared/artifact-assets";
 import type { ArtifactAsset, ArtifactAssetChunk } from "@milagre/shared/artifact";
 
-/** The phone keeps an Artifact page's files in its cache, each by its hash: a file two pages share downloads once. */
 const folder = () => new Directory(Paths.cache, "artifact-files");
 const cached = (asset: ArtifactAsset) => {
   const file = new File(folder(), asset.hash);
@@ -12,14 +11,8 @@ const cached = (asset: ArtifactAsset) => {
 };
 
 type Caller = { call<T>(method: string, args: unknown[]): Promise<T> };
-/** `uris` maps each file's name to its cache file once every file is there; `received` of `total` bytes so far. */
 export type PageFiles = { uris: Map<string, string> | null; received: number; total: number; error: string };
 
-/**
- * The page's files, downloaded from the Mac the Chat is on (artifact:asset, the chunks a file download takes, which
- * fit the relay's frames), smallest first, into the cache. Ready at once for a page without files, or whose files the
- * phone already has.
- */
 export function usePageFiles(source: Caller | null, chatId: string | undefined, assets: ArtifactAsset[] | undefined): PageFiles {
   const key = (assets ?? []).map((asset) => `${asset.name}:${asset.hash}`).join("\n");
   const total = (assets ?? []).reduce((sum, asset) => sum + asset.size, 0);
@@ -41,7 +34,6 @@ export function usePageFiles(source: Caller | null, chatId: string | undefined, 
         for (const asset of [...list].sort((a, b) => a.size - b.size)) {
           if (!cached(asset)) {
             if (!source || !chatId) throw new Error("Reconnect to this computer to load the page's files.");
-            // A download of its own: another view of the page may be fetching the same file.
             const part = new File(directory, `${asset.hash}.${Date.now().toString(36)}.part`);
             part.create();
             const handle = part.open(FileMode.WriteOnly);
@@ -61,7 +53,6 @@ export function usePageFiles(source: Caller | null, chatId: string | undefined, 
             try {
               part.move(new File(directory, asset.hash));
             } catch (error) {
-              // The other view got there first.
               part.delete();
               if (!cached(asset)) throw error;
             }
@@ -77,13 +68,11 @@ export function usePageFiles(source: Caller | null, chatId: string | undefined, 
     return () => {
       live = false;
     };
-    // `key` names the files; the list itself is a new array on every read of the page.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [source, chatId, key]);
   return state.key === key ? state : { uris: null, received: 0, total, error: "" };
 }
 
-/** The page's HTML with its `assets/<name>` references pointing at the files in the cache. */
 export function pageWithFiles(html: string, assets: ArtifactAsset[] | undefined, uris: Map<string, string>) {
   return rewriteAssetUrls(html, assets, (asset) => uris.get(asset.name) ?? `assets/${asset.name}`);
 }

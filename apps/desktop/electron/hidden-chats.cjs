@@ -2,16 +2,10 @@
 const { hiddenHere } = require("@milagre/shared/attention");
 
 const NONE = new Set();
-// Kept by the window in preferences (lib/hidden-projects.ts, lib/settings.ts).
 const HIDDEN_KEYS = new Set(["milagre.hiddenRemoteScopes", "milagre.hiddenComputers", "milagre-settings"]);
-// This Mac's hidden Projects as last known (the host keeps them): saved, so a restart is quiet before the host answers.
 const LOCAL_KEY = "milagre.hiddenLocalProjects";
 
 /**
- * Which Chats this Mac's sidebar leaves out, for the notifier: a paired computer's Project hidden here, a computer
- * unchecked in Filters › Computers (while Other computers is on), and this Mac's hidden Projects as the host or the
- * window last reported them (the host keeps that list). All read from preferences, so they hold from launch, before the
- * host connects or the window loads.
  * @param {{ get(key: string): string | null | undefined; set(key: string, value: string | null): void }} preferences
  */
 function createHiddenChats(preferences) {
@@ -24,9 +18,7 @@ function createHiddenChats(preferences) {
     let value = null;
     try {
       value = raw ? JSON.parse(raw) : null;
-    } catch {
-      /* a broken value hides nothing */
-    }
+    } catch {}
     parsed.set(key, { raw, value });
     return value;
   };

@@ -19,7 +19,6 @@ const SOURCES: Record<Exclude<NotificationChime, "system">, string> = {
 
 let playing: HTMLAudioElement | null = null;
 
-/** Plays a chime, cutting off the one still playing. "system" has no clip: the system notification plays its own sound. */
 export function playNotificationChime(chime: string) {
   const source = SOURCES[chime as keyof typeof SOURCES];
   if (!source) return;

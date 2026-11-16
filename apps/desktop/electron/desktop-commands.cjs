@@ -1,4 +1,3 @@
-/** Capture native IPC definitions once, so the CLI calls the same handlers as the desktop window. */
 function createDesktopCommandAdapter({ ipcMain, runtime, event, onError = console.error }) {
   const handlers = new Map();
   let queued = false;
@@ -44,7 +43,6 @@ function createDesktopCommandAdapter({ ipcMain, runtime, event, onError = consol
           },
         };
       }
-      // A lost response never repeats the native action.
       try {
         await host.invoke("desktop:respond", [answer]);
       } catch (error) {

@@ -5,15 +5,8 @@ import Tooltip from "../../primitives/Tooltip";
 
 const GAP = 6;
 const INSET = 12;
-// A PickerPanel with search and a full list: open upward when less than this fits below.
 const NATURAL = 330;
 
-/**
- * A button that opens a panel under it (above when there's no room), for the PR panel's menus and pickers.
- * `renderPanel` renders a PickerPanel; give it `className="min-h-0"` so it shrinks to the room there is. `className` draws
- * the trigger, open state included (`aria-expanded:bg-hover-2 aria-expanded:text-ink`, IconButton's); `label` is its name
- * and Tooltip.
- */
 export function PopoverButton({
   label,
   className,
@@ -38,7 +31,6 @@ export function PopoverButton({
   const place = () => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    // Lined up with the button's right edge, but kept inside the panel the button sits in, and the window.
     const bounds = triggerRef.current?.closest("[data-changes-panel]")?.getBoundingClientRect();
     const min = Math.max(INSET, bounds ? bounds.left + GAP : 0);
     const max = Math.min(window.innerWidth - INSET, bounds ? bounds.right - GAP : Infinity) - width;
@@ -61,7 +53,6 @@ export function PopoverButton({
     (target) => !!(panelRef.current?.contains(target) || triggerRef.current?.contains(target)),
     place,
   );
-  // A menu takes focus on its first row, so the arrow keys move through it; a search field focuses itself.
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (open && panel && !panel.contains(document.activeElement)) panel.querySelector<HTMLElement>("[data-picker-row]")?.focus();

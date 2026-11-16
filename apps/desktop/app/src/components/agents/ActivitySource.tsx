@@ -34,11 +34,8 @@ export function StepIcon({ step, size = 14 }: { step: ChatStep; size?: IconSize 
   return <ActivityIcon source={stepSource(step)} size={size} />;
 }
 
-// The order the summary names the kinds in ("Thought · read 1 file · searched once · edited 1 file · ran 1 command · used
-// 1 tool"), so each glyph sits over its own words. Setup isn't in the summary; images and designs come last.
 const SUMMARY_ORDER: StepKind[] = ["thinking", "read", "search", "edit", "shell", "other", "image", "artifact"];
 
-/** The kinds of work a folded reply did, one overlapping circular mark per kind in the summary's order, at most four. */
 export function ActivitySources({ steps }: { steps: ChatStep[] }) {
   const sources = activitySources(
     steps.filter((step) => step.kind !== "setup"),

@@ -12,25 +12,18 @@ export function agentCounts(agents: Subagent[]) {
     total: visible.length,
   };
 }
-/**
- * Desktop's sidebar chat mark: one slot left of the title. Asks for you draw an icon; running spins; background work
- * (chat-activity.mjs: the turn ended, background agents still work) is a still ring with their count; unread is a dot.
- */
 export type ChatMark = "question" | "waiting" | "interrupted" | "running" | "background" | "failed" | "unread" | "idle";
 export function chatMark(chat: AgentSession | undefined, run?: AgentRun, messages: ChatMessage[] = []): ChatMark {
   if (run?.questions.length) return "question";
   if (run?.approvals.length) return "waiting";
   if (run) return "running";
   if (chat?.resumeTurn) return "interrupted";
-  // How the last reply ended (the commit dialog's notes aren't replies), as desktop's sidebar reads it: a failure wins
-  // over background work.
   const { activity } = chatActivity(chat, run, chatSummary(chat, messages).lastOutcome);
   if (activity === "background") return "background";
   if (chat?.unread) return "unread";
   if (activity === "failed") return "failed";
   return "idle";
 }
-/** The mark's words, the same as desktop's (chatMarkPresentation). */
 export const MARK_LABEL = Object.fromEntries(
   (["question", "waiting", "interrupted", "running", "background", "failed", "unread", "idle"] as const).map((mark) => [
     mark,
