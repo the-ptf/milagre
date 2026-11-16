@@ -69,3 +69,11 @@ Captured: tracked and non-ignored untracked files. Excluded: links, Git and Mila
 Users add exclusions in `.milagre/checkpoint-ignore` per Worktree: one relative glob per line, `#` comments, exclusion only (no negation), `path/**` for directories. Name checks can't catch every secret, so this file is the way to keep one out.
 
 Checkpoints are local recovery data with no retention limit yet, not a backup.
+
+## Imported Chats
+
+Settings › Worktrees › Import from another app (desktop and phone), onboarding and the `import_run` tool copy T3 Code, Paseo and Orca work in (`packages/core/src/ade-import/`). Each source is read from its own files, never through its app: T3 Code's `~/.t3/userdata/statev2.sqlite` (or `state.sqlite`), Paseo's `~/.paseo/projects/*.json` and `agents/*/*.json`, Orca's `profile-state.db` (or `orca-data.json`). SQLite files are copied to a temp folder first, so a running T3 Code or Orca never sees a reader on its database.
+
+A Project is opened like any other, so the source's own `git worktree add` checkouts show up as Worktrees with no `base`: Milagre never removes them. A thread becomes a Chat with `native_session_id` set to the source's Claude session id or Codex thread id and `importedFrom: {source, id}`; a second import skips a thread whose id or native id is already on a Chat. Its history is parsed from the provider's own transcript (`~/.claude/projects/*/<id>.jsonl`, `~/.codex/sessions/**/rollout-*-<id>.jsonl`, both the `item_completed` and the older `response_item` rollout formats) into messages and steps with the same step builders a live turn uses, and its summary keeps the source's dates instead of the import time.
+
+Only Claude and Codex threads come over: other agents (Cursor, OpenCode and the like) have no adapter here, and Orca keeps no session ids for most terminal tabs, so Orca brings Projects only. The Chat must run where the session was made: Claude finds its transcript by working directory, so a thread whose folder is gone is skipped.
