@@ -49,6 +49,8 @@ export interface OrchestratorTask {
   worktreeId: string | null;
   sessionId: number | null;
   computer: string | null;
+  remoteComputerId: string | null;
+  remoteTaskId: string | null;
   role: string;
   provider: OrchestratorProvider | null;
   model: string | null;

@@ -13,7 +13,7 @@ const PROJECTS = [
   { path: "/p/rdfood", name: "rdfood" },
 ];
 
-function setup(t, { reply = null, enabled = true } = {}) {
+function setup(t, { reply = null, enabled = true, remote = undefined } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-orchestrator-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const events = [];
@@ -40,6 +40,10 @@ function setup(t, { reply = null, enabled = true } = {}) {
     stop: async (key) => calls.stopped.push(key),
     archive: async (projectPath, sessionId) => calls.archived.push({ projectPath, sessionId }),
     routerCall: () => (reply === null ? null : async () => JSON.stringify(reply)),
+    remote,
+    originOf: async (projectPath) => `git@github.com:me/${projectPath.split("/").pop()}`,
+    capacity: async () => ({ cpu: 0.7, memoryFree: 0.2, agents: 3 }),
+    withTimeout: (promise) => promise,
   };
   const orchestrator = createOrchestrator({ store, ports, now: () => 1000 });
   return { orchestrator, store, calls, events };
@@ -117,4 +121,38 @@ test("the router falls back to keywords when the model is unavailable or vague",
     call: async () => JSON.stringify({ project: "/p/elsewhere", role: "build", title: "x", reason: "y", confidence: 0.3 }),
   });
   assert.equal(invented.projectPath, "/p/happiergym", "a Project outside the list is ignored");
+});
+
+test("a task goes to the paired computer with the most room when its Project is there too", async (t) => {
+  const invoked = [];
+  const remote = {
+    enabled: () => true,
+    list: () => [{ id: "studio-id", name: "Studio" }],
+    invoke: async (id, method, args) => {
+      invoked.push([id, method, args]);
+      if (method === "orchestrator:capacity")
+        return {
+          cpu: 0.1,
+          memoryFree: 0.8,
+          agents: 0,
+          projects: [{ path: "/Users/s/happiergym", name: "happiergym", origin: "git@github.com:me/happiergym" }],
+        };
+      return { id: "remote-task", state: "started", projectPath: "/Users/s/happiergym", sessionId: 3, title: "Fix the rest timer", reason: { project: "x" } };
+    },
+  };
+  const { orchestrator, store, calls } = setup(t, {
+    remote,
+    reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
+  });
+  const task = await orchestrator.send("the rest timer in my gym app skips");
+  await settled(orchestrator, task.id);
+  const saved = store.task(task.id);
+  assert.equal(saved.computer, "Studio");
+  assert.equal(saved.remoteTaskId, "remote-task");
+  assert.equal(saved.projectPath, "/Users/s/happiergym");
+  assert.match(saved.reason.computer, /Studio has the most room/);
+  assert.equal(calls.sent.length, 0, "nothing started on this computer");
+  assert.equal(invoked.at(-1)[1], "orchestrator:start-here");
+  await orchestrator.undo(task.id);
+  assert.deepEqual(invoked.at(-1), ["studio-id", "orchestrator:task:undo", ["remote-task"]]);
 });

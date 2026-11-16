@@ -1,3 +1,4 @@
+const os = require("node:os");
 const path = require("node:path");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { patchSession } = require("@milagre/shared/project-edits");
@@ -66,7 +67,7 @@ function taskAccountsFor({ states, accounts, routing, agentCli }) {
 
 function registerOrchestrator(
   { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
-  { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion },
+  { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion, remote, git },
 ) {
   const store = createOrchestratorStore({ file: path.join(dataDir, "orchestrator.json"), emit });
   const routerCall = routerModels({ agentCli, clientVersion: version });
@@ -101,6 +102,22 @@ function registerOrchestrator(
       archive: (projectPath, sessionId) => archiveChat(projectPath, sessionId),
       routerCall: (router) => routerCall(router),
       memoryCall: (router) => routerCall(router, MEMORY_SCHEMA),
+      remote,
+      originOf: async (projectPath) => (await git.text(projectPath, ["remote", "get-url", "origin"])).trim().replace(/\.git$/, "") || null,
+      capacity: async () => {
+        const load = os.loadavg()[0] / Math.max(1, os.cpus().length);
+        const memory = (
+          await commands
+            .get("computer:resources:read")({}, {})
+            .catch(() => null)
+        )?.memory;
+        return {
+          cpu: Math.min(1, load),
+          memoryFree: memory?.total ? memory.available / memory.total : os.freemem() / os.totalmem(),
+          agents: chats.busyChats?.().size ?? 0,
+        };
+      },
+      withTimeout: (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms).unref?.())]),
     },
   });
   commands.handle("orchestrator:read", () => orchestrator.snapshot());
@@ -112,6 +129,8 @@ function registerOrchestrator(
   commands.handle("orchestrator:task:reroute", (_event, taskId, change) => orchestrator.reroute(String(taskId), change ?? {}));
   commands.handle("orchestrator:task:dismiss", (_event, taskId) => orchestrator.dismiss(String(taskId)));
   commands.handle("orchestrator:memory:import", () => orchestrator.importMemory());
+  commands.handle("orchestrator:capacity", () => orchestrator.capacity());
+  commands.handle("orchestrator:start-here", (_event, request) => orchestrator.startHere(request ?? {}));
   commands.handle("orchestrator:memory:save", (_event, notes) => orchestrator.saveMemoryNotes(notes));
   commands.handle("orchestrator:memory:forget", () => orchestrator.forgetMemory());
   const autopilot = createAutopilot({

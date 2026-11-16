@@ -170,6 +170,8 @@ export function normalizeOrchestratorTask(raw) {
     worktreeId: typeof raw.worktreeId === "string" ? raw.worktreeId : null,
     sessionId: Number.isInteger(raw.sessionId) ? raw.sessionId : null,
     computer: typeof raw.computer === "string" ? raw.computer : null,
+    remoteComputerId: typeof raw.remoteComputerId === "string" ? raw.remoteComputerId : null,
+    remoteTaskId: typeof raw.remoteTaskId === "string" ? raw.remoteTaskId : null,
     role: typeof raw.role === "string" ? raw.role : "build",
     provider: PROVIDER_IDS.has(raw.provider) ? raw.provider : null,
     model: typeof raw.model === "string" ? raw.model : null,

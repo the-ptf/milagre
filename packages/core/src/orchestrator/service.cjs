@@ -4,6 +4,7 @@ const { randomUUID } = require("node:crypto");
 const { normalizeOrchestratorSettings, roleById, pickAccount, titleFromPrompt, recordTrust } = require("@milagre/shared/orchestrator");
 const { routeTask } = require("./router.cjs");
 const { importMemory } = require("./memory-import.cjs");
+const { createPlacement } = require("./placement.cjs");
 
 const HINT_FILES = ["AGENTS.md", "CLAUDE.md", "README.md"];
 const HINT_CHARS = 400;
@@ -132,7 +133,8 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
         store.updateTask(taskId, () => ({ state: "needs-project", title: route.title, role: route.role, reason: { ...task.reason, project: route.reason } }));
         return store.task(taskId);
       }
-      return await start(taskId, { ...route, projectPath: route.projectPath ?? projects[0].path });
+      const placed = { ...route, projectPath: route.projectPath ?? projects[0].path };
+      return (await placement.placeElsewhere(taskId, placed).catch(() => null)) ?? (await start(taskId, placed));
     } catch (error) {
       store.updateTask(taskId, () => ({ state: "failed", error: String(error?.message ?? error).slice(0, 300) }));
       return store.task(taskId);
@@ -140,6 +142,8 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       starting.delete(taskId);
     }
   }
+
+  const placement = createPlacement({ store, ports, settings, projectList, addTask, start: (taskId, route) => start(taskId, route) });
 
   function chatKeyOf(task) {
     return task?.projectPath && task.sessionId !== null ? ports.chatKey(task.projectPath, task.sessionId) : null;
@@ -183,6 +187,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
     },
     async showInSidebar(taskId, shown) {
       const task = store.task(taskId);
+      if (task?.remoteTaskId) return ports.remote.invoke(task.remoteComputerId, "orchestrator:task:sidebar", [task.remoteTaskId, shown]);
       if (!task?.projectPath || task.sessionId === null) return task;
       await ports.setHidden(task.projectPath, task.sessionId, !shown);
       return task;
@@ -190,7 +195,8 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
     async undo(taskId) {
       const task = store.task(taskId);
       if (!task) return null;
-      await dropChat(task);
+      if (task.remoteTaskId) await ports.remote.invoke(task.remoteComputerId, "orchestrator:task:undo", [task.remoteTaskId]).catch(() => {});
+      else await dropChat(task);
       store.update((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== taskId) }));
       return null;
     },
@@ -245,6 +251,8 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       store.update((current) => ({ ...current, memory: { notes: [], trust: {}, sources: [], importedAt: null, updatedAt: now() } }));
       return store.read().memory;
     },
+    capacity: () => placement.capacity(),
+    startHere: (request) => placement.startHere(request),
     isStarting: (taskId) => starting.has(taskId),
     taskForChat(projectPath, sessionId) {
       return store.read().tasks.find((task) => task.projectPath === projectPath && task.sessionId === sessionId) ?? null;

@@ -1649,7 +1649,7 @@ function createRuntime(options) {
   });
   const { taskAccounts, autopilot: orchestratorAutopilot } = registerOrchestrator(
     { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
-    { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion },
+    { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat, respondPermission, answerQuestion, remote, git },
   );
   autopilot = orchestratorAutopilot;
   const close = () => shutdown.run();
