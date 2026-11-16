@@ -621,18 +621,10 @@
     {
       "files": ["apps/desktop/electron/main.cjs"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 807,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 731,
+            "max": 626,
             "skipBlankLines": true,
             "skipComments": true
           }
