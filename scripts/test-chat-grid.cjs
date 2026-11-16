@@ -77,13 +77,21 @@ document.documentElement.classList.add("dark");
 function Harness() {
   const [focused, setFocused] = useState("/fixture#1");
   const [pinned, setPinned] = useState(() => new Set(["/fixture#2"]));
+  const [split, setSplit] = useState(false);
+  const [stacked, setStacked] = useState([]);
+  window.setStacked = setStacked;
   window.setFocused = setFocused;
+  window.setSplit = setSplit;
   window.gridDrop = gridDrop;
   window.dropSide = dropSide;
   const togglePin = (key) => setPinned((current) => { const next = new Set(current); next.has(key) ? next.delete(key) : next.add(key); return next; });
   return (
     <>
-      <ChatGrid keys={["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused={focused}
+      <ChatGrid keys={split === 2 ? ["/fixture#1", "/fixture#2"] : split === 3 ? ["/fixture#1", "/fixture#2", "/fixture#3"] : ["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused={focused}
+        stacked={stacked}
+        onClose={split ? (key) => (window.closedTile = key) : undefined} onStop={(key) => (window.stopped = key)}
+        menu={split ? { reads: () => ({ sessions: undefined, work: { delegations: [] } }), onOpenAlone: (key) => (window.alone = key), onReplace: noop } : undefined}
+        panelMenu={split ? <button data-fixture-panel-menu aria-label="Panels" /> : undefined}
         states={{ "/fixture": state }} delegated={new Set()} models={MODEL_CATALOG}
         onFocus={(key) => (window.focusedTo = key)} onDismiss={(key) => (window.dismissed = key)}
         pinned={pinned} onTogglePin={togglePin}><FocusedChat chatKey={focused} /></ChatGrid>
@@ -247,6 +255,109 @@ async function browserChecks() {
     await evaluate("window.gridDrop.show(null)");
     await waitFor(`!document.querySelector('[data-grid-drop]')`);
 
+    // Open beside: both panes sit on the window, headers in the title bar row with only the Chat's name; hover shows the
+    // pane's buttons, and an unfocused pane's composer focuses that pane.
+    await evaluate("window.setFocused('/fixture#1'); window.setSplit(2)");
+    await waitFor('document.querySelectorAll("[data-split-header]").length === 2');
+    const split = await evaluate(`(() => {
+      const tiles = [...document.querySelectorAll("[data-chat-tile]")];
+      const headers = tiles.map((tile) => tile.querySelector("[data-split-header]"));
+      const actions = headers.map((header) => header.querySelector("[data-tile-close]").parentElement);
+      return {
+        texts: headers.map((header) => header.textContent),
+        borders: tiles.map((tile) => getComputedStyle(tile).borderTopWidth),
+        heights: headers.map((header) => header.getBoundingClientRect().height),
+        top: tiles[0].getBoundingClientRect().top,
+        hidden: actions.map((span) => getComputedStyle(span).opacity),
+        replies: tiles.map((tile) => Boolean(tile.querySelector("[data-split-reply]"))),
+        panelMenus: tiles.map((tile) => Boolean(tile.querySelector("[data-fixture-panel-menu]"))),
+        divider: Boolean(document.querySelector("[data-split-divider]")),
+      };
+    })()`);
+    assert.deepEqual(split.texts, ["Focused chat", "Refactor the sidebar"], "A split header shows only the Chat's name");
+    assert.deepEqual(split.borders, ["0px", "0px"], "Split panes are not cards");
+    assert.deepEqual(split.heights, [44, 44], "Split headers take the title bar row");
+    assert.deepEqual(split.hidden, ["0", "0"], "A pane's buttons wait for hover");
+    assert.deepEqual(split.replies, [false, true], "The unfocused pane has a composer stand-in");
+    assert.deepEqual(split.panelMenus, [true, false], "The panel menu is the focused pane's");
+    assert.ok(split.divider, "A hairline divides the panes");
+    await screenshot("chat-split.png");
+    await evaluate(`document.querySelector('[data-chat-tile="/fixture#2"] [data-split-reply] [role=button]').click()`);
+    await waitFor('window.focusedTo === "/fixture#2"');
+    await evaluate(`document.querySelector('[data-chat-tile="/fixture#2"] [data-split-reply-stop]').click()`);
+    await waitFor('window.stopped === "/fixture#2"');
+    await evaluate(`document.querySelector('[data-chat-tile="/fixture#2"] [data-tile-close]').click()`);
+    await waitFor('window.closedTile === "/fixture#2"');
+    await evaluate(`document.querySelector('[data-chat-tile="/fixture#1"] [data-tile-open-alone-button]').click()`);
+    await waitFor('window.alone === "/fixture#1"');
+    await evaluate("window.setSplit(4)");
+    await waitFor('document.querySelectorAll("[data-split-header]").length === 4');
+    await screenshot("chat-split-4.png");
+    // Columns that stack: one tall Chat beside two stacked, then a 2x2. Only a column's top header sits in the title bar.
+    const layout = `(() => {
+      const tiles = [...document.querySelectorAll("[data-chat-tile]")].map((tile) => ({ key: tile.dataset.chatTile, box: tile.getBoundingClientRect() }));
+      const lefts = [...new Set(tiles.map((tile) => Math.round(tile.box.left)))].sort((a, b) => a - b);
+      return {
+        columns: lefts.map((left) => tiles.filter((tile) => Math.round(tile.box.left) === left).sort((a, b) => a.box.top - b.box.top).map((tile) => tile.key)),
+        widths: lefts.map((left) => Math.round(tiles.find((tile) => Math.round(tile.box.left) === left).box.width)),
+        drag: tiles.map((tile) => document.querySelector('[data-chat-tile="' + tile.key + '"] [data-split-header]').classList.contains("title-drag")),
+        rows: document.querySelectorAll('[data-split-divider="row"]').length,
+      };
+    })()`;
+    await evaluate('window.setStacked(["/fixture#3"])');
+    await waitFor(`${layout}.columns.length === 3`);
+    await evaluate('window.setStacked(["/fixture#2", "/fixture#4"])');
+    await waitFor(`${layout}.columns.length === 2`);
+    const stacked = await evaluate(layout);
+    assert.deepEqual(
+      stacked.columns,
+      [
+        ["/fixture#1", "/fixture#2"],
+        ["/fixture#3", "/fixture#4"],
+      ],
+      "Stacked Chats share their column",
+    );
+    assert.deepEqual(stacked.drag, [true, false, true, false], "Only a column's top header drags the window");
+    assert.equal(stacked.rows, 2, "A hairline divides a column's two Chats");
+    // Dragging the seam between the columns resizes both and keeps the sizes.
+    const seam = await evaluate(
+      `(() => { const box = document.querySelector('[data-split-divider="column"] [role=separator]').getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 4 }; })()`,
+    );
+    const mouse = (type, x, y) =>
+      window.webContents.sendInputEvent({
+        type,
+        x: Math.round(x),
+        y: Math.round(y),
+        button: "left",
+        clickCount: 1,
+        modifiers: type === "mouseMove" ? ["leftButtonDown"] : [],
+      });
+    mouse("mouseMove", seam.x, seam.y);
+    mouse("mouseDown", seam.x, seam.y);
+    for (let step = 1; step <= 10; step++) {
+      mouse("mouseMove", seam.x - step * 20, seam.y);
+      await delay(16);
+    }
+    mouse("mouseUp", seam.x - 200, seam.y);
+    await waitFor(`(() => { const [left, right] = ${layout}.widths; return right - left > 300; })()`);
+    assert.match(await evaluate('localStorage.getItem("milagre.chatSplitSizes")'), /"\/fixture#3":/, "The dragged sizes are kept");
+    // Focus moving to another pane keeps the one composer mounted.
+    await evaluate('document.querySelector("[data-composer-wrap]").dataset.mark = "kept"');
+    await evaluate("window.setFocused('/fixture#4')");
+    await waitFor(`document.querySelector('[data-chat-tile="/fixture#4"] [data-composer-wrap]')?.dataset.mark === "kept"`);
+    await evaluate("window.setFocused('/fixture#1')");
+    await waitFor(`document.querySelector('[data-chat-tile="/fixture#1"] [data-composer-wrap]')?.dataset.mark === "kept"`);
+    await waitFor(`document.activeElement?.closest("[data-chat-tile]")?.dataset.chatTile === "/fixture#1"`);
+    await screenshot("chat-split-2x2.png");
+    await evaluate('window.setStacked(["/fixture#3"]); window.setSplit(3)');
+    await waitFor('document.querySelectorAll("[data-split-divider=row]").length === 1');
+    await screenshot("chat-split-3.png");
+    await evaluate("window.setStacked([])");
+    await evaluate("window.setSplit(false)");
+
+    console.log("PASS: a split's columns stack two Chats, with only the top header in the title bar");
+    console.log("PASS: dragging a split's seam resizes its columns and keeps the sizes; focus keeps the one composer mounted");
+    console.log("PASS: a split's panes sit on the window with name-only headers in the title bar row, buttons on hover, and a composer in each");
     console.log("PASS: tiles keep their order, fill the width at 440px or more, and scroll once rows would drop under 320px");
     console.log("PASS: the grid hears the sidebar's first read of another Project, so its unread Chats get tiles");
     console.log("PASS: only the focused tile has a composer; a waiting tile says Needs you; Mark read and clicking a tile call back");

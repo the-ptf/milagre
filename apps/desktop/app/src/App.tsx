@@ -91,7 +91,7 @@ import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { firstSection } from "./components/changes/ChangesPanel";
 import { setKeyContext } from "./lib/keybindings";
-import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
+import { CORNER_PITCH, PanelMenu, PanelToggles, cornerButtonCount, useSidePanels } from "./components/agents/PanelToggles";
 import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -751,6 +751,7 @@ function App() {
     gridFocusKeyRef,
     focusedChatKeyRef,
     shownTiles,
+    stackedTiles,
     shownTilesRef,
     splitOn,
     pinnedTiles,
@@ -782,7 +783,8 @@ function App() {
   const bookmarkedParent = bookmarkShown && focusedChatKey ? (chatBookmark(familySessions, focusedChatKey)?.parent ?? null) : null;
   const canvasButtonShown = view === "chat" || view === "canvas";
   const trailingCorner = canvasButtonShown ? 1 : 0;
-  const cornerButtons = sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" || view === "canvas" ? 1 : 0);
+  const cornerButtons = cornerButtonCount(splitOn, sidePanels, changesAvailable, prNumber, view);
+  const stopTileRun = useEvent((key: string) => void agentRuns.interrupt(key));
   const dismissTile = useEvent(
     (key: string) =>
       void reportChatAction(
@@ -2439,6 +2441,17 @@ function App() {
     onInterrupt: agentRuns.interrupt,
     onOpenChat: openChatKey,
   };
+  const changesPanel = changesAvailable
+    ? {
+        open: changes.open && !prShown,
+        toggle: () => {
+          if (!changes.open || prShown) changes.setMode(firstSection(changes.lists));
+          if (!prShown) changes.toggle();
+        },
+      }
+    : undefined;
+  const pullRequestPanel =
+    changesAvailable && prNumber ? { number: prNumber, open: prShown, toggle: () => (prShown ? changes.toggle() : changes.showPullRequest()) } : undefined;
   const projectWorkspace = (
     <BridgeContext.Provider value={projectBridge}>
       <ScopeContext.Provider value={project.path}>
@@ -2453,25 +2466,7 @@ function App() {
             onProvidersUpdated={handleProvidersUpdated}
           />
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-          <PanelToggles
-            right={12 + trailingCorner * CORNER_PITCH}
-            changes={
-              changesAvailable
-                ? {
-                    open: changes.open && !prShown,
-                    toggle: () => {
-                      if (!changes.open || prShown) changes.setMode(firstSection(changes.lists));
-                      if (!prShown) changes.toggle();
-                    },
-                  }
-                : undefined
-            }
-            pullRequest={
-              changesAvailable && prNumber
-                ? { number: prNumber, open: prShown, toggle: () => (prShown ? changes.toggle() : changes.showPullRequest()) }
-                : undefined
-            }
-          />
+          <PanelToggles right={12 + trailingCorner * CORNER_PITCH} changes={changesPanel} pullRequest={pullRequestPanel} hidden={splitOn} />
           {canvasButtonShown && <CanvasButton active={view === "canvas"} onToggle={() => (view === "canvas" ? setView("chat") : openCanvas())} />}
           <div
             className={`flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink ${appEntered ? "" : "app-enter"}`}
@@ -2629,6 +2624,7 @@ function App() {
                   {awayBanner && lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0 && <OfflineEmpty />}
                   <ChatGrid
                     keys={shownTiles}
+                    stacked={stackedTiles}
                     focused={gridFocusKey}
                     states={gridStates}
                     delegated={delegatedKeys}
@@ -2640,6 +2636,8 @@ function App() {
                     onTogglePin={toggleGridPin}
                     onClose={splitOn ? closeSplitTile : undefined}
                     menu={splitOn ? tileMenu : undefined}
+                    panelMenu={<PanelMenu changes={changesPanel} pullRequest={pullRequestPanel} />}
+                    onStop={stopTileRun}
                   >
                     <EditorLinks
                       root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}
