@@ -137,12 +137,37 @@ function tokenClass(style: ThemedToken["htmlStyle"]) {
   return name;
 }
 
-export function highlight(code: string, language: CodeLanguage): CodeToken[][] | undefined {
-  if (!ready || !loaded.has(language) || code.length > MAX_HIGHLIGHT_CHARS) return undefined;
+const HIGHLIGHT_CACHE_ENTRIES = 64;
+const HIGHLIGHT_CACHE_CHARS = 200_000;
+const highlighted = new Map<string, CodeToken[][]>();
+let highlightedChars = 0;
+
+function tokenize(code: string, language: CodeLanguage, core: HighlighterCore): CodeToken[][] | undefined {
   try {
-    const { tokens } = ready.codeToTokens(code, { lang: language, themes: { light: "milagre", dark: "milagre" }, defaultColor: false });
+    const { tokens } = core.codeToTokens(code, { lang: language, themes: { light: "milagre", dark: "milagre" }, defaultColor: false });
     return tokens.map((line) => line.map((token) => ({ content: token.content, className: tokenClass(token.htmlStyle) })));
   } catch {
     return undefined;
   }
+}
+
+export function highlight(code: string, language: CodeLanguage): CodeToken[][] | undefined {
+  if (!ready || !loaded.has(language) || code.length > MAX_HIGHLIGHT_CHARS) return undefined;
+  const key = `${language}\0${code}`;
+  const hit = highlighted.get(key);
+  if (hit) {
+    highlighted.delete(key);
+    highlighted.set(key, hit);
+    return hit;
+  }
+  const lines = tokenize(code, language, ready);
+  if (!lines) return undefined;
+  highlighted.set(key, lines);
+  highlightedChars += key.length;
+  for (const oldest of highlighted.keys()) {
+    if (highlighted.size <= HIGHLIGHT_CACHE_ENTRIES && highlightedChars <= HIGHLIGHT_CACHE_CHARS) break;
+    highlighted.delete(oldest);
+    highlightedChars -= oldest.length;
+  }
+  return lines;
 }
