@@ -32,7 +32,7 @@ Milagre is a free, open-source desktop app that runs Claude Code, Codex, Kiro an
 
 Then sign in to an agent on the same computer: `claude auth login`, `codex login` or `kiro-cli login`. Milagre installs Antigravity itself (Settings › Accounts). To pair a phone, scan the code in Settings › Phone & sharing.
 
-> Milagre is alpha software. Use Full permissions only in a Project you can recover.
+> Milagre runs agents on your own provider accounts. The Milagre team is not responsible if a provider suspends or bans an account used with Milagre.
 
 ## Develop
 
