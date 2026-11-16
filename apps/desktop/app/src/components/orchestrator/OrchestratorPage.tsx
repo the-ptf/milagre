@@ -5,6 +5,7 @@ import { requestTaskOpen, saveOrchestratorSettings, useOrchestratorNav } from ".
 import { gazeToward } from "../../lib/orchestrator-board";
 import { useOrchestratorBoard } from "../../lib/use-orchestrator-board";
 import { useMotionScale } from "../../lib/ease";
+import { useControlsClearance } from "../../lib/window-chrome";
 import { IconButton } from "../primitives/Button";
 import { EmptyState } from "../primitives/EmptyState";
 import { FirstRunTour } from "./FirstRunTour";
@@ -35,6 +36,7 @@ export function OrchestratorPage({
   const [mood, setMood] = useState<MascotMood>("idle");
   const empty = cards.length === 0 && !flight;
   const collapsed = settings.boardHidden || empty;
+  const clearance = useControlsClearance<HTMLDivElement>(true);
 
   useEffect(() => {
     if (!pendingOpen) return;
@@ -84,7 +86,11 @@ export function OrchestratorPage({
   const look = deciding && !typingLook ? WATCHING_CARD : typingLook;
   return (
     <div data-orchestrator-page className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2 pl-3">
+      <div
+        ref={clearance.bar}
+        style={{ paddingLeft: clearance.inset.paddingLeft + 12, paddingRight: clearance.inset.paddingRight }}
+        className="flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2"
+      >
         <h1 className="text-13 font-semibold text-ink">Orchestrator</h1>
         <span className="text-13 text-ink-3">
           {names.projects.length} {names.projects.length === 1 ? "Project" : "Projects"}
