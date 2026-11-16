@@ -1,60 +1,19 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
-import {
-  activeRoles,
-  type OrchestratorMemory,
-  type OrchestratorMemoryNote,
-  type OrchestratorRole,
-  type OrchestratorSettings,
-} from "@milagre/shared/orchestrator";
+import { activeRoles, type OrchestratorRole, type OrchestratorSettings } from "@milagre/shared/orchestrator";
 import type { AgentModels, ModelProvider } from "@milagre/shared/model";
 import { effortCopy } from "@milagre/shared/model-copy";
 import { providerName } from "@milagre/shared/providers";
-import { confirm } from "./confirm-store";
 import { lineHeight, space, type } from "./design-tokens";
-import { MemoryNotes } from "./orchestrator-memory";
 import { modelAndEffort } from "./orchestrator-board";
 import { MenuRow } from "./orchestrator-section";
-import { Group, Row } from "./settings-list";
+import { Group } from "./settings-list";
 import { useTheme } from "./theme";
 import { modelsFor } from "./turn-options";
-import { Field, Segmented, Toggle, useStyles } from "./ui";
+import { Field, Toggle, useStyles } from "./ui";
 
 type Save = (patch: Partial<OrchestratorSettings>) => void;
 const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
-
-export function MemorySection({
-  memory,
-  busy,
-  onNotes,
-  onReadAgain,
-  onForget,
-}: {
-  memory: OrchestratorMemory;
-  busy: boolean;
-  onNotes: (notes: OrchestratorMemoryNote[]) => void;
-  onReadAgain: () => void;
-  onForget: () => void;
-}) {
-  const styles = useStyles();
-  const found = memory.sources.filter((source) => source.found).map((source) => source.name);
-  return (
-    <View style={{ gap: space.md }}>
-      <Group title="Memory" inset={0}>
-        <View style={{ paddingVertical: space.lg, gap: space.xs }}>
-          <Text style={styles.text}>What it knows about you</Text>
-          <Text style={styles.caption}>
-            {memory.notes.length} {memory.notes.length === 1 ? "note" : "notes"}
-            {found.length ? `, read from ${found.join(", ")}` : ""}. Untick a note to stop using it.
-          </Text>
-        </View>
-        <Row title="Read again" value={busy ? "Reading…" : undefined} chevron={false} disabled={busy} onPress={onReadAgain} />
-        <Row title="Forget everything" destructive chevron={false} onPress={onForget} />
-      </Group>
-      {memory.notes.length ? <MemoryNotes notes={memory.notes} onChange={onNotes} deletable /> : null}
-    </View>
-  );
-}
 
 function RoleRow({ role, models, onChange }: { role: OrchestratorRole; models: AgentModels | null; onChange: (role: OrchestratorRole) => void }) {
   const styles = useStyles();
@@ -67,7 +26,7 @@ function RoleRow({ role, models, onChange }: { role: OrchestratorRole; models: A
     <View style={{ gap: space.md, paddingVertical: space.lg }}>
       <View style={{ gap: space.xxs }}>
         <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>{role.name}</Text>
-        <Text style={styles.caption}>{role.description || (active ? "" : "No model set · role inactive")}</Text>
+        {active ? null : <Text style={styles.caption}>No model set · role inactive</Text>}
       </View>
       <MenuRow
         title={`${role.name} model`}
@@ -91,27 +50,13 @@ function RoleRow({ role, models, onChange }: { role: OrchestratorRole; models: A
         }}
       />
       {active ? (
-        <>
-          <MenuRow
-            title={`${role.name} effort`}
-            value={role.effort ? effortCopy(role.effort).name : "Default"}
-            sections={[{ items: efforts.map((effort) => ({ id: effort, title: effortCopy(effort).name, checked: role.effort === effort })) }]}
-            onSelect={(effort) => onChange({ ...role, effort })}
-          />
-          <Segmented
-            label={`${role.name} delegation`}
-            value={role.delegation}
-            options={[
-              { value: "prefer", title: "Prefer" },
-              { value: "always", title: "Always" },
-            ]}
-            onChange={(value) => onChange({ ...role, delegation: value === "always" ? "always" : "prefer" })}
-          />
-          <Text style={styles.caption}>{role.delegation === "always" ? "Every matching task goes to this role." : "Used when the router is confident."}</Text>
-        </>
-      ) : (
-        <Text style={styles.caption}>Pick a model to turn this role on.</Text>
-      )}
+        <MenuRow
+          title={`${role.name} effort`}
+          value={role.effort ? effortCopy(role.effort).name : "Default"}
+          sections={[{ items: efforts.map((effort) => ({ id: effort, title: effortCopy(effort).name, checked: role.effort === effort })) }]}
+          onSelect={(effort) => onChange({ ...role, effort })}
+        />
+      ) : null}
       <Field
         label="Instructions"
         multiline
@@ -168,8 +113,4 @@ export function BoardSection({ settings, save }: { settings: OrchestratorSetting
       </View>
     </Group>
   );
-}
-
-export async function forgetEverything(onForget: () => void) {
-  if (await confirm("Forget everything?", "The Orchestrator drops every note and what it learned from your corrections.", "Forget")) onForget();
 }

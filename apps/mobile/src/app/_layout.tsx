@@ -97,6 +97,7 @@ export default function Layout() {
                           />
                           <Stack.Screen name="confirm-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="prompt-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
+                          <Stack.Screen name="orchestrator-hint" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           {/* Native search needs the header visible at presentation: enabling it later remounts the sheet. */}
                           <Stack.Screen
                             name="choice-sheet"

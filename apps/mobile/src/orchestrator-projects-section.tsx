@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { router } from "expo-router";
+import { ArrowRight01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import {
   COMPUTER_PREFERENCES,
   type ComputerPreference,
@@ -7,14 +9,18 @@ import {
   type OrchestratorProject,
   type OrchestratorSettings,
 } from "@milagre/shared/orchestrator";
-import { lineHeight, space, type } from "./design-tokens";
+import type { Client } from "./client";
+import { space } from "./design-tokens";
+import { Icon } from "./icons";
 import { projectName } from "./orchestrator-board";
 import { dimmed, MenuRow } from "./orchestrator-section";
+import { ProjectIcon } from "./project-icon";
 import { Group } from "./settings-list";
-import { useTheme } from "./theme";
-import { CheckRow, Field, pressStyle, useStyles } from "./ui";
+import { Field, pressStyle, RowCheckbox, useStyles } from "./ui";
 
 type Save = (patch: Partial<OrchestratorSettings>) => void;
+
+const PROJECTS_HEIGHT = 360;
 
 const PREFERENCE_LABEL: Record<ComputerPreference, string> = { prefer: "Prefer", normal: "Normal", less: "Less often", manual: "Manual only" };
 const percent = (value: number | null) => (value === null ? null : `${Math.round(value * 100)}%`);
@@ -60,77 +66,108 @@ export function ComputersPreferences({
   );
 }
 
-function EditHints({ name, open, onPress }: { name: string; open: boolean; onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${open ? "Done editing" : "Edit"} hints for ${name}`}
-      onPress={onPress}
-      style={({ pressed }) => [{ minHeight: 44, minWidth: 44, justifyContent: "center", paddingHorizontal: space.xs }, pressStyle({ pressed })]}
-    >
-      <Text style={{ color: colors.accentInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{open ? "Done" : "Edit"}</Text>
-    </Pressable>
-  );
+export function projectsPatch(settings: OrchestratorSettings, path: string, change: Partial<{ included: boolean; hints: string | null }>) {
+  const current = settings.projects[path];
+  return { projects: { ...settings.projects, [path]: { included: current?.included !== false, hints: current?.hints ?? null, ...change } } };
 }
 
-function HintsField({ project, hints, onSave }: { project: OrchestratorProject; hints: string | null; onSave: (hints: string | null) => void }) {
-  const [value, setValue] = useState(hints ?? "");
-  return (
-    <Field
-      label={`Hints for ${project.name}`}
-      hideLabel
-      multiline
-      autoFocus
-      autoCapitalize="none"
-      placeholder={project.defaultHints ?? "Words that mean this Project, for the router"}
-      value={value}
-      onChangeText={setValue}
-      onBlur={() => onSave(value.trim() || null)}
-      containerStyle={{ paddingBottom: space.lg }}
-      style={{ minHeight: 72 }}
-    />
-  );
-}
-
-/** The Projects the host routes to: a checkbox each, and hints over the ones it read from the Project's own files. */
-export function ProjectsSection({ settings, projects, save }: { settings: OrchestratorSettings; projects: readonly OrchestratorProject[]; save: Save }) {
+function ProjectRow({
+  client,
+  project,
+  name,
+  included,
+  hint,
+  onInclude,
+}: {
+  client: Client | null;
+  project: OrchestratorProject;
+  name: string;
+  included: boolean;
+  hint: string | null;
+  onInclude: () => void;
+}) {
   const styles = useStyles();
-  const [editing, setEditing] = useState<string | null>(null);
-  const put = (path: string, change: Partial<{ included: boolean; hints: string | null }>) => {
-    const current = settings.projects[path];
-    save({ projects: { ...settings.projects, [path]: { included: current?.included !== false, hints: current?.hints ?? null, ...change } } });
-  };
+  return (
+    <View style={[{ flexDirection: "row", alignItems: "center", gap: space.xs }, dimmed(included)]}>
+      <RowCheckbox label={`Route to ${name}`} selected={included} onPress={onInclude} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={[name, hint].filter(Boolean).join(". ")}
+        accessibilityHint="Edits its hints"
+        onPress={() => router.push({ pathname: "/orchestrator-hint", params: { path: project.path, name } })}
+        style={({ pressed }) => [
+          { flex: 1, flexDirection: "row", alignItems: "center", gap: space.lg, minHeight: 52, paddingVertical: space.md },
+          pressStyle({ pressed, kind: "row" }),
+        ]}
+      >
+        <ProjectIcon client={client} path={project.path} name={name} size={24} />
+        <View style={{ flex: 1, gap: space.xxs }}>
+          <Text numberOfLines={1} style={styles.text}>
+            {name}
+          </Text>
+          {hint ? (
+            <Text numberOfLines={1} style={styles.caption}>
+              {hint}
+            </Text>
+          ) : null}
+        </View>
+        <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+      </Pressable>
+    </View>
+  );
+}
+
+/** The Projects the host routes to: search, a checkbox each, and a tap opens the Project's hints. */
+export function ProjectsSection({
+  client,
+  settings,
+  projects,
+  save,
+}: {
+  client: Client | null;
+  settings: OrchestratorSettings;
+  projects: readonly OrchestratorProject[];
+  save: Save;
+}) {
+  const styles = useStyles();
+  const [query, setQuery] = useState("");
   if (!projects.length) return null;
+  const needle = query.trim().toLowerCase();
+  const named = projects.map((project) => ({ project, name: project.name || projectName(project.path, projects) }));
+  const shown = named.filter(({ name }) => name.toLowerCase().includes(needle));
   return (
     <Group title="Projects it can route to" inset={0}>
-      {projects.map((project) => {
-        const entry = settings.projects[project.path];
-        const included = entry ? entry.included !== false : project.included;
-        const hints = entry ? entry.hints : project.hints;
-        const name = project.name || projectName(project.path, projects);
-        return (
-          <View key={project.path}>
-            <CheckRow
-              kind="checkbox"
-              title={name}
-              subtitle={hints ?? project.defaultHints ?? "No hints yet"}
-              subtitleLines={2}
-              checked={included}
-              onPress={() => put(project.path, { included: !included })}
-              trailing={<EditHints name={name} open={editing === project.path} onPress={() => setEditing(editing === project.path ? null : project.path)} />}
-            />
-            {editing === project.path ? (
-              <View style={{ gap: space.xs }}>
-                <HintsField project={project} hints={hints} onSave={(next) => next !== hints && put(project.path, { hints: next })} />
-                {project.defaultHints ? (
-                  <Text style={[styles.caption, { paddingBottom: space.md }]}>{"Leave it empty to use what the Project's own files say."}</Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        );
-      })}
+      <Field
+        label="Search Projects"
+        hideLabel
+        placeholder="Search Projects"
+        value={query}
+        onChangeText={setQuery}
+        returnKeyType="search"
+        leading={<Icon icon={Search01Icon} tone="ink3" size={16} />}
+        containerStyle={{ paddingVertical: space.md }}
+      />
+      <ScrollView nestedScrollEnabled style={{ maxHeight: PROJECTS_HEIGHT }}>
+        {shown.map(({ project, name }, index) => {
+          const entry = settings.projects[project.path];
+          const included = entry ? entry.included !== false : project.included;
+          const hints = entry ? entry.hints : project.hints;
+          return (
+            <View key={project.path}>
+              {index > 0 && <View style={styles.separator} />}
+              <ProjectRow
+                client={client}
+                project={project}
+                name={name}
+                included={included}
+                hint={hints ?? project.defaultHints}
+                onInclude={() => save(projectsPatch(settings, project.path, { included: !included }))}
+              />
+            </View>
+          );
+        })}
+        {shown.length ? null : <Text style={[styles.caption, { paddingVertical: space.lg }]}>No Projects match “{query.trim()}”.</Text>}
+      </ScrollView>
     </Group>
   );
 }

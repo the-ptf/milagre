@@ -23,7 +23,9 @@ import { Mascot } from "../orchestrator/Mascot";
 import { AUTOPILOT_TITLES } from "../../lib/orchestrator-names";
 import { Group, Row } from "./SettingsGroup";
 import { MODEL_SEPARATOR as SEP, modelOptions, splitModel } from "./orchestrator-models";
-import { OrchestratorMemorySettings, OrchestratorProjectsSettings, OrchestratorRolesSettings } from "./OrchestratorRolesSettings";
+import { OrchestratorMemoryRow, OrchestratorMemorySettings } from "./OrchestratorMemorySettings";
+import { OrchestratorProjectsSettings } from "./OrchestratorProjectsSettings";
+import { OrchestratorRolesSettings } from "./OrchestratorRolesSettings";
 
 const PREFERENCE_TITLES: Record<ComputerPreference, string> = { prefer: "Prefer", normal: "Normal", less: "Less often", manual: "Manual only" };
 const VETO_TITLES: Record<number, string> = { 0: "None", 30: "30 seconds", 120: "2 minutes", 600: "10 minutes" };
@@ -113,7 +115,17 @@ function ComputersGroup({ settings, save }: { settings: Settings; save: (patch: 
   );
 }
 
-function OrchestratorForm({ settings, models, onOpenKeybindings }: { settings: Settings; models: ModelOption[]; onOpenKeybindings?: () => void }) {
+function OrchestratorForm({
+  settings,
+  models,
+  onOpenKeybindings,
+  onOpenMemory,
+}: {
+  settings: Settings;
+  models: ModelOption[];
+  onOpenKeybindings?: () => void;
+  onOpenMemory: () => void;
+}) {
   const { error, save } = useSave();
   const shortcut = useShortcutLabel("orchestrator.open");
   return (
@@ -237,7 +249,7 @@ function OrchestratorForm({ settings, models, onOpenKeybindings }: { settings: S
             <span className="text-12 text-ink-2">Always asks you before merging, pushing to main, deleting, deploying, paying or messaging someone.</span>
           </div>
         </Group>
-        <OrchestratorMemorySettings />
+        <OrchestratorMemoryRow onOpen={onOpenMemory} />
         <OrchestratorProjectsSettings settings={settings} save={save} />
         <OrchestratorRolesSettings settings={settings} models={models} save={save} />
         <Group title="Board">
@@ -257,27 +269,46 @@ function OrchestratorForm({ settings, models, onOpenKeybindings }: { settings: S
   );
 }
 
+function PageTitle({ trail, back, onBack }: { trail: string[]; back: string; onBack: () => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <IconButton label={back} icon={ArrowLeft01Icon} onClick={onBack} />
+      <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.02em] text-ink">
+        {trail.map((part, index) => (
+          <span key={part} className="flex items-center gap-2">
+            {index > 0 && (
+              <span className="text-ink-3">
+                <Icon icon={ArrowRight01Icon} size={16} />
+              </span>
+            )}
+            <span className={index < trail.length - 1 ? "text-ink-3" : ""}>{part}</span>
+          </span>
+        ))}
+      </h1>
+    </div>
+  );
+}
+
 export function OrchestratorSettingsPage({ models, onBack, onOpenKeybindings }: { models: ModelOption[]; onBack: () => void; onOpenKeybindings?: () => void }) {
   const { settings, loaded } = useOrchestrator();
+  const [page, setPage] = useState<"main" | "memory">("main");
+  if (page === "memory")
+    return (
+      <div data-orchestrator-memory-page>
+        <PageTitle trail={["Orchestrator", "Memory"]} back="Back to Orchestrator" onBack={() => setPage("main")} />
+        <OrchestratorMemorySettings />
+      </div>
+    );
   return (
     <div data-orchestrator-settings-page>
-      <div className="flex items-center gap-3">
-        <IconButton label="Back to Church" icon={ArrowLeft01Icon} onClick={onBack} />
-        <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.02em] text-ink">
-          <span className="text-ink-3">Church</span>
-          <span className="text-ink-3">
-            <Icon icon={ArrowRight01Icon} size={16} />
-          </span>
-          <span>Orchestrator</span>
-        </h1>
-      </div>
+      <PageTitle trail={["Church", "Orchestrator"]} back="Back to Church" onBack={onBack} />
       <div className="mt-4 flex items-center gap-4">
         <Mascot size={48} color={settings.mascotColor} followPointer />
         <p className="flex-1 text-13 text-ink-2">
           One box for every Project. It picks the Project, the role, the model and the account, then runs the work as a Chat.
         </p>
       </div>
-      {loaded && <OrchestratorForm settings={settings} models={models} onOpenKeybindings={onOpenKeybindings} />}
+      {loaded && <OrchestratorForm settings={settings} models={models} onOpenKeybindings={onOpenKeybindings} onOpenMemory={() => setPage("memory")} />}
     </div>
   );
 }

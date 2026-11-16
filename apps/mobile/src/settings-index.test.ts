@@ -43,6 +43,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
     "orchestrator-roles-section.tsx",
     "orchestrator-projects-section.tsx",
   ],
+  "orchestrator-memory": ["app/(settings)/orchestrator-memory.tsx", "orchestrator-memory-section.tsx"],
   "phone-sharing": ["app/(settings)/phone-sharing.tsx", "published-pages-section.tsx"],
   simlock: ["app/(settings)/simlock.tsx", "simlock-section.tsx"],
   "this-mac": ["app/(settings)/this-mac.tsx", "mac-settings-sections.tsx", shared("auto-update.ts")],
@@ -60,6 +61,7 @@ const NOT_INDEXED: Record<string, string> = {
   // The row opens a page that is itself in SETTINGS_PAGES, so search finds the page by its own name.
   "voice: Dictation language": "opens the Dictation language page",
   "voice: Speech model": "opens the Speech model page",
+  "orchestrator-settings: Memory": "opens the Orchestrator memory page",
   // The page's only switch carries the page's own name.
   "simlock: Simlock devices": "the page's own name",
   "computer-use: Computer use": "the page's own name",

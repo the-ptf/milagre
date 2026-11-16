@@ -11,7 +11,6 @@ export interface OrchestratorRole {
   provider: OrchestratorProvider | null;
   model: string | null;
   effort: string | null;
-  delegation: "prefer" | "always";
   instructions: string | null;
 }
 

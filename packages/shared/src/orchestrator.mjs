@@ -29,7 +29,6 @@ export const DEFAULT_ROLES = Object.freeze(
       provider: "codex",
       model: "gpt-6-astra",
       effort: "high",
-      delegation: "prefer",
     },
     {
       id: "build",
@@ -38,7 +37,6 @@ export const DEFAULT_ROLES = Object.freeze(
       provider: "claude",
       model: "claude-opus-5-5",
       effort: "high",
-      delegation: "prefer",
     },
     {
       id: "design",
@@ -47,7 +45,6 @@ export const DEFAULT_ROLES = Object.freeze(
       provider: "claude",
       model: "claude-opus-5-5",
       effort: "high",
-      delegation: "prefer",
     },
     {
       id: "security",
@@ -56,9 +53,8 @@ export const DEFAULT_ROLES = Object.freeze(
       provider: "codex",
       model: "gpt-6.1-sol",
       effort: "high",
-      delegation: "always",
     },
-    { id: "test", name: "Test", description: "Writes and runs tests.", provider: null, model: null, effort: null, delegation: "prefer" },
+    { id: "test", name: "Test", description: "Writes and runs tests.", provider: null, model: null, effort: null },
     {
       id: "research",
       name: "Research",
@@ -66,7 +62,6 @@ export const DEFAULT_ROLES = Object.freeze(
       provider: "claude",
       model: "claude-sonnet-5-5",
       effort: "medium",
-      delegation: "prefer",
     },
   ].map((role) => Object.freeze({ ...role, instructions: null })),
 );
@@ -94,7 +89,7 @@ const text = (value, max) => (typeof value === "string" && value.trim() ? value.
 const oneOf = (value, options, fallback) => (options.includes(value) ? value : fallback);
 
 function normalizeRole(raw, fallback) {
-  const base = fallback ?? { id: "", name: "", description: "", provider: null, model: null, effort: null, delegation: "prefer", instructions: null };
+  const base = fallback ?? { id: "", name: "", description: "", provider: null, model: null, effort: null, instructions: null };
   if (!isObject(raw)) return base;
   const provider = PROVIDER_IDS.has(raw.provider) ? raw.provider : raw.provider === null ? null : base.provider;
   const model = provider === null ? null : (text(raw.model, 120) ?? (provider === base.provider ? base.model : null));
@@ -105,7 +100,6 @@ function normalizeRole(raw, fallback) {
     provider: model ? provider : null,
     model,
     effort: model ? (text(raw.effort, 20) ?? base.effort) : null,
-    delegation: oneOf(raw.delegation, ["prefer", "always"], base.delegation),
     instructions: text(raw.instructions, INSTRUCTIONS_MAX),
   };
 }

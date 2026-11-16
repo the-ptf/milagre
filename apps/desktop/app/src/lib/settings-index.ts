@@ -676,7 +676,7 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     page: "experimental",
     title: "Roles and models",
     group: "Orchestrator",
-    keywords: "build design security test research architecture effort delegation instructions",
+    keywords: "build design security test research architecture effort instructions",
   },
   { page: "experimental", title: "Keep Orchestrator task Chats out of the sidebar", group: "Orchestrator", keywords: "hidden board" },
   { page: "experimental", title: "Notify me when a task needs me", group: "Orchestrator", keywords: "notifications" },

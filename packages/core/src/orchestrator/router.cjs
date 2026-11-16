@@ -26,7 +26,7 @@ function describe({ prompt, projects, roles, notes }) {
   const lines = ["Projects:"];
   for (const project of projects) lines.push(`- ${project.path} | ${project.name}${project.hints ? ` | ${project.hints.replace(/\s+/g, " ")}` : ""}`);
   lines.push("", "Roles:");
-  for (const role of activeRoles(roles)) lines.push(`- ${role.id}: ${role.description}${role.delegation === "always" ? " (always use it when it fits)" : ""}`);
+  for (const role of activeRoles(roles)) lines.push(`- ${role.id}: ${role.description}`);
   if (notes.length) {
     lines.push("", "What the developer taught you before:");
     for (const note of notes.slice(0, 30)) lines.push(`- ${note}`);
