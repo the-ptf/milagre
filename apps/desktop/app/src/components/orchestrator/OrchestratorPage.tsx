@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { KanbanIcon } from "@hugeicons/core-free-icons";
-import type { AgentRuns } from "@milagre/shared/agent-runs";
 import type { OrchestratorTask } from "@milagre/shared/orchestrator";
 import { requestTaskOpen, saveOrchestratorSettings, useOrchestratorNav } from "../../lib/orchestrator-store";
 import { useOrchestratorBoard } from "../../lib/use-orchestrator-board";
@@ -17,17 +16,15 @@ import { SendFlight, type Flight } from "./SendFlight";
 const WATCHING_CARD: Look = { x: -0.35, y: 1 };
 
 export function OrchestratorPage({
-  runs,
   pane,
   onOpen: onOpenTask,
   onBack: onClosePane,
 }: {
-  runs: AgentRuns;
   pane: string | null;
   onOpen: (key: string) => void;
   onBack: () => void;
 }) {
-  const { orchestrator, cards, env, names } = useOrchestratorBoard(runs);
+  const { orchestrator, cards, env, names } = useOrchestratorBoard();
   const { settings } = orchestrator;
   const { pendingOpen, boxFocus } = useOrchestratorNav();
   const scale = useMotionScale();

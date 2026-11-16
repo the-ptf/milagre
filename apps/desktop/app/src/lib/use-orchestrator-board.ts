@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { activeRoles } from "@milagre/shared/orchestrator";
 import { boardCards, boardCounts, taskProjectPaths } from "./orchestrator-board";
+import { useRuns } from "./agent-runs-store";
 import { useOrchestratorNames } from "./orchestrator-names";
 import { useOrchestrator } from "./orchestrator-store";
 import { useScopeStates } from "./sidebar-scopes";
 
 const TICK_MS = 30_000;
 
-export function useOrchestratorBoard(runs: AgentRuns) {
+export function useOrchestratorBoard() {
   const orchestrator = useOrchestrator();
+  const runs = useRuns(orchestrator.settings.enabled && orchestrator.tasks.length > 0);
   const names = useOrchestratorNames();
   const paths = taskProjectPaths(orchestrator.tasks);
   const { states } = useScopeStates(orchestrator.settings.enabled && paths.length > 0, paths);

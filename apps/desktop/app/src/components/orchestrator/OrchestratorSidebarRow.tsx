@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { shortcutCommand, useShortcutLabel } from "../../lib/keybindings";
 import { isModalOpen } from "../../lib/modal";
 import { focusOrchestratorBox, requestTaskOpen } from "../../lib/orchestrator-store";
@@ -10,8 +9,8 @@ import { Mascot } from "./Mascot";
 import { QuickBox } from "./QuickBox";
 import { StartedToast } from "./StartedToast";
 
-export function OrchestratorSidebarRow({ active, runs, onShow }: { active: boolean; runs: AgentRuns; onShow: () => void }) {
-  const { orchestrator, counts, names } = useOrchestratorBoard(runs);
+export function OrchestratorSidebarRow({ active, onShow }: { active: boolean; onShow: () => void }) {
+  const { orchestrator, counts, names } = useOrchestratorBoard();
   const { settings } = orchestrator;
   const [quick, setQuick] = useState(false);
   const shortcut = useShortcutLabel("orchestrator.open");

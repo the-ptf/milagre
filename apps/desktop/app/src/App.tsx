@@ -2526,7 +2526,7 @@ function App() {
                   archivingChats={archivingChats}
                   onHoverChat={hoverChat}
                   onAskChat={askLinkedChat}
-                  orchestrator={<OrchestratorSidebarRow active={view === "orchestrator"} runs={agentRuns.runs} onShow={openOrchestrator} />}
+                  orchestrator={<OrchestratorSidebarRow active={view === "orchestrator"} onShow={openOrchestrator} />}
                 />
               </PullRequestOpenContext.Provider>
             </div>
@@ -2602,9 +2602,7 @@ function App() {
                       onCloseRunChat={closeRunPane}
                     />
                   )}
-                  {view === "orchestrator" && (
-                    <OrchestratorPage runs={agentRuns.runs} pane={runPaneOpen ? runPane : null} onOpen={openRunChat} onBack={closeRunPane} />
-                  )}
+                  {view === "orchestrator" && <OrchestratorPage pane={runPaneOpen ? runPane : null} onOpen={openRunChat} onBack={closeRunPane} />}
                 </div>
                 <div
                   data-chat-pane
