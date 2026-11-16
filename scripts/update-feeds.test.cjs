@@ -95,3 +95,43 @@ test("a macos,linux platform list needs the Linux feed and its installers", (t) 
   assert.notEqual(f.run("--platform", "macos,macos").status, 0);
   assert.notEqual(f.run("--platform", "macos,bogus").status, 0);
 });
+test("one architecture's macOS feed refreshes with only that architecture's installers", (t) => {
+  const f = fixture(t);
+  const arm64 = { ...f.feed, files: f.feed.files.filter((entry) => entry.url.includes("-arm64.")) };
+  fs.writeFileSync(f.file, YAML.stringify(arm64));
+  assert.notEqual(f.run().status, 0, "both architectures without --arch");
+  assert.equal(f.run("--arch", "arm64").status, 0);
+  assert.notEqual(f.run("--arch", "x64").status, 0);
+  assert.notEqual(f.run("--platform", "linux", "--arch", "arm64").status, 0);
+});
+test("the per-architecture macOS feeds merge into the two-arch feed Publish checks", (t) => {
+  const f = fixture(t, { tag: "v1.2.3-beta.4", feeds: ["beta-mac.yml"] });
+  const merge = path.join(__dirname, "merge-mac-feeds.cjs");
+  const v = "1.2.3-beta.4";
+  for (const arch of ["x64", "arm64"]) {
+    const dir = path.join(f.root, arch);
+    fs.mkdirSync(dir);
+    const files = [`Milagre-${v}-${arch}.zip`, `Milagre-${v}-${arch}.dmg`].map((url) => ({
+      url,
+      sha512: createHash("sha512").update("abc").digest("base64"),
+      size: 3,
+    }));
+    fs.writeFileSync(
+      path.join(dir, "beta-mac.yml"),
+      YAML.stringify({ version: v, files, path: files[0].url, sha512: files[0].sha512, releaseDate: `2026-01-0${arch === "x64" ? 1 : 2}T00:00:00.000Z` }),
+    );
+  }
+  fs.unlinkSync(f.file);
+  const result = spawnSync(process.execPath, [merge, path.join(f.root, "x64"), path.join(f.root, "arm64"), f.root], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const merged = YAML.parse(fs.readFileSync(f.file, "utf8"));
+  assert.deepEqual(
+    merged.files.map((entry) => entry.url),
+    [`Milagre-${v}-x64.zip`, `Milagre-${v}-arm64.zip`, `Milagre-${v}-x64.dmg`, `Milagre-${v}-arm64.dmg`],
+  );
+  assert.equal(merged.path, `Milagre-${v}-x64.zip`);
+  assert.equal(merged.releaseDate, "2026-01-02T00:00:00.000Z");
+  assert.equal(f.run("--check").status, 0);
+  fs.writeFileSync(path.join(f.root, "arm64", "beta-mac.yml"), YAML.stringify({ version: "9.9.9", files: [] }));
+  assert.notEqual(spawnSync(process.execPath, [merge, path.join(f.root, "x64"), path.join(f.root, "arm64"), f.root]).status, 0);
+});

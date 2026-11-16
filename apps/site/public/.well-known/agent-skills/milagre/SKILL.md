@@ -11,19 +11,19 @@ Milagre is a free, open-source (MIT) desktop app for macOS and Linux. It runs co
 
 - A computer running macOS (Apple silicon or Intel) or Linux. Windows is in progress.
 - At least one coding agent installed and signed in on that computer: Claude Code, Codex, Antigravity or Kiro. Milagre uses that agent's own login and subscription; there is no Milagre account.
-- For the phone app: an iPhone (TestFlight beta) or an Android phone (APK beta).
+- For the phone app: an iPhone (App Store) or an Android phone (APK beta).
 
 ## Install
 
-| Platform             | Download                                      |
-| -------------------- | --------------------------------------------- |
-| macOS, Apple silicon | https://milagre.cloud/download/mac-arm64      |
-| macOS, Intel         | https://milagre.cloud/download/mac-x64        |
-| Linux AppImage       | https://milagre.cloud/download/linux-appimage |
-| Linux .deb           | https://milagre.cloud/download/linux-deb      |
-| Linux .rpm           | https://milagre.cloud/download/linux-rpm      |
-| iPhone beta          | https://testflight.apple.com/join/K9ExV7bV    |
-| Android beta         | https://milagre.cloud/download/android        |
+| Platform             | Download                                        |
+| -------------------- | ----------------------------------------------- |
+| macOS, Apple silicon | https://milagre.cloud/download/mac-arm64        |
+| macOS, Intel         | https://milagre.cloud/download/mac-x64          |
+| Linux AppImage       | https://milagre.cloud/download/linux-appimage   |
+| Linux .deb           | https://milagre.cloud/download/linux-deb        |
+| Linux .rpm           | https://milagre.cloud/download/linux-rpm        |
+| iOS                  | https://apps.apple.com/app/milagre/id6818804252 |
+| Android beta         | https://milagre.cloud/download/android          |
 
 Each `/download/...` link redirects to the matching file of the latest GitHub release.
 

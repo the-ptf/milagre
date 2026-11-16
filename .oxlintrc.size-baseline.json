@@ -1613,6 +1613,12 @@
       }
     },
     {
+      "files": ["scripts/finalize-update-feeds.cjs"],
+      "rules": {
+        "complexity": ["error", 44]
+      }
+    },
+    {
       "files": ["scripts/live-design-harness.cjs"],
       "rules": {
         "max-lines-per-function": [

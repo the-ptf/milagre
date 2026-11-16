@@ -1,5 +1,5 @@
 ---
-import { DOWNLOAD_ANDROID, DOWNLOAD_ARM64, DOWNLOAD_LINUX_APPIMAGE, DOWNLOAD_LINUX_DEB, DOWNLOAD_LINUX_RPM, DOWNLOAD_WINDOWS, DOWNLOAD_X64, IPHONE_BETA_URL } from "../links";
+import { DOWNLOAD_ANDROID, DOWNLOAD_ARM64, DOWNLOAD_IOS, DOWNLOAD_LINUX_APPIMAGE, DOWNLOAD_LINUX_DEB, DOWNLOAD_LINUX_RPM, DOWNLOAD_WINDOWS, DOWNLOAD_X64 } from "../links";
 const LINUX: { id: string; href: string; others: [string, string][] }[] = [
   { id: "appimage", href: DOWNLOAD_LINUX_APPIMAGE, others: [[".deb", DOWNLOAD_LINUX_DEB], [".rpm", DOWNLOAD_LINUX_RPM]] },
   { id: "deb", href: DOWNLOAD_LINUX_DEB, others: [["AppImage", DOWNLOAD_LINUX_APPIMAGE], [".rpm", DOWNLOAD_LINUX_RPM]] },
@@ -48,9 +48,9 @@ const LINUX: { id: string; href: string; others: [string, string][] }[] = [
   </a>
 </div>
 <div class="downloads ios-only">
-  <a class="button button-primary" href={IPHONE_BETA_URL}>
+  <a class="button button-primary" href={DOWNLOAD_IOS}>
     <svg aria-hidden="true" width="16" height="16"><use href="/icons.svg#apple" /></svg>
-    Get iOS beta
+    Download for iOS
   </a>
 </div>
 

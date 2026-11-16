@@ -10,7 +10,7 @@ async function main() {
       options.check = true;
       continue;
     }
-    if (!["--tag", "--platform", "--artifacts"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--"))
+    if (!["--tag", "--platform", "--artifacts", "--arch"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--"))
       throw new Error(`Invalid option: ${args[i]}`);
     options[args[i].slice(2)] = args[++i];
   }
@@ -18,10 +18,13 @@ async function main() {
   const selected = options.platform === "all" ? ["macos", "windows", "linux"] : options.platform.split(",");
   if (!selected.length || new Set(selected).size !== selected.length || !selected.every((name) => ["macos", "windows", "linux"].includes(name)))
     throw new Error("Invalid platform");
+  if (options.arch !== undefined && (options.platform !== "macos" || !["arm64", "x64"].includes(options.arch)))
+    throw new Error("--arch takes arm64 or x64, with --platform macos");
   const v = options.tag.slice(1);
   const beta = v.includes("-beta.");
+  const macArches = options.arch ? [options.arch] : ["arm64", "x64"];
   const feeds = {
-    macos: [[beta ? "beta-mac.yml" : "latest-mac.yml"], [`Milagre-${v}-arm64.zip`, `Milagre-${v}-x64.zip`, `Milagre-${v}-arm64.dmg`, `Milagre-${v}-x64.dmg`]],
+    macos: [[beta ? "beta-mac.yml" : "latest-mac.yml"], macArches.flatMap((arch) => [`Milagre-${v}-${arch}.zip`, `Milagre-${v}-${arch}.dmg`])],
     windows: [[beta ? "beta.yml" : "latest.yml"], [`Milagre-Setup-${v}-x64.exe`]],
     linux: [[beta ? "beta-linux.yml" : "latest-linux.yml"], [`Milagre-${v}-x86_64.AppImage`, `Milagre-${v}-amd64.deb`, `Milagre-${v}-x86_64.rpm`]],
   };

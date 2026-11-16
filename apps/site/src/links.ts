@@ -6,6 +6,6 @@ export const DOWNLOAD_LINUX_DEB = "/download/linux-deb";
 export const DOWNLOAD_LINUX_RPM = "/download/linux-rpm";
 export const DOWNLOAD_WINDOWS = "/download/windows";
 export const DOWNLOAD_ANDROID = "https://github.com/the-ptf/milagre/releases/download/v0.232.0-beta.27/Milagre-0.232.0-beta.27-android-beta.apk";
-export const IPHONE_BETA_URL = "https://testflight.apple.com/join/K9ExV7bV";
+export const DOWNLOAD_IOS = "https://apps.apple.com/app/milagre/id6818804252";
 export const OPERATOR_NAME = "Victor Lucas";
 export const CONTACT_EMAIL = "support@milagre.cloud";

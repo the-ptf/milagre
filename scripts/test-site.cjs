@@ -301,18 +301,19 @@ const checks = [
     },
   },
   {
-    name: "an iPhone gets the iOS beta instead of the Mac download",
+    name: "an iPhone gets the iOS download instead of the Mac download",
     async run(open, evaluate, shot) {
       const iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1";
       const window = await open({ width: 390, height: 844, mobile: true, userAgent: iphone });
       const visible = (selector) => `[...document.querySelectorAll('${selector}')].filter((a) => a.offsetParent).length`;
-      assert.equal(await evaluate(window, visible('.cta a[href="https://testflight.apple.com/join/K9ExV7bV"]')), 1);
+      assert.equal(await evaluate(window, visible('.cta a[href="https://apps.apple.com/app/milagre/id6818804252"]')), 1);
+      assert.equal(await evaluate(window, `[...document.querySelectorAll(".cta .button")].find((a) => a.offsetParent).textContent.trim()`), "Download for iOS");
       assert.equal(await evaluate(window, visible('.cta a[href="/download/mac-arm64"]')), 0);
       await assertHeroScreen(evaluate, window);
       await shot(window, "iphone.png");
       window.destroy();
       const mac = await open({ width: 1440, height: 900 });
-      assert.equal(await evaluate(mac, visible('.cta a[href="https://testflight.apple.com/join/K9ExV7bV"]')), 0);
+      assert.equal(await evaluate(mac, visible('.cta a[href="https://apps.apple.com/app/milagre/id6818804252"]')), 0);
       mac.destroy();
     },
   },
