@@ -484,6 +484,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // A new Chat's glance cards (PRs, plan usage, today) read the host on their own; Chat tests render none.
       if (base === "new-chat-glance" && !(id in modules)) return { NewChatGlance: () => null };
+      // A QA persona's avatar is an Open Bot Avatar SVG string drawn by react-native-svg; tests read the persona from its props.
+      if (base === "persona-avatar" && !(id in modules)) return { PersonaAvatar: "PersonaAvatar" };
       // Church's New Chat stats switch: the shared label and hint, and off unless a test sets it.
       if (id === "@milagre/shared/new-chat-glance" && !(id in modules)) return require("../packages/shared/src/new-chat-glance.ts");
       if (file === "experimental-section.tsx" && base === "chat-display-setting" && !(id in modules)) return { useNewChatStats: () => [false, () => {}] };
