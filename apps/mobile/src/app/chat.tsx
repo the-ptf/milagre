@@ -76,7 +76,7 @@ import { openBrowserLink } from "../browser-link";
 import { useChatPorts } from "../ports";
 import { TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import { ChatReply, type ReplyChat } from "../chat-reply";
+import { ChatReply, ChatRow, type ReplyChat } from "../chat-reply";
 import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
 import { chosenDesign } from "@milagre/shared/artifact";
@@ -2267,7 +2267,7 @@ function ChatPane({
                               ) : (
                                 <>
                                   {issueRunDivider(message, merged)}
-                                  <ChatReply
+                                  <ChatRow
                                     message={message}
                                     chats={message.role === "user" ? replyChats : undefined}
                                     media={media}

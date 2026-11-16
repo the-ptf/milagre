@@ -7,6 +7,7 @@ import { appShortcutsBlocked, isModalOpen } from "../lib/modal";
 import { toggleTheme } from "../lib/settings";
 import { useEvent } from "../lib/stable";
 import { newTerminal } from "../lib/terminal-actions";
+import type { AppView } from "../lib/run-pane";
 
 type FamilySessions = Parameters<typeof chatBookmark>[0];
 
@@ -22,7 +23,7 @@ export type AppShortcutContext = {
   terminalChatRef: RefObject<string | null>;
   findRef: RefObject<{ open: boolean; canOpen: boolean }>;
   changes: { toggle: () => void; closeDiff: () => void };
-  setView: (view: "chat" | "canvas" | "routines") => void;
+  setView: (view: AppView) => void;
   openLinkedChat: (key: string) => void;
   openAlone: (key: string) => void;
   openFind: () => void;
@@ -40,10 +41,10 @@ export type EscapeContext = {
   setFindOpen: (open: boolean) => void;
   runPaneOpen: boolean;
   closeRunPane: () => void;
-  view: "chat" | "canvas" | "routines";
+  view: AppView;
   routineId: string | null;
   setRoutineId: (id: string | null) => void;
-  setView: (view: "chat" | "canvas" | "routines") => void;
+  setView: (view: AppView) => void;
   /** Escape on the open Chat: deny its approval, dismiss its question, or stop its turn. */
   escapeOpenChat: (event: KeyboardEvent) => void;
   /** What the Escape effect re-subscribes on, as before the split. */
@@ -147,6 +148,7 @@ function handleEscape(ctx: EscapeContext, event: KeyboardEvent) {
     ctx.setView("chat");
     return;
   }
+  if (ctx.view === "orchestrator") return;
   ctx.escapeOpenChat(event);
 }
 
@@ -157,7 +159,7 @@ function handleEscape(ctx: EscapeContext, event: KeyboardEvent) {
  * Keys pressed in an embedded frame (a design, an HTML reply, the simulator) arrive from the main process and are
  * replayed as window keydowns. Over a Link only Settings and the theme run here; the Link's workspace takes the rest.
  * Over Settings, ⌘K opens the palette on top and any other shortcut closes Settings first. Escape closes, in order:
- * find, a Run Chat pane, a Routine's page, the canvas or Routines, then answers or stops the open Chat's turn.
+ * find, a Run Chat or Orchestrator task pane, a Routine's page, the canvas or Routines, then answers or stops the open Chat's turn.
  */
 export function useAppShortcuts(shortcuts: AppShortcutContext, escape: EscapeContext) {
   useEffect(

@@ -47,6 +47,7 @@ import { useProjectReorder } from "./navigation-reorder";
 import { useS } from "./navigation-styles";
 import { HeaderButton, HeaderGlass } from "./navigation-chrome";
 import { NavigationRow, HeaderOverCell, createNavigationRowCache, type RowView } from "./navigation-row";
+import { OrchestratorRow } from "./orchestrator-row";
 
 const SHOW: [Show, string, string][] = [
   ["all", "All Chats", "bubble.left.and.bubble.right"],
@@ -61,6 +62,8 @@ const FIELD_SYMBOLS: Record<string, string> = {
   diff: "plusminus",
   lastActivity: "clock",
 };
+
+const LIST_KEYBOARD = { keyboardShouldPersistTaps: "handled", keyboardDismissMode: "on-drag" } as const;
 
 type NavigationProps = {
   onNavigate: Destination;
@@ -642,9 +645,9 @@ const NavigationBody = memo(function NavigationBody({
       <FlatList
         data={displayedRows}
         CellRendererComponent={HeaderOverCell}
+        ListHeaderComponent={needle ? undefined : <OrchestratorRow onOpen={() => onNavigate("/orchestrator", true)} />}
         keyExtractor={(row) => row.key}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        {...LIST_KEYBOARD}
         onScrollBeginDrag={hideRevealed}
         onScroll={controls.onScroll}
         scrollEventThrottle={16}

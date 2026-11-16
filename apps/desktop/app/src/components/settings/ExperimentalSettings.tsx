@@ -1,3 +1,6 @@
+import { useState } from "react";
+import type { ModelOption } from "../../model";
+import { OrchestratorRow, OrchestratorSettingsPage } from "./OrchestratorSettings";
 import { useRemoteDelegationEnabled } from "../../lib/remote-delegation";
 import { useDeviceNotesEnabled } from "../../lib/device-notes";
 import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
@@ -54,13 +57,16 @@ function DeviceNotesSettings() {
   );
 }
 
-export function ExperimentalSettings({ title }: { title?: string }) {
+export function ExperimentalSettings({ title, models, onOpenKeybindings }: { title?: string; models: ModelOption[]; onOpenKeybindings?: () => void }) {
   const settings = useSettings();
+  const [page, setPage] = useState<"church" | "orchestrator">("church");
+  if (page === "orchestrator") return <OrchestratorSettingsPage models={models} onBack={() => setPage("church")} onOpenKeybindings={onOpenKeybindings} />;
   return (
     <>
       <h1 className="text-22 font-semibold tracking-[-0.01em] text-ink">{title}</h1>
       <p className="mt-1 text-13 text-ink-2">Features still taking shape. They may change or go away.</p>
       <Group title="Beta">
+        <OrchestratorRow onOpen={() => setPage("orchestrator")} />
         <Row
           label="Floating inbox"
           description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."

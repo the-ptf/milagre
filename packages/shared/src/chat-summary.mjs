@@ -3,7 +3,7 @@ import { pullRequestRefs } from "./chat-pull-requests.mjs";
 export const isGitNote = (message) => typeof message?.context === "object" && message.context?.kind === "git-action";
 
 export const isNote = (message) =>
-  isGitNote(message) || ["worktree-linked", "reload", "checkpoint-restore", "babysit-stopped"].includes(message?.context?.kind);
+  isGitNote(message) || ["worktree-linked", "reload", "checkpoint-restore", "babysit-stopped", "orchestrator-answer"].includes(message?.context?.kind);
 
 export function summarizeChat(messages) {
   const input = messages.find((message) => message.role !== "assistant" && message.body?.trim());

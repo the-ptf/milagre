@@ -114,6 +114,12 @@ What a **Flow**'s action step keeps once it acted (the pull request it opened or
 **Test run**:
 A dry **Run** of a **Flow**'s draft on the last issue it ran on: actions are skipped, approvals pass by themselves, and it never counts.
 
+**Orchestrator**:
+An Experimental box that takes any request and starts it as a **Task Chat** in the **Project**, on the model, **Account** and computer it picks, and tracks every **Task Chat** on its board.
+
+**Task Chat**:
+A **Chat** the **Orchestrator** started. It stays on the board and out of the sidebar until the user moves it to the sidebar.
+
 **Run Chat**:
 A **Chat** a **Run** opened. It lives in its **Routine**'s Runs list, out of the sidebar, until you send it a message, pin it or rename it.
 

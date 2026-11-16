@@ -3,6 +3,15 @@ import type { IdleWorktrees, RemoveWorktree } from "@milagre/shared/storage";
 import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
+import type {
+  OrchestratorComputer,
+  OrchestratorMemory,
+  OrchestratorMemoryNote,
+  OrchestratorProject,
+  OrchestratorSettings,
+  OrchestratorSnapshot,
+  OrchestratorTask,
+} from "@milagre/shared/orchestrator";
 import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
@@ -445,6 +454,23 @@ export type MilagreBridge = {
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
   /** The settings changed, here or from another device. */
   onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
+  readOrchestrator: () => Promise<OrchestratorSnapshot>;
+  readOrchestratorProjects: () => Promise<OrchestratorProject[]>;
+  readOrchestratorComputers: () => Promise<OrchestratorComputer[]>;
+  saveOrchestratorSettings: (patch: Partial<OrchestratorSettings>) => Promise<OrchestratorSettings>;
+  sendToOrchestrator: (
+    prompt: string,
+    options?: { permissionMode?: PermissionMode; images?: { id: string; name: string; dataUrl: string }[] },
+  ) => Promise<OrchestratorTask>;
+  pickOrchestratorProject: (taskId: string, projectPath: string) => Promise<OrchestratorTask | null>;
+  showOrchestratorTaskInSidebar: (taskId: string, shown: boolean) => Promise<OrchestratorTask | null>;
+  undoOrchestratorTask: (taskId: string) => Promise<null>;
+  rerouteOrchestratorTask: (taskId: string, change: { projectPath?: string; role?: string }) => Promise<OrchestratorTask | null>;
+  dismissOrchestratorTask: (taskId: string) => Promise<null>;
+  importOrchestratorMemory: () => Promise<OrchestratorMemory>;
+  saveOrchestratorMemory: (notes: OrchestratorMemoryNote[]) => Promise<OrchestratorMemory>;
+  forgetOrchestratorMemory: () => Promise<OrchestratorMemory>;
+  onOrchestrator: (callback: (value: OrchestratorSnapshot) => void) => () => void;
   /** Settings › Chats: how long a Chat stays in the Done list before the host archives it. Kept by the host. */
   readDoneSettings: () => Promise<DoneSettings>;
   /** Merges the patch over the stored settings and returns the normalized result. */

@@ -62,12 +62,17 @@ export function isHiddenRunChat(session, waiting = false) {
   return session?.routine?.hidden === true && !waiting;
 }
 
+/** An Orchestrator task's Chat lives on the Orchestrator board until the user moves it to the sidebar. */
+export function isHiddenTaskChat(session) {
+  return session?.orchestrator?.hidden === true;
+}
+
 /**
  * The chat lists show a chat once it has a message, or while a handover prepares it; a worktree's empty starter chat stays
  * out. A hidden Run Chat stays out too, unless `waiting` says it waits on an approval or question.
  */
 export function isListedChat(session, messageCount, waiting = false) {
-  if (isHiddenRunChat(session, waiting)) return false;
+  if (isHiddenRunChat(session, waiting) || isHiddenTaskChat(session)) return false;
   return messageCount > 0 || isHandoverChat(session);
 }
 
