@@ -15,6 +15,7 @@ import { useTheme } from "./theme";
 import { CheckRow, ErrorNotice, Group, ListRow, PageScroll, PillButton, PullDown, SectionLabel, useSheetBottomInset } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
 import { useOrchestratorBoard } from "./use-orchestrator-board";
+import { useOrchestratorProjects } from "./use-orchestrator-lists";
 
 type Projects = readonly { path: string; name?: string }[];
 
@@ -202,6 +203,7 @@ export function OrchestratorTaskSheet({ taskId }: { taskId: string }) {
   const session = useSession();
   const bottom = useSheetBottomInset();
   const { snapshot, store } = useOrchestrator(session.client);
+  const listed = useOrchestratorProjects(session.client);
   const { items } = useOrchestratorBoard(snapshot?.tasks ?? []);
   const item = items.find((entry) => entry.task.id === taskId);
   if (!item || !snapshot || !store)
@@ -213,7 +215,7 @@ export function OrchestratorTaskSheet({ taskId }: { taskId: string }) {
       </View>
     );
   const { task } = item;
-  const projects = session.recent;
+  const projects = listed ?? session.recent;
   return (
     <PageScroll contentContainerStyle={{ gap: space.xl, paddingTop: space.xxl, paddingBottom: bottom }}>
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>

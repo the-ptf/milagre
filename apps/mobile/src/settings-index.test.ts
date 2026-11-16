@@ -41,6 +41,7 @@ const SOURCES: Record<keyof typeof SETTINGS_PAGES, string[]> = {
     "orchestrator-settings-section.tsx",
     "orchestrator-section.tsx",
     "orchestrator-roles-section.tsx",
+    "orchestrator-projects-section.tsx",
   ],
   "phone-sharing": ["app/(settings)/phone-sharing.tsx", "published-pages-section.tsx"],
   simlock: ["app/(settings)/simlock.tsx", "simlock-section.tsx"],

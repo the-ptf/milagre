@@ -109,7 +109,17 @@ function routerSections(settings: OrchestratorSettings, models: AgentModels | nu
   }));
 }
 
-export function OrchestratorSection({ settings, models, save }: { settings: OrchestratorSettings; models: AgentModels | null; save: Save }) {
+export function OrchestratorSection({
+  settings,
+  models,
+  save,
+  computers,
+}: {
+  settings: OrchestratorSettings;
+  models: AgentModels | null;
+  save: Save;
+  computers?: React.ReactNode;
+}) {
   const styles = useStyles();
   const { colors } = useTheme();
   const on = settings.enabled;
@@ -175,10 +185,10 @@ export function OrchestratorSection({ settings, models, save }: { settings: Orch
               onPress={() => save({ useOtherComputers: !settings.useOtherComputers })}
             />
             <Text style={styles.caption}>
-              When a Project is on more than one computer, a task runs on the one with the most room: free CPU and memory, agents already running. Set a
-              preference per computer in Milagre on your computer.
+              When a Project is on more than one computer, a task runs on the one with the most room: free CPU and memory, agents already running.
             </Text>
           </View>
+          {computers}
         </Group>
         <Group title="Autopilot" inset={0}>
           <View style={{ gap: space.md, paddingVertical: space.lg }}>

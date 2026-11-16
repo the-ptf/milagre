@@ -16,6 +16,7 @@ import { useTheme } from "./theme";
 import { EmptyState, ErrorNotice, HeaderButton, PageScroll, pressStyle, useStyles } from "./ui";
 import { useOrchestrator } from "./use-orchestrator";
 import { useOrchestratorBoard } from "./use-orchestrator-board";
+import { routableProjects, useOrchestratorProjects } from "./use-orchestrator-lists";
 
 type Carry = { id: number; text: string; from: number; to: number };
 
@@ -66,6 +67,8 @@ export function OrchestratorView() {
   const session = useSession();
   const client = session.client;
   const { snapshot, error, unavailable, loading, store } = useOrchestrator(client);
+  const listed = useOrchestratorProjects(client);
+  const projects = routableProjects(listed, session.recent);
   const tasks = snapshot?.tasks ?? [];
   const { items, counts } = useOrchestratorBoard(tasks);
   const accounts = useAccountNames(client);
@@ -189,7 +192,7 @@ export function OrchestratorView() {
                     tab={tab}
                     items={items}
                     landing={landing}
-                    projects={session.recent}
+                    projects={projects}
                     roles={settings.roles}
                     models={session.models}
                     color={color}
@@ -208,7 +211,7 @@ export function OrchestratorView() {
       {toast ? (
         <StartedToast
           key={toast.id}
-          project={projectName(toast.projectPath, session.recent)}
+          project={projectName(toast.projectPath, listed ?? session.recent)}
           color={color}
           onHide={hideToast}
           onUndo={() => {

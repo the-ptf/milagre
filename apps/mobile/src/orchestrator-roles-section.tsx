@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import {
   activeRoles,
   type OrchestratorMemory,
@@ -13,16 +13,14 @@ import { providerName } from "@milagre/shared/providers";
 import { confirm } from "./confirm-store";
 import { lineHeight, space, type } from "./design-tokens";
 import { MemoryNotes } from "./orchestrator-memory";
-import { modelAndEffort, projectName } from "./orchestrator-board";
+import { modelAndEffort } from "./orchestrator-board";
 import { MenuRow } from "./orchestrator-section";
 import { Group, Row } from "./settings-list";
-import { promptText } from "./text-prompt";
 import { useTheme } from "./theme";
 import { modelsFor } from "./turn-options";
-import { CheckRow, Field, pressStyle, Segmented, Toggle, useStyles } from "./ui";
+import { Field, Segmented, Toggle, useStyles } from "./ui";
 
 type Save = (patch: Partial<OrchestratorSettings>) => void;
-type Projects = readonly { path: string; name?: string }[];
 const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
 
 export function MemorySection({
@@ -55,52 +53,6 @@ export function MemorySection({
       </Group>
       {memory.notes.length ? <MemoryNotes notes={memory.notes} onChange={onNotes} deletable /> : null}
     </View>
-  );
-}
-
-function EditHints({ name, onPress }: { name: string; onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Edit hints for ${name}`}
-      onPress={onPress}
-      style={({ pressed }) => [{ minHeight: 44, minWidth: 44, justifyContent: "center", paddingHorizontal: space.xs }, pressStyle({ pressed })]}
-    >
-      <Text style={{ color: colors.accentInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Edit</Text>
-    </Pressable>
-  );
-}
-
-export function ProjectsSection({ settings, projects, save }: { settings: OrchestratorSettings; projects: Projects; save: Save }) {
-  const editHints = async (path: string) => {
-    const current = settings.projects[path];
-    const hints = await promptText(`Hints for ${projectName(path, projects)}`, {
-      message: "Words that mean this Project. The router reads them with your prompt.",
-      value: current?.hints ?? "",
-    });
-    if (hints === null) return;
-    save({ projects: { ...settings.projects, [path]: { included: current?.included !== false, hints: hints.trim() || null } } });
-  };
-  return (
-    <Group title="Projects it can route to" inset={0}>
-      {projects.map((project) => {
-        const entry = settings.projects[project.path];
-        const included = entry?.included !== false;
-        return (
-          <CheckRow
-            key={project.path}
-            kind="checkbox"
-            title={projectName(project.path, projects)}
-            subtitle={entry?.hints ?? "Hints from its AGENTS.md or README"}
-            subtitleLines={2}
-            checked={included}
-            onPress={() => save({ projects: { ...settings.projects, [project.path]: { included: !included, hints: entry?.hints ?? null } } })}
-            trailing={<EditHints name={projectName(project.path, projects)} onPress={() => void editHints(project.path)} />}
-          />
-        );
-      })}
-    </Group>
   );
 }
 

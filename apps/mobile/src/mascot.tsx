@@ -4,6 +4,8 @@ import { SvgXml } from "react-native-svg";
 import { renderAvatarSvg, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
 import { MASCOT_COLORS, ORCHESTRATOR_MASCOT } from "@milagre/shared/orchestrator";
 import { useReducedMotion } from "./motion";
+import { radius } from "./design-tokens";
+import { useTheme } from "./theme";
 
 export type MascotMood = AvatarMotion;
 export type MascotGaze = { x: number; y: number } | null;
@@ -40,6 +42,8 @@ export function Mascot({
   label?: string;
 }) {
   const reduced = useReducedMotion();
+  const { colors, scheme } = useTheme();
+  const backed = scheme === "light" && color?.toLowerCase() === MASCOT_COLORS[0];
   const time = useClock(live && !reduced);
   const [shift, setShift] = useState<{ mood: MascotMood; at: number; from: MascotMood }>({ mood, at: -BLEND_SECONDS, from: mood });
   if (shift.mood !== mood) setShift({ mood, at: time, from: shift.mood });
@@ -67,7 +71,7 @@ export function Mascot({
       accessibilityLabel={label}
       accessibilityElementsHidden={!label}
       importantForAccessibility={label ? "yes" : "no-hide-descendants"}
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, ...(backed ? { borderRadius: radius.full, backgroundColor: colors.field } : null) }}
     >
       <SvgXml xml={xml} width={size} height={size} />
     </View>

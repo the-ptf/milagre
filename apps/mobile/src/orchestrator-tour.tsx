@@ -32,6 +32,9 @@ function useClock(stopped: boolean) {
   return t;
 }
 
+export const sourceCount = ({ count, unit }: { count: number; unit?: "notes" | "rules" }) =>
+  `${count} ${unit === "rules" ? (count === 1 ? "rule" : "rules") : count === 1 ? "note" : "notes"}`;
+
 function SourcePills({ snapshot, reading }: { snapshot: OrchestratorSnapshot; reading: boolean }) {
   const { colors } = useTheme();
   const pill = {
@@ -54,7 +57,7 @@ function SourcePills({ snapshot, reading }: { snapshot: OrchestratorSnapshot; re
           <Icon icon={source.found ? CheckmarkCircle02Icon : MinusSignIcon} tone={source.found ? "green" : "ink4"} size={12} />
           <Text style={[text, { color: source.found ? colors.ink : colors.ink3 }]}>
             {source.name}
-            {source.found ? ` · ${source.count} ${source.count === 1 ? "note" : "notes"}` : " · not found"}
+            {source.found ? ` · ${sourceCount(source)}` : " · not found"}
           </Text>
         </Animated.View>
       ))}
