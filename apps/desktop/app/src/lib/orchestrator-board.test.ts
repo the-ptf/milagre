@@ -40,6 +40,7 @@ function task(id: string, patch: Partial<OrchestratorTask> = {}): OrchestratorTa
     permissionMode: "auto",
     answered: [],
     images: 0,
+    limit: null,
     ...patch,
   };
 }
@@ -109,15 +110,22 @@ test("a started task's column follows its Chat: running, waiting on the user, a 
   assert.deepEqual(boardCounts(cards), { running: 1, needs: 1 });
 });
 
-test("the sidebar counts a task as running only while it routes or its turn runs", () => {
+test("the sidebar counts a task as running only while it routes or its turn runs; a failed one needs the user", () => {
   const cards = boardCards(
     [task("t1", { state: "routing", projectPath: null, sessionId: null }), task("t2"), task("t3")],
     { "/p/app": { sessions: { 2: { id: 2 }, 3: { id: 3, summary: { lastOutcome: "failed" } } } } },
     { "/p/app#2": run() } as unknown as AgentRuns,
     NOW,
   );
-  assert.deepEqual(boardCounts(cards), { running: 2, needs: 0 });
+  assert.deepEqual(boardCounts(cards), { running: 2, needs: 1 });
   assert.equal(cards.find((card) => card.task.id === "t3")?.state, "failed");
+});
+
+test("a task at its usage limit waits in Needs you and says until when", () => {
+  const limited = task("t1", { limit: { provider: "claude", resetsAt: new Date(NOW + 3_600_000).toISOString() } });
+  const [card] = boardCards([limited], { "/p/app": { sessions: { 1: { id: 1, summary: { lastOutcome: "failed" } } } } }, {}, NOW);
+  assert.equal(card!.column, "needs");
+  assert.match(card!.detail, /^Claude hit its usage limit\. It resets at /);
 });
 
 test("an answered approval no longer counts as needing the user", () => {

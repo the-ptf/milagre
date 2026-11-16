@@ -65,6 +65,7 @@ export interface OrchestratorTask {
   permissionMode: "ask" | "auto" | "full";
   answered: OrchestratorAnswer[];
   images: number;
+  limit: { provider: OrchestratorProvider; resetsAt: string | null } | null;
 }
 
 export interface OrchestratorMemoryNote {
@@ -179,3 +180,5 @@ declare module "./model.ts" {
     orchestrator?: { taskId: string; hidden: boolean; accounts?: Partial<Record<string, string>> };
   }
 }
+
+export function taskLimitText(task: Pick<OrchestratorTask, "limit"> | null | undefined, now?: Date): string | null;

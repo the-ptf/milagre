@@ -21,15 +21,29 @@ const AT = { box: 3000, type: 3600, send: 5700, started: 6600, autopilot: 10600,
 const TYPE_MS = 36;
 const SPRING = { damping: 18, stiffness: 160 };
 
-function useClock(stopped: boolean) {
-  const [t, setT] = useState(0);
+const SCENES = [
+  { from: 0, to: 0 },
+  { from: AT.box, to: AT.autopilot - 200 },
+  { from: AT.autopilot, to: AT.end },
+] as const;
+
+/** The tour's step and the demo time within it; each step's clock starts when the step is shown. */
+function useSteps(still: boolean) {
+  const [shown, setShown] = useState({ step: 0, at: 0 });
+  const [now, setNow] = useState(0);
   useEffect(() => {
-    if (stopped) return;
-    const start = Date.now();
-    const timer = setInterval(() => setT(Date.now() - start), 100);
+    if (still || shown.step === 0 || shown.step > 2) return;
+    const timer = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(timer);
-  }, [stopped]);
-  return t;
+  }, [shown, still]);
+  const scene = SCENES[Math.min(shown.step, 2)]!;
+  const t = still ? scene.to : Math.min(scene.to, scene.from + Math.max(0, now - shown.at));
+  const go = (step: number) => {
+    const at = Date.now();
+    setNow(at);
+    setShown({ step, at });
+  };
+  return { step: shown.step, t, go };
 }
 
 export const sourceCount = ({ count, unit }: { count: number; unit?: "notes" | "rules" }) =>
@@ -172,6 +186,7 @@ function useDemoTask(t: number): OrchestratorTask {
       permissionMode: "auto",
       answered: [],
       images: 0,
+      limit: null,
     }),
     [routing, project],
   );
@@ -186,7 +201,7 @@ function Story({ t, snapshot }: { t: number; snapshot: OrchestratorSnapshot }) {
   const caption =
     t < AT.autopilot
       ? "Type anything. I pick the Project, the model, the account and the computer."
-      : "I answer the small stuff for you. Anything you can't undo waits for you.";
+      : "I answer simple questions for you. Anything you can't undo waits for you to decide.";
   return (
     <View style={{ gap: space.lg }}>
       <Animated.Text
@@ -253,7 +268,7 @@ function Summary({ snapshot, store, onReview }: { snapshot: OrchestratorSnapshot
         </Text>
       )}
       <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, textAlign: "center" }}>
-        {"Autopilot starts on Answer for me. I'll learn the rest from how you correct me."}
+        {"Answer threads for me is set to Answer for me. You can change it in Settings."}
       </Text>
       {failed ? <Text style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, textAlign: "center" }}>{failed}</Text> : null}
       <View style={{ gap: space.md }}>
@@ -264,72 +279,106 @@ function Summary({ snapshot, store, onReview }: { snapshot: OrchestratorSnapshot
   );
 }
 
-/** The first-run story: hello, a prompt routed on a demo card, autopilot answering, then what it read about you. */
+function Consent({ snapshot, onRead, onSkip }: { snapshot: OrchestratorSnapshot; onRead: () => void; onSkip: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <PageScroll contentContainerStyle={{ gap: space.section, flexGrow: 1, justifyContent: "center" }}>
+      <View style={{ alignItems: "center", gap: space.md }}>
+        <Mascot size={64} color={snapshot.settings.mascotColor} mood="idle" live />
+        <Text
+          accessibilityRole="header"
+          style={{ color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600", textAlign: "center" }}
+        >
+          {"Can I read what your agents already know about you?"}
+        </Text>
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center" }}>
+          {`${snapshot.settings.name} reads the instructions and memories of Claude Code, Codex, Antigravity and Kiro on your computer. You choose which notes to keep. Kept notes stay in Milagre on your computers, and the router model reads them when it picks where a task goes.`}
+        </Text>
+      </View>
+      <View style={{ gap: space.md }}>
+        <PillButton title="Read them" size="large" onPress={onRead} />
+        <PillButton title="Not now" size="large" variant="plain" onPress={onSkip} />
+      </View>
+    </PageScroll>
+  );
+}
+
+/** The first-run story: hello, a prompt routed on a demo card, autopilot answering, then what it read about you, after asking. */
 export function OrchestratorTour({ snapshot, store }: { snapshot: OrchestratorSnapshot; store: OrchestratorStore }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const motion = useMotionScale();
-  const [skipped, setSkipped] = useState(false);
+  const { step, t, go } = useSteps(reducedMotion || motion === 0);
   const [imported] = useState(() => snapshot.memory.importedAt != null && snapshot.memory.notes.length > 0 && !isMemoryImporting(snapshot.memory));
   const [asked, setAsked] = useState(imported);
-  const reading = !asked || isMemoryImporting(snapshot.memory);
-  const t = useClock(skipped);
-  useEffect(() => {
-    if (imported) return;
-    void store
-      .act("orchestrator:memory:import", [])
-      .catch(() => {})
-      .finally(() => setAsked(true));
-  }, [store, imported]);
-  const summary = skipped || (t >= AT.end && !reading);
+  const [requested, setRequested] = useState(false);
+  const reading = requested && isMemoryImporting(snapshot.memory);
+  const read = () => {
+    setAsked(true);
+    setRequested(true);
+    void store.act("orchestrator:memory:import", []).catch(() => {});
+  };
   const size = useSharedValue(1);
-  const big = t < AT.box;
+  const big = step === 0;
   useEffect(() => {
     size.set(reducedMotion ? (big ? 1 : 0.5) : springTo(big ? 1 : 0.5, SPRING, motion));
   }, [big, reducedMotion, motion, size]);
   const grow = useAnimatedStyle(() => ({ transform: [{ scale: size.value }], marginBottom: (size.value - 1) * 96 }));
-  return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.page, paddingTop: insets.top }]}>
-      {summary ? (
-        <Summary snapshot={snapshot} store={store} onReview={() => router.push("/orchestrator-settings")} />
-      ) : (
-        <View style={{ flex: 1, paddingHorizontal: space.gutter, paddingBottom: Math.max(insets.bottom, space.xl), gap: space.xl }}>
-          <View style={{ alignItems: "flex-end" }}>
+  const name = snapshot.settings.name;
+  const caption = { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote };
+  let body;
+  if (step > 2 && !asked) body = <Consent snapshot={snapshot} onRead={read} onSkip={() => void store.saveSettings({ tourDone: true })} />;
+  else if (step > 2 && !reading) body = <Summary snapshot={snapshot} store={store} onReview={() => router.push("/orchestrator-settings")} />;
+  else
+    body = (
+      <View style={{ flex: 1, paddingHorizontal: space.gutter, paddingBottom: Math.max(insets.bottom, space.xl), gap: space.xl }}>
+        <View style={{ flex: 1, gap: space.xl, justifyContent: big ? "center" : "flex-start", paddingTop: space.xl }}>
+          <Animated.View style={[{ alignItems: "center" }, grow]}>
+            <Mascot size={96} color={snapshot.settings.mascotColor} mood={big ? "happy" : t >= AT.send && t < AT.autopilot ? "thinking" : "idle"} live />
+          </Animated.View>
+          {big ? (
+            <Animated.View entering={FadeInDown.delay(250)} style={{ gap: space.sm }}>
+              <Text style={{ color: colors.ink, fontSize: type.title1, lineHeight: lineHeight.title1, fontWeight: "600", textAlign: "center" }}>
+                {name === "Orchestrator" ? "Hi, I'm your Orchestrator." : `Hi, I'm ${name}, your Orchestrator.`}
+              </Text>
+              <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center" }}>
+                One box for every Project. Here is how it works, in two short steps.
+              </Text>
+            </Animated.View>
+          ) : (
+            <Story t={t} snapshot={snapshot} />
+          )}
+        </View>
+        {reading ? (
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm }}>
+            <SpinnerRing size={12} />
+            <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>Reading what your agents already know…</Text>
+          </View>
+        ) : (
+          <View style={{ gap: space.md }}>
+            <Text style={[caption, { textAlign: "center" }]}>{`${Math.min(step, 2) + 1} of 3`}</Text>
+            <View style={{ flexDirection: "row", gap: space.md }}>
+              {step > 0 ? (
+                <View style={{ flex: 1 }}>
+                  <PillButton title="Back" size="large" variant="plain" onPress={() => go(step - 1)} />
+                </View>
+              ) : null}
+              <View style={{ flex: 1 }}>
+                <PillButton title={step === 2 ? "Done" : "Next"} size="large" onPress={() => go(step + 1)} />
+              </View>
+            </View>
             <Pressable
               accessibilityRole="button"
-              onPress={() => setSkipped(true)}
+              onPress={() => go(3)}
               hitSlop={8}
-              style={({ pressed }) => [{ minHeight: 44, justifyContent: "center", paddingHorizontal: space.md }, pressStyle({ pressed })]}
+              style={({ pressed }) => [{ minHeight: 44, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
             >
               <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>Skip tour</Text>
             </Pressable>
           </View>
-          <View style={{ flex: 1, gap: space.xl, justifyContent: big ? "center" : "flex-start" }}>
-            <Animated.View style={[{ alignItems: "center" }, grow]}>
-              <Mascot size={96} color={snapshot.settings.mascotColor} mood={big ? "happy" : t >= AT.send && t < AT.autopilot ? "thinking" : "idle"} live />
-            </Animated.View>
-            {big ? (
-              <Animated.View entering={FadeInDown.delay(250)} style={{ gap: space.sm }}>
-                <Text style={{ color: colors.ink, fontSize: type.title1, lineHeight: lineHeight.title1, fontWeight: "600", textAlign: "center" }}>
-                  {"Hi, I'm your Orchestrator."}
-                </Text>
-                <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlign: "center" }}>
-                  One box for every Project. Let me show you how it works, while I read what your agents already know about you.
-                </Text>
-              </Animated.View>
-            ) : (
-              <Story t={t} snapshot={snapshot} />
-            )}
-          </View>
-          {t >= AT.end && reading ? (
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm }}>
-              <SpinnerRing size={12} />
-              <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>Still reading what your agents already know…</Text>
-            </View>
-          ) : null}
-        </View>
-      )}
-    </View>
-  );
+        )}
+      </View>
+    );
+  return <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.page, paddingTop: insets.top }]}>{body}</View>;
 }

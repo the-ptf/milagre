@@ -133,11 +133,11 @@ const subscribeNav = (notify: () => void) => {
   return () => navListeners.delete(notify);
 };
 
-let followed: string | null = null;
+let followed: { taskId: string; leaving: string | null } | null = null;
 
-/** Opens the task's Chat once it has one again, as after Re-route starts it over. */
-export function followTask(taskId: string | null) {
-  followed = taskId;
+/** Opens the task's Chat once it has a new one, as after Re-route starts it over; `leaving` is the Chat it had. */
+export function followTask(taskId: string | null, leaving: string | null = null) {
+  followed = taskId ? { taskId, leaving } : null;
 }
 
 export const followedTask = () => followed;

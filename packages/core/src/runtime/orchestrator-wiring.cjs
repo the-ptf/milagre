@@ -158,7 +158,14 @@ function registerOrchestrator(
       questionCall: (router) => routerCall(router, QUESTION_SCHEMA),
     },
   });
-  return { taskAccounts: taskAccountsFor({ states, accounts, routing, agentCli }), autopilot };
+  const watcher = {
+    observe(chatId, event) {
+      autopilot.observe(chatId, event);
+      orchestrator.observe(chatId, event);
+    },
+    close: () => autopilot.close(),
+  };
+  return { taskAccounts: taskAccountsFor({ states, accounts, routing, agentCli }), autopilot: watcher };
 }
 
 module.exports = { registerOrchestrator, withTaskChat };

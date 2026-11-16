@@ -324,7 +324,12 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
   },
   { page: "orchestrator-settings", title: "Name", group: "Name", keywords: "rename orchestrator" },
   { page: "orchestrator-settings", title: "Mascot color", group: "Mascot", keywords: "pebble avatar" },
-  { page: "orchestrator-settings", title: "Router model", group: "Routing", description: "Reads your prompt and the Project hints" },
+  {
+    page: "orchestrator-settings",
+    title: "Router model",
+    group: "Routing",
+    description: "Reads your prompt, your kept notes and the Project hints, on your own account",
+  },
   { page: "orchestrator-settings", title: "When no Project fits", group: "Routing", keywords: "ask me best guess" },
   { page: "orchestrator-settings", title: "Account", group: "Routing", keywords: "least used today project's account limit" },
   { page: "orchestrator-settings", title: "Use other computers", group: "Computers", keywords: "load balancing room cpu memory" },

@@ -110,7 +110,7 @@ function Summary({ memory, settings, error, color }: { memory: OrchestratorMemor
         })}
         <div className="flex items-center gap-2 pt-1">
           <span className="flex-1 text-12 text-ink-3">
-            Autopilot starts on {AUTOPILOT_TITLES[settings.autopilot]}. I'll learn the rest from how you correct me.
+            Answer threads for me is set to {AUTOPILOT_TITLES[settings.autopilot]}. You can change it in Settings.
           </span>
           <Button disabled={saving} onClick={() => void start()}>
             Start
@@ -181,45 +181,83 @@ function Bubbles({ t }: { t: number }) {
   );
 }
 
+const STEPS = [
+  { from: 0, to: 0 },
+  { from: 3000, to: 10_000 },
+  { from: 10_400, to: SUMMARY_AT },
+] as const;
+
+function Consent({ name, color, onRead, onSkip }: { name: string; color: string; onRead: () => void; onSkip: () => void }) {
+  return (
+    <div
+      className="flex flex-1 flex-col items-center justify-center gap-4 text-center"
+      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}
+    >
+      <Mascot size={72} color={color} mood="idle" followPointer />
+      <h1 className="text-22 font-semibold text-ink">Can I read what your agents already know about you?</h1>
+      <p className="max-w-[480px] text-13 text-ink-2">
+        {name} reads the instructions and memories of Claude Code, Codex, Antigravity and Kiro on this computer. You choose which notes to keep. Kept notes stay
+        in Milagre on your computers, and the router model reads them when it picks where a task goes.
+      </p>
+      <div className="flex gap-2">
+        <Button variant="secondary" onClick={onSkip}>
+          Not now
+        </Button>
+        <Button onClick={onRead}>Read them</Button>
+      </div>
+    </div>
+  );
+}
+
 export function FirstRunTour({ memory, settings, project }: { memory: OrchestratorMemory; settings: OrchestratorSettings; project: string }) {
   const motion = useMotionScale();
   const scale = useReducedMotion() ? 0 : motion || 1;
-  const [t, setT] = useState(0);
+  const [shown, setShown] = useState({ step: 0, at: 0 });
+  const [clock, setClock] = useState(0);
+  const step = shown.step;
+  const elapsed = Math.max(0, clock - shown.at) / scale;
+  const go = (next: number) => {
+    const at = performance.now();
+    setClock(at);
+    setShown({ step: next, at });
+  };
   const [error, setError] = useState<string | null>(null);
-  const [skipped, setSkipped] = useState(false);
   const [imported] = useState(() => memory.importedAt != null && memory.notes.length > 0 && !isMemoryImporting(memory));
-  const [reading, setReading] = useState(!imported);
+  const [reading, setReading] = useState(false);
+  const [asked, setAsked] = useState(imported);
   useEffect(() => {
-    if (imported) return;
+    if (scale === 0 || step === 0 || step > 2) return;
+    const timer = window.setInterval(() => setClock(performance.now()), 50);
+    return () => window.clearInterval(timer);
+  }, [scale, step]);
+  const read = () => {
+    setAsked(true);
+    setReading(true);
     void importMemory()
       .catch((cause: Error) => setError(`Couldn't read your agents' notes: ${cause.message}`))
       .finally(() => setReading(false));
-  }, [imported]);
-  useEffect(() => {
-    if (scale === 0) return;
-    const began = performance.now();
-    const timer = window.setInterval(() => setT((performance.now() - began) / scale), 50);
-    return () => window.clearInterval(timer);
-  }, [scale]);
+  };
   const color = settings.mascotColor;
-  if (skipped || ((scale === 0 || t >= SUMMARY_AT) && !reading)) return <Summary memory={memory} settings={settings} error={error} color={color} />;
+  const name = settings.name;
+  if (step > 2 && !asked) return <Consent name={name} color={color} onRead={read} onSkip={() => void saveOrchestratorSettings({ tourDone: true })} />;
+  if (step > 2 && !reading) return <Summary memory={memory} settings={settings} error={error} color={color} />;
+  const scene = STEPS[Math.min(step, 2)]!;
+  const t = step > 2 ? SUMMARY_AT : scale === 0 ? scene.to : Math.min(scene.to, scene.from + elapsed);
   const typed = DEMO.slice(0, Math.max(0, Math.min(DEMO.length, Math.floor((t - 3700) / 36))));
   const caption =
     t < 10_400
       ? "Type anything. I pick the Project, the model, the account and the computer."
-      : "I answer the small stuff for you. Anything you can't undo waits for you.";
+      : "I answer simple questions for you. Anything you can't undo waits for you to decide.";
   return (
     <div data-first-run-tour className="relative flex h-full min-h-0 flex-col items-center px-6 pt-14 pb-6">
-      {scale === 0 || t < 3000 ? (
+      {step === 0 ? (
         <div
           className="flex flex-1 flex-col items-center justify-center gap-4 text-center"
           style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) backwards" }}
         >
           <Mascot size={96} color={color} mood="happy" followPointer />
-          <h1 className="text-26 font-semibold text-ink">Hi, I'm your Orchestrator.</h1>
-          <p className="max-w-[440px] text-15 text-ink-2">
-            One box for every Project. Let me show you how it works, while I read what your agents already know about you.
-          </p>
+          <h1 className="text-26 font-semibold text-ink">{name === "Orchestrator" ? "Hi, I'm your Orchestrator." : `Hi, I'm ${name}, your Orchestrator.`}</h1>
+          <p className="max-w-[440px] text-15 text-ink-2">One box for every Project. Here is how it works, in two short steps.</p>
         </div>
       ) : (
         <div
@@ -247,15 +285,29 @@ export function FirstRunTour({ memory, settings, project }: { memory: Orchestrat
           </div>
         </div>
       )}
-      {t >= SUMMARY_AT && reading && (
+      {reading ? (
         <span className="flex items-center gap-2 pt-4 text-13 text-ink-2">
           <SpinnerRing size={14} />
-          Still reading what your agents already know…
+          Reading what your agents already know…
         </span>
+      ) : (
+        <div className="no-drag mt-4 flex items-center gap-3">
+          <Button variant="quiet" size={28} onClick={() => go(3)}>
+            Skip tour
+          </Button>
+          <span className="text-12 text-ink-3" aria-live="polite">
+            {Math.min(step, 2) + 1} of 3
+          </span>
+          {step > 0 && (
+            <Button variant="secondary" size={28} onClick={() => go(step - 1)}>
+              Back
+            </Button>
+          )}
+          <Button size={28} data-tour-next onClick={() => go(step + 1)}>
+            {step === 2 ? "Done" : "Next"}
+          </Button>
+        </div>
       )}
-      <Button variant="quiet" size={28} className="no-drag mt-4" onClick={() => setSkipped(true)}>
-        Skip tour
-      </Button>
     </div>
   );
 }

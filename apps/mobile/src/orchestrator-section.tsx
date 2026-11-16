@@ -100,6 +100,7 @@ function Swatches({ color, onPick }: { color: string; onPick: (color: string) =>
 }
 
 function NameRow({ name, onSave }: { name: string; onSave: (name: string) => void }) {
+  const styles = useStyles();
   const [draft, setDraft] = useState(name);
   const commit = () => {
     const next = draft.replace(/\s+/g, " ").trim();
@@ -113,6 +114,7 @@ function NameRow({ name, onSave }: { name: string; onSave: (name: string) => voi
           label="Name"
           value={draft}
           maxLength={40}
+          trailing={<Text style={styles.caption}>{`${draft.length}/40`}</Text>}
           autoCapitalize="words"
           returnKeyType="done"
           onChangeText={setDraft}
@@ -169,7 +171,7 @@ export function OrchestratorSection({
         <Group title="Routing" inset={0}>
           <MenuRow
             title="Router model"
-            subtitle="Reads your prompt and the Project hints"
+            subtitle="Reads your prompt, your kept notes and the Project hints, on your own account"
             value={modelName(settings.router.provider, settings.router.model, models)}
             sections={routerSections(settings, models)}
             onSelect={(id) => {
@@ -206,19 +208,21 @@ export function OrchestratorSection({
             onSelect={(id) => save({ account: id === "project" ? "project" : "least-used" })}
           />
         </Group>
-        <Group title="Computers" inset={0}>
-          <View style={{ gap: space.xs, paddingVertical: space.md }}>
-            <Toggle
-              title="Use other computers"
-              selected={settings.useOtherComputers}
-              onPress={() => save({ useOtherComputers: !settings.useOtherComputers })}
-            />
-            <Text style={styles.caption}>
-              When a Project is on more than one computer, a task runs on the one with the most room: free CPU and memory, agents already running.
-            </Text>
-          </View>
-          {computers}
-        </Group>
+        {computers ? (
+          <Group title="Computers" inset={0}>
+            <View style={{ gap: space.xs, paddingVertical: space.md }}>
+              <Toggle
+                title="Use other computers"
+                selected={settings.useOtherComputers}
+                onPress={() => save({ useOtherComputers: !settings.useOtherComputers })}
+              />
+              <Text style={styles.caption}>
+                When a Project is on more than one computer, a task runs on the one with the most room: free CPU and memory, agents already running.
+              </Text>
+            </View>
+            {computers}
+          </Group>
+        ) : null}
         <Group title="Autopilot" inset={0}>
           <View style={{ gap: space.md, paddingVertical: space.lg }}>
             <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Answer threads for me</Text>

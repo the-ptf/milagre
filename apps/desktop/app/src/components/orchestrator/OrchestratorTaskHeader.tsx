@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon, PanelLeftOpenIcon, ShuffleIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { activeRoles, roleById, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { bridgeForKey } from "../../lib/computer-bridge";
-import { routeReason, taskScope, taskSession } from "../../lib/orchestrator-board";
+import { routeReason, taskChatKey, taskScope, taskSession } from "../../lib/orchestrator-board";
 import { useScopeStates } from "../../lib/sidebar-scopes";
 import { useOrchestratorNames } from "../../lib/orchestrator-names";
 import { followTask, rerouteTask, showTaskInSidebar, useOrchestrator } from "../../lib/orchestrator-store";
@@ -19,7 +19,7 @@ function Reroute({ task, onClose }: { task: OrchestratorTask; onClose: () => voi
   const [open, setOpen] = useState(false);
   const go = (change: { projectPath?: string; role?: string }) => {
     setOpen(false);
-    followTask(task.id);
+    followTask(task.id, taskChatKey(task));
     onClose();
     void rerouteTask(task.id, change);
   };

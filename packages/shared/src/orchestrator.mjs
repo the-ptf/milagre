@@ -1,3 +1,5 @@
+import { limitHeadline } from "./usage-limit.mjs";
+
 export const ORCHESTRATOR_MASCOT = Object.freeze({
   version: 1,
   id: "pebble",
@@ -187,7 +189,18 @@ export function normalizeOrchestratorTask(raw) {
     permissionMode: oneOf(raw.permissionMode, ["ask", "auto", "full"], "auto"),
     answered: Array.isArray(raw.answered) ? raw.answered.filter(isObject).slice(-50) : [],
     images: Number.isInteger(raw.images) && raw.images > 0 ? Math.min(raw.images, ORCHESTRATOR_MAX_IMAGES) : 0,
+    limit:
+      isObject(raw.limit) && PROVIDER_IDS.has(raw.limit.provider)
+        ? { provider: raw.limit.provider, resetsAt: typeof raw.limit.resetsAt === "string" ? raw.limit.resetsAt : null }
+        : null,
   };
+}
+
+/** What a task's card says while its provider is at its usage limit; `null` when it isn't. */
+export function taskLimitText(task, now = new Date()) {
+  if (!task?.limit) return null;
+  const { title, detail } = limitHeadline(task.limit, now);
+  return `${title}. ${detail}`;
 }
 
 export function normalizeOrchestratorTasks(raw) {
@@ -247,7 +260,7 @@ export function isMemoryImporting(memory, now = Date.now()) {
 export function titleFromPrompt(prompt) {
   let line = String(prompt ?? "")
     .trim()
-    .split(/[.?!\n]/)[0]
+    .split(/[.?!](?=\s|$)|\n/)[0]
     .replace(/^(can you|could you|please|hey|i want to|i wanna|let's|lets)\s+/i, "")
     .trim();
   if (line.length > 60) line = line.slice(0, 58).replace(/\s+\S*$/, "") + "…";

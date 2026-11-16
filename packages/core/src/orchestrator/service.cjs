@@ -1,7 +1,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
-const { normalizeOrchestratorSettings, roleById, pickAccount, titleFromPrompt, recordTrust } = require("@milagre/shared/orchestrator");
+const { normalizeOrchestratorSettings, roleById, titleFromPrompt, recordTrust } = require("@milagre/shared/orchestrator");
+const { createAccounts, createLimitWatch } = require("./limits.cjs");
 const { routeTask } = require("./router.cjs");
 const { importMemory } = require("./memory-import.cjs");
 const { createPlacement } = require("./placement.cjs");
@@ -36,13 +37,38 @@ function withRole(prompt, role) {
   return `${prompt}\n\n<role_instructions role="${role.name}">\n${role.instructions}\n</role_instructions>`;
 }
 
+async function readMemoryInto({ store, ports, settings, now }) {
+  const at = now();
+  store.update((current) => ({ ...current, memory: { ...current.memory, sources: [], importStartedAt: at, updatedAt: at } }));
+  const result = await importMemory({
+    call: ports.memoryCall?.(settings().router) ?? null,
+    onSource: (source) => store.update((current) => ({ ...current, memory: { ...current.memory, sources: [...current.memory.sources, source] } })),
+    ...(ports.home ? { home: ports.home } : {}),
+    now,
+  }).catch((error) => {
+    console.warn("[orchestrator] couldn't read the agents' memory:", error.message);
+    return { sources: store.read().memory.sources, notes: [] };
+  });
+  store.update((current) => ({
+    ...current,
+    memory: {
+      ...current.memory,
+      sources: result.sources,
+      notes: [...current.memory.notes.filter((note) => note.source === "Milagre"), ...result.notes],
+      importedAt: now(),
+      updatedAt: now(),
+    },
+  }));
+}
 function createOrchestrator({ store, ports, now = () => Date.now() }) {
   const hints = new Map();
   const starting = new Set();
-
   function settings() {
     return store.read().settings;
   }
+
+  const accounts = createAccounts({ ports, settings, now });
+  const { roleWithRoom } = accounts;
 
   async function projectList() {
     const config = settings();
@@ -74,21 +100,14 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
 
   const imagesOf = (task) => savedImages(ports.images, task);
 
-  async function chooseAccount(provider, projectPath) {
-    const projectAccountId = ports.selectedAccount(provider, projectPath);
-    const usage = await ports.accountUsage().catch(() => []);
-    const accounts = usage
-      .filter((entry) => entry.provider === provider)
-      .map((entry) => ({ id: entry.accountId, usedPercent: entry.usedPercent, limited: entry.usedPercent >= 100 }));
-    return pickAccount({ mode: settings().account, accounts, projectAccountId });
-  }
-
   async function start(taskId, route) {
     const config = settings();
-    const role = roleById(config.roles, route.role);
-    if (!role) throw new Error("No role has a model. Pick one in Settings › Church › Orchestrator.");
+    const wanted = roleById(config.roles, route.role);
+    if (!wanted) throw new Error("No role has a model. Pick one in Settings › Church › Orchestrator.");
     const images = imagesOf(store.task(taskId));
-    const account = await chooseAccount(role.provider, route.projectPath);
+    const roomy = await roleWithRoom(wanted, route.projectPath);
+    const role = roomy.role;
+    const account = roomy.account;
     let worktreeId = null;
     try {
       worktreeId = await ports.createWorktree(route.projectPath, route.title);
@@ -113,7 +132,8 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       effort: role.effort,
       accountId: account.accountId,
       computer: null,
-      reason: { project: route.reason ?? null, role: route.roleReason ?? null, account: account.reason, computer: null },
+      limit: null,
+      reason: { project: route.reason ?? null, role: roomy.reason ?? route.roleReason ?? null, account: account.reason, computer: null },
       error: null,
     }));
     const task = store.task(taskId);
@@ -161,31 +181,21 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
 
   const placement = createPlacement({ store, ports, settings, projectList, addTask, imagesOf, start: (taskId, route) => start(taskId, route) });
 
+  const limitWatch = createLimitWatch({
+    store,
+    accounts,
+    settings,
+    taskFor: (chatKey) => store.read().tasks.find((entry) => chatKeyOf(entry) === chatKey),
+    isStarting: (taskId) => starting.has(taskId),
+    restart: async (task, route) => {
+      await dropChat(task);
+      startInBackground(task.id, route);
+    },
+  });
+
   let importing = null;
 
-  async function readMemory() {
-    const at = now();
-    store.update((current) => ({ ...current, memory: { ...current.memory, sources: [], importStartedAt: at, updatedAt: at } }));
-    const result = await importMemory({
-      call: ports.memoryCall?.(settings().router) ?? null,
-      onSource: (source) => store.update((current) => ({ ...current, memory: { ...current.memory, sources: [...current.memory.sources, source] } })),
-      ...(ports.home ? { home: ports.home } : {}),
-      now,
-    }).catch((error) => {
-      console.warn("[orchestrator] couldn't read the agents' memory:", error.message);
-      return { sources: store.read().memory.sources, notes: [] };
-    });
-    store.update((current) => ({
-      ...current,
-      memory: {
-        ...current.memory,
-        sources: result.sources,
-        notes: [...current.memory.notes.filter((note) => note.source === "Milagre"), ...result.notes],
-        importedAt: now(),
-        updatedAt: now(),
-      },
-    }));
-  }
+  const readMemory = () => readMemoryInto({ store, ports, settings, now });
 
   function startInBackground(taskId, route) {
     store.updateTask(taskId, () => ({ state: "routing", error: null }));
@@ -260,6 +270,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
       const task = store.task(taskId);
       if (!task) return null;
       await dropChat(task);
+      limitWatch.forget(taskId);
       learn(change.projectPath && change.projectPath !== task.projectPath ? "project" : "role");
       store.updateTask(taskId, () => ({ state: "routing", sessionId: null, worktreeId: null, error: null }));
       if (!change.projectPath && !change.role) {
@@ -295,6 +306,7 @@ function createOrchestrator({ store, ports, now = () => Date.now() }) {
     capacity: () => placement.capacity(),
     startHere: (request) => placement.startHere(request),
     isStarting: (taskId) => starting.has(taskId),
+    observe: (chatKey, event) => limitWatch.observe(chatKey, event),
     taskForChat(projectPath, sessionId) {
       return store.read().tasks.find((task) => task.projectPath === projectPath && task.sessionId === sessionId) ?? null;
     },

@@ -80,6 +80,41 @@ test("a sent prompt starts a hidden task Chat in the routed Project on the least
   assert.equal(calls.sent[0].worktreeId, "wt-1");
 });
 
+test("a first turn that hits a usage limit moves the task to a role on a provider with room, and later sends skip it", async (t) => {
+  const { orchestrator, store, calls, ports } = setup(t, {
+    reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
+  });
+  ports.accountUsage = async () => [{ provider: "claude", accountId: "personal", usedPercent: 22 }];
+  const task = await orchestrator.send("fix the rest timer");
+  await settled(orchestrator, task.id);
+  const first = store.task(task.id);
+  orchestrator.observe(`${first.projectPath}#${first.sessionId}`, { type: "turn-failed", limit: { provider: "claude", resetsAt: "1970-01-02T00:00:00Z" } });
+  await until(() => calls.sent.length === 2);
+  assert.equal(calls.sent[1].provider, "codex");
+  assert.deepEqual(calls.archived, [{ projectPath: "/p/happiergym", sessionId: first.sessionId }]);
+  await until(() => store.task(task.id).provider === "codex");
+  assert.match(store.task(task.id).reason.role, /Claude is at its usage limit/);
+  const next = await orchestrator.send("and the timer sound");
+  await settled(orchestrator, next.id);
+  assert.equal(store.task(next.id).provider, "codex", "a later task skips the limited account");
+});
+
+test("a limit after the task did some work keeps its Chat and says so on the card", async (t) => {
+  const { orchestrator, store, calls } = setup(t, {
+    reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
+  });
+  const task = await orchestrator.send("fix the rest timer");
+  await settled(orchestrator, task.id);
+  const key = `${store.task(task.id).projectPath}#${store.task(task.id).sessionId}`;
+  orchestrator.observe(key, { type: "turn-completed" });
+  orchestrator.observe(key, { type: "turn-failed", limit: { provider: "claude", resetsAt: "1970-01-02T00:00:00Z" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.sent.length, 1);
+  assert.deepEqual(store.task(task.id).limit, { provider: "claude", resetsAt: "1970-01-02T00:00:00Z" });
+  orchestrator.observe(key, { type: "turn-started" });
+  assert.equal(store.task(task.id).limit, null);
+});
+
 test("with no matching Project the task waits for the owner, then starts where they pick", async (t) => {
   const { orchestrator, store, calls } = setup(t, {
     reply: { project: null, role: "build", title: "Write a poem", reason: "Nothing matched", confidence: 0.2 },

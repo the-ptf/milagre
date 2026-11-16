@@ -38,7 +38,8 @@ export function OrchestratorPage({
   const collapsed = settings.boardHidden || empty;
   const clearance = useControlsClearance<HTMLDivElement>(true);
 
-  const followedKey = cards.find((card) => card.task.id === followedTask() && card.key)?.key ?? null;
+  const following = followedTask();
+  const followedKey = cards.find((card) => card.task.id === following?.taskId && card.key && card.key !== following.leaving)?.key ?? null;
   useEffect(() => {
     if (!followedKey) return;
     followTask(null);

@@ -1,7 +1,7 @@
 import { chatKey } from "@milagre/shared/agent-runs";
 import { qualifyKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns } from "@milagre/shared/agent-runs";
-import { autopilotPending, boardColumn, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
+import { autopilotPending, boardColumn, taskLimitText, type BoardColumn, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { subchatState, type SubchatKind } from "@milagre/shared/subchat-states";
 import type { AgentSession } from "../model";
 
@@ -50,9 +50,10 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
   const run = key ? runs[key] : undefined;
   const state = subchatState({ key: key ?? task.id, title: task.title, session: session ?? {}, run }, now);
   const autopilot = state.kind === "needs-you" ? autopilotPending(task, run, now) : null;
+  const limit = run ? null : taskLimitText(task, new Date(now));
   const column = boardColumn({
     done: Boolean(session?.done_at || session?.archived),
-    needsYou: state.kind === "needs-you" && !autopilot,
+    needsYou: (state.kind === "needs-you" && !autopilot) || state.kind === "failed" || Boolean(limit),
     pullRequest: session?.summary?.pullRequests?.length ? "open" : null,
     finished: !run && Boolean(session?.summary?.lastOutcome) && session?.summary?.lastOutcome !== "failed",
   });
@@ -64,7 +65,7 @@ function taskCard(task: OrchestratorTask, states: SessionStates, runs: AgentRuns
     session,
     run,
     state: autopilot ? "working" : state.kind,
-    detail: autopilot ? `Answering for you in a moment: ${autopilot.summary}` : state.detail,
+    detail: autopilot ? `Answering for you in a moment: ${autopilot.summary}` : (limit ?? state.detail),
     inSidebar: session ? !session.orchestrator?.hidden : false,
   };
 }

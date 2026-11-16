@@ -85,6 +85,7 @@ function ComputersGroup({ settings, save }: { settings: Settings; save: (patch: 
       })
       .catch(() => setComputers([]));
   }, []);
+  if (computers?.length === 0) return null;
   return (
     <Group title="Computers">
       <Row
@@ -112,7 +113,6 @@ function ComputersGroup({ settings, save }: { settings: Settings; save: (patch: 
           />
         </div>
       ))}
-      {computers?.length === 0 && <p className="px-4 py-3 text-12 text-ink-3">No other computers are paired. Add one in Settings › Phone & sharing.</p>}
     </Group>
   );
 }
@@ -172,10 +172,10 @@ function OrchestratorForm({
       </Group>
       <div data-orchestrator-options inert={!settings.enabled} className={`transition-opacity duration-base ${settings.enabled ? "" : "opacity-40"}`}>
         <Group title="Mascot and shortcut">
-          <Row label="Name" description="What the sidebar row and the page call it">
+          <Row label="Name" description="What the sidebar row and the page call it, up to 40 characters">
             <NameField key={settings.name} name={settings.name} onSave={(name) => save({ name })} />
           </Row>
-          <Row label="Color" description="Pebble, made with Open Bot Avatar">
+          <Row label="Color" description="The color of Pebble, the mascot">
             <div role="radiogroup" aria-label="Mascot color" className="flex gap-2.5">
               {MASCOT_COLORS.map((color) => (
                 <button
@@ -203,7 +203,7 @@ function OrchestratorForm({
           </Row>
         </Group>
         <Group title="Routing">
-          <Row label="Router model" description="Reads your prompt and the Project hints">
+          <Row label="Router model" description="Reads your prompt, your kept notes and the Project hints, on your own account">
             <Select
               label="Router model"
               width={280}
