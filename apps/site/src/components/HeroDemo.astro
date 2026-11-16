@@ -12,22 +12,22 @@
     <div class="lights"><i></i><i></i><i></i></div>
   </div>
   <div class="phone">
-    <video class="phone-video" muted playsinline preload="auto" data-phone></video>
+    <video class="phone-video" poster="/demo/phone.webp" muted playsinline preload="none" data-phone></video>
   </div>
 </div>
 <script is:inline>
   // Set while the page parses, so each device downloads only its own take: the Android or iPhone recording, and the Mac
-  // window's poster and video only where the Mac window shows.
+  // window's poster only where the Mac window shows. Video buffering waits until play() after first paint so the MP4
+  // stream does not compete with the poster image and fonts.
   (() => {
     const demo = document.currentScript.previousElementSibling;
     const take = document.documentElement.dataset.platform === "android" ? "android" : "phone";
     const phone = demo.querySelector("[data-phone]");
-    phone.poster = `/demo/${take}.webp`;
+    if (take !== "phone") phone.poster = `/demo/${take}.webp`;
     phone.src = `/demo/${take}.mp4`;
     if (!matchMedia("(max-width: 700px)").matches) {
       const desktop = demo.querySelector("[data-desktop]");
       desktop.poster = "/demo/desktop.webp";
-      desktop.preload = "auto";
     }
   })();
 </script>
@@ -71,9 +71,21 @@
     const clock = () => (narrow.matches ? phone : desktop);
     const follower = () => (narrow.matches ? null : phone);
 
+    for (const video of [desktop, phone]) {
+      const markReady = () => {
+        if (video.readyState >= 2) video.dataset.ready = "";
+      };
+      video.addEventListener("loadeddata", markReady);
+      video.addEventListener("playing", markReady);
+      markReady();
+    }
+
     const play = () => {
       if (still.matches) return;
-      for (const video of narrow.matches ? [phone] : [desktop, phone]) void video.play().catch(() => {});
+      for (const video of narrow.matches ? [phone] : [desktop, phone]) {
+        if (video.preload === "none") video.preload = "auto";
+        void video.play().catch(() => {});
+      }
     };
     const restart = () => {
       for (const video of [desktop, phone]) video.currentTime = 0;
@@ -109,18 +121,25 @@
   /* Design size: a 1000×625 Mac window with the iPhone overlapping its lower right corner. */
   .demo { position: absolute; top: 0; left: 50%; width: 1220px; height: 700px; transform: translateX(-50%) scale(var(--scale, 1)); transform-origin: top center; }
   .mac { position: absolute; top: 0; left: 0; width: 1000px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 14px; background: oklch(0.2 0.03 258); box-shadow: var(--shadow-window); }
-  .mac-video, .phone-video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .mac-video, .phone-video { display: block; width: 100%; height: 100%; object-fit: cover; background-size: cover; background-position: center; background-repeat: no-repeat; }
+  .mac-video[poster] { background-image: url("/demo/desktop.webp"); }
+  /* Painted behind and over the video element until the first frame decodes, so iOS Safari never shows a blank #0b0b0c screen while the MP4 buffers. */
+  .phone-video { border-radius: 41px; background-image: url("/demo/phone.webp"); }
+  .phone::after { content: ""; position: absolute; inset: 11px; border-radius: 41px; background: url("/demo/phone.webp") center / cover no-repeat; pointer-events: none; }
+  .phone:has([data-ready])::after, .mac:has([data-ready])::after { display: none; }
+  @media (min-width: 701px) {
+    .mac::after { content: ""; position: absolute; inset: 0; background: url("/demo/desktop.webp") center / cover no-repeat; pointer-events: none; }
+  }
   /* macOS draws the app's traffic lights, so the frame adds them where Milagre puts them: 12px buttons from x 24 of the
      1280px window, centred on the bar's icons at y 22. --k scales app pixels to this 1000px window. */
-  .lights { --k: calc(1000 / 1280); position: absolute; top: calc((22 - 6) * var(--k) * 1px); left: calc(24 * var(--k) * 1px); display: flex; gap: calc(8 * var(--k) * 1px); }
+  .lights { --k: calc(1000 / 1280); position: absolute; top: calc((22 - 6) * var(--k) * 1px); left: calc(24 * var(--k) * 1px); z-index: 1; display: flex; gap: calc(8 * var(--k) * 1px); }
   .lights i { width: calc(12 * var(--k) * 1px); height: calc(12 * var(--k) * 1px); border-radius: 50%; background: #ff5f57; }
   .lights i:nth-child(2) { background: #febc2e; }
   .lights i:nth-child(3) { background: #28c840; }
   .phone { position: absolute; right: 0; bottom: 0; width: 290px; aspect-ratio: 1206 / 2622; box-sizing: content-box; padding: 11px; border-radius: 52px; background: #0b0b0c; box-shadow: inset 0 0 0 1.5px oklch(1 0 0 / 0.16), 0 0 0 1px oklch(0 0 0 / 0.5), 0 30px 70px rgb(40 30 70 / 0.35); }
-  .phone-video { border-radius: 41px; }
   /* Android draws its status bar close to the corners, so the screen is less rounded than the iPhone's. */
-  .demo.android .phone { aspect-ratio: 1080 / 2424; border-radius: 28px; }
-  .demo.android .phone-video { border-radius: 17px; }
+  .demo.android .phone, :global(html[data-platform="android"]) .demo .phone { aspect-ratio: 1080 / 2424; border-radius: 28px; }
+  .demo.android .phone-video, :global(html[data-platform="android"]) .demo .phone-video, .demo.android .phone::after, :global(html[data-platform="android"]) .demo .phone::after { border-radius: 17px; background-image: url("/demo/android.webp"); }
 
   /* On a phone-sized screen, the phone alone. */
   @media (max-width: 700px) {
