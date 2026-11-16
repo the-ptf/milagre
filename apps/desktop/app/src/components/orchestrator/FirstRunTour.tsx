@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { useReducedMotion } from "motion/react";
 import { GitMergeIcon, MinusSignIcon, SquareArrowUpRightIcon, Tick02Icon } from "@hugeicons/core-free-icons";
-import { MEMORY_GROUPS, type OrchestratorMemory, type OrchestratorSettings } from "@milagre/shared/orchestrator";
+import { MEMORY_GROUPS, isMemoryImporting, type OrchestratorMemory, type OrchestratorSettings } from "@milagre/shared/orchestrator";
 import { useMotionScale } from "../../lib/ease";
 import { AUTOPILOT_TITLES, GROUP_TITLES } from "../../lib/orchestrator-names";
 import { importMemory, saveMemoryNotes, saveOrchestratorSettings } from "../../lib/orchestrator-store";
@@ -189,16 +190,22 @@ function Bubbles({ t }: { t: number }) {
 }
 
 export function FirstRunTour({ memory, settings, project }: { memory: OrchestratorMemory; settings: OrchestratorSettings; project: string }) {
-  const scale = useMotionScale();
+  const motion = useMotionScale();
+  const scale = useReducedMotion() ? 0 : motion || 1;
   const [t, setT] = useState(0);
   const [reading, setReading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(false);
+  const [imported] = useState(() => memory.importedAt != null && memory.notes.length > 0 && !isMemoryImporting(memory));
   useEffect(() => {
+    if (imported) {
+      setReading(false);
+      return;
+    }
     void importMemory()
       .catch((cause: Error) => setError(`Couldn't read your agents' notes: ${cause.message}`))
       .finally(() => setReading(false));
-  }, []);
+  }, [imported]);
   useEffect(() => {
     if (scale === 0) return;
     const began = performance.now();
@@ -214,9 +221,6 @@ export function FirstRunTour({ memory, settings, project }: { memory: Orchestrat
       : "I answer the small stuff for you. Anything you can't undo waits for you.";
   return (
     <div data-first-run-tour className="relative flex h-full min-h-0 flex-col items-center px-6 pt-14 pb-6">
-      <Button variant="quiet" size={28} className="no-drag absolute top-2 right-0 z-[60]" onClick={() => setSkipped(true)}>
-        Skip tour
-      </Button>
       {scale === 0 || t < 3000 ? (
         <div
           className="flex flex-1 flex-col items-center justify-center gap-4 text-center"
@@ -254,12 +258,9 @@ export function FirstRunTour({ memory, settings, project }: { memory: Orchestrat
           </div>
         </div>
       )}
-      <div className="flex flex-col items-center gap-2.5 pt-4">
-        <span className="flex items-center gap-1.5 text-12 text-ink-3">
-          {reading ? "Reading what your agents already know, on this computer" : "Done reading. Wrapping up the tour…"}
-        </span>
-        <Sources memory={memory} reading={reading} />
-      </div>
+      <Button variant="quiet" size={28} className="no-drag mt-4" onClick={() => setSkipped(true)}>
+        Skip tour
+      </Button>
     </div>
   );
 }

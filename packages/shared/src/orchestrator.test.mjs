@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ORCHESTRATOR_DEFAULTS,
   autopilotDecision,
+  isMemoryImporting,
   boardColumn,
   isIrreversible,
   keywordRoute,
@@ -135,4 +136,11 @@ test("tasks and memory drop malformed entries", () => {
   );
   assert.deepEqual(memory.trust.x, { answered: 2, corrected: 0 });
   assert.equal(titleFromPrompt(""), "New task");
+});
+
+test("a memory read counts as running until it finishes or five minutes pass", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(isMemoryImporting({ importStartedAt: now - 1000, importedAt: null }, now), true);
+  assert.equal(isMemoryImporting({ importStartedAt: now - 1000, importedAt: now - 500 }, now), false);
+  assert.equal(isMemoryImporting({ importStartedAt: now - 6 * 60_000, importedAt: now - 9 * 60_000 }, now), false, "a read cut off by a restart ends");
 });

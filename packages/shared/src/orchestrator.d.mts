@@ -126,7 +126,7 @@ export function normalizeOrchestratorTask(raw: unknown): OrchestratorTask | null
 export function normalizeOrchestratorTasks(raw: unknown): OrchestratorTask[];
 export function normalizeMemoryNote(raw: unknown): OrchestratorMemoryNote | null;
 export function normalizeOrchestratorMemory(raw: unknown): OrchestratorMemory;
-export function isMemoryImporting(memory: OrchestratorMemory | null | undefined): boolean;
+export function isMemoryImporting(memory: OrchestratorMemory | null | undefined, now?: number): boolean;
 export function titleFromPrompt(prompt: string): string;
 export function keywordRoute(
   prompt: string,

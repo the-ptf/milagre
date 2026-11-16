@@ -236,8 +236,12 @@ export function normalizeOrchestratorMemory(raw) {
   };
 }
 
-export function isMemoryImporting(memory) {
-  return memory?.importStartedAt != null && (memory.importedAt == null || memory.importStartedAt > memory.importedAt);
+const IMPORT_STALE_MS = 5 * 60_000;
+
+/** Whether a memory read is under way; one started over five minutes ago was cut off by a restart and counts as over. */
+export function isMemoryImporting(memory, now = Date.now()) {
+  const started = memory?.importStartedAt;
+  return started != null && (memory.importedAt == null || started > memory.importedAt) && now - started < IMPORT_STALE_MS;
 }
 
 export function titleFromPrompt(prompt) {

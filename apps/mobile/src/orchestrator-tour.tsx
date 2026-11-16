@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { ArrowUp01Icon, CheckmarkCircle02Icon, ComputerTerminal01Icon, GitMergeIcon, LockIcon, MinusSignIcon } from "@hugeicons/core-free-icons";
+import { ArrowUp01Icon, CheckmarkCircle02Icon, ComputerTerminal01Icon, GitMergeIcon, MinusSignIcon } from "@hugeicons/core-free-icons";
 import { activeRoles, isMemoryImporting, type OrchestratorMemoryNote, type OrchestratorSnapshot, type OrchestratorTask } from "@milagre/shared/orchestrator";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { Icon, SpinnerRing } from "./icons";
@@ -269,15 +269,17 @@ export function OrchestratorTour({ snapshot, store }: { snapshot: OrchestratorSn
   const reducedMotion = useReducedMotion();
   const motion = useMotionScale();
   const [skipped, setSkipped] = useState(false);
-  const [asked, setAsked] = useState(false);
+  const [imported] = useState(() => snapshot.memory.importedAt != null && snapshot.memory.notes.length > 0 && !isMemoryImporting(snapshot.memory));
+  const [asked, setAsked] = useState(imported);
   const reading = !asked || isMemoryImporting(snapshot.memory);
   const t = useClock(skipped);
   useEffect(() => {
+    if (imported) return;
     void store
       .act("orchestrator:memory:import", [])
       .catch(() => {})
       .finally(() => setAsked(true));
-  }, [store]);
+  }, [store, imported]);
   const summary = skipped || (t >= AT.end && !reading);
   const size = useSharedValue(1);
   const big = t < AT.box;
@@ -317,15 +319,6 @@ export function OrchestratorTour({ snapshot, store }: { snapshot: OrchestratorSn
             ) : (
               <Story t={t} snapshot={snapshot} />
             )}
-          </View>
-          <View style={{ gap: space.md, alignItems: "center" }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-              <Icon icon={LockIcon} tone="ink3" size={12} />
-              <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
-                {reading ? "Reading what your agents already know, on this computer" : "Done reading. Wrapping up the tour…"}
-              </Text>
-            </View>
-            <SourcePills snapshot={snapshot} reading={reading} />
           </View>
         </View>
       )}
