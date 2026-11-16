@@ -1,3 +1,12 @@
+export const ORCHESTRATOR_MASCOT = Object.freeze({
+  version: 1,
+  id: "pebble",
+  name: "Pebble",
+  body: Object.freeze({ path: "M50 18C70 18 88 32 88 54C88 74 72 86 50 86C28 86 12 74 12 54C12 32 30 18 50 18Z" }),
+  eyes: Object.freeze({ x: 50, y: 50, spacing: 18, scale: 1.25 }),
+});
+export const MASCOT_COLORS = Object.freeze(["#ffffff", "#3e9afd", "#3cbb72", "#f68f3c", "#ad46ff", "#ee5c61"]);
+
 export const AUTOPILOT_MODES = Object.freeze(["answer", "ask", "off"]);
 export const COMPUTER_PREFERENCES = Object.freeze(["prefer", "normal", "less", "manual"]);
 export const VETO_SECONDS = Object.freeze([0, 30, 120, 600]);

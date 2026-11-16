@@ -84,6 +84,14 @@ export interface OrchestratorSnapshot {
   memory: OrchestratorMemory;
 }
 
+export const ORCHESTRATOR_MASCOT: {
+  readonly version: 1;
+  readonly id: string;
+  readonly name: string;
+  readonly body: { readonly path: string };
+  readonly eyes: { readonly x: number; readonly y: number; readonly spacing: number; readonly scale: number };
+};
+export const MASCOT_COLORS: readonly string[];
 export const AUTOPILOT_MODES: readonly AutopilotMode[];
 export const COMPUTER_PREFERENCES: readonly ComputerPreference[];
 export const VETO_SECONDS: readonly number[];
