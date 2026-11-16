@@ -50,3 +50,5 @@ More in [development](docs/development.md), the [desktop guide](docs/desktop-gui
 ## Contribute
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and report security issues through [SECURITY.md](SECURITY.md). Released under the [MIT License](LICENSE).
+
+Hugely inspired by [Orca](https://github.com/stablyai/orca), [Paseo](https://github.com/getpaseo/paseo) and [T3 Code](https://github.com/pingdotgg/t3code). Thank you to everyone behind them.
