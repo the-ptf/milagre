@@ -527,6 +527,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           visibleRunChats: () => [],
           watchVisibleRunChats: () => () => {},
         };
+      // The Orchestrator's pinned row reads its own host store; Chat-list tests render none.
+      if (base === "orchestrator-row" && !(id in modules)) return { OrchestratorRow: () => null };
+      if (base === "orchestrator-church-row" && !(id in modules)) return { OrchestratorChurchRow: () => null };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
