@@ -32,6 +32,7 @@ export const SETTINGS_PAGES = {
   worktrees: { title: "Worktrees", needs: "computer" },
   connections: { title: "Integrations", needs: "computer" },
   "babysit-prs": { title: "Babysit PRs", needs: "computer" },
+  "orchestrator-settings": { title: "Orchestrator", needs: "computer" },
   "phone-sharing": { title: "Phone & sharing", needs: "computer" },
   simlock: { title: "Simlock devices", needs: "computer" },
   "this-mac": { title: "This computer", needs: "computer" },
@@ -314,6 +315,29 @@ export const SETTINGS_INDEX: readonly PhoneSettingsEntry[] = [
     keywords: "custom condition instructions",
   },
   { page: "babysit-prs", title: "Reset all to defaults" },
+
+  {
+    page: "orchestrator-settings",
+    title: "Turn on the Orchestrator",
+    keywords: "router one box route prompt project model account subchat board church",
+  },
+  { page: "orchestrator-settings", title: "Mascot color", group: "Mascot", keywords: "pebble avatar" },
+  { page: "orchestrator-settings", title: "Router model", group: "Routing", description: "Reads your prompt and the Project hints" },
+  { page: "orchestrator-settings", title: "When no Project fits", group: "Routing", keywords: "ask me best guess" },
+  { page: "orchestrator-settings", title: "Account", group: "Routing", keywords: "least used today project's account limit" },
+  { page: "orchestrator-settings", title: "Use other computers", group: "Computers", keywords: "load balancing room cpu memory" },
+  { page: "orchestrator-settings", title: "Answer threads for me", group: "Autopilot", keywords: "autopilot ask me first off approvals questions" },
+  {
+    page: "orchestrator-settings",
+    title: "Time to veto",
+    group: "Autopilot",
+    description: "When it isn't sure, it waits this long before answering so you can step in",
+  },
+  { page: "orchestrator-settings", title: "Read again", group: "Memory", keywords: "import notes claude code codex antigravity kiro" },
+  { page: "orchestrator-settings", title: "Forget everything", group: "Memory", keywords: "memory notes reset" },
+  { page: "orchestrator-settings", title: "Keep Orchestrator Subchats out of the sidebar", group: "Board", keywords: "hide task chats" },
+  { page: "orchestrator-settings", title: "Notify me when a task needs me", group: "Board", keywords: "push alerts" },
+  { page: "orchestrator-settings", title: "Show the board", group: "Board", keywords: "collapse hide running needs you in review done" },
 
   {
     page: "simlock",
