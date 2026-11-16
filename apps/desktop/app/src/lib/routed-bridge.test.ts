@@ -59,7 +59,7 @@ const ALLOWED: Record<string, string[]> = {
   ],
   "lib/orchestrator-names.ts": ["readOrchestratorProjects", "listAccounts", "onAccountsChanged"],
   "components/settings/OrchestratorSettings.tsx": ["readOrchestratorComputers"],
-  "components/settings/OrchestratorRolesSettings.tsx": ["readOrchestratorProjects"],
+  "components/settings/OrchestratorProjectsSettings.tsx": ["readOrchestratorProjects"],
   "app/useAppShortcuts.ts": ["onAppShortcut"],
   "app/StartupScreens.tsx": ["restartHost", "retryQuit"],
   "app/useModelSelection.ts": ["onAccountsChanged", "updateCli"],
