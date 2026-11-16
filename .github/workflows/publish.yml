@@ -338,6 +338,13 @@ jobs:
           pattern: installers-*
           merge-multiple: true
           path: release
+      - name: Collect macOS feeds
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: macos-feed-*
+          path: ${{ runner.temp }}/feeds
+      - name: Merge the macOS feed
+        run: node scripts/merge-mac-feeds.cjs "$RUNNER_TEMP/feeds/macos-feed-x64" "$RUNNER_TEMP/feeds/macos-feed-arm64" release
       - name: Collect release notes
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

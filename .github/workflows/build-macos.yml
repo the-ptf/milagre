@@ -1,5 +1,5 @@
-# Signed macOS build for the Publish workflow. Each architecture builds and notarizes in its own job; they stage
-# installers-macos-<arch> and the merged feed as installers-macos-feed for Publish to upload.
+# Signed macOS build for the Publish workflow. Each architecture builds and notarizes in its own job and stages
+# installers-macos-<arch> plus its own feed as macos-feed-<arch>; Publish merges the feeds and uploads.
 name: Build macOS
 on:
   workflow_call:
@@ -163,33 +163,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-feed-${{ matrix.arch }}
-          path: |-
-            release/latest-mac.yml
-            release/beta-mac.yml
-          if-no-files-found: error
-  merge-feed:
-    needs: package-macos
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 26
-          cache: npm
-      - name: Install metadata dependencies
-        run: npm ci --ignore-scripts
-      - name: Collect the architecture feeds
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: macos-feed-*
-          path: feeds
-      - name: Merge the macOS feed
-        run: node scripts/merge-mac-feeds.cjs feeds/macos-feed-x64 feeds/macos-feed-arm64 release
-      - name: Stage the merged feed
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: installers-macos-feed
           path: |-
             release/latest-mac.yml
             release/beta-mac.yml

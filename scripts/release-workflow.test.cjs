@@ -148,7 +148,6 @@ test("each architecture builds in parallel and notarizes once, as a disk image",
   assert.match(build.run, /--"\$\{ARCH\}"/);
   assert.match(build.run, /--config\.mac\.notarize=false/, "electron-builder's app submission would double the Apple wait");
   assert.equal(job.steps.find((step) => step.name === "Exercise signed macOS app").if, "matrix.arch == 'arm64'");
-  assert.deepEqual(buildWorkflow.jobs["merge-feed"].needs, "package-macos");
   const tools = job.steps.find((step) => step.name === "Check out this workflow's release scripts");
   assert.equal(tools.with.ref, undefined, "a stable rebuilds an older commit whose scripts may predate this workflow");
   for (const name of ["Notarize and staple the disk image and app", "Refresh feed after DMG notarization"])
@@ -281,8 +280,9 @@ test("the macOS build stages its installers on the channel Publish asks for and 
     steps.filter((step) => step.uses?.startsWith("actions/upload-artifact")).map((step) => step.with.name),
     ["installers-macos-${{ matrix.arch }}", "macos-feed-${{ matrix.arch }}"],
   );
-  assert.equal(buildWorkflow.jobs["merge-feed"].steps.at(-1).with.name, "installers-macos-feed");
+  const publishSteps = publishWorkflow.jobs.publish.steps.map((step) => step.name);
   assert.equal(publishWorkflow.jobs.publish.steps.find((step) => step.name === "Collect installers").with.pattern, "installers-*");
+  assert.ok(publishSteps.indexOf("Merge the macOS feed") < publishSteps.indexOf("Publish the release"), "the merged feed is checked before upload");
   const build = steps.find((step) => step.name === "Build macOS installers");
   assert.match(build.run, /--config\.publish\.channel="\$\{CHANNEL\}"/);
   assert.doesNotMatch(build.run, /generateUpdatesFilesForAllChannels/, "the flag does nothing for the github provider");
