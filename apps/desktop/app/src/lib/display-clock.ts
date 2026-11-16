@@ -22,13 +22,11 @@ function clockFor(intervalMs: number) {
 
 export function useDisplayNow(intervalMs: number, enabled = true) {
   const clock = clockFor(intervalMs);
-  // An inactive reader may mount long after the shared clock last had a subscriber.
   const [mountedAt] = useState(() => Date.now());
   const now = useSyncExternalStore(enabled ? clock.subscribe : NO_CLOCK, clock.snapshot);
   return Math.max(now, mountedAt);
 }
 
-/** Subscribe to the label so unchanged clock ticks do not render a frame. */
 export function useDisplayValue<T extends string | number>(intervalMs: number, compute: (now: number) => T, enabled = true) {
   const clock = clockFor(intervalMs);
   return useSyncExternalStore(enabled ? clock.subscribe : NO_CLOCK, () => compute(clock.snapshot()));

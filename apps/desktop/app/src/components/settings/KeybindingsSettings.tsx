@@ -34,17 +34,11 @@ import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { Group, Row } from "./SettingsGroup";
 
-// Settings › Keybindings, as T3 Code has it: the rules of a computer's keybindings.json, edited on one computer or on all
-// of them at once. A key is recorded by pressing it; one another command already has asks before taking it over.
-
 const ALL = "all";
-/** This window's Advanced switch: conditions (`when`) are edited only while it is on. */
 const ADVANCED_KEY = "milagre.keybindings.advanced";
 const GROUPS = ["General", "Navigation", "Chat", "Panels"] as const;
 type Edit = Array<{ command: KeybindingCommandId; rules: Array<{ key: string; when?: string }> }>;
-/** The key being recorded: a rule of a command, or a new one (`index` -1). */
 type Recording = { command: KeybindingCommandId; index: number };
-/** A recorded key waiting on the user: it needs a modifier, or another command has it. */
 type Pending = Recording & { key: string; conflicts: KeybindingCommandId[]; error?: string };
 
 const label = (key: string) => keyLabelFor(key, isMac) ?? key;
@@ -52,7 +46,6 @@ const title = (command: KeybindingCommandId) => keybindingCommand(command)?.titl
 const own = (rules: readonly KeybindingRule[], command: KeybindingCommandId) =>
   rules.filter((rule) => rule.command === command).map(({ key, when }) => (when ? { key, when } : { key }));
 
-/** A computer's keybindings, live: this Mac's from the shared store, a paired one's read through its bridge. */
 function useComputerKeybindings(computerId: string): { state: KeybindingsState | null; error: string | null } {
   const local = useKeybindings();
   const [remote, setRemote] = useState<{ id: string; state: KeybindingsState | null; error: string | null }>({ id: "", state: null, error: null });
@@ -98,7 +91,6 @@ export function KeybindingsSettings() {
   const [confirmReset, setConfirmReset] = useState(false);
   const rules = state?.rules ?? [];
 
-  // Applies an edit, worked out from each computer's own rules, on every computer in scope.
   async function apply(edit: (rules: readonly KeybindingRule[]) => Edit) {
     const results = await Promise.allSettled(
       targets.map(async (id) => {
@@ -115,7 +107,6 @@ export function KeybindingsSettings() {
     );
   }
 
-  /** Puts `key` on the recorded rule, taking it from `take` first. */
   function save({ command, index, key }: Recording & { key: string }, take: KeybindingCommandId[] = []) {
     setPending(null);
     setRecording(null);
@@ -160,8 +151,6 @@ export function KeybindingsSettings() {
     );
   }
 
-  // While a key is recorded every press goes here first, so the app's own shortcuts don't run. Escape stops; Backspace
-  // or Delete takes the key off.
   useEffect(() => {
     if (!recording) return;
     const onKey = (event: KeyboardEvent) => {
@@ -373,9 +362,7 @@ function CommandRow({
   command: KeybindingCommand;
   rules: Array<{ key: string; when?: string }>;
   customized: boolean;
-  /** Settings' Advanced switch: shows When and the condition fields. */
   advanced: boolean;
-  /** The rule being recorded, -1 for a new one; null while none is. */
   recording: number | null;
   pending: Pending | null;
   onRecord: (index: number) => void;
@@ -419,7 +406,6 @@ function CommandRow({
               type="button"
               data-keybinding-conditions
               aria-expanded={editing}
-              // A disclosure toggle: hover-2 and ink while open.
               className="h-6 rounded-control px-2 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink aria-expanded:bg-hover-2 aria-expanded:text-ink"
               onClick={() => setEditing((value) => !value)}
             >
@@ -518,9 +504,7 @@ function KeyChip({
   );
 }
 
-/** A rule's condition, saved on Enter or leaving the field, once it reads. */
 function WhenField({ rule, onChange }: { rule: { key: string; when?: string }; onChange: (when: string) => void }) {
-  // Keyed by the saved condition, so a change from elsewhere starts the field over.
   const saved = rule.when ?? "";
   const [draft, setDraft] = useState(saved);
   const tree = draft.trim() ? parseWhen(draft) : null;

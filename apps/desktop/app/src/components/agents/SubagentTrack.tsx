@@ -50,7 +50,6 @@ const chipIcons: Record<ToolCategory, typeof CommandLineIcon> = {
   edits: PencilEdit01Icon,
   other: WrenchIcon,
 };
-// What the panel calls "now" when the latest activity is only a phase, not a tool call.
 const PHASES = new Set(["Responding", "Thinking", "Finished"]);
 
 const entries = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
@@ -76,7 +75,6 @@ function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?:
   );
 }
 
-/** A QA persona's face (qa-personas.ts): a solid blob with white eyes, the same in light and dark. */
 function PersonaAvatar({ persona, size, overlap }: { persona: QaPersona; size: number; overlap?: boolean }) {
   return (
     <svg
@@ -102,7 +100,6 @@ function QaTag({ persona }: { persona: QaPersona }) {
   );
 }
 
-/** Who the persona plays, above its plan: on its own colour, so it reads the same in light and dark. */
 function PersonaCard({ persona }: { persona: QaPersona }) {
   return (
     <section data-qa-persona-card className="flex flex-col gap-2 rounded-card p-3" style={{ background: persona.tint, color: persona.ink }}>
@@ -129,7 +126,6 @@ function PersonaCard({ persona }: { persona: QaPersona }) {
 function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   if (subagentActive(agent)) return <SpinnerRing size={12} />;
   if (agent.status === "failed") return <Icon icon={AlertCircleIcon} size={14} />;
-  // A finished one shows whose it is: a Chat's subagents can run on another provider (advisors, Antigravity).
   return <ProviderLogo provider={agent.provider ?? provider} size={14} />;
 }
 
@@ -159,7 +155,6 @@ function ToolChips({ counts }: { counts?: SubagentStep["tools"] }) {
   );
 }
 
-/** What it says now and the tool it runs, under the current item or step. */
 function NowLines({ said, tool }: { said?: string; tool?: string }) {
   return (
     <>
@@ -173,7 +168,6 @@ function NowLines({ said, tool }: { said?: string; tool?: string }) {
   );
 }
 
-/** The subagent's own to-do list, as the Tasks popover draws a Chat's: the current item carries what it does now. */
 function PlanList({ tasks, said, tool }: { tasks: AgentTask[]; said?: string; tool?: string }) {
   const counts = planCounts(tasks)!;
   return (
@@ -221,7 +215,6 @@ function PlanList({ tasks, said, tool }: { tasks: AgentTask[]; said?: string; to
   );
 }
 
-/** What it said, step by step, with the tool calls after each counted. */
 function StepList({ steps, title }: { steps: SubagentStep[]; title: string }) {
   if (!steps.length) return null;
   return (
@@ -246,7 +239,6 @@ function StepList({ steps, title }: { steps: SubagentStep[]; title: string }) {
   );
 }
 
-/** Text clamped to a few lines, with Show all when it doesn't fit. */
 function Clamped({ children, lines, label }: { children: ReactNode; lines: 2 | 6; label: string }) {
   const [open, setOpen] = useState(false);
   const [clipped, setClipped] = useState(false);
@@ -279,20 +271,12 @@ function Clamped({ children, lines, label }: { children: ReactNode; lines: 2 | 6
   );
 }
 
-/**
- * One subagent at a glance: its own plan (or, without one, what it said step by step), what it does now, its task and
- * outcome. The whole transcript sits behind Full log.
- */
 export const SubagentDetail = memo(function SubagentDetail({
   chatKey,
   agent: sent,
   onStop,
   onRetry,
 }: {
-  /**
-   * The Chat the subagent belongs to, to read what the host leaves out: the start of its transcript, or all but the
-   * summary of an archived one.
-   */
   chatKey?: string | null;
   agent: Subagent;
   onStop?: (id: string) => void;
@@ -307,7 +291,6 @@ export const SubagentDetail = memo(function SubagentDetail({
   const said = agent.progress?.said ?? current?.said;
   const latest = agent.latestActivity && !PHASES.has(agent.latestActivity) ? agent.latestActivity : current?.lastTool;
   const tool = running && latest ? plainTitle(latest) : undefined;
-  // Its final answer; else the last activity a finished provider reported, when it is more than a phase.
   const result =
     transcript.findLast((entry) => entry.kind === "message" && (entry.id === "result" || entry.id === "summary"))?.text ??
     (agent.latestActivity && !PHASES.has(agent.latestActivity) ? agent.latestActivity : undefined);
@@ -402,11 +385,9 @@ export const SubagentDetail = memo(function SubagentDetail({
   );
 });
 
-/** A list row: status, title, time, what it says now (or its outcome), and how far it got. */
 function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: ModelProvider; now: number }) {
   const running = subagentActive(agent);
   const counts = planCounts(agent.tasks);
-  // A subagent saved before the host kept its totals still has the tail of its transcript.
   const said = agent.progress?.said ?? lastSaid(subagentSteps(agent.transcript));
   const line = running ? (said ?? subagentActivityLabel(agent)) : (subagentOutcome(agent.transcript) ?? said ?? subagentActivityLabel(agent));
   const meta = [
@@ -451,7 +432,6 @@ function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: Mode
   );
 }
 
-/** A "Subagents n" pill that grows in place into their list (see PillMorph). Archiving affects views, not provider execution. */
 export function SubagentTrack({
   chatKey,
   agents,
@@ -479,7 +459,6 @@ export function SubagentTrack({
   const running = visible.filter(subagentActive).length;
   const done = visible.filter(subagentFinished).length;
   const now = useDisplayNow(1000, opened && rows.some(subagentActive));
-  // The QA fleet's personas come first, under their own header (qa-personas.ts).
   const { fleet, others } = qaFleetFirst(rows);
   const row = (agent: Subagent) => (
     <li

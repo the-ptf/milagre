@@ -13,7 +13,6 @@ import { useControlsClearance, useWindowChrome } from "../../lib/window-chrome";
  * drag region from every element with an app-region in tree order (drag adds, no-drag subtracts), so only the button
  * groups opt out: the empty stretch between them keeps dragging the window.
  */
-/** `send` is the diff comments waiting to go to the chat; the button is there while any can. */
 export function DiffBar({
   open,
   onBack,
@@ -24,11 +23,9 @@ export function DiffBar({
 }: {
   open: boolean;
   onBack: () => void;
-  /** Where Back goes, as a breadcrumb in the Chat title's place: the Chat's title over a Chat's diff. */
   label?: string;
   send?: { count: number; onSend: () => void };
   trailing?: React.ReactNode;
-  /** Width (px) of the corner toggles top right, which the trailing controls keep clear of. */
   corner?: number;
 }) {
   const reduced = useReducedMotion();
@@ -48,7 +45,6 @@ export function DiffBar({
           transition={reduced ? { duration: 0 } : { duration: DURATION.base, ease: EASE_OUT }}
         >
           <div className="no-drag flex items-center gap-2">
-            {/* A 28px ghost breadcrumb where the Chat's title sits (ChatIdentity): "← <Chat title>". */}
             <Tooltip label={label === "Back" ? "Back" : `Back to ${label}`} side="bottom" align="start" asChild>
               <button
                 type="button"
@@ -88,7 +84,6 @@ export function DiffBar({
   );
 }
 
-/** Top-right window button; sits inside the drag strip, so it opts out of dragging. */
 export function ChangesToggle({ open, onToggle, offset = 0 }: { open: boolean; onToggle: () => void; offset?: number }) {
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("changes.toggle");
@@ -101,7 +96,6 @@ export function ChangesToggle({ open, onToggle, offset = 0 }: { open: boolean; o
   );
 }
 
-/** The corner's last button, at its far right: opens the canvas, or goes back from it. `offset` is how many corner buttons sit right of it. */
 export function CanvasButton({ active, offset = 0, onToggle }: { active: boolean; offset?: number; onToggle: () => void }) {
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("canvas.open");

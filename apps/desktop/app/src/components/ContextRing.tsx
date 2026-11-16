@@ -17,11 +17,6 @@ const CLOSE_DELAY_MS = 150;
 
 type Position = { left: number; bottom: number };
 
-/**
- * The context percentage and its usage popover, beside Send.
- * Hover, focus or click opens a card above it with the numbers, styled like the plan usage card. On a Claude chat the
- * card offers Compact now (`onCompact`), which sends `/compact`; `compactBlocked` says why it can't right now.
- */
 export function ContextRing({
   onCompact,
   compactBlocked = null,
@@ -72,7 +67,6 @@ export function ContextRing({
 
   useEffect(() => {
     if (!position) return;
-    // Capture runs before App's window-level Escape handler, which cancels the running agent.
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -98,7 +92,6 @@ export function ContextRing({
           if (event.currentTarget.matches(":focus-visible")) show();
         }}
         onBlur={(event) => {
-          // Focus moving into the card (its Compact now button) keeps it open.
           if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-context-card]"))) hide();
         }}
         onClick={() => (position ? hide() : show())}

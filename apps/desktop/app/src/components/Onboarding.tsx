@@ -32,19 +32,15 @@ import { bridgeFor } from "../lib/computer-bridge";
 
 const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
 
-// The footer's quiet button pulls left by its padding, so its label lines up with the content's left edge.
 const QUIET_EDGE = "-ml-3";
 
-/** ~/Code/web for /Users/me/Code/web (~\Code\web for C:\Users\me\Code\web), so a path reads the way people say it. */
 function homePath(folder: string) {
   return folder.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~").replace(/^[a-z]:\\Users\\[^\\]+(?=\\|$)/i, "~");
 }
 
-// Where Start from scratch makes the folder (onboarding-projects.cjs: <home>/Code).
 const CODE_FOLDER = isWindows ? "~\\Code" : "~/Code";
 const inCode = (name: string) => `${CODE_FOLDER}${isWindows ? "\\" : "/"}${name}`;
 
-/** "today", "yesterday", "3 days ago", "last week", or the date. */
 function lastUsedLabel(iso: string, now = new Date()) {
   const days = Math.floor((new Date(now.toDateString()).getTime() - new Date(new Date(iso).toDateString()).getTime()) / 86_400_000);
   if (days <= 0) return "today";
@@ -56,7 +52,6 @@ function lastUsedLabel(iso: string, now = new Date()) {
 
 const STEPS = ["Agent", "Project", "First Chat"] as const;
 
-/** Where the user is: numbered steps, done ones outlined, the current one filled. The third is the app's first Chat. */
 function Steps({ step }: { step: 1 | 2 }) {
   return (
     <ol data-onboarding-steps className="flex items-center gap-2.5 text-13 font-medium text-ink-3" aria-label={`Step ${step} of ${STEPS.length}`}>
@@ -117,7 +112,6 @@ function agentRows(status: AgentCliStatus | null, accounts: AccountsSnapshot | n
       return { provider, state: "missing", detail: cli.state === "broken" ? "Installed, but it doesn't start" : `Not found on ${thisComputer}` };
     if (cli.state === "outdated") return { provider, state: "outdated", detail: "Installed · needs an update" };
     if (account?.state === "signing-in") return { provider, state: "signing-in", detail: "Finish signing in in your browser", accountId: account.id };
-    // An account that couldn't be checked, or whose sign-in failed, is no sign-in: its message says why.
     if (cli.state === "logged-out" || account?.state === "signed-out" || account?.state === "error")
       return {
         provider,
@@ -135,13 +129,11 @@ const SELF_INSTALLED: Partial<Record<ModelProvider, { install?: string; update: 
   kiro: { install: isMac ? "brew install --cask kiro-cli" : undefined, update: "kiro-cli update", site: "https://kiro.dev" },
 };
 
-/** Step 1: the agents on this Mac, each ready, waiting for a sign-in, or not installed (design onboarding-agent). */
 function AgentStep({ onNext }: { onNext: () => void }) {
   const [status, setStatus] = useState<AgentCliStatus | null>(null);
   const [accounts, setAccounts] = useState<AccountsSnapshot | null>(null);
   const [working, setWorking] = useState<ModelProvider | null>(null);
   const [error, setError] = useState("");
-  // The self-installed agent whose command was just copied; the list checks again when the window comes back.
   const [copied, setCopied] = useState<ModelProvider | null>(null);
   const load = useCallback(async () => {
     const [nextStatus, nextAccounts] = await Promise.all([window.milagre.getCliStatus().catch(() => null), window.milagre.listAccounts().catch(() => null)]);
@@ -273,7 +265,6 @@ function AgentStep({ onNext }: { onNext: () => void }) {
   );
 }
 
-/** A self-installed agent's action: copy its terminal command, or (no command for this platform) open its site. */
 function SelfInstallAction({
   name,
   command,
@@ -307,14 +298,12 @@ function SelfInstallAction({
 
 type Form = { kind: "clone" | "create"; value: string } | null;
 
-/** Step 2: open, clone or start a Project, or pick a folder an agent worked in (designs onboarding-project and onboarding-git). */
 function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpened: (project: OpenProject) => void; onSkip: () => void }) {
   const [folders, setFolders] = useState<AgentFolder[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // A folder with repositories inside asks which to add first, as Add Project does.
   const openFolder = useOpenFolder(onOpened);
   useEffect(() => {
     let live = true;
@@ -389,7 +378,6 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
       {form && (
         <form
           data-onboarding-form={form.kind}
-          // The card is the field: its edge turns accent while the input inside is focused, suffix and buttons included.
           className="-mt-2 flex items-center gap-2 rounded-card border border-line bg-surface p-2 pl-3 transition-colors"
           onSubmit={(event) => {
             event.preventDefault();
@@ -505,7 +493,6 @@ function ProjectStep({ onBack, onOpened, onSkip }: { onBack: () => void; onOpene
   );
 }
 
-// Set once the intro has played, been skipped, or found a returning user, so it plays on a first launch only.
 const INTRO_SEEN = "milagre.onboardingIntroSeen";
 
 /** The light behind the steps: a faint wash of the intro's day over the page, thinning as the steps go on (styles.css). */
@@ -518,14 +505,7 @@ function OnboardingSky({ step }: { step: 1 | 2 }) {
   );
 }
 
-/**
- * First launch with no Project to open (designs in the Onboarding · Desktop group): on the very first launch the Dawn
- * intro, then the agent, then a Project. The third step is the app itself, whose first Chat offers starter tasks (see
- * FirstChatStarters).
- */
 export function Onboarding({ onOpened, onSkip, splash }: { onOpened: (project: OpenProject) => void; onSkip: () => void; splash?: ReactNode }) {
-  // The intro is for a new user only. Onboarding also shows to people who have used Milagre and simply have no Project
-  // open now (every one they opened was moved or deleted); they skip it.
   const [intro, setIntro] = useState<boolean | "checking">(() => (localStorage.getItem(INTRO_SEEN) ? false : "checking"));
   const [introShown, setIntroShown] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
@@ -533,8 +513,6 @@ export function Onboarding({ onOpened, onSkip, splash }: { onOpened: (project: O
     if (intro !== "checking") return;
     let live = true;
     const check = async () => {
-      // A Project opened before (even one whose folder is gone) or a Project the computer knows now means a returning
-      // user; so does a failed check.
       const firstLaunch =
         !window.milagreLaunch?.openedProjectsBefore &&
         (await window.milagre.listProjects().then(
@@ -583,7 +561,6 @@ export function Onboarding({ onOpened, onSkip, splash }: { onOpened: (project: O
 
 export type Starter = { id: string; label: string; prompt: string; onPick: () => void };
 
-/** The first Chat's starter tasks for a Project named `name` (design onboarding-first-chat). */
 export function firstChatStarters(name: string): Omit<Starter, "onPick">[] {
   return [
     {

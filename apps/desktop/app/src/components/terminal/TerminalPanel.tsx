@@ -38,11 +38,6 @@ import { AnimatePresence } from "motion/react";
 import { TerminalMenu } from "./TerminalMenu";
 import { TerminalSlide } from "./TerminalSlide";
 
-/**
- * The open Chat's Terminals, under its messages: one tab per Terminal, the shown one below. ⌘T adds one, ⌘J hides the
- * panel and ⌘W ends the focused Terminal; ending one that runs a command asks first. The panel's height is shared by
- * every Chat; whether it shows is each Chat's own.
- */
 export function TerminalPanel({ chatId, places, notify }: { chatId: string | null; places?: TerminalPlace[]; notify: (message: string) => void }) {
   const { rules } = useKeybindings();
   const { terminals, active, open, picking } = useChatTerminals(chatId);
@@ -51,7 +46,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
   const body = useRef<HTMLDivElement>(null);
   const plus = useRef<HTMLDivElement>(null);
   const bodyId = useId();
-  // A confirmation is for the Terminal it was asked about, while that Terminal is the one shown.
   const [asked, setArmed] = useState<string | null>(null);
   const armed = asked === active ? asked : null;
   const shown = terminals.find((terminal) => terminal.id === active) ?? null;
@@ -72,9 +66,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
       try {
         const next = await bridgeForKey(chatId).terminals.profiles();
         if (!disposed && revision === profileRevision.current) setProfiles(next);
-      } catch {
-        /* Older computers have no shell selector. */
-      }
+      } catch {}
     };
     void load();
     const timer = setInterval(load, 5000);
@@ -96,7 +88,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
       if (revision === profileRevision.current) setSavingShell(false);
     }
   }
-  // The corner button (⌘J) is offered for every sent Chat, even one with no Terminal yet: it opens the first.
   useSidePanel("terminal", chatId ? { open, toggle: () => toggleTerminalPanel(chatId, places, notify) } : null);
 
   // Only the shown Terminal's id matters here: a new title or busy state must not move or refit its xterm.
@@ -114,7 +105,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
     const container = body.current;
     if (!open || !current || !container) return;
     let cancelled = false;
-    // Loaded already, this lands before the frame paints.
     loadTerminalView()
       .then(({ attachTerminal }) => {
         if (cancelled) return;
@@ -147,7 +137,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
     setArmed(null);
     const refocus = terminalHasFocus(terminal.id);
     void closeTerminal(terminal).then(() => {
-      // The list has been read again: focus moves to the Terminal shown now, if the closed one had it.
       const next = chatTerminals(terminal.chatId).active;
       if (refocus && next) requestAnimationFrame(() => focusTerminal(next));
       return undefined;
@@ -162,16 +151,13 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
           close(focused);
           return;
         }
-        // The focused Terminal left the window without a blur (another Chat took its place): ⌘W is the window's again.
         window.milagre.setTerminalFocused(false);
         window.close();
       }),
     [terminals, close],
   );
 
-  // The choice opens with its first Worktree focused, so Enter takes it.
   useEffect(() => {
-    // The panel is still rising from zero height; focusing its first row must not scroll the surrounding Chat.
     if (picking) requestAnimationFrame(() => plus.current?.querySelector<HTMLButtonElement>("[data-picker-row]")?.focus({ preventScroll: true }));
   }, [picking]);
 
@@ -180,7 +166,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
     () => chatId && setTerminalPicking(chatId, false),
     (target) => Boolean(plus.current?.contains(target)),
     // CSS keeps this picker attached to +. Opening the panel resizes and scrolls the Chat above it,
-    // so those scrolls must follow the anchor rather than dismiss the Worktree choice.
     () => {},
   );
 
@@ -213,8 +198,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
     });
   }
 
-  // One key for every Chat: moving between two Chats with the panel shown keeps it in place; it rises and falls only
-  // when it opens or closes. Closing, the panel goes on showing what it showed until it has fallen.
   return (
     <AnimatePresence>
       {chatId && open && (
@@ -238,7 +221,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                   const selected = terminal.id === active;
                   const asking = armed === terminal.id;
                   return (
-                    // The Tabs look (ink-2 at rest, hover fill, hover-2 selected), with each tab's close button inside it.
                     <div
                       key={terminal.id}
                       className={`group flex h-7 min-w-0 max-w-[200px] shrink items-center rounded-control text-12 font-medium transition-colors ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
@@ -261,7 +243,6 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                         {multiple && <span className="truncate text-11 text-ink-3">{terminal.label}</span>}
                       </button>
                       {asking ? (
-                        // Focus stays in the Terminal, so a second ⌘W confirms.
                         <Button variant="danger" size={24} onClick={() => close(terminal)} className="mr-0.5">
                           End {terminal.title}
                         </Button>

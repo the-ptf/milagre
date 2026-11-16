@@ -6,21 +6,12 @@ import { Button } from "./primitives/Button";
 import { Dialog } from "./primitives/Dialog";
 import { InlineError } from "./primitives/InlineError";
 
-/**
- * Asks this Mac's owner whether a computer pairing for the first time may drive it (spec "Allowing a new computer").
- * The daemon holds that computer's channel until Allow or Deny; two at once are asked oldest first. Escape answers
- * Deny at once, the choice that can't give anything away; the buttons wait ARM_MS after each new request. Not behind Settings › Phone & sharing › Other computers: the computer asking has the flag
- * on, this Mac may not.
- */
-// A request's buttons stay off this long after it appears, so the second click of a double-click on the one before can't allow it unread.
 const ARM_MS = 500;
 
 export function ComputerAllowPrompt() {
   const [requests, setRequests] = useState<PendingComputer[]>([]);
   const [busy, setBusy] = useState(false);
-  // Tied to the request it came from, so it goes with that request.
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
-  // How many devices:pending events arrived. The event is the newer word: an answer's own reply that lands after one is stale.
   const heardCount = useRef(0);
   useEffect(() => {
     let live = true;
@@ -28,7 +19,6 @@ export function ComputerAllowPrompt() {
       heardCount.current += 1;
       setRequests(Array.isArray(payload?.requests) ? payload.requests : []);
     });
-    // A host from before Allow has no devices:pending; nothing ever asks there.
     void (async () => {
       try {
         const list = await window.milagre.listPendingDevices();
@@ -41,7 +31,6 @@ export function ComputerAllowPrompt() {
     };
   }, []);
   const request = requests[0];
-  // The key of the request whose buttons work; any other request has just appeared.
   const [armedKey, setArmedKey] = useState<string | null>(null);
   const requestKey = request?.key;
   useEffect(() => {
@@ -62,16 +51,13 @@ export function ComputerAllowPrompt() {
       if (heardCount.current === heardBefore) setRequests(left);
     } catch (cause) {
       setFailure({ key: request.key, message: ipcErrorMessage(cause) });
-      // Most often the computer gave up meanwhile: show what is still waiting.
       window.milagre.listPendingDevices().then(setRequests, () => {});
     } finally {
       setBusy(false);
     }
   }
 
-  // Nothing is mounted until a computer waits: other screens look for the page's one open dialog.
   if (!request) return null;
-  // No onClose: it must be answered. Esc answers Deny; the scrim does nothing.
   return (
     <Dialog
       data-computer-allow

@@ -23,25 +23,18 @@ import { routineIcon } from "./routine-icon";
 
 type HugeIconData = typeof PlayIcon;
 const MENU_WIDTH = 200;
-// The status column: 72px holds "Next 09:45", "Fri 16:00" and "Paused", so every row's meta line ends at the same x.
 const STATUS = "min-w-[72px] shrink-0 text-right text-12 tabular-nums";
 
-/** What is wrong with the Routine, in red under its meta: why it paused itself while off, else its latest error. */
 export function routineProblem(routine: Routine): string | undefined {
   return routine.pausedReason && !routine.enabled ? routine.pausedReason : routine.lastError;
 }
 
-/** The Chat the row's Open action goes to: a heartbeat's own, or the newest Run's. */
 function routineChat(routine: RoutineWithRuns): string | undefined {
   return routine.target.kind === "chat" ? routine.target.chatId : routine.runs.find((run) => run.chatId)?.chatId;
 }
 
 type MenuEntry = { key: string; label: string; icon: HugeIconData; danger?: boolean; onSelect: () => void };
 
-/**
- * A Routine's glyph, dimmed while it is switched off. In a row it is bare in a 32px slot (the phone's rows draw it bare
- * too); `large`, the Routine page's header, keeps its field tile.
- */
 function RoutineTile({ routine, large = false }: { routine: Routine; large?: boolean }) {
   return (
     <span className={`flex shrink-0 items-center justify-center ${large ? "size-10 rounded-card bg-field" : "size-8"}`}>
@@ -50,7 +43,6 @@ function RoutineTile({ routine, large = false }: { routine: Routine; large?: boo
   );
 }
 
-/** A Routine's ⋯ button and the menu it opens with `entries`; picking one closes the menu first. */
 function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntry[] }) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -86,7 +78,6 @@ function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntr
   );
 }
 
-/** The delete confirmation under a Routine: what deleting does, Cancel and Delete. */
 function DeleteQuestion({ routine, onCancel, onDelete, className = "" }: { routine: Routine; onCancel: () => void; onDelete: () => void; className?: string }) {
   return (
     <div data-routine-delete-question className={`flex min-h-11 items-center gap-2 ${className}`}>
@@ -101,10 +92,6 @@ function DeleteQuestion({ routine, onCancel, onDelete, className = "" }: { routi
   );
 }
 
-/**
- * One Routine: glyph, name (with a dot while a hidden Run Chat of it is unread) and meta, then its status and a ⋯ menu
- * (Pause or Resume, Edit, Run now, Open Chat, Mark as read while unread, Delete). Clicking the row opens the Routine's page.
- */
 export function RoutineRow({
   routine,
   meta,
@@ -121,18 +108,14 @@ export function RoutineRow({
 }: {
   routine: RoutineWithRuns;
   meta: string;
-  /** Another computer's Routine: its name leads the meta with the laptop mark, as a Chat row's does. */
   computer?: { name: string; offline?: boolean } | null;
   status: string;
-  /** A Run Chat of this Routine, out of the sidebar, has a result nobody opened. */
   unread?: boolean;
-  /** Opens the Routine's page, with its Runs. */
   onOpen: () => void;
   onToggle: (enabled: boolean) => void;
   onEdit: () => void;
   onRunNow: () => void;
   onOpenChat: (chatKey: string) => void;
-  /** Marks the Routine's unread Run Chats read, clearing its dot. */
   onMarkRead?: () => void;
   onDelete: () => void;
 }) {
@@ -140,10 +123,8 @@ export function RoutineRow({
   const chat = routineChat(routine);
   const heartbeat = isHeartbeat(routine);
   const problem = routineProblem(routine);
-  // A flow's Runs waiting on an approval: the row says so where its status goes.
   const waiting = routine.flow ? routine.runs.filter((run) => needsAnswer(run)).length : 0;
   const entries: MenuEntry[] = [
-    // On and off live here and on the Routine's page; the status column already says Paused or when it runs next.
     routine.enabled
       ? { key: "pause", label: "Pause", icon: PauseCircleIcon, onSelect: () => onToggle(false) }
       : { key: "resume", label: "Resume", icon: PlayCircleIcon, onSelect: () => onToggle(true) },
@@ -156,7 +137,6 @@ export function RoutineRow({
 
   return (
     <div data-routine-row={routine.id} data-paused={!routine.enabled || undefined}>
-      {/* The glyph, name, meta and status open the page; the ⋯ menu beside them does only its own thing. */}
       <div className="flex min-h-14 items-stretch gap-3 pr-4 transition-colors duration-fast has-[[data-routine-open]:hover]:bg-hover">
         <button
           type="button"

@@ -6,11 +6,6 @@ import Tooltip from "./Tooltip";
 
 const DOTS = { orange: "bg-orange", accent: "bg-accent", green: "bg-green", red: "bg-red" } as const;
 
-/**
- * Roving keys for a group of `role` buttons (radio by default): the arrows move focus to the next enabled one and pick
- * it (a click), Home and End go to the ends; with `columns`, Up/Down move a row in a grid. Put it on the group's
- * onKeyDown and give only the picked button tabIndex 0.
- */
 export function radioKeys({ columns = 0, role = "radio", axis = "both" }: { columns?: number; role?: string; axis?: "horizontal" | "both" } = {}) {
   return (event: KeyboardEvent<HTMLElement>) => {
     const items = [...event.currentTarget.querySelectorAll<HTMLElement>(`[role="${role}"]:not(:disabled)`)];
@@ -29,20 +24,11 @@ export type SegmentedOption<T extends string> = {
   icon?: IconSvgElement;
   count?: number;
   disabled?: boolean;
-  /** A 6px status dot before the label. */
   dot?: keyof typeof DOTS;
-  /** Show only the icon; the label becomes its name and Tooltip. */
   iconOnly?: boolean;
-  /** An accessible name that differs from the label. */
   ariaLabel?: string;
 };
 
-/**
- * A segmented control: one picked option raised on the field fill (surface and the button shadow; in dark, where
- * surface is darker than the track, the track mixed 14% toward ink, about 1.3:1 against it), the rest ink-2. 28px tall (`small`, 24px segments) or 32px (`large`, 28px
- * segments). One Tab stop: the arrow keys, Home and End move the choice. Each segment carries `data-segment` and,
- * with `dataKey`, `data-<dataKey>` set to its value. `value` may be null (nothing picked yet).
- */
 export function Segmented<T extends string>({
   label,
   value,
@@ -58,7 +44,6 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
   className?: string;
   size?: "small" | "large";
-  /** Adds data-<dataKey>={value} to each segment, for a test or style hook. */
   dataKey?: string;
 }) {
   const focusable = options.find((option) => option.value === value && !option.disabled)?.value ?? options.find((option) => !option.disabled)?.value;

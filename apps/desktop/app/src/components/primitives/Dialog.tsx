@@ -34,22 +34,14 @@ export function Dialog({
   ...attributes
 }: {
   title: ReactNode;
-  /** A line under the title, in ink-2; it's the dialog's description for assistive tech. */
   description?: ReactNode;
-  /** The buttons, right-aligned: Cancel (ghost) first, the primary last. */
   actions?: ReactNode;
-  /** `inline` under the content (default), or `bar`: a bordered inset strip, for a body that scrolls. */
   footer?: "inline" | "bar";
-  /** With `footer="bar"`, content at the bar's left (a status, a secondary link). */
   footerStart?: ReactNode;
   onClose?: () => void;
-  /** Esc; defaults to onClose. Give it a different answer (Deny) or a no-op to keep Esc from closing. */
   onEscape?: () => void;
-  /** Whether a press on the scrim closes it (default true); false while a form is busy or must be answered. */
   dismissOnScrim?: boolean;
-  /** The ×'s name. */
   closeLabel?: string;
-  /** `form` makes header, body and footer one form, so Enter and a submit button work; onSubmit gets the event, already prevented. */
   as?: "div" | "form";
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
   width?: number;
@@ -61,7 +53,6 @@ export function Dialog({
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
-  // What had focus before it opened, read on the first render (before showModal moves focus in).
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
   // A press that starts in the content and ends on the scrim (a text drag out of a textarea) isn't a press on the scrim.
   const downInside = useRef(false);
@@ -99,7 +90,6 @@ export function Dialog({
         ))}
       {/* Last in the DOM, so showModal's first focus lands in the content, not on the ×; Esc is its keyboard path. */}
       {onClose && (
-        // A wrapper takes the position: IconButton is `relative` for its hit area, which would beat `absolute`.
         <span className="absolute top-4 right-3.5 flex">
           <IconButton label={closeLabel} icon={Cancel01Icon} size={28} tooltip={false} onClick={onClose} />
         </span>
@@ -121,13 +111,11 @@ export function Dialog({
         downInside.current = event.target !== dialog.current;
       }}
       onClick={(event) => {
-        // The dialog element itself is only hit outside the content: a press on the scrim.
         if (dismissOnScrim && !downInside.current && event.target === dialog.current) onClose?.();
         downInside.current = false;
       }}
       className="m-auto max-w-[calc(100vw-32px)] overflow-hidden rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-scrim backdrop:backdrop-blur-overlay"
       // `backwards`, so no transform stays on the dialog once it has popped in: a transform would make it the
-      // containing block of a fixed tooltip or picker inside it.
       style={{ width, animation: "pop-in var(--duration-base) var(--ease-enter) backwards" }}
     >
       {as === "form" ? (

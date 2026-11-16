@@ -15,17 +15,13 @@ import { pendingWaitingNote, subchatNote } from "../../lib/subchat-transcript";
 import { Button } from "../primitives/Button";
 import { InlineError } from "../primitives/InlineError";
 
-/** What the suggestion card's buttons do, which App provides for every Chat on screen (a transcript has no other way to reach the agent runs). */
 export interface SubchatActions {
-  /** Sends the suggested answer to the waiting Subchat as the user's own; the host marks the card sent. False when the question is gone. */
   sendSuggestion: (subchat: string, requestId: string, answers: QuestionAnswers, suggestionId: string) => Promise<boolean>;
-  /** Removes the card from the parent `chat`; the question stays open in the Subchat. */
   dismissSuggestion: (chat: string, id: string) => Promise<boolean>;
 }
 
 let actions: SubchatActions | null = null;
 
-/** App hands over the actions while it is mounted; returns what takes them back. */
 export function provideSubchatActions(next: SubchatActions) {
   actions = next;
   return () => {
@@ -33,7 +29,6 @@ export function provideSubchatActions(next: SubchatActions) {
   };
 }
 
-/** A grey `↳` line, as a Delegation's report is, whose text (when it has a Chat to open) is a link. */
 function NoteLine({
   text,
   chat,
@@ -59,11 +54,6 @@ function NoteLine({
   );
 }
 
-/**
- * A Subchat escalation's note in a transcript: the `↳` line that opens the waiting Subchat, the grey line that says the Chat
- * above answered, a suggestion's card, or what became of one. Null for a message that is none of these; the transcript has
- * already left out the notes it draws elsewhere (hiddenSubchatNotes).
- */
 export function SubchatMessage({
   message,
   outcomes,
@@ -100,7 +90,6 @@ function SuggestionCard({
   const scope = useScope();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
-  // With an outcome the card is over: its words, or nothing when the user dismissed it.
   if (outcome) {
     const line = suggestionOutcomeLine(outcome);
     return line ? <NoteLine data-slot="subchat-suggestion-outcome" text={line} /> : null;
@@ -108,7 +97,6 @@ function SuggestionCard({
   const run = (action: () => Promise<boolean>, error: string) => {
     setBusy(true);
     setFailed(null);
-    // False means the request is gone: its outcome note arrives and replaces this card.
     action()
       .catch(() => setFailed(error))
       .finally(() => setBusy(false));
@@ -155,10 +143,6 @@ function SuggestionCard({
   );
 }
 
-/**
- * The note above the docked question or approval card: how long the Subchat has waited and who was told. It belongs to the
- * request the card shows, so it appears only for the card of the kind it names.
- */
 export function SubchatWaitingNote({
   messages,
   ask,

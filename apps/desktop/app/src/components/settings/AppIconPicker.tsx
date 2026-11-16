@@ -3,7 +3,6 @@ import type { AppIcon } from "../../electron";
 import { radioKeys } from "../primitives/Segmented";
 import { Group } from "./SettingsGroup";
 
-/** The phone's icon names (apps/mobile/src/app-icon-section.tsx), in the same order. */
 const APP_ICONS: { id: AppIcon; name: string }[] = [
   { id: "default", name: "Milagre" },
   { id: "dawn", name: "Dawn" },
@@ -17,10 +16,8 @@ const APP_ICONS: { id: AppIcon; name: string }[] = [
 
 const APP_ICON_DESCRIPTION = "Shown in the Dock or taskbar on this computer. Finder and Launchpad keep the Milagre icon.";
 
-/** Settings › Appearance › App icon: this computer's own, so it reads and saves through window.milagre. */
 export function AppIconPicker() {
   const [current, setCurrent] = useState<AppIcon | null>(null);
-  // Test harnesses and older preloads give a bridge without these calls: the setting hides instead of breaking Settings.
   const supported = typeof window.milagre?.getAppIcon === "function" && typeof window.milagre.setAppIcon === "function";
   useEffect(() => {
     if (!supported) return;
@@ -56,7 +53,6 @@ export function AppIconPicker() {
                 onClick={() => choose(icon.id)}
                 className="group grid w-16 justify-items-center gap-1.5 py-1 outline-none"
               >
-                {/* The chosen icon is ringed in ink, like the chosen theme tile. */}
                 <span
                   className={`rounded-window border-2 p-0.5 transition-colors group-focus-visible:border-accent ${selected ? "border-ink" : "border-transparent group-hover:border-line"}`}
                 >

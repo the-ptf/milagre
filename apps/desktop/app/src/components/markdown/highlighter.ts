@@ -1,7 +1,6 @@
 import { createCssVariablesTheme, type HighlighterCore, type ThemedToken } from "shiki/core";
 import type { CodeLanguage } from "../../lib/code-languages";
 
-// Shiki and each grammar load on first use, so chats without code never pay for them.
 const LOADERS: Record<CodeLanguage, () => Promise<unknown>> = {
   typescript: () => import("shiki/langs/typescript.mjs"),
   tsx: () => import("shiki/langs/tsx.mjs"),
@@ -49,7 +48,6 @@ const LOADERS: Record<CodeLanguage, () => Promise<unknown>> = {
 // One theme for both schemes: token colors are CSS variables the theme stylesheet sets, so a theme change repaints without re-highlighting.
 const milagreTheme = createCssVariablesTheme({ name: "milagre", variablePrefix: "--shiki-", fontStyle: true });
 
-// Past this size a block renders plain: re-highlighting it on every streamed chunk would stall typing.
 const MAX_HIGHLIGHT_CHARS = 40_000;
 
 let highlighter: Promise<HighlighterCore> | undefined;
@@ -88,7 +86,6 @@ export function loadLanguage(language: CodeLanguage): Promise<void> {
   return pending;
 }
 
-// Synchronous once the language is loaded, so a streaming block re-highlights in the same render instead of flashing plain text.
 export function highlight(code: string, language: CodeLanguage): ThemedToken[][] | undefined {
   if (!ready || !loaded.has(language) || code.length > MAX_HIGHLIGHT_CHARS) return undefined;
   try {

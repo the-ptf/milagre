@@ -12,13 +12,10 @@ followDisplayVisibility();
 const floatingView = new URLSearchParams(window.location.search).get("floating-inbox");
 const floating = floatingView === "dock" || floatingView === "inbox" || floatingView === "preview" || floatingView === "drag";
 document.documentElement.toggleAttribute("data-floating-inbox", floating);
-// A floating inbox window loads none of the app itself.
 const FloatingInbox = lazy(() => import("./components/FloatingInbox").then((module) => ({ default: module.FloatingInbox })));
 const FloatingMotion = lazy(() => import("./components/motion/AppMotionConfig").then((module) => ({ default: module.AppMotionConfig })));
 splashDrawnFirst();
 
-// Evaluating the app holds the main thread for a while, so the splash gets its first frame before that starts.
-// A window off screen draws no frames, hence the timeout.
 const afterFirstFrame = () =>
   new Promise<void>((resolve) => {
     requestAnimationFrame(() => setTimeout(resolve));
@@ -38,7 +35,6 @@ if (floating) {
   );
 } else {
   // The app renders the moment its chunk has loaded. Behind lazy() and <Suspense>, React 19 would hold it until 300 ms
-  // after the fallback committed (its Suspense throttle), and the chunk is usually ready well before that.
   const render = (Workspace?: ComponentType) =>
     root.render(
       <StrictMode>

@@ -26,8 +26,6 @@ export function useContextSettings() {
       off?.();
     };
   }, [bridge]);
-  // Older hosts and optional bridge implementations can return no settings.
-  // Keep defaults visible and host controls disabled, as on mobile.
   const ready = state?.bridge === bridge && state.value != null;
   return {
     settings: (ready ? state.value : null) ?? CONTEXT_DEFAULTS,

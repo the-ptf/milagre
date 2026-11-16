@@ -15,14 +15,11 @@ import {
 
 import { ScrollArea } from "./primitives/ScrollArea";
 
-// `stored` is the value the server came with (the mask, for secrets); `edited` is set once the user types a new value.
 type Pair = { key: string; value: string; stored?: string; edited?: boolean };
 const EMPTY: Pair = { key: "", value: "" };
 const toPairs = (record: Record<string, string>): Pair[] => Object.entries(record).map(([key, value]) => ({ key, value, stored: value }));
-// An untouched value goes back as it came, so a masked secret is kept by the runtime rather than saved as "".
 const sent = (pair: Pair) => (pair.edited || pair.stored === undefined ? pair.value : pair.stored);
 const toRecord = (pairs: Pair[]) => Object.fromEntries(pairs.filter((pair) => pair.key || sent(pair)).map((pair) => [pair.key, sent(pair)]));
-// The app's global rule drops the outline on inputs, so focus shows as an ink border.
 const field = "w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-13 text-ink outline-none";
 const pairField = "min-w-0 rounded-control border border-transparent bg-field px-3 py-2 text-13 text-ink outline-none placeholder:text-ink-3";
 const footerButton = "rounded-control px-4 py-2 text-13 transition-colors disabled:opacity-40";
@@ -33,7 +30,6 @@ const TARGETS: { value: McpTarget; label: string; hint: string }[] = [
   { value: "codex", label: "Codex only", hint: "Written to Codex’s config" },
 ];
 
-/** Add or edit one server. `initial` set means edit; `remote` limits it to URL servers. */
 export function McpServerSheet({
   initial,
   initialTarget = "everywhere",
@@ -59,9 +55,7 @@ export function McpServerSheet({
   const [kind, setKind] = useState<"url" | "command">(initial?.type === "stdio" ? "command" : "url");
   const [name, setName] = useState(initial?.name ?? "");
   const [url, setUrl] = useState(initial && initial.type !== "stdio" ? initial.url : "");
-  // An SSE server stays SSE through an edit; new URL servers are streamable HTTP.
   const urlType = initial?.type === "sse" ? "sse" : "http";
-  // The command and its arguments are kept apart, one argument per line, so an argument with a space survives an edit.
   const [command, setCommand] = useState(initial?.type === "stdio" ? initial.command : "");
   const [args, setArgs] = useState(initial?.type === "stdio" ? initial.args.join("\n") : "");
   const [pairs, setPairs] = useState<Pair[]>(toPairs(initial ? (initial.type === "stdio" ? initial.env : initial.headers) : {}));
@@ -93,7 +87,6 @@ export function McpServerSheet({
     kind === "url"
       ? { name: name.trim(), type: urlType, url: url.trim(), headers: toRecord(pairs) }
       : { name: name.trim(), type: "stdio", command: command.trim(), args: args.split("\n").filter((arg) => arg.trim() !== ""), env: toRecord(pairs) };
-  // Typing again clears the last problem.
   const edit = (set: (value: string) => void, value: string) => {
     setError("");
     set(value);
@@ -262,7 +255,6 @@ export function McpServerSheet({
                         disabled={value === "command" && remote}
                         data-mcp-kind={value}
                         onClick={() => {
-                          // Headers and environment variables don't carry over between a URL and a command.
                           if (value !== kind) setPairs([]);
                           setKind(value);
                         }}
@@ -329,7 +321,6 @@ export function McpServerSheet({
                           className={`${pairField} flex-1`}
                           placeholder="Value"
                           value={pair.value}
-                          // A focused masked value clears so a new one can be typed; left untouched, the mask comes back.
                           onFocus={() => pair.value === MCP_SECRET_MASK && !pair.edited && setPair(index, { ...pair, value: "" })}
                           onBlur={() => !pair.edited && pair.stored === MCP_SECRET_MASK && setPair(index, { ...pair, value: MCP_SECRET_MASK })}
                           onChange={(event) => setPair(index, { ...pair, value: event.target.value, edited: true })}

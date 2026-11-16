@@ -17,11 +17,6 @@ const STATUS: Record<RemoteRunStatus, string> = {
   working: "Working",
 };
 
-/**
- * A Delegation this Chat sent to another computer, mirrored live (spec 2026-10-23): the turn runs there, in its own Chat,
- * and this card follows that computer's events. Its approvals can be answered here or there; the first answer wins and
- * the other card clears. Open goes to that Chat; Stop stops its turn.
- */
 export function RemoteDelegationCard({
   delegation,
   run,
@@ -30,7 +25,6 @@ export function RemoteDelegationCard({
   onStop,
 }: {
   delegation: OpenDelegation;
-  /** The other computer's live run of that Chat, while its turn runs. */
   run: AgentRun | undefined;
   onAnswer: (requestId: string, decision: PermissionDecision) => void;
   onOpenChat: (chatKey: string) => void;
@@ -38,7 +32,6 @@ export function RemoteDelegationCard({
 }) {
   const status = remoteRunStatus(delegation, run);
   const step = run?.steps.findLast((item) => item.status === "running") ?? run?.steps.at(-1);
-  // The run's text grows outside `run` while only text streams (lib/run-text.ts).
   const text = useRunText(run && delegation.to_chat ? delegation.to_chat : undefined);
   const tail = run ? replyTail(text ?? run.text) : "";
   const approval = run?.approvals[0];

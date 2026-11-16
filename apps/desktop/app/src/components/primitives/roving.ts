@@ -1,8 +1,3 @@
-/**
- * Where a roving-focus key goes among `count` items from `index` (-1 when none has focus yet): the arrows on `axis`
- * step by one (Up/Down by a row of `columns` in a grid), Home and End go to the ends. A list wraps round; a grid
- * stops at its edges. -1 when the key doesn't move.
- */
 export function rovingIndex(
   key: string,
   index: number,

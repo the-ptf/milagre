@@ -2,9 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type State = { enabled: boolean; ready: boolean; saving: boolean; error: string };
 
-/** Settings › Church's "Device notes": this Mac's own switch, kept by its daemon, off until turned on. */
 export function useDeviceNotesEnabled() {
-  // A test bridge may not offer it: the row stays hidden.
   const available = typeof window.milagre.readDeviceNotesEnabled === "function";
   const [state, setState] = useState<State>({ enabled: false, ready: false, saving: false, error: "" });
   const scopeRef = useRef<{ saving: boolean; revision: number } | null>(null);

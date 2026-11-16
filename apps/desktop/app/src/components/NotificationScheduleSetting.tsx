@@ -51,7 +51,6 @@ export function NotificationScheduleSetting() {
                 aria-label={day}
                 aria-pressed={schedule.days.includes(index)}
                 disabled={schedule.days.length === 1 && schedule.days.includes(index)}
-                // Picked days in ink, like a checked box or a picked filter chip.
                 className={`h-8 rounded-control border px-3 text-12 font-medium transition-colors disabled:opacity-40 ${schedule.days.includes(index) ? "border-ink bg-ink text-on-ink" : "border-line text-ink-2 hover:bg-hover hover:text-ink"}`}
                 onClick={() =>
                   save({

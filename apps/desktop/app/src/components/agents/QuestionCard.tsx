@@ -44,16 +44,11 @@ import { formatElapsed } from "@milagre/shared/display-clock";
 import { useDisplayValue } from "../../lib/display-clock";
 import { WaitingForApproval } from "./step-approval";
 
-/** How long the turn has waited, beside "Waiting for answer": the time the turn timer showed before the card came. */
 function WaitedFor({ startedAt }: { startedAt: number }) {
   const elapsed = useDisplayValue(1000, (now) => formatElapsed(now - startedAt));
   return <span className="text-ink-3 tabular-nums">· {elapsed}</span>;
 }
 
-/**
- * The open chat's oldest question: the agent's options as rows, an answer of the user's own, and Dismiss.
- * Several questions show one at a time, under a tab each.
- */
 export function QuestionCard(props: Parameters<typeof OrdinaryQuestionCard>[0]) {
   if (props.request.secretRequest)
     return <SecretCard key={props.request.requestId} request={props.request} busy={props.answering !== null} onAnswer={props.onAnswer} />;
@@ -70,16 +65,11 @@ function OrdinaryQuestionCard({
   dictationChat,
   startedAt,
 }: {
-  /** When the turn waiting on this question began: the card shows how long it has waited, as an approval row does. */
   startedAt?: number;
-  /** The Chat asking: dictation reads its Project's words and its agent fixes misheard names, as in the composer. */
   dictationChat?: { cwd: string; scope?: string; chatId?: number; provider?: string };
   request: QuestionRequest;
-  /** How many more questions are queued behind this one. */
   waiting: number;
-  /** What was already sent for this question, while the agent takes it. */
   answering: "answered" | "dismissed" | null;
-  /** The answers to send, or null to dismiss the question, and the images attached to them. */
   onAnswer: (answers: QuestionAnswers | null, images?: QuestionImages) => void;
 }) {
   const reduce = useReducedMotion();
@@ -89,7 +79,6 @@ function OrdinaryQuestionCard({
   const fileRef = useRef<HTMLInputElement>(null);
   const otherRef = useRef<HTMLInputElement>(null);
   const [imageError, setImageError] = useState("");
-  // A dictated answer goes after what was typed: the words show as they're heard, and the fix-up may rewrite them after.
   const dictated = useRef<{ question: AgentQuestion; base: string } | null>(null);
   const dictation = useDictation(
     dictationChat?.cwd ?? "",
@@ -114,7 +103,6 @@ function OrdinaryQuestionCard({
     const target = dictated.current;
     if (target && heard) setDrafts((current) => typeAnswer(current, target.question, withDictation(target.base, heard)));
   }, [heard]);
-  // A take that ends without words (cancelled, no speech, failed) puts back what was typed before it.
   useEffect(() => {
     const target = dictated.current;
     if (dictating || !target) return;
@@ -132,7 +120,6 @@ function OrdinaryQuestionCard({
     dictated.current = { question: target, base };
     void dictation.start({ selection: { start: base.length, end: base.length } });
   }
-  // Next, or a pick that moves on, and the panel remounts, so focus would fall to the page: put it in the new panel.
   const focusPanel = useRef(false);
   const questions = request.questions;
   const count = questions.length;
@@ -148,10 +135,8 @@ function OrdinaryQuestionCard({
   function pick(target: AgentQuestion, label: string) {
     const next = pickOption(drafts, target, label);
     setDrafts(next);
-    // One single-choice question: the tap is the answer.
     const done = draftAnswers(questions, next);
     if (sendsOnPick(questions) && done) onAnswer(done, draftImages(questions, next));
-    // Several questions: a single-choice pick is the answer to this one, so move on. The last one waits for Send.
     else if (advancesOnPick(questions, active)) {
       focusPanel.current = true;
       setActive(nextTab(count, active));
@@ -166,8 +151,6 @@ function OrdinaryQuestionCard({
     } else if (answers) onAnswer(answers, draftImages(questions, drafts));
   }
 
-  // Images pasted into the field or chosen with the image button go with this question's answer: the agent gets
-  // their paths and opens them.
   async function addImages(target: AgentQuestion, files: File[]) {
     setImageError("");
     if (!files.length) return;
@@ -178,7 +161,6 @@ function OrdinaryQuestionCard({
       const read = await Promise.all(files.map(readImage));
       setDrafts((current) => {
         const next = setAnswerImages(current, target, [...(draftOf(current, target.id).images ?? []), ...read]);
-        // Images go with the typed answer, so attaching chooses its row, as typing does.
         return otherChosen(draftOf(next, target.id)) ? next : chooseOther(next, target);
       });
     } catch (error) {
@@ -191,7 +173,6 @@ function OrdinaryQuestionCard({
       event.preventDefault();
       advance();
     }
-    // Escape clears a typed answer first; on an empty field it reaches the window, which dismisses the question.
     if (event.key === "Escape" && !event.nativeEvent.isComposing && draftOf(drafts, target.id).typed) {
       event.preventDefault();
       setDrafts(typeAnswer(drafts, target, ""));
@@ -202,7 +183,6 @@ function OrdinaryQuestionCard({
     if (!focusPanel.current) return;
     focusPanel.current = false;
     const controls = panelRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)");
-    // The picked option, else the first option, else the field when there are no options.
     const target = panelRef.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? controls?.[0];
     target?.focus();
   }, [active]);
@@ -221,10 +201,8 @@ function OrdinaryQuestionCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={reduce ? undefined : { opacity: 0, y: 6, scale: 0.985 }}
       transition={reduce ? { duration: 0 } : SPRING_SWAP}
-      // Flat like the approval block: a line-strong hairline, no shadow, no footer band.
       className="flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card border border-line-strong bg-surface"
     >
-      {/* 12px in from the border, as the approval block: its waiting dot sits on the tool rows' glyph line. */}
       <ScrollArea className="grid flex-1 gap-3 p-3">
         {several && (
           <Tabs
@@ -250,7 +228,6 @@ function OrdinaryQuestionCard({
           className="grid gap-1.5"
         >
           <div>
-            {/* The approval row's state, in the same words and orange: the agent is blocked on the user. */}
             <p aria-hidden className="flex items-center gap-1.5 text-11 font-medium">
               <WaitingForApproval label="Waiting for answer" className="" />
               {startedAt !== undefined && <WaitedFor startedAt={startedAt} />}
@@ -270,7 +247,6 @@ function OrdinaryQuestionCard({
                 onClick={() => pick(question, option.label)}
                 className={`flex w-full items-start gap-2 rounded-control border px-2.5 py-2 text-left transition-colors disabled:cursor-default ${picked ? "border-line-strong bg-inset" : "border-line bg-surface enabled:hover:border-line-strong enabled:hover:bg-hover enabled:active:bg-hover-2"}`}
               >
-                {/* The row is the control (role and aria-checked), so it draws only the box. */}
                 <CheckboxBox checked={picked} radio={!question.multiSelect} className="mt-0.5" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-13 font-medium text-ink">{option.label}</span>
@@ -280,8 +256,6 @@ function OrdinaryQuestionCard({
             );
           })}
           {question.allowOther && (
-            // The typed answer is one more option row: the same frame, its radio (or checkbox) on the options' line, the
-            // field as its label and the mic and image buttons inside it. The row's border is the field: no edge of its own.
             <div
               data-question-other
               onClick={(event) => {
@@ -289,7 +263,6 @@ function OrdinaryQuestionCard({
                 if (!otherOn) setDrafts(chooseOther(drafts, question));
                 otherRef.current?.focus();
               }}
-              // As tall as a two-line option row (52px), its one line centred, so the three rows share one rhythm.
               className={`flex min-h-13 w-full items-center gap-2 rounded-control border px-2.5 py-2 transition-colors ${pending ? "cursor-text" : ""} ${otherOn ? "border-line-strong bg-inset" : `border-line bg-surface ${pending ? "hover:border-line-strong hover:bg-hover" : ""}`}`}
             >
               {question.options.length > 0 && (
@@ -328,7 +301,6 @@ function OrdinaryQuestionCard({
                 className="h-5 min-w-0 flex-1 border-0 bg-transparent p-0 text-13 font-medium leading-5 text-ink outline-none placeholder:text-ink-3 disabled:cursor-default"
               />
               {!question.secret && (
-                // 24px controls, centred in the row, trailing on the options' content inset.
                 <span className="-my-1 flex shrink-0 items-center gap-0.5">
                   <span className="relative flex shrink-0">
                     {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}

@@ -31,12 +31,6 @@ const badge = "shrink-0 rounded-full bg-field px-2 py-px text-11 font-medium tex
 const scopeLabel = (scope: SkillScope) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
 const others = (count: number) => `Overrides ${count} other${count === 1 ? "" : "s"}`;
 
-/* ─────────────────────────────────────────────────────────
- * SKILLS
- * Every skill the `/` menu offers for the open Project, where
- * each comes from, which same-named ones it hides, and what
- * discovery could not read. Read from disk on open and Reload.
- * ───────────────────────────────────────────────────────── */
 export function SkillsSettings({ projectPath }: { projectPath: string }) {
   const [revision, setRevision] = useState(0);
   const { skills, shadowed, warnings, loading } = useSkills(projectPath, true, revision, "project");
@@ -231,7 +225,6 @@ function SkillDetail({
                 Open in {editor.name}
               </Button>
             ) : (
-              // aria-disabled, so the Tooltip saying why stays reachable.
               <Tooltip label="Install Cursor, VS Code, Zed or another editor" asChild>
                 <Button variant="secondary" size={28} aria-disabled>
                   Open in editor

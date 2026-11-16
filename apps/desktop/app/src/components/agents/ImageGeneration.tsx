@@ -11,10 +11,8 @@ import { Icon } from "../primitives/Icon";
 export type ImageGenerationStatus = "queued" | "generating" | "refining" | "complete" | "error";
 
 export interface ImageGenerationProps {
-  /** The completed media: an img, canvas, video or custom preview. */
   children?: ReactNode;
   status?: ImageGenerationStatus;
-  /** Accessible description. Defaults to one derived from the prompt. */
   label?: string;
   prompt?: string;
   /** CSS aspect ratio reserved before the generated media is available. */
@@ -72,7 +70,6 @@ function DitherMark({ status, reduce }: { status: ImageGenerationStatus; reduce:
   return (
     <motion.span
       aria-hidden="true"
-      // Reduced motion keeps a loading cue: a fade in place of the turn.
       animate={reduce ? { opacity: [1, 0.4, 1] } : { rotate: 360 }}
       transition={{ duration: reduce ? 1.2 : 2.4, ease: EASE_IN_OUT, repeat: Number.POSITIVE_INFINITY }}
       className="grid size-3.5 grid-cols-2 place-items-center gap-0.5"
@@ -195,7 +192,6 @@ function DitherField({ interactive, reduce, status }: { interactive: boolean; re
   );
 }
 
-/** A generated image's surface: a dither field while it is made, the image once it is ready, at one size throughout. */
 export function ImageGeneration({
   children,
   status = "generating",

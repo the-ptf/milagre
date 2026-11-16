@@ -1,7 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { bridgeForKey } from "./computer-bridge";
 
-// Project avatars, looked up once per run (the lookup can ask GitHub) and replaced when the user picks an icon.
 const images = new Map<string, string | null>();
 const listeners = new Set<() => void>();
 let version = 0;

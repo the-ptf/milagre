@@ -62,7 +62,6 @@ const icons = {
   folderAdd: FolderAddIcon,
 };
 
-/** A row's shortcut, right-aligned in 11 ink-3: always shown as plain keys, keycaps while ⌘ is held. */
 function CommandKeys({ command, hints }: { command: KeybindingCommandId; hints: boolean }) {
   const label = useShortcutLabel(command);
   if (!label) return null;
@@ -81,11 +80,6 @@ function Label({ command }: { command: Command }) {
   );
 }
 
-/**
- * `searchMessages` runs only when no command, chat or project matches, so a chat's own words are the fallback.
- * `searchMessagesAsync` does the same through the host, for a window that holds no messages.
- * When nothing matches at all, `onStartChat` offers one row that starts a new Chat with the search as its draft.
- */
 export function CommandPalette({
   commands,
   searchMessages,
@@ -113,14 +107,12 @@ export function CommandPalette({
   const [recentIds] = useState(recentCommandIds);
   const typed = query.trim().length > 0;
   const matches = typed ? filterCommands(commands, query) : [...recentCommands(commands, recentIds), ...filterCommands(commands, query)];
-  // Settings rows found by their words don't stand in for a Chat's: messages are still searched beside them.
   const commandMatches = matches.filter((command) => !command.searchOnly);
   const [found, setFound] = useState<{ query: string; commands: Command[] }>({ query: "", commands: [] });
   const searchHost = !commandMatches.length && !searchMessages && searchMessagesAsync && query.trim().length >= 2;
   useEffect(() => {
     if (!searchHost) return;
     let cancelled = false;
-    // A short pause while typing, so each keystroke doesn't ask the host.
     const timer = setTimeout(() => {
       searchMessagesAsync(query).then(
         (commands) => !cancelled && setFound({ query, commands }),
@@ -134,7 +126,6 @@ export function CommandPalette({
   }, [searchHost, query, searchMessagesAsync]);
   const messages = commandMatches.length || !typed ? [] : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
   const searched = [...matches, ...messages];
-  // The host is still looking: nothing is offered until it answers, so the new-chat row doesn't flash in and out.
   const searching = !commandMatches.length && !searchMessages && searchHost && found.query !== query;
   const results: Command[] =
     searched.length || searching || !onStartChat || !query.trim()
@@ -180,7 +171,6 @@ export function CommandPalette({
     executing.current = true;
     const element = dialog.current!;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // Start at the current frame when Escape interrupts the entrance.
     const { opacity, transform } = getComputedStyle(element);
     animation.current?.cancel();
     element.dataset.closing = "true";
@@ -196,7 +186,6 @@ export function CommandPalette({
         onClose();
         if (command && command.id !== "start-chat-with-search" && commands.some((item) => item.id === rememberedId(command)))
           rememberCommand(rememberedId(command));
-        // Let focus restore before the action opens a new surface.
         if (command)
           window.setTimeout(() => {
             Promise.resolve()
@@ -204,9 +193,7 @@ export function CommandPalette({
               .catch((error: unknown) => onError(error instanceof Error ? error.message : "Couldn't run this command."));
           }, 0);
       },
-      () => {
-        /* Unmount cancelled the animation. */
-      },
+      () => {},
     );
   }
 
@@ -231,7 +218,6 @@ export function CommandPalette({
           return;
         }
         if (event.nativeEvent.isComposing) return;
-        // Consume Escape before the app's stop-agent shortcut sees it.
         const pressed = shortcutCommand(event);
         if (event.key === "Escape" || pressed === "commandPalette.toggle") {
           event.preventDefault();
@@ -276,12 +262,10 @@ export function CommandPalette({
         />
         {showHints && <ShortcutKeys shortcut="esc" />}
       </div>
-      {/* A 16px edge fade: the 28px default washed out the last whole row, which then read as disabled. */}
       <ScrollArea id={listId} role="listbox" aria-label="Commands" className="pt-1.5 pr-0 pb-2 pl-1.5 [--scroll-fade-size:16px]">
         {Array.from(new Set(results.map((command) => command.group))).map((group) => (
           <div key={group} role="group" aria-label={group} className="pb-1.5 last:pb-0">
             <div aria-hidden="true">
-              {/* On the commands' icon line: their 16px glyphs sit centred in 20px slots. */}
               <MenuLabel className="pl-2.5">{group}</MenuLabel>
             </div>
             {results
@@ -305,7 +289,6 @@ export function CommandPalette({
                     <span className="truncate">
                       <Label command={command} />
                     </span>
-                    {/* A row's hint reads under its label while the row is highlighted: the right column is for keys. */}
                     {command.hint && command.id === selected?.id && <span className="truncate text-12 font-normal text-ink-3">{command.hint}</span>}
                   </span>
                   {command.detail && <span className="max-w-[45%] truncate text-11 text-ink-3">{command.detail}</span>}

@@ -3,8 +3,6 @@ import { holdSplash, isSplashDrawnFirst, setSplashLeaving, splashLeft, useSplash
 
 type Props = { leaving?: boolean; onLeft?: () => void };
 
-/** The app logo assembling itself while the workspace loads: two legs, then the sparkle, which keeps twinkling.
- * It covers the app until the app is ready, then fades out over it as the app's panes slide in, wherever the logo has got to. */
 function StartupSplash({ leaving = false, onLeft }: Props) {
   return (
     <div
@@ -22,20 +20,17 @@ function StartupSplash({ leaving = false, onLeft }: Props) {
   );
 }
 
-/** The splash over everything, from before the app has loaded until it has faded out. */
 export function BootSplash() {
   const { phase, leaving, shown } = useSplash();
   return phase === "gone" || !shown ? null : <StartupSplash leaving={leaving} onLeft={splashLeft} />;
 }
 
-/** Where the app keeps the splash up, and says whether it may fade out over what it renders. */
 export function AppSplash({ leaving }: { leaving: boolean }) {
   useLayoutEffect(holdSplash, []);
   useLayoutEffect(() => setSplashLeaving(leaving), [leaving]);
   return isSplashDrawnFirst() ? null : <BootSplash />;
 }
 
-/** The splash logo on its own, for loading states inside the app (a Chat whose transcript is still on its way). */
 export function LoadingMark({ size = 64 }: { size?: number }) {
   return (
     <div className="startup-splash">

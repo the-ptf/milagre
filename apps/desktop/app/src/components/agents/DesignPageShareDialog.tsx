@@ -14,8 +14,6 @@ const when = (share: DesignPageShare) =>
 const olderLinksNotice = (count = 0) =>
   count ? `${count === 1 ? "An older link" : `${count} older links`} could not be revoked yet. Revoke in Settings > Published pages.` : "";
 
-/** A Chat page has one public link. Sharing again replaces the snapshot behind it; without a chatId this lists every
- * published page on this computer. A snapshot always holds the entire saved page, whatever version or selection is viewed. */
 export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { chatId?: string | null; kind?: "designs" | "artifacts"; onClose: () => void }) {
   const alive = useRef(false);
   const working = useRef(false);
@@ -87,7 +85,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
     try {
       const share = await api.sharePage({
         chatId,
-        // The host names the page after its Chat; an older host still requires a title.
         title: current?.title ?? (kind === "artifacts" ? "Artifact" : "Designs"),
         acknowledgePublic: true,
         kind,
@@ -96,7 +93,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
         reads.current++;
         setShares([share]);
       }
-      // Publishing copies the link right away: sharing it is what comes next.
       const copied = await navigator.clipboard.writeText(share.url).then(
         () => true,
         () => false,
@@ -105,7 +101,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
     } catch (cause) {
       if (alive.current) {
         setError(ipcErrorMessage(cause));
-        // The upload may have reached the service even if its acknowledgement was lost.
         await load(true);
       }
     } finally {
@@ -123,7 +118,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
       else await api.revokeSavedPageShare({ id });
       if (alive.current) {
         reads.current++;
-        // A Chat page drops its revoked link; the next Publish creates a new one. The global list keeps the row.
         setShares((rows) => (chatId ? rows.filter((row) => row.id !== id) : rows.map((row) => (row.id === id ? { ...row, revoked: true } : row))));
         setRevoke(null);
       }
@@ -219,7 +213,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
       {error}
     </InlineError>
   );
-  // Nothing closes it mid-publish or mid-revoke. The Designs canvas beneath ignores Escape while it is open.
   const close = () => {
     if (!working.current) onClose();
   };

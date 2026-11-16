@@ -3,11 +3,6 @@ import { promptParts } from "@milagre/shared/prompt-parts";
 import { useChatMentions } from "./ChatMentions";
 import { ChatChip, ComputerChip, FileChip, ImageChip, SkillChip } from "./PromptChip";
 
-/**
- * A prompt as typed, with its skills, file mentions and inline images as chips.
- * `skills` maps lowercase skill names to their descriptions; `files` says which `@path` mentions are real files;
- * `images` is the number of attached images in the message.
- */
 export function PromptText({
   text,
   skills,
@@ -27,11 +22,9 @@ export function PromptText({
 }) {
   const mentions = useChatMentions();
   const parts = useMemo(
-    // A sent `@computer:` token was a chip when it was written: it stays one even once that computer is gone.
     () => promptParts(text, { skills: [...skills.keys()], files, images, chats: (id) => mentions.chats.some((chat) => chat.id === id), computers: () => true }),
     [text, skills, files, images, mentions.chats],
   );
-  // Each chip keeps the token it stands for (`@path`, `/skill`), so a passage quoted from it reads as it was typed.
   const token = (key: string | number, typed: string, chip: ReactNode) => (
     <span key={key} data-token={typed} className="contents">
       {chip}

@@ -2,7 +2,6 @@ import { BubbleChatQuestionIcon } from "@hugeicons/core-free-icons";
 import type { AnsweredQuestion } from "../../model";
 import { Icon } from "../primitives/Icon";
 
-/** The user's answers to the agent's questions, shown as each question with what was picked or typed instead of the text the agent reads. */
 export function AnswerCard({ answered }: { answered: AnsweredQuestion[] }) {
   return (
     <div data-slot="answer-card" className="w-full max-w-md overflow-hidden rounded-card border border-line bg-surface text-13">

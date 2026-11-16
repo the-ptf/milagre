@@ -2,13 +2,9 @@ import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { useSyncExternalStore } from "react";
 import type { TerminalInfo } from "@milagre/shared/terminal";
 
-// Each Chat's Terminals as the host lists them, which one its panel shows, and whether its panel is open. The panel's
-// height is one for every Chat. The host owns the Terminals; this only mirrors them for the window.
-
 const TERMINAL_HEIGHT_KEY = "milagre.terminal.height";
 export const TERMINAL_HEIGHT = { initial: 280, min: 120 };
 
-/** `picking`: the panel shows the Worktree choice for a new Terminal (a shared Chat has one per Project). */
 type ChatTerminals = { terminals: TerminalInfo[]; active: string | null; open: boolean; picking: boolean };
 type State = { chats: Record<string, ChatTerminals>; height: number };
 
@@ -46,7 +42,6 @@ export function useTerminalHeight() {
   return useSyncExternalStore(subscribe, () => state.height);
 }
 
-/** Sizes the panel as it is dragged; `saveTerminalHeight` keeps the size it was dropped at. */
 export function setTerminalHeight(height: number) {
   const next = Math.max(TERMINAL_HEIGHT.min, Math.round(height));
   if (next === state.height) return;
@@ -57,7 +52,6 @@ export function saveTerminalHeight() {
   localStorage?.setItem(TERMINAL_HEIGHT_KEY, String(state.height));
 }
 
-/** Takes the host's list. The shown Terminal stays if it still runs, else the newest one is shown; with none left the panel closes. */
 export function applyTerminalList(chatId: string, terminals: TerminalInfo[]) {
   const current = state.chats[chatId] ?? EMPTY;
   const active = terminals.some((terminal) => terminal.id === current.active) ? current.active : (terminals.at(-1)?.id ?? null);
@@ -97,6 +91,5 @@ export function setTerminalPanelOpen(chatId: string, open: boolean) {
 
 export function setTerminalPicking(chatId: string, picking: boolean) {
   const current = state.chats[chatId] ?? EMPTY;
-  // Dismissing the choice closes a panel that had nothing else to show.
   patchChat(chatId, { picking, open: picking || (current.open && current.terminals.length > 0) });
 }

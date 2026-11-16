@@ -5,7 +5,6 @@ import type { TerminalFollower } from "@milagre/shared/terminal-client";
 
 // The open xterms, without xterm itself: closing, fitting, focusing and copying act on Terminals already built, so the
 // window's first load doesn't carry xterm (about 430 KB of script). terminal-sessions.ts builds them, loaded with the
-// first Terminal shown (loadTerminalView).
 
 export type Session = {
   id: string;
@@ -15,20 +14,14 @@ export type Session = {
   element: HTMLDivElement;
   follower: TerminalFollower;
   opened: boolean;
-  /** Draws the shown Terminal on the GPU; null for one out of view, or where WebGL failed. */
   webgl: WebglAddon | null;
-  /** The size waiting to be sent to the PTY while the panel is still being resized. */
   sizing: number | null;
 };
 export const sessions = new Map<string, Session>();
-// The PTY learns a new size once the panel has stopped moving: every size on the way would make the program in front
-// redraw its whole screen (vim, htop, an agent's TUI), and that redraw is more output to read back.
 const PTY_RESIZE_MS = 100;
 
 let view: Promise<typeof import("./terminal-sessions")> | null = null;
-/** The module that builds xterms, loaded once: asked for as soon as a Chat has a Terminal, so it is there when one shows. */
 export function loadTerminalView() {
-  // A failed load (the app updated under the window) is tried again next time.
   view ??= import("./terminal-sessions").catch((error: unknown) => {
     view = null;
     throw error;
@@ -75,7 +68,6 @@ export function claimSize(session: Session) {
   }, PTY_RESIZE_MS);
 }
 
-/** Fits the Terminal to its panel and claims the PTY's size for this window: the last viewer to fit or type sets it. */
 export function fitTerminal(id: string) {
   const session = sessions.get(id);
   if (!session?.opened || !session.element.isConnected || !session.element.clientWidth || !session.element.clientHeight) return;
@@ -110,7 +102,6 @@ export function dispose(id: string) {
   session.element.remove();
 }
 
-/** Ends viewers for Terminals the host no longer lists. */
 export function pruneTerminals(chatId: string, live: Set<string>) {
   for (const session of sessions.values()) if (session.chatId === chatId && !live.has(session.id)) dispose(session.id);
 }

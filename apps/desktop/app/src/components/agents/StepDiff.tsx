@@ -8,13 +8,8 @@ import { isLanguageReady, loadLanguage } from "../markdown/highlighter";
 import { Content, decorate, MARKER, MARKER_COLOR, TINT } from "../changes/diff-lines";
 import { Button, IconButton } from "../primitives/Button";
 
-/** Rows an edit's diff shows before it folds behind "Show all". */
 const STEP_DIFF_ROWS = 14;
 
-/**
- * An edit's diff in the transcript, drawn like the Changes view: tinted rows, changed words marked, the file's syntax
- * colours, old and new line numbers. File headers and hunk ranges are left out; the row above already names the file.
- */
 export function StepDiff({ hunks, path, copyText }: { hunks: DiffHunk[]; path: string; copyText: string }) {
   const [all, setAll] = useState(false);
   const [, setLoaded] = useState(0);
@@ -35,7 +30,6 @@ export function StepDiff({ hunks, path, copyText }: { hunks: DiffHunk[]; path: s
   const decorations = useMemo(() => decorate(hunks, path, languageReady), [hunks, path, languageReady]);
   const total = hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
   const clamped = !all && total > STEP_DIFF_ROWS;
-  // Line number columns wide enough for the largest number in the diff.
   const digits = String(Math.max(0, ...hunks.map((hunk) => Math.max(hunk.oldStart + hunk.oldLines, hunk.newStart + hunk.newLines)))).length;
   const gutter = `${Math.max(3, digits)}ch`;
 
@@ -56,7 +50,6 @@ export function StepDiff({ hunks, path, copyText }: { hunks: DiffHunk[]; path: s
                 )}
                 {hunk.lines.map((line, lineIndex) => (
                   <div key={lineIndex} data-diff-row={line.kind} className={`flex min-h-5 ${TINT[line.kind]}`}>
-                    {/* Old and new numbers each in their own right-aligned cell, 1ch apart and 1.5ch before the marker. */}
                     <span className="ml-3 shrink-0 select-none text-right text-ink-3 tabular-nums" style={{ width: gutter }}>
                       {line.oldNumber}
                     </span>

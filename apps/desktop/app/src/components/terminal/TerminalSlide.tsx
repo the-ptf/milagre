@@ -2,28 +2,19 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useMotionValue, useMotionValueEvent, usePresence } from "motion/react";
 import { DURATION, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 
-// The gap between the Chat and the panel, part of the room that opens.
 const GAP = 8;
 
-/**
- * The Terminals panel rising from the window's bottom edge, the way the changes panel opens from the right: the slot's
- * height springs from zero, the Chat making room as it grows, and the card rises through it as it fades in. Closing
- * (under AnimatePresence) runs it backwards from wherever it is. The card keeps the height it ends at (or has) while
- * the slot moves, so the Terminal is fitted once instead of on every frame and the shell isn't sent a resize per frame.
- */
 export function TerminalSlide({ height, children }: { height: number; children: ReactNode }) {
   const scale = useMotionScale();
   const reduced = scale === 0;
   const slot = useRef<HTMLDivElement>(null);
   const shown = useMotionValue(0);
-  // The card's height in pixels while the slot moves; null at rest, where it fills the slot.
   const [card, setCard] = useState<number | null>(reduced ? null : height);
   const sliding = useRef(false);
   const latestHeight = useRef(height);
   useLayoutEffect(() => {
     latestHeight.current = height;
   });
-  // A plain div follows the spring by hand: a motion.div given a motion value for `height` keeps it, and would ignore
   // the CSS height the panel goes back to at rest, so dragging the divider would no longer size it.
   useMotionValueEvent(shown, "change", (value) => {
     if (sliding.current && slot.current) slot.current.style.height = `${value}px`;
@@ -62,8 +53,6 @@ export function TerminalSlide({ height, children }: { height: number; children: 
       ref={slot}
       data-terminal-slot
       data-sliding={moving || undefined}
-      // The card hangs from the slot's top edge and runs past the window's bottom, clipped there, so it rises with the
-      // edge, tabs first. Clipped only while it moves: at rest the clip would cut the resize handle above the card.
       className={`flex shrink-0 flex-col ${moving ? "overflow-hidden" : ""}`}
       style={{ paddingTop: GAP, height: moving ? `${shown.get()}px` : `calc(min(${height}px, 75%) + ${GAP}px)` }}
     >

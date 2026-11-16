@@ -3,12 +3,9 @@ import type { ReactNode } from "react";
 import type { ChatMessage, ChatStep } from "../../model";
 import { bridgeForKey } from "../../lib/computer-bridge";
 
-// A saved message keeps long tool output in a sidecar on the host (the step has `hasDetail` and no `detail`), so the
 // state the windows receive stays small. Opening such a step reads its message once from the host.
 
-/** The Project or Link (scope key) whose messages the steps below belong to. */
 const ScopeContext = createContext<string | null>(null);
-/** The saved message the steps below belong to; null for a reply still streaming. */
 const MessageContext = createContext<number | null>(null);
 
 export function StepDetailsScope({ scope, children }: { scope: string | undefined; children: ReactNode }) {
@@ -19,7 +16,6 @@ export function StepDetailsMessage({ id, children }: { id: number; children: Rea
   return <MessageContext.Provider value={id > 0 ? id : null}>{children}</MessageContext.Provider>;
 }
 
-// A few recent messages, so closing and opening a step again doesn't ask the host again.
 const LIMIT = 20;
 const loaded = new Map<string, Promise<ChatMessage>>();
 function loadMessage(scope: string, id: number) {
@@ -27,7 +23,6 @@ function loadMessage(scope: string, id: number) {
   let message = loaded.get(key);
   if (!message) {
     message = bridgeForKey(scope).getMessage(scope, id);
-    // A failed read isn't cached, so Retry can ask the host again.
     message.catch(() => loaded.delete(key));
     loaded.set(key, message);
     if (loaded.size > LIMIT) loaded.delete(loaded.keys().next().value!);
@@ -37,7 +32,6 @@ function loadMessage(scope: string, id: number) {
 
 export type StepDetail = { detail?: string; loading: boolean; failed: boolean; retry: () => void };
 
-/** The step's detail: inline, or read from the host once `open` and the step has one there. */
 export function useStepDetail(step: ChatStep, open: boolean): StepDetail {
   const scope = useContext(ScopeContext);
   const messageId = useContext(MessageContext);
@@ -65,7 +59,6 @@ export function useStepDetail(step: ChatStep, open: boolean): StepDetail {
   return { detail: read.detail, loading: false, failed: read.failed, retry };
 }
 
-/** Whether a step has detail to open, inline or on the host. */
 export function useHasStepDetail(step: ChatStep) {
   const scope = useContext(ScopeContext);
   const messageId = useContext(MessageContext);

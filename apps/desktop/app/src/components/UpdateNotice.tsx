@@ -24,12 +24,9 @@ export function UpdateSettingsBadge() {
   return <span role="status" aria-label="Update available" className="absolute right-1 top-1 size-1.5 rounded-full bg-accent" />;
 }
 
-/** Lives above every screen so updates remain reachable without an open Project. */
 export function UpdateShell({ children }: { children: ReactNode }) {
   const [state, setState] = useState<UpdateState | null>(null);
-  // The open Chat offers a spot above its composer; the latest one mounted holds the pill.
   const [slots, setSlots] = useState<HTMLElement[]>([]);
-  // A Chat stays mounted but hidden behind Settings, the canvas or a diff; its slot then has no box and gives the pill up.
   const [shown, setShown] = useState<ReadonlySet<HTMLElement>>(() => new Set());
   const [register] = useState(() => (slot: HTMLElement) => {
     setSlots((previous) => [...previous, slot]);
@@ -41,7 +38,6 @@ export function UpdateShell({ children }: { children: ReactNode }) {
         else next.delete(slot);
         return next;
       });
-    // Read now so an open Chat takes the pill in this commit; the observer follows later hides and shows.
     mark(slot.checkVisibility());
     const observer = new IntersectionObserver((entries) => mark(entries.at(-1)?.isIntersecting ?? false));
     observer.observe(slot);
@@ -61,9 +57,7 @@ export function UpdateShell({ children }: { children: ReactNode }) {
       try {
         const next = await window.milagre.getUpdateState();
         if (!changed) setState(next);
-      } catch {
-        /* A live state event can still recover the notice. */
-      }
+      } catch {}
     }
     void load();
     return () => {
@@ -81,7 +75,6 @@ export function UpdateShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Centres the pill above the composer, out of the chip row's flow. Without one, the pill sits at the window's bottom left. */
 export function UpdatePillSlot({ className = "" }: { className?: string }) {
   const register = useContext(SlotRegistry);
   const ref = useCallback((slot: HTMLDivElement | null) => (slot && register ? register(slot) : undefined), [register]);
@@ -95,11 +88,9 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   const [requestError, setRequestError] = useState("");
   const [pending, setPending] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  // Escape collapses back to the pill; full dismissal hands focus to Settings.
   const refocus = useRef(false);
   const reduce = useReducedMotion();
   const motionScale = useMotionScale();
-  // Both faces stay mounted and report their sizes; the surface takes the size of the one on show.
   const [pillSize, measurePill] = useSize();
   const [cardSize, measureCard] = useSize();
   const ready = state?.status === "downloaded";
@@ -135,8 +126,6 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
     window.addEventListener("milagre:show-update", show);
     return () => window.removeEventListener("milagre:show-update", show);
   }, []);
-  // The release notes hand focus back to What's new once their modal is out of the page (while it's open, nothing
-  // outside it can take focus).
   const notesShown = useRef(false);
   useLayoutEffect(() => {
     if (notesVersion) notesShown.current = true;
@@ -180,7 +169,6 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
       setPending(false);
     }
   }
-  // Both faces hang from the pill's spot: centred above the composer, or the window's bottom left.
   const anchor = slot ? { left: "50%", x: "-50%" } : { left: 0 };
   const face = (shown: boolean) => ({ ...morphFace(shown, reduce, motionScale), style: anchor });
   const size = open ? cardSize : pillSize;
@@ -196,7 +184,6 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
         }
       }}
     >
-      {/* One surface morphs between the pill and the card; both faces stay mounted and crossfade inside it. */}
       <div
         style={size ? { width: size.width, height: size.height, borderRadius: open ? 14 : size.height / 2 } : undefined}
         className={`relative overflow-hidden bg-surface ${MORPH_SURFACE} ${

@@ -4,13 +4,10 @@ import { designPreviewDocument } from "@milagre/shared/design-preview";
 const LIVE_AT = 0.25;
 const IMAGE_BELOW = 0.22;
 const MAX_ENCODINGS = 12;
-// RGBA backing storage across conversions: at most 16 MiB, including large documents and high-DPI displays.
 const MAX_CANVAS_PIXELS = 4 * 1024 * 1024;
 const SYNC_ENCODE_PIXELS = 256 * 256;
 
-/** Rasterize only the renderer's small preview. SVG exports and live frames keep their original size and fonts. */
 function previewDimensions(document: DesignDocument, pixelRatio: number, previewScale: number) {
-  // Invalid legacy documents must reach the renderer error path rather than stall pixel admission with NaN.
   if (!Number.isFinite(document.width) || !Number.isFinite(document.height) || document.width <= 0 || document.height <= 0) return { width: 1, height: 1 };
   const factor = Math.min(previewScale * pixelRatio, 1024 / Math.max(document.width, document.height));
   return { width: Math.max(1, Math.ceil(document.width * factor)), height: Math.max(1, Math.ceil(document.height * factor)) };
@@ -21,7 +18,6 @@ export function canvasPreviewSource(document: DesignDocument, pixelRatio: number
     `width="${document.width}" height="${document.height}"`,
     `width="${width}" height="${height}"`,
   );
-  // Integer bitmap edges may round the aspect ratio; stretching only this intermediate SVG prevents letterboxing.
   return { svg: svg.replace("<svg ", '<svg preserveAspectRatio="none" '), width, height };
 }
 async function rasterPreview(document: DesignDocument, pixelRatio: number, releaseSlot: () => void, previewScale: number, releasePixels: () => void) {
@@ -46,7 +42,6 @@ async function rasterPreview(document: DesignDocument, pixelRatio: number, relea
     image.src = "";
     URL.revokeObjectURL(url);
     releaseSlot();
-    // Tiny Fit previews encode quickly. Async canvas encoding waits for document idle during the dock animation.
     if (width * height <= SYNC_ENCODE_PIXELS) {
       const src = canvas.toDataURL("image/png");
       if (!src.startsWith("data:image/png")) throw Error("The design preview could not encode.");
@@ -89,7 +84,6 @@ type Job = {
   pixelsHeld: boolean;
 };
 
-/** Shared queue: at most two temporary SVGs, with 8 ms cooperative slices for starting whole-design builds. */
 export function createDesignPreviewCache(
   limit = 48,
   render: (
@@ -130,7 +124,6 @@ export function createDesignPreviewCache(
             versions.set(job.versionKey, variants);
           }
           variants.add(key);
-          // Three zoom buckets on each of the two most recent display densities, bounded per immutable version.
           while (variants.size > 6) {
             const old = variants.values().next().value!;
             variants.delete(old);
@@ -197,7 +190,6 @@ export function createDesignPreviewCache(
   return {
     get: (key: string) => values.get(key),
     delete(key: string) {
-      // All zoom/density variants leave with their artifact version.
       for (const version of versions.keys()) if (version === key || version.startsWith(key + "\n")) versions.delete(version);
       for (const stored of values.keys()) if (stored === key || stored.startsWith(key + "\n")) values.delete(stored);
       for (const [stored, job] of jobs) if (stored === key || stored.startsWith(key + "\n")) job.retain = () => false;
@@ -242,7 +234,6 @@ export function designLiveZoom(previous: boolean, scale: number) {
   return scale >= LIVE_AT || (previous && scale >= IMAGE_BELOW);
 }
 
-/** Decode only as many pixels as the current preview zoom needs, with three reusable resolution buckets. */
 export function designPreviewScale(scale: number) {
   return scale <= 0.0625 ? 0.0625 : scale <= 0.125 ? 0.125 : LIVE_AT;
 }

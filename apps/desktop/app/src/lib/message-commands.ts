@@ -5,7 +5,6 @@ import type { Command } from "./commands";
 const PER_CHAT = 3;
 const TOTAL = 30;
 
-/** Palette rows for the messages matching `query`, in listed chats only (`titles`), at most three per chat. */
 export function messageCommands(
   messages: readonly SearchableMessage[],
   query: string,
@@ -15,7 +14,6 @@ export function messageCommands(
   return messageCommandsFrom(searchMessages(messages, query, 200), titles, open);
 }
 
-/** The same rows from matches the host found (chat:search), for a window that holds no messages. */
 export function messageCommandsFrom(
   matches: readonly Pick<ChatSearchMatch, "message" | "snippet" | "highlight" | "term">[],
   titles: ReadonlyMap<number, string>,

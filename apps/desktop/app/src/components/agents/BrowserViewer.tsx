@@ -9,19 +9,12 @@ const POLL_MS = 15_000;
 export type ChatBrowserTargets = BrowserList & {
   api: BrowserApi | undefined;
   loading: boolean;
-  /** The browser being attached or detached. */
   attaching: string | null;
   attach(browserId: string): Promise<BrowserList | null>;
   detach(browserId: string): Promise<void>;
 };
 
-/**
- * Pages available to open in the Browser panel: those of browsers this Chat's agent started, of browsers attached
- * to this Chat, and a Chat on another computer's own panel pages. Never inferred from a URL. `active` (the panel on
- * show) keeps the list polled while there is no page yet.
- */
 export function useChatBrowserTargets(chatId: string | null | undefined, active: boolean): ChatBrowserTargets {
-  // Read once: the bridge never changes while mounted, and a fresh reference each render would restart polling.
   const bridge = useBridge();
   const [api] = useState(() => bridge?.browsers);
   const [list, setList] = useState<BrowserList>({ supported: true, targets: [], others: [] });
@@ -45,7 +38,6 @@ export function useChatBrowserTargets(chatId: string | null | undefined, active:
       if (mounted.current) setLoading(false);
     }
   }, [api, chatId]);
-  // The list read, for the poll below; a no-op while unmounted.
   const pollList = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     if (!api || !chatId) return;
@@ -65,9 +57,6 @@ export function useChatBrowserTargets(chatId: string | null | undefined, active:
     pollList.current = poll;
     void poll();
     document.addEventListener("visibilitychange", visibility);
-    // With no page nothing is polled (the list spawns a process on the host): a page comes from the Chat's agent, a
-    // browser its commands start or one it attaches, so its steps finishing (at most once per POLL_MS) and each turn's
-    // end read the list again; so does coming back to the window, after one was attached from the phone.
     const focused = () => void poll();
     window.addEventListener("focus", focused);
     let readAt = 0;
@@ -91,8 +80,6 @@ export function useChatBrowserTargets(chatId: string | null | undefined, active:
       offAgent();
     };
   }, [api, chatId, refresh]);
-  // While the Chat has a page, the panel shows or a browser is being attached, the list is polled: pages open, close
-  // and navigate on their own.
   const polling = !!api && !!chatId && (list.targets.length > 0 || active || attaching !== null);
   useEffect(() => {
     if (!polling) return;
@@ -127,7 +114,6 @@ export function useChatBrowserTargets(chatId: string | null | undefined, active:
   };
 }
 
-/** The browser a target id (`<browserId>:<pageId>`) belongs to. */
 export const targetBrowserId = (targetId: string) => targetId.slice(0, targetId.indexOf(":"));
 
 function withoutOwnPanel(list: BrowserList, chatId: string | null | undefined): BrowserList {

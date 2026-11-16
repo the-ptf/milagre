@@ -3,15 +3,9 @@ import type { BabysitSettings } from "@milagre/shared/babysit";
 import type { MilagreBridge } from "../electron.d.ts";
 
 type Patch = Partial<BabysitSettings>;
-/** A change, or a function that builds it from the latest settings shown (changes still on their way included). */
 export type BabysitChange = Patch | ((current: BabysitSettings) => Patch);
 type State = { settings: BabysitSettings | null; error: string | null };
 
-/**
- * Settings › Integrations › Babysit PRs: the one configuration this Mac's daemon keeps. Changes show at once; each
- * answer from the host is shown with the changes still on their way laid over it, so an earlier answer never undoes a
- * later change, and a failed change goes back on its own.
- */
 export function babysitSettingsStore(bridge: MilagreBridge) {
   let confirmed: BabysitSettings | null = null;
   let unconfirmed: Array<{ patch: Patch }> = [];
@@ -56,7 +50,6 @@ export function babysitSettingsStore(bridge: MilagreBridge) {
         off = null;
       };
     },
-    /** Rejects when the host refuses it, after the change has gone back and `error` says why. */
     async save(change: BabysitChange) {
       const current = state.settings;
       const patch = typeof change === "function" ? (current ? change(current) : null) : change;
@@ -78,7 +71,6 @@ export function babysitSettingsStore(bridge: MilagreBridge) {
   };
 }
 
-/** The Babysit PRs settings for one view: `save` takes a change or a function of the latest settings. */
 export function useBabysitSettings() {
   const [store] = useState(() => babysitSettingsStore(window.milagre));
   const { settings, error } = useSyncExternalStore(store.subscribe, store.snapshot);
@@ -87,15 +79,10 @@ export function useBabysitSettings() {
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
-/**
- * A typed field's save: one call 500 ms after typing stops, or at once on flush (blur, leaving the page). `cancel` (Reset)
- * drops what was typed and not yet sent; a save already on its way still lands but no longer marks the field.
- */
 export function createDebouncedSave(save: (patch: Patch) => Promise<void>, ms = 500, onState?: (state: SaveState) => void) {
   let pending: Patch | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight = 0;
-  // Bumped by cancel: answers to saves sent before it are not this field's any more.
   let generation = 0;
   let state: SaveState = "idle";
   const set = (next: SaveState) => {
@@ -115,7 +102,6 @@ export function createDebouncedSave(save: (patch: Patch) => Promise<void>, ms = 
       await save(patch);
       if (sent !== generation) return;
       inFlight -= 1;
-      // Saved only once nothing newer is typed or still on its way; each save carries the whole text, so the last to land wins.
       if (!inFlight && !pending) set("saved");
     } catch {
       if (sent !== generation) return;

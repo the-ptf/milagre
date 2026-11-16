@@ -20,13 +20,8 @@ const seconds = (steps: ChatStep[]) => {
   return start && end > start ? `${Math.max(1, Math.round((end - start) / 1000))} s` : null;
 };
 
-/**
- * The Chat's live screen: long-polls the host for the next frame while its agent works, and keeps the last one. Starts
- * before the first tool finishes and across reconnects, until the card unmounts.
- */
 function useScreen(chatId: string | null, steps: ChatStep[]) {
   const [screen, setScreen] = useState<{ chatId: string; frame: ComputerUseFrame } | null>(null);
-  // Read in the observer, so it sees the newest steps without restarting; a step starting again restarts it.
   const latest = useRef(steps);
   useEffect(() => {
     latest.current = steps;
@@ -34,7 +29,6 @@ function useScreen(chatId: string | null, steps: ChatStep[]) {
   const running = steps.some((step) => step.status === "running");
   useEffect(() => {
     if (!chatId) return;
-    // A test bridge or an older paired host may not offer it.
     const api = bridgeForKey(chatId).computerUse as ComputerUseApi | undefined;
     if (!api?.frame) return;
     return observeComputerUseScreen(
@@ -46,19 +40,13 @@ function useScreen(chatId: string | null, steps: ChatStep[]) {
   return screen && screen.chatId === chatId ? screen.frame : null;
 }
 
-/**
- * A reply's computer use (design B): its desktop steps numbered on the left, the app's window live on the right, in one
- * card instead of tool rows. The picture keeps the last frame once the agent stops.
- */
 export function ComputerUseCard({ steps }: { steps: ChatStep[] }) {
   const chatId = useReplyChatId();
   const frame = useScreen(chatId, steps);
   const [large, setLarge] = useState(false);
   const [allSteps, setAllSteps] = useState(false);
-  // The newest steps beside the screen; earlier ones behind a button, so a long run doesn't stretch the card.
   const hidden = allSteps ? 0 : Math.max(0, steps.length - VISIBLE_STEPS);
   const shown = frame && frameFitsSteps(frame.at, steps) ? frame : null;
-  // The host keeps capturing for a while after the last step, then says the feed is no longer live.
   const live = !!shown?.live;
   const apps = desktopStepApps(steps);
   const summary = [`${steps.length} ${steps.length === 1 ? "step" : "steps"}`, apps.join(", "), seconds(steps)].filter(Boolean).join(" · ");

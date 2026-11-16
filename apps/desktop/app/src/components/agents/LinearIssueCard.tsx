@@ -1,12 +1,10 @@
 import type { LinearIssueContext } from "../../model";
 import { LinearLogo } from "../ProviderLogo";
 
-/** A Chat started from a Linear issue, shown as the issue instead of the prompt the agent read. Clicking opens it in Linear. */
 export function LinearIssueCard({ issue }: { issue: LinearIssueContext }) {
   return (
     <div data-slot="linear-issue" data-key={issue.key} className="flex w-full max-w-md flex-col gap-2">
       <a
-        // A Routine Run's card has no link when the issue's URL wasn't Linear's own.
         href={issue.url || undefined}
         target="_blank"
         rel="noreferrer"

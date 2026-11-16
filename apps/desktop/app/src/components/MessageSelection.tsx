@@ -5,10 +5,6 @@ import { shortcutCommand, useShortcutLabel } from "../lib/keybindings";
 
 type Passage = { text: string; source: string; left: number; top: number };
 
-/**
- * A passage of a user's message as it was typed: its chips go back to their tokens (`@path`, `/skill`), which the
- * browser's selection text leaves out or breaks onto lines of their own. Null when it has no chips.
- */
 function typedText(range: Range) {
   const fragment = range.cloneContents();
   const tokens = fragment.querySelectorAll("[data-token]");
@@ -17,12 +13,6 @@ function typedText(range: Range) {
   return fragment.textContent;
 }
 
-/**
- * Keeps browser text selection intact and offers Quote, like the phone's selection menu, when the selection sits inside
- * one message's text (an element marked `data-quotable`: a reply's answer or thought; `"typed"` on a user's bubble). Quote, or its
- * shortcut, hands the passage, named after the message it came from, to `onQuote`. `provider` names the replies whose
- * message doesn't say which agent wrote them.
- */
 export function MessageSelection({
   container,
   provider,
@@ -55,7 +45,6 @@ export function MessageSelection({
       const end = element(range?.endContainer)?.closest("[data-quotable]");
       const message = start?.closest<HTMLElement>('[data-slot="message"]');
       const text = (range && start?.getAttribute("data-quotable") === "typed" && typedText(range)) || (selection?.toString() ?? "");
-      // One message's text only: a selection across messages, or into its tool rows and cards, offers nothing.
       if (!root || !range || !start || start !== end || !message || !root.contains(start) || !text.trim()) {
         setPassage(null);
         return;
@@ -65,7 +54,6 @@ export function MessageSelection({
         setPassage(null);
         return;
       }
-      // Under the selection's end, or over its start when that would leave the window.
       const rects = range.getClientRects();
       const last = rects[rects.length - 1] ?? rect;
       const below = last.bottom + 6;
@@ -106,7 +94,6 @@ export function MessageSelection({
         style={{ left: passage.left, top: passage.top }}
         onPointerDown={(event) => event.preventDefault()}
         onClick={(event) => {
-          // React carries a portal's click to the tile the selection is in; the quote is this button's alone.
           event.stopPropagation();
           quote();
         }}

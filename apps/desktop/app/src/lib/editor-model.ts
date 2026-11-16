@@ -22,22 +22,18 @@ const TEXT_NODE = 3;
 /** Rendered after a chip that ends its line so the caret has a text position there; never part of the draft. */
 export const FILLER = "\u200B";
 
-// Filler text nodes are known by identity, not by character: a U+200B the user typed or pasted is text like any other.
 const fillers = new WeakSet<EditorNode>();
 
-/** Registers a text node the editor rendered as a filler. Its leading U+200B counts nothing. */
 export function markFiller(node: EditorNode) {
   fillers.add(node);
 }
 
-// How many leading characters of a text node are the filler's (anything a browser typed into it stays).
 function fillerWidth(node: EditorNode, raw: string) {
   return fillers.has(node) && raw.startsWith(FILLER) ? 1 : 0;
 }
 
 const BLOCKS = new Set(["DIV", "P", "LI", "PRE", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6"]);
 
-/** A chip's source text, or null for anything else. */
 function chipSource(node: EditorNode): string | null {
   return node.nodeType === ELEMENT_NODE ? (node.getAttribute?.("data-text") ?? null) : null;
 }
@@ -46,7 +42,6 @@ function isBlock(node: EditorNode) {
   return node.nodeType === ELEMENT_NODE && BLOCKS.has(node.nodeName);
 }
 
-// The break that ends its block, or comes right before a block, renders no line of its own.
 function isClosingBreak(node: EditorNode, parent: EditorNode, parentIsBlock: boolean) {
   const siblings = parent.childNodes;
   let index = Array.prototype.indexOf.call(siblings, node) as number;
@@ -68,10 +63,8 @@ type Point = { node: EditorNode; offset: number };
 
 class Stop extends Error {}
 
-/** The text of `root`, or of its start up to `stop`. */
 function serialize(root: EditorNode, stop?: Point): string {
   let out = "";
-  // Whether anything came before (an empty line counts), and whether a block just ended so inline content starts a line.
   let started = false;
   let pendingLine = false;
   const flush = () => {
@@ -178,7 +171,6 @@ export function textOffsetToDom(root: EditorNode, offset: number): Point {
           return true;
         }
         position += source.length;
-        // Right after the chip: in the text that follows it when there is some (the filler), else between nodes.
         const next = children[index + 1];
         if (offset <= position && !(offset === position && next?.nodeType === TEXT_NODE && next.nodeValue)) {
           found = { node: container, offset: index + 1 };
@@ -217,11 +209,6 @@ export type EditorPiece =
   | { kind: "filler" }
   | { kind: "chip"; part: Exclude<PromptPart, { kind: "text" }> };
 
-/**
- * What the editor renders for `value`: its parts, split at line breaks, a filler after each chip that ends a line, and
- * the closing break. `provisional` is the range a dictation take may still rewrite; its text is cut into pieces of its
- * own so the editor can tint it without changing a character of the draft.
- */
 export function editorLayout(value: string, parts: readonly PromptPart[], provisional: Selection | null = null): EditorPiece[] {
   const usable = parts.map((part) => part.text).join("") === value ? parts : [{ kind: "text" as const, text: value }];
   const pieces: EditorPiece[] = [];
@@ -253,7 +240,6 @@ function chipRanges(parts: readonly PromptPart[]): Range[] {
   return ranges;
 }
 
-/** Widens a range so it takes whole chips; `chip` says whether it touches one. */
 function snap(parts: readonly PromptPart[], start: number, end: number): Range & { chip: boolean } {
   let chip = false;
   for (const range of chipRanges(parts)) {
@@ -268,7 +254,6 @@ function snap(parts: readonly PromptPart[], start: number, end: number): Range &
 
 export type EditResult = { value: string; caret: number; chip: boolean };
 
-/** Puts `text` in place of the range, taking whole chips the range cuts into. */
 export function replaceRange(value: string, parts: readonly PromptPart[], start: number, end: number, text: string): EditResult {
   const range = snap(parts, Math.min(start, end), Math.max(start, end));
   return { value: value.slice(0, range.start) + text + value.slice(range.end), caret: range.start + text.length, chip: range.chip };
@@ -315,13 +300,11 @@ export type EditKind = "type" | "delete" | "chip" | "paste" | "other";
 
 const COALESCE_MS = 500;
 
-/** The editor's own undo stack: typing (or deleting) within 500 ms of the last keystroke joins one step; everything else is a step. */
 export function createEditHistory(now: () => number = Date.now) {
   let undo: EditorState[] = [];
   let redo: EditorState[] = [];
   let last: { kind: EditKind; at: number } | null = null;
   return {
-    /** Call before applying an edit, with the state it replaces. */
     record(before: EditorState, kind: EditKind) {
       const at = now();
       const joins = last && last.kind === kind && (kind === "type" || kind === "delete") && at - last.at < COALESCE_MS;

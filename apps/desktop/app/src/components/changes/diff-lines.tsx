@@ -6,17 +6,13 @@ import { extensionOf } from "../../lib/diff-comments";
 import type { DiffHunk, DiffLine } from "../../lib/diff-parse";
 import { highlight } from "../markdown/highlighter";
 
-// The pieces of a diff row shared by the Changes view (DiffFile) and an edit's diff in the transcript (StepDiff).
-
 export type Decorated = { tokens?: ThemedToken[]; words?: Range[] };
 
-/** Syntax tokens and changed-word ranges for every line of a file's hunks. */
 export function decorate(hunks: DiffHunk[], path: string, languageReady: boolean): Map<DiffLine, Decorated> {
   const result = new Map<DiffLine, Decorated>();
   const language = resolveCodeLanguage(extensionOf(path));
   for (const hunk of hunks) {
     if (language && languageReady) {
-      // Each side is highlighted as the text it would be in its own file, so strings and comments tokenize across lines.
       for (const side of ["remove", "add"] as const) {
         const lines = hunk.lines.filter((line) => line.kind === "context" || line.kind === side);
         const tokens = highlight(lines.map((line) => line.text).join("\n"), language);
@@ -43,7 +39,6 @@ export function Content({ line, decoration }: { line: DiffLine; decoration?: Dec
     const start = offset;
     const end = offset + token.content.length;
     offset = end;
-    // Split the token at word-range edges so the highlight sits behind the syntax colour.
     const cuts = [start, ...words.flatMap(([from, to]) => [from, to]).filter((at) => at > start && at < end), end];
     for (let i = 0; i < cuts.length - 1; i++) {
       const from = cuts[i];

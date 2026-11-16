@@ -2,11 +2,6 @@ import type { ReactNode } from "react";
 import type { IconSvgElement } from "@hugeicons/react";
 import { Icon } from "./Icon";
 
-/**
- * A transcript event between messages (compaction, reload, account switch, a Link): a hairline each side of a centred
- * 12px ink-3 label, 12px from each rule. `label` is the group's accessible name when the visible content is more than plain text.
- * `leading` replaces the icon (a SpinnerRing while it is under way).
- */
 export function TranscriptDivider({
   icon,
   leading,

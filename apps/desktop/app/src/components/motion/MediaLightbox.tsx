@@ -5,12 +5,9 @@ import { createPortal } from "react-dom";
 import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { containedRect, type Frame, panBy, type Rect, step, type View, zoomAt } from "../../lib/lightbox";
 
-// `file` is what an image's right-click menu copies or saves: its absolute path, or a pasted image's data URL.
 export type LightboxItem = { id: string; name: string; src: string; kind: "image" | "video"; file?: string };
 type Media = HTMLImageElement | HTMLVideoElement;
 type Zoom = View & { smooth?: boolean };
-// A slide's figure and the motion values the morph drives, so a close mid-open starts from where it is.
-// `corner` is the media's corner radius as seen on screen, so it can follow the thumbnail's rounding through the morph.
 type Figure = {
   el: HTMLDivElement;
   x: MotionValue<number>;
@@ -20,17 +17,14 @@ type Figure = {
   corner: MotionValue<number>;
 };
 type Pose = Partial<Record<"x" | "y" | "scale" | "opacity" | "corner", number>>;
-// Each slide's elements by item id, so an exiting slide never stands in for the current one.
 type Elements = { figures: Map<string, Figure>; media: Map<string, Media> };
 
 const FIT: Zoom = { scale: 1, x: 0, y: 0 };
-// The full-size media's corner radius, in screen pixels.
 const CORNER = 8;
 const SWIPE = 60;
 const natural = (media: Media): [number, number] =>
   media instanceof HTMLImageElement ? [media.naturalWidth, media.naturalHeight] : [media.videoWidth, media.videoHeight];
 
-// Where a thumbnail's media is drawn, if it is still on screen to morph into.
 function thumbRect(thumb: HTMLElement | null | undefined): Rect | null {
   const media = thumb?.querySelector<Media>("img, video");
   if (!media) return null;
@@ -38,8 +32,6 @@ function thumbRect(thumb: HTMLElement | null | undefined): Rect | null {
   if (box.bottom < 0 || box.top > innerHeight) return null;
   return containedRect(box, ...natural(media));
 }
-// The rounding the thumbnail's media shows: a clipping box around it (a generated image's card), or its own
-// corners when it fills its box. An object-contain thumbnail's corners sit in empty space, so it shows none.
 function thumbCorner(thumb: HTMLElement | null | undefined): number {
   const media = thumb?.querySelector<Media>("img, video");
   if (!media) return 0;
@@ -73,7 +65,6 @@ const Icon = ({ d }: { d: string }) => (
     <path d={d} />
   </svg>
 );
-// Over media, in the on-media tokens (the phone viewer's): an on-media tint, brighter on hover.
 const control =
   "flex size-9 items-center justify-center rounded-full bg-on-media-tint text-on-media transition-[background-color,scale] duration-fast hover:bg-on-media/20 enabled:active:scale-press disabled:opacity-40 disabled:hover:bg-on-media-tint";
 
@@ -86,7 +77,6 @@ export function MediaLightbox({
 }: {
   items: LightboxItem[];
   start: number;
-  // The thumbnail button an item opens from, closes back into, and returns focus to.
   thumbFor: (id: string) => HTMLElement | null | undefined;
   onIndexChange?: (index: number) => void;
   close: () => void;
@@ -103,10 +93,8 @@ export function MediaLightbox({
   const opened = useRef(false);
   const swipe = useRef({ total: 0, last: 0, lockedUntil: 0 });
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  // Set when a press became a pan or a swipe, so the click that ends it neither zooms nor closes.
   const dragged = useRef(false);
   const item = items[index];
-  // Listeners attach once, so they read the latest render through this.
   const latest = useRef({ index, zoom, closing, items, reduce, speed, thumbFor, onIndexChange, close });
   latest.current = { index, zoom, closing, items, reduce, speed, thumbFor, onIndexChange, close };
   const current = () => latest.current.items[latest.current.index];
@@ -117,7 +105,6 @@ export function MediaLightbox({
     if (!media || !stage.current) return null;
     return { width: media.offsetWidth, height: media.offsetHeight, frameWidth: stage.current.clientWidth, frameHeight: stage.current.clientHeight };
   };
-  // A point relative to the stage centre, where the media is centred.
   const fromCentre = (clientX: number, clientY: number) => {
     const area = stage.current;
     if (!area) return null;
@@ -138,7 +125,6 @@ export function MediaLightbox({
   const requestClose = () => {
     const { closing, reduce, speed, thumbFor, close } = latest.current;
     if (closing) return;
-    // Set now, not on the next render: the opening morph checks it as soon as the image decodes.
     latest.current.closing = true;
     setClosing(true);
     setZoom(FIT);
@@ -146,7 +132,6 @@ export function MediaLightbox({
     if (!selected) return close();
     const figure = elements.figures.get(selected.id);
     if (!figure) return close();
-    // Morph back into the thumbnail when it is on screen; otherwise just fade out.
     const thumb = thumbFor(selected.id),
       target = thumbRect(thumb);
     const run =
@@ -159,18 +144,14 @@ export function MediaLightbox({
   const openDialog = (el: HTMLDialogElement | null) => {
     if (el && !el.open) el.showModal();
   };
-  // The first media to load morphs out of its thumbnail.
   const ready = (figure: Figure) => {
     if (opened.current) return;
     opened.current = true;
     const { reduce, speed, thumbFor, items } = latest.current;
-    // A cached image is ready before the dialog's ref and effect run, and a closed dialog has no size to morph from.
     openDialog(figure.el.closest("dialog"));
-    // Decoding a large image at its full size takes a few frames; done first, the morph doesn't stall on it.
     const openingItem = items[start];
     const media = openingItem ? elements.media.get(openingItem.id) : undefined;
     void (media instanceof HTMLImageElement ? media.decode().catch(() => {}) : Promise.resolve()).then(() => {
-      // Closed while decoding: the opening morph would cancel the closing one, and the viewer would never close.
       if (latest.current.closing) return;
       const thumb = openingItem ? thumbFor(openingItem.id) : undefined,
         source = thumbRect(thumb);
@@ -179,7 +160,6 @@ export function MediaLightbox({
         pose(figure, { opacity: 1, scale: 1 }, { duration: scaled(DURATION.base, speed), ease: EASE_OUT });
         return;
       }
-      // jump(), not set(): set() reads the leap to the thumbnail as velocity, and the spring would fling the image past it.
       const from = flip(figure, source);
       figure.x.jump(from.x);
       figure.y.jump(from.y);
@@ -193,7 +173,6 @@ export function MediaLightbox({
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     openDialog(dialog.current);
-    // Captured so these keys never reach the chat behind (Escape there stops the agent).
     const keys = (event: KeyboardEvent) => {
       const nudge = ({ ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80] } as Record<string, [number, number]>)[event.key];
       if (event.key !== "Escape" && !nudge) return;
@@ -206,7 +185,6 @@ export function MediaLightbox({
       if (zoom.scale > 1 && bounds) setZoom({ ...panBy(zoom, nudge[0], nudge[1], bounds), smooth: true });
       else if (event.key === "ArrowLeft" || event.key === "ArrowRight") go(event.key === "ArrowLeft" ? -1 : 1);
     };
-    // Pinch or ⌘-scroll zooms, scrolling pans a zoomed image, a sideways swipe changes item.
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
       const zoom = latest.current.zoom,
@@ -222,7 +200,6 @@ export function MediaLightbox({
       }
       const now = performance.now(),
         s = swipe.current;
-      // Momentum keeps sending events after a swipe; wait for it to stop before the next one.
       if (now < s.lockedUntil) {
         s.lockedUntil = now + 200;
         return;
@@ -259,13 +236,11 @@ export function MediaLightbox({
       bounds = frame();
     if (!start || !bounds || zoom.scale <= 1) return;
     if (!start.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 4) return;
-    // Capture only once a pan starts: captured clicks land on the stage, never on the image or the empty area.
     if (!start.moved) event.currentTarget.setPointerCapture(event.pointerId);
     setZoom(panBy(zoom, event.clientX - start.x, event.clientY - start.y, bounds));
     drag.current = { x: event.clientX, y: event.clientY, moved: true };
     dragged.current = true;
   };
-  // A sideways drag on a fitted item changes item, like a swipe.
   const pointerUp = (event: ReactPointerEvent) => {
     const start = drag.current;
     drag.current = null;
@@ -277,7 +252,6 @@ export function MediaLightbox({
       go(dx < 0 ? 1 : -1);
     }
   };
-  // A click on an image zooms in at that point or back out; a click on the empty area around it closes.
   const click = (event: ReactMouseEvent) => {
     if (dragged.current) {
       dragged.current = false;
@@ -392,7 +366,6 @@ function Slide({
     scale = useMotionValue(1),
     opacity = useMotionValue(intro ? 0 : 1),
     corner = useMotionValue(CORNER);
-  // The figure's scale shrinks the radius with everything else, so divide it back out.
   const borderRadius = useTransform(() => corner.get() / scale.get());
   const loaded = () => {
     if (figure.current) onReady(figure.current);
@@ -400,7 +373,6 @@ function Slide({
   const keep = (el: Media | null) => {
     if (el) elements.media.set(item.id, el);
   };
-  // A cached image can finish loading before React attaches onLoad.
   useLayoutEffect(() => {
     const media = elements.media.get(item.id);
     if (media instanceof HTMLImageElement && media.complete && media.naturalWidth) loaded();
@@ -417,7 +389,6 @@ function Slide({
       className="flex"
     >
       {item.kind === "video" ? (
-        // No rounding on video: clipping a playing video's corners repaints it on every frame of the morph.
         <video ref={keep} src={item.src} controls autoPlay onLoadedMetadata={loaded} onError={loaded} className={fit} />
       ) : (
         <motion.img
@@ -428,7 +399,6 @@ function Slide({
           draggable={false}
           onLoad={loaded}
           onError={loaded}
-          // Stopped here, since React bubbles it through the portal to whatever opened the viewer.
           onContextMenu={
             canCopyImage(item.file)
               ? (event) => {

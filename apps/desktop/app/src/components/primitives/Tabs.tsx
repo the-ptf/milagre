@@ -8,16 +8,9 @@ export type TabOption<T extends string> = {
   icon?: IconSvgElement;
   count?: number;
   disabled?: boolean;
-  /** The id of the tabpanel this tab shows (aria-controls). */
   controls?: string;
 };
 
-/**
- * A panel's tab strip: 28px tabs, 8px corners, 12 medium with no weight change; ink-2 at rest, hover fill and ink,
- * the selected tab hover-2 and ink. One Tab stop: Left/Right, Home and End move and pick. Each tab carries
- * `data-tab` and, with `dataKey`, `data-<dataKey>` set to its value; give the panel `role="tabpanel"` and the id in
- * `controls`.
- */
 export function Tabs<T extends string>({
   label,
   value,

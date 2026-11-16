@@ -1,13 +1,5 @@
 import type { ReactNode } from "react";
 
-/**
- * A failure, announced as an alert; renders nothing when empty. Two tiers:
- * - `inline` (default): red-ink text under the control or form it belongs to, 12 in dialogs and under fields, 13
- *   standalone.
- * - `card`: a blocking failure with a way out (a Chat that won't load, a failed save): a red-tint card, 13 red-ink,
- *   with `action` (a secondary Button at 28) at its right. `floating`: the same message over a canvas or view, on a
- *   surface with shadow-raised, 12.
- */
 export function InlineError({
   children,
   size = 13,
@@ -19,7 +11,6 @@ export function InlineError({
   children?: ReactNode;
   size?: 12 | 13;
   variant?: "inline" | "card" | "floating";
-  /** With `card`: the retry, a `<Button variant="secondary" size={28}>`. */
   action?: ReactNode;
   className?: string;
 } & { [key: `data-${string}`]: string | boolean | undefined }) {

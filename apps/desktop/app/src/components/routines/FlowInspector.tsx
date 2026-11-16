@@ -32,7 +32,6 @@ const input = "h-8 w-full min-w-0 rounded-control border border-line-strong bg-s
 const sectionLabel = "text-12 font-medium text-ink-2";
 const FIELD_NAME = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
 
-/** What kind of step the inspector shows, under its name. */
 const KIND_WORDS: Record<FlowStep["kind"], string> = {
   agent: "Agent step",
   if: "Condition",
@@ -42,7 +41,6 @@ const KIND_WORDS: Record<FlowStep["kind"], string> = {
   "linear-comment": "Action",
 };
 
-/** The inspector's card: the step's tile, name and what it is, a ⋯ beside it, then its settings. */
 export function InspectorCard({
   kind,
   title,
@@ -72,7 +70,6 @@ export function InspectorCard({
   );
 }
 
-/** A setting's row: its name on the left, its control on the right. */
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex min-h-9 items-center justify-between gap-3 border-b border-line py-1 last:border-0">
@@ -111,7 +108,6 @@ function NumberInput({ label, value, min, max, onChange }: { label: string; valu
   );
 }
 
-/** "Insert field": the fields a step can read, grouped by the step that gives them; a pick inserts `{{ref}}`. */
 function InsertField({ fields, onInsert, label = "Insert field" }: { fields: FlowReadable[]; onInsert: (ref: string) => void; label?: string }) {
   const popover = usePopover(300, "end");
   return (
@@ -226,7 +222,6 @@ function NameField({ value, onChange }: { value: string; onChange: (value: strin
   );
 }
 
-/** Whether a field read in a text is still readable there: a chip in the step's Reads that no earlier step gives is red. */
 function Reads({ refs, readable }: { refs: string[]; readable: ReadonlySet<string> }) {
   if (refs.length === 0) return null;
   return (
@@ -255,7 +250,6 @@ const TYPE_OPTIONS: SelectOption<FlowField["type"]>[] = (["text", "choice", "yes
   label: FIELD_TYPE_WORDS[type],
 }));
 
-/** An agent step's Output table: each field's name, type (and choices), how many steps read it, and remove. */
 function OutputFields({ step, steps, onChange }: { step: FlowAgentStep; steps: FlowStep[]; onChange: (output: FlowField[]) => void }) {
   const set = (index: number, patch: Partial<FlowField>) => onChange(step.output.map((field, at) => (at === index ? { ...field, ...patch } : field)));
   const addField = () => {
@@ -677,10 +671,6 @@ function CommentFields({ step, fields, set }: { step: FlowCommentStep; fields: F
   );
 }
 
-/**
- * The selected step's settings, by type, with its problems on top. Every change goes through `onChange` with the whole
- * step.
- */
 export function StepInspector({
   step,
   steps,
@@ -696,12 +686,10 @@ export function StepInspector({
   step: FlowStep;
   steps: FlowStep[];
   trigger: RoutineTrigger;
-  /** "edited in this draft", "new in this draft", or nothing. */
   status: string | null;
   problems: string[];
   models: ModelOption[];
   capabilities: ModelCapabilities | null;
-  /** The issue a Test run would use, for the agent step's note. */
   testIssue: string | null;
   menu: ReactNode;
   onChange: (step: FlowStep) => void;
@@ -743,7 +731,6 @@ export function StepInspector({
   );
 }
 
-/** The trigger's inspector: what it gives the steps, and where to change it. */
 export function TriggerInspector({ trigger, text, onSettings }: { trigger: RoutineTrigger; text: string; onSettings: () => void }) {
   const gives = triggerFields(trigger.kind);
   return (

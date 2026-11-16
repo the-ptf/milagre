@@ -4,9 +4,7 @@ import type { ChangesMode, PrRange } from "../../lib/pull-request-view";
 import { useGitRefresh } from "./useGitRefresh";
 import { parsePatch, type DiffHunk } from "../../lib/diff-parse";
 
-// Patches load as files scroll into view; a few at a time keeps git from competing with the agent.
 const MAX_IN_FLIGHT = 4;
-// Past this many changed lines a file waits for "Show diff" instead of loading and highlighting on scroll.
 const LARGE_DIFF_LINES = 3000;
 
 export type PatchState = { status: "loading" } | { status: "error"; message: string } | ({ status: "ready" } & DiffFileResult);
@@ -19,7 +17,6 @@ export type DiffList =
 
 const parsed = new WeakMap<object, DiffHunk[]>();
 
-/** A loaded patch's hunks, parsed once however many places read them (a file's rows, the comments' outdated check). */
 export function hunksOf(patch: PatchState | undefined): DiffHunk[] {
   if (patch?.status !== "ready") return [];
   let hunks = parsed.get(patch);
@@ -38,7 +35,6 @@ function patchKey(cwd: string, mode: ChangesMode, file: DiffFileEntry, range?: P
 type Failure = { ok: false; message: string };
 const failed = (result: object): result is Failure => "ok" in result && result.ok === false;
 
-/** The file list for a mode: git's for the Chat's own changes, the PR's commits for "pr" (nothing until its commits are known). */
 async function readList(bridge: MilagreBridge, cwd: string, base: string | undefined, mode: ChangesMode, range?: PrRange): Promise<DiffFilesResult> {
   if (mode !== "pr") return bridge.git.diffFiles({ cwd, base, mode });
   if (!range) return { isRepo: true, base: null, files: [] };
@@ -62,11 +58,6 @@ async function readPatch(
   return result;
 }
 
-/**
- * The changed files of a chat's folder and their patches. `refresh` re-reads the list and revalidates loaded
- * patches, since an edit can keep a file's line counts. Previous patches stay visible during reads. Large files
- * the user opened with "Show diff" stay opened until the folder or mode changes.
- */
 export function useDiffFiles({
   cwd,
   base,
@@ -79,10 +70,8 @@ export function useDiffFiles({
   cwd: string;
   base?: string;
   mode: ChangesMode;
-  /** The PR's commits, for mode "pr". */
   range?: PrRange;
   active: boolean;
-  /** Whether the diff shows this mode: only then does a refresh re-read the loaded patches; otherwise it drops them. */
   patches?: boolean;
   bridge: MilagreBridge;
 }) {
@@ -94,7 +83,6 @@ export function useDiffFiles({
   const queue = useRef<(() => void)[]>([]);
   const inFlight = useRef(0);
   const generation = useRef(0);
-  // Bumped whenever the cache is dropped, so a patch read that started before it doesn't land in the new one.
   const epoch = useRef(0);
   const forced = useRef(new Set<string>());
   const reload = useRef<(file: DiffFileEntry) => void>(() => {});
@@ -110,7 +98,6 @@ export function useDiffFiles({
 
   const refresh = useCallback(
     async (background = false) => {
-      // Let slow patches finish before a periodic read invalidates their cache generation.
       if (background && (inFlight.current > 0 || queue.current.length > 0)) return;
       const { cwd, base, mode, bridge, range, patches } = request.current;
       const scope = JSON.stringify([cwd, base, mode, mode === "pr" ? range : null]);
@@ -119,7 +106,6 @@ export function useDiffFiles({
       try {
         const result = await readList(bridge, cwd, base, mode, range);
         if (current === generation.current) {
-          // Keep loaded patches visible while polling revalidates them, including edits with unchanged line counts.
           const previous = new Map(cache.current);
           dropPatches();
           if (result.isRepo && patches) {
@@ -145,11 +131,9 @@ export function useDiffFiles({
     dropPatches();
     forced.current.clear();
     setSnapshot({ scope, list: { state: "idle" } });
-    // Invalidates a read still running for the old folder or mode.
     return () => {
       generation.current++;
     };
-    // `scope` stands for cwd, base, mode and the PR's commits.
   }, [active, scope, bridge, refresh, dropPatches]);
 
   useGitRefresh(active && !!cwd, scope, refresh);
@@ -158,7 +142,6 @@ export function useDiffFiles({
     while (inFlight.current < MAX_IN_FLIGHT && queue.current.length) queue.current.shift()!();
   }, []);
 
-  /** Starts loading a file's patch unless it is cached or already loading. `force` is "Show diff" on a large file. */
   const load = useCallback(
     (file: DiffFileEntry, force = false, revalidate = false) => {
       const { cwd, base, mode, bridge, range } = request.current;

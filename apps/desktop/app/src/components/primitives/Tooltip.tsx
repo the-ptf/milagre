@@ -20,10 +20,8 @@ import { ShortcutKeys } from "./ShortcutKeys";
 
 export const TOOLTIP_SHOW_DELAY = 400;
 
-/** Set inside a Tooltip, so an IconButton in it doesn't add a second one. */
 const InTooltip = createContext(false);
 
-/** Where a trigger's floating layers go: an open modal dialog or a popover host sits above body, so they go into it. */
 export const layerHost = (trigger: Element | null | undefined) => trigger?.closest("dialog, [data-popover-host]") ?? document.body;
 
 /** Shared tooltip presentation for ordinary triggers and text hit-tested under a native input. */
@@ -38,14 +36,12 @@ export function TooltipBubble({
   host,
 }: {
   label: string;
-  /** Drawn instead of `label`, which stays the trigger's accessible description. */
   content?: ReactNode;
   rect: DOMRect;
   align?: "start" | "end";
   side?: "top" | "bottom";
   wrap?: boolean;
   hint?: string;
-  /** The element the bubble portals into; body by default. */
   host?: Element | null;
 }) {
   return createPortal(
@@ -68,17 +64,12 @@ export function TooltipBubble({
 
 export type TooltipOptions = {
   label: string;
-  /** Rich content shown in the bubble instead of `label` (a PR's state glyph, number and title); `label` is still what a screen reader hears. */
   content?: ReactNode;
   shortcut?: string;
-  /** A key pressed on its own, without ⌘ (the canvas's C): shown in the tooltip, not with the hints holding ⌘ shows. */
   keyHint?: string;
   align?: "start" | "end";
-  /** Which side of the trigger the tooltip opens on; "bottom" for triggers at the window's top edge. */
   side?: "top" | "bottom";
-  /** Lets a long label break onto more lines instead of running past the window. */
   wrap?: boolean;
-  /** For a row of icon buttons too close for full hints: smaller keys, just under its button instead of over it. */
   compactHint?: boolean;
 };
 
@@ -104,7 +95,6 @@ export function useTooltip(
   const triggerRef = useRef<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
-  // Read when the bubble or the hint shows, not on mount: no extra render for every icon button.
   const hostRef = useRef<Element | null>(null);
   const showHints = useShortcutHints();
   const [hintRect, setHintRect] = useState<DOMRect | null>(null);
@@ -189,10 +179,8 @@ export function useTooltip(
 }
 
 type Handlers = ReturnType<typeof useTooltip>["handlers"];
-// `label` is IconButton's name prop.
 type ChildProps = Partial<Handlers> & { ref?: Ref<HTMLElement>; label?: string; "aria-label"?: string; "aria-description"?: string; children?: ReactNode };
 
-/** Calls the trigger's own handler, then the tooltip's. */
 export function chainHandlers(child: Partial<Record<keyof Handlers, unknown>>, handlers: Handlers): Handlers {
   return Object.fromEntries(
     (Object.keys(handlers) as (keyof Handlers)[]).map((key) => [
@@ -205,25 +193,15 @@ export function chainHandlers(child: Partial<Record<keyof Handlers, unknown>>, h
   ) as Handlers;
 }
 
-/** The trigger's accessible name, roughly: its aria-label, or its text. */
 const nameOf = (element: Element) => element.getAttribute("aria-label") ?? element.textContent?.trim() ?? "";
 
-/**
- * The app's ink tooltip. By default it wraps its children in an inline-flex span; `asChild` puts the handlers and ref
- * on the single child element instead, with no wrapper (a `> button` selector, a truncating link, a motion element).
- * When the label isn't already the trigger's name it's also its `aria-description`, so a disabled reason is read out
- * (an attribute rather than aria-describedby, so no hidden text lands in the page's textContent). It portals into an
- * open dialog or `[data-popover-host]` around the trigger.
- */
 export default function Tooltip({
   asChild = false,
   className = "",
   children,
   ...options
 }: TooltipOptions & {
-  /** Attach to the one child element instead of wrapping it. */
   asChild?: boolean;
-  /** Extra classes for the trigger wrapper, e.g. to position it (not used with asChild). */
   className?: string;
   children: ReactNode;
 }) {
@@ -259,5 +237,4 @@ export default function Tooltip({
   );
 }
 
-/** For a component that renders its own trigger: whether a Tooltip around it already shows one. */
 export const useInTooltip = () => use(InTooltip);

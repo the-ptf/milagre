@@ -24,7 +24,6 @@ export function RecommendationCard({ question, options, onSelect }: Recommendati
   const recommendation = options.find((option) => option.recommended);
   const others = options.filter((option) => option !== recommendation);
   if (options.length === 0) return null;
-  // A heading and divider only earn their space when there are several alternatives to introduce.
   const separate = Boolean(recommendation) && others.length >= 2;
   const visible = showAlternatives ? others : others.slice(0, 2);
   const rows = others.length > 0 && (

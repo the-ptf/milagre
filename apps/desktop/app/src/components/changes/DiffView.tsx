@@ -15,7 +15,6 @@ import type { DiffSelection } from "../../lib/diff-comments";
 import { threadsByPath, threadsFor } from "../../lib/pull-request-view";
 import { ReviewBar, ThreadCard, type ThreadActions } from "./PullRequestReview";
 
-/** A PR's diff: GitHub's threads on its files, and its review's writes. Every function is stable. */
 export type PrDiffReview = {
   pr: PullRequestDetail;
   threadActions: ThreadActions;
@@ -24,17 +23,12 @@ export type PrDiffReview = {
   error: string | null;
 };
 
-// The toolbar, preferences and presence live in DiffPrefs, which the app loads up front; this file is its own chunk.
 export { DiffToolbar, useDiffPreferences, useDiffPresence } from "./DiffPrefs";
 
 const NO_COMMENTS: CommentView[] = [];
 
 const fileNodes = (root: HTMLElement | null) => [...(root?.querySelectorAll<HTMLElement>("[data-diff-file]") ?? [])];
 
-/**
- * Scrolls `node` to the top. A file near the end can't get there (the view stops at its bottom), which can leave a sliver
- * of a row under the pinned header above it; the view then moves up by that sliver, so the row under the header shows whole.
- */
 function scrollToFile(root: HTMLElement, node: HTMLElement) {
   node.scrollIntoView({ block: "start" });
   const top = root.getBoundingClientRect().top;
@@ -48,7 +42,6 @@ function scrollToFile(root: HTMLElement, node: HTMLElement) {
   if (hidden > 0) root.scrollTop -= hidden;
 }
 
-/** Scrolls to the file and notes where that left the view, so a scroll that isn't ours can tell. */
 function holdFile(root: HTMLElement, node: HTMLElement, own: { current: number }) {
   scrollToFile(root, node);
   own.current = root.scrollTop;
@@ -72,7 +65,6 @@ export function DiffView({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const files = list.state === "ready" && list.isRepo ? list.files : [];
 
-  // Until the reader scrolls, the picked file stays at the top while the files around it load and change height.
   const holding = useRef<string | null>(null);
   const ownTop = useRef(0);
   useEffect(() => {
@@ -109,8 +101,6 @@ export function DiffView({
       element.removeEventListener("keydown", release);
     };
   }, [files]);
-  // The tree marks the file whose header is pinned at the top (the last one that starts at or above the view's top), or
-  // the picked one while the view holds it.
   const { setVisiblePath } = changes;
   useEffect(() => {
     const element = scroller.current;
@@ -118,7 +108,6 @@ export function DiffView({
     let frame = 0;
     const measure = () => {
       frame = 0;
-      // A picked file stays marked while the view holds it, even when it sits too near the end to reach the top.
       if (holding.current) return setVisiblePath(holding.current);
       const top = element.getBoundingClientRect().top + 8;
       const nodes = fileNodes(scroller.current);
@@ -135,7 +124,6 @@ export function DiffView({
     };
   }, [setVisiblePath, files]);
 
-  // Stable, so a file only re-renders when its own props change.
   const toggle = useCallback(
     (path: string) =>
       setCollapsed((previous) => {
@@ -150,7 +138,6 @@ export function DiffView({
   const { draft, text, start, over, edit, cancel } = useCommentDraft();
   const { add, update, remove } = comments;
   const addToReview = review?.addToReview;
-  // The rows a selection points at mean something else in the other layout.
   useEffect(() => cancel(), [prefs.layout, cancel]);
   const actions = useMemo<CommentActions>(
     () => ({
@@ -177,7 +164,6 @@ export function DiffView({
     [start, over, edit, cancel, add, update, remove, addToReview],
   );
 
-  // The PR's threads per file, the same arrays while they don't change, so untouched files don't re-render.
   const threadGroups = useRef<Map<string, PullRequestThread[]>>(undefined);
   const prThreads = useMemo(() => (threadGroups.current = threadsByPath(review?.pr.threads ?? [], threadGroups.current)), [review?.pr.threads, threadGroups]);
   const threadActions = review?.threadActions;
@@ -186,7 +172,6 @@ export function DiffView({
     [threadActions],
   );
 
-  // A file whose comments haven't changed gets the same array back, so it doesn't re-render.
   const grouped = useRef(new Map<string, CommentView[]>());
   const byPath = useMemo(() => {
     const next = new Map<string, CommentView[]>();
@@ -198,12 +183,10 @@ export function DiffView({
     grouped.current = next;
     return next;
   }, [comments.comments, grouped]);
-  // Comments on files that left the diff have no file to sit in; they gather at the top so they can still be deleted.
   const paths = new Set(files.map((file) => file.path));
   const orphans = list.state === "ready" && list.isRepo ? comments.comments.filter((comment) => !paths.has(comment.path)) : [];
 
   return (
-    // Slides in from the panel's side like the panel itself, and back out the same way; the chat stays hidden until it's gone.
     <motion.div
       className="relative min-h-0 flex-1"
       initial={{ opacity: 0, x: 32 }}
@@ -211,7 +194,6 @@ export function DiffView({
       exit={{ opacity: 0, x: 32 }}
       transition={reduced ? { duration: 0 } : { x: SPRING_LAYOUT, opacity: { duration: DURATION.base, ease: EASE_OUT } }}
     >
-      {/* Starts under the top bar, level with the sidebar and the panel; only the bottom edge fades, while there's more below. */}
       <ScrollArea ref={scroller} data-diff-view className="diff-scroll mt-[var(--window-chrome-height)] h-[calc(100%-var(--window-chrome-height))] px-3 pb-4">
         {files.length === 0 &&
           (list.state === "ready" ? (
@@ -257,7 +239,6 @@ export function DiffView({
             />
           ))}
         </div>
-        {/* Room under the last file for the review bar that floats over it. */}
         {review && <div aria-hidden className="h-20" />}
       </ScrollArea>
       {review && (

@@ -41,10 +41,6 @@ const TOKENS = {
 
 const scheme = () => (document.documentElement.classList.contains("dark") ? "dark" : "light");
 
-/**
- * The transcript around the reply: its chat text and the app's colors, so the page reads as part of it. The page is
- * transparent, so whatever the transcript sits on (page, grid tile, window stripes) shows through.
- */
 function theme(host: HTMLElement | null): HtmlRenderTheme {
   const root = getComputedStyle(document.documentElement);
   const colors = Object.fromEntries(Object.entries(TOKENS).map(([key, token]) => [key, root.getPropertyValue(`--${token}`).trim()]));
@@ -74,7 +70,6 @@ function HtmlFrame({
 }: {
   html: string;
   title: string;
-  /** The reader theme when the page loaded; later changes are sent to the running page. */
   initialTheme: HtmlRenderTheme;
   host: RefObject<HTMLElement | null>;
   onHeight?: (height: number) => void;
@@ -179,7 +174,6 @@ function HtmlFrame({
   );
 }
 
-/** Immutable pages are read by their own id, never through the live Artifact catalog. */
 export function HtmlReply({ chatId, page }: { chatId: string | null; page: ArtifactRef }) {
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<{ key?: string; artifact?: Artifact; theme?: HtmlRenderTheme; error?: string }>({});
@@ -190,7 +184,6 @@ export function HtmlReply({ chatId, page }: { chatId: string | null; page: Artif
     let live = true;
     if (chatId)
       readArtifact(chatId, page.id, page.version).then(
-        // The page loads after its message is on screen, so the transcript is there to read the theme from.
         (value) => live && setLoaded({ key, artifact: value, theme: theme(host.current) }),
         () => live && setLoaded({ key, error: "Could not load this page." }),
       );
@@ -199,8 +192,6 @@ export function HtmlReply({ chatId, page }: { chatId: string | null; page: Artif
     };
   }, [chatId, page.id, page.version, key]);
   const [height, setHeight] = useState(() => htmlRenderHeight(page.height));
-  // No frame, title or toolbar: the page sits in the reply like its text. Loading keeps the measured height so the
-  // transcript doesn't jump; only a failure shows words.
   return (
     <section ref={host} data-slot="html-reply" aria-label={page.title} className="mb-2">
       {artifact && initialTheme ? (

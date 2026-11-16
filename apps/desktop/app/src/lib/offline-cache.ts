@@ -3,7 +3,6 @@ import { isRemoteKey } from "./computer-bridge.ts";
 import { stateEvents } from "./state-events.ts";
 
 // A paired computer's states and chat windows, forwarded to main as they change so its last copy can be read while it
-// is away (spec "Offline cache"). Held back per key: a streaming turn changes a state many times a second.
 const DELAY_MS = 3000;
 const timers = new Map<string, { computerId: string; timer: ReturnType<typeof setTimeout> }>();
 function later(computerId: string, key: string, write: () => void) {
@@ -16,7 +15,6 @@ function later(computerId: string, key: string, write: () => void) {
     }, DELAY_MS),
   });
 }
-/** A computer that was removed keeps nothing waiting to be written. */
 function dropUnpaired(paired: Set<string>) {
   for (const [key, pending] of timers)
     if (!paired.has(pending.computerId)) {
@@ -37,13 +35,11 @@ export function rememberChat(scope: string, chatId: number, chat: { messages: un
     remember(scope, { kind: "chat", scope, chatId, window: { messages: chat.messages, hasMore: chat.hasMore, total: chat.total } }),
   );
 }
-/** A line about a remote scope for the host's daemon.log: the window keeps no log of its own. */
 export function noteComputer(scope: string, line: string) {
   if (!isRemoteKey(scope)) return;
   void Promise.resolve(window.milagre.computers?.note?.(computerOfKey(scope), line)).catch(() => {});
 }
 let started = false;
-/** Follows every remote scope's state; App starts it once. */
 export function startOfflineCache() {
   if (started) return;
   started = true;

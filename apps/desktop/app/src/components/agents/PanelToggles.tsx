@@ -16,11 +16,9 @@ import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
 import { useWindowChrome } from "../../lib/window-chrome";
 
-/** A side panel the open Chat can show: whether it is open, and what shows or hides it. */
 export type SidePanel = { open: boolean; toggle: () => void };
 type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator" | "details";
 
-// Panels register their availability and actions here; the toolbar shows every offered button inline at the top right.
 let panels: Partial<Record<PanelName, SidePanel>> = {};
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
@@ -29,11 +27,9 @@ const subscribe = (listener: () => void) => {
 };
 const snapshot = () => panels;
 
-/** Offers a panel action while `panel` is set; null removes it. */
 export function useSidePanel(name: PanelName, panel: SidePanel | null) {
   const open = panel?.open;
   const offered = open !== undefined;
-  // The button calls the newest toggle, so a toggle made anew each render doesn't publish the panel again.
   const toggle = useRef(panel?.toggle);
   toggle.current = panel?.toggle;
   const press = useRef(() => toggle.current?.());
@@ -42,26 +38,20 @@ export function useSidePanel(name: PanelName, panel: SidePanel | null) {
     panels = next ? { ...rest, [name]: next } : rest;
     listeners.forEach((listener) => listener());
   };
-  // The button shows while the panel is offered, and goes with it.
   useEffect(() => {
     if (!offered) return;
     return () => publish(undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- publish only closes over name
   }, [name, offered]);
-  // Its pressed state follows the panel's after every render, so it never lags behind the panel: a panel closed for
-  // another (the window's room, the designs expanding) shows its button released at once.
   useEffect(() => {
     if (open !== undefined && panels[name]?.open !== open) publish({ open, toggle: press.current });
   });
 }
 
-/** The panels available in the active Chat. */
 export function useSidePanels() {
   return useSyncExternalStore(subscribe, snapshot);
 }
 
-// Changes, the theme and the canvas are App's keys. The Terminals take ⌘J by default, as in VS Code; New Terminal is App's.
-// `title`, when the tooltip names the panel differently from its button's accessible name. Details has no shortcut.
 const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command?: KeybindingCommandId }[] = [
   { name: "details", label: "details", title: "Details", icon: AlignBoxMiddleRightIcon },
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
@@ -71,23 +61,15 @@ const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof Pa
   { name: "simulator", label: "simulator", title: "Simulators", icon: SmartphoneIcon, command: "simulator.toggle" },
 ];
 
-/**
- * The corner's buttons sit 40px apart (32px wide, 8px between): wide enough that the shortcut hints under them, shown
- * while ⌘ is held, don't run into each other. What sits left of them moves this much per button.
- */
 export const CORNER_PITCH = 40;
 
-/** Shown before PR and Changes; the other panels come after them. */
 const LEADING = new Set<PanelName>(["details", "terminal"]);
 
-/** How many buttons PanelToggles shows, for what sits left of them. */
 export const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) =>
   BUTTONS.filter(({ name }) => shown[name]).length + Number(changes) + Number(pullRequest);
 
-/** The top-right corner: Details, Terminals, PR, Changes, then the other panels. */
 export function PanelToggles({ right, changes, pullRequest }: { right: number; changes?: SidePanel; pullRequest?: SidePanel & { number: number } }) {
   const shown = useSidePanels();
-  // Each button's shortcut, while its button shows.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;

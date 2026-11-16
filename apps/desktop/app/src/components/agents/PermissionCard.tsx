@@ -5,13 +5,8 @@ import { alwaysAllowLabel, approvalKind, commandInTitle } from "@milagre/shared/
 import { ToolApproval, ToolApprovalCode } from "./tool-approval";
 import type { ToolApprovalParameter } from "./tool-approval";
 
-/**
- * What an approval is about, as labelled rows: where a Delegation goes, the command (unless `title` already shows
- * all of it), its folder, the files and diff, the tool's raw input. `plain` drops the code blocks' frames.
- */
 export function approvalParameters(request: PermissionRequest, { title, plain = false }: { title: string; plain?: boolean }): ToolApprovalParameter[] {
   const parameters: ToolApprovalParameter[] = [];
-  // A Delegation's card: where it goes and what it says, as the receiving agent will read it.
   if (request.delegation) {
     parameters.push({ id: "target", label: "To", value: request.delegation.target });
     parameters.push({ id: "message", label: "Message", value: <span className="whitespace-pre-wrap">{request.delegation.message}</span> });
@@ -36,14 +31,12 @@ export function approvalParameters(request: PermissionRequest, { title, plain = 
   return parameters;
 }
 
-/** One line under the title: the agent's own description, a Negotiation's rounds, and how many more wait. */
 export function approvalNote(request: PermissionRequest, waiting: number): string {
   const queued = waiting > 0 ? `${waiting} more ${waiting === 1 ? "request is" : "requests are"} waiting after this one.` : "";
   const negotiation = request.delegation?.negotiation ? `Negotiation, up to ${NEGOTIATION_ROUNDS} rounds.` : "";
   return [request.description, negotiation, queued].filter(Boolean).join(" ");
 }
 
-/** The open chat's oldest pending approval, with the exact command or change the agent wants to make. */
 export function PermissionCard({
   request,
   waiting,
@@ -52,9 +45,7 @@ export function PermissionCard({
   variant = "card",
 }: {
   request: PermissionRequest;
-  /** How many more requests are queued behind this one. */
   waiting: number;
-  /** The answer already sent for this request, while the agent takes it. */
   answering: PermissionDecision | null;
   onAnswer: (decision: PermissionDecision) => void;
   variant?: "card" | "inline";

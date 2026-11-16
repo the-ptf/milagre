@@ -9,30 +9,20 @@ import { Icon, type IconSize } from "../../primitives/Icon";
 import type { PullRequestReview } from "../usePullRequest";
 import { PopoverButton } from "./Popover";
 
-// The Summary tab's Reviewers and Labels rows. Each picker loads its options when it first opens and applies every
-// toggle at once, showing it before GitHub answers.
-
-/** Where the pickers read their options: the PR's bridge and the Worktree it was read from. */
 export type PrSource = { bridge: MilagreBridge["pr"]; cwd: string };
 
 const icon = (glyph: IconSvgElement, size: IconSize = 14) => <Icon icon={glyph} size={size} />;
 
-// IconButton's 24 ghost look, for PopoverButton's own trigger: ink-3 at rest, hover-2 and ink while its picker is open.
 const addButton =
   "flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 transition-[color,background-color,scale] hover:bg-hover hover:text-ink active:scale-press aria-expanded:bg-hover-2 aria-expanded:text-ink";
 
-/** A login's initials: the first letters of its first two words ("reviewer-one" → RO), so two reviewers named alike
- * still differ; a one-word login takes its first letter. */
 function initials(login: string) {
   const words = login.split(/[-_.\s]+/).filter(Boolean);
   return (words.length > 1 ? `${words[0]![0]}${words[1]![0]}` : login.slice(0, 1)).toUpperCase();
 }
 
-/** A person's GitHub picture; offline or without one, their initials on a hover-2 disc, which shows on the page and on
- * cards in both themes (one fallback across the panel). */
 export function Avatar({ login, size = 20, className = "", team = false }: { login: string; size?: number; className?: string; team?: boolean }) {
   const [failed, setFailed] = useState(false);
-  // A team has no picture; it shows as a group.
   if (team)
     return (
       <span style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-full bg-field text-ink-2 ${className}`}>
@@ -62,7 +52,6 @@ export function Avatar({ login, size = 20, className = "", team = false }: { log
   );
 }
 
-/** A list read once, when its picker first opens; a failure is read again on the next open. */
 function useLazyList<T>(load: (() => Promise<T[]>) | undefined) {
   const [state, setState] = useState<{ items: T[] | null; error: string | null; loading: boolean }>({ items: null, error: null, loading: false });
   const fetch = () => {
@@ -78,7 +67,6 @@ function useLazyList<T>(load: (() => Promise<T[]>) | undefined) {
 
 const matches = (text: string, query: string) => text.toLowerCase().includes(query.toLowerCase().trim());
 
-/** A property row: its values wrap, its add button stays at the end of the first line. */
 function Property({
   glyph,
   label,
@@ -96,8 +84,6 @@ function Property({
   );
 }
 
-/** A review's state as a badge on the reviewer's avatar: a glyph on a filled disc, not only a colour, so it reads for
- * everyone. Approved and changes requested take their -ink fill; commented and pending stay neutral. */
 const REVIEW_STATE: Record<PullRequestReviewer["state"], { label: string; badge?: { glyph: IconSvgElement; fill: string } }> = {
   APPROVED: { label: "Approved", badge: { glyph: Tick02Icon, fill: "bg-green-ink text-on-green" } },
   CHANGES_REQUESTED: { label: "Changes requested", badge: { glyph: Cancel01Icon, fill: "bg-red-ink text-on-red" } },
@@ -112,14 +98,11 @@ function ReviewerAvatar({ reviewer }: { reviewer: PullRequestReviewer }) {
     <span className="relative flex">
       <Avatar login={reviewer.login} team={reviewer.team} size={20} />
       {badge && (
-        // A 14px disc in a 2px surface ring, over the avatar's bottom-right corner.
         <span
           aria-hidden
           data-pr-reviewer-badge
           className={`absolute -right-2 -bottom-2 flex size-3.5 items-center justify-center rounded-full ring-2 ring-surface ${badge.fill}`}
         >
-          {/* Hugeicons pad their 24-unit box, so a 12px glyph draws about 10px of mark: the tick and the bubble then
-              carry the same weight inside the 14px disc. */}
           <HugeiconsIcon icon={badge.glyph} size={12} strokeWidth={2} color="currentColor" />
         </span>
       )}
@@ -176,7 +159,6 @@ export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; re
               >
                 {logins.map((login) => {
                   const reviewer = current.get(login);
-                  // GitHub can only take back a request; a review once given stays.
                   const reviewed = reviewer !== undefined && reviewer.state !== "REQUESTED";
                   return (
                     <PickerRow
@@ -216,7 +198,6 @@ export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; re
   );
 }
 
-/** A label in its GitHub colour; the pr-label class sets its text and chip lightness per theme, so the text stays readable. */
 const labelStyle = (color: string) => ({ "--label": `#${color}` }) as CSSProperties;
 
 export function LabelsRow({ pr, review, source }: { pr: PullRequestDetail; review: PullRequestReview; source?: PrSource }) {
@@ -230,7 +211,6 @@ export function LabelsRow({ pr, review, source }: { pr: PullRequestDetail; revie
   );
   const [query, setQuery] = useState("");
   const current = new Set(pr.labels.map((label) => label.name));
-  // Until the repository's labels load, the list shows the PR's own.
   const all: RepoLabel[] = options.items ?? pr.labels.map((label) => ({ ...label, description: "" }));
   const shown = all.filter((label) => matches(label.name, query));
   const toggle = (label: RepoLabel) => {

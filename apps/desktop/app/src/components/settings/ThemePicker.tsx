@@ -5,14 +5,12 @@ import { SectionLabel } from "../primitives/SectionLabel";
 import { radioKeys, Segmented } from "../primitives/Segmented";
 
 const GROUPS: ThemeGroup[] = ["Milagre", "Catppuccin", "Popular"];
-// Each segment keeps its aria-label, which scripts/test-theming.cjs selects by.
 const MODES = [
   { value: "system", label: "System", ariaLabel: "System" },
   { value: "light", label: "Light", ariaLabel: "Light" },
   { value: "dark", label: "Dark", ariaLabel: "Dark" },
 ] as const satisfies ReadonlyArray<{ value: ThemePreference; label: string; ariaLabel: string }>;
 
-/** System, Light and Dark as one segmented control, the Segmented primitive's large size. */
 export function ModeControl({ value, onChange }: { value: ThemePreference; onChange: (mode: ThemePreference) => void }) {
   return <Segmented<ThemePreference> label="Mode" size="large" value={value} options={MODES} onChange={onChange} />;
 }
@@ -29,8 +27,6 @@ function Tile({ id, label, name, detail, focusable }: { id: ThemeChoice; label: 
       aria-label={label}
       tabIndex={focusable ? 0 : -1}
       onClick={() => updateSettings({ colorTheme: id })}
-      // The chosen theme is ringed in ink: accent is for focus and links.
-      // Inside the tile's box (ink border plus a 1px inset ring), so a chosen tile keeps the same bounds as the others.
       className={`flex items-center gap-3 rounded-card border bg-surface p-3 text-left transition-colors hover:bg-hover ${selected ? "border-ink ring-1 ring-ink ring-inset" : "border-line"}`}
     >
       <span className="relative size-8 shrink-0 overflow-hidden rounded-full shadow-hairline" style={{ background: page }}>
@@ -47,7 +43,6 @@ function Tile({ id, label, name, detail, focusable }: { id: ThemeChoice; label: 
 export function ThemePicker() {
   const settings = useSettings();
   const custom = settings.customThemeEnabled && settings.customTheme;
-  // One Tab stop: the chosen tile (the first when it isn't shown); the arrows move through the three-column grid.
   const shown: ThemeChoice[] = [...themes.map((theme) => theme.id), ...(custom ? (["custom"] as const) : [])];
   const focus = shown.includes(settings.colorTheme) ? settings.colorTheme : shown[0];
   return (

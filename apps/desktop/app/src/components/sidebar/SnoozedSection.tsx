@@ -7,7 +7,6 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { AsideRow, AsideToggle } from "./DoneSection";
 import type { RowComputer, SidebarRecent } from "./ChatRow";
 
-/** A snoozed chat with what its own scope does with it: open it, or wake it now. `computer`: with two or more. */
 export type SnoozedEntry = {
   key: string;
   item: SidebarRecent;
@@ -16,15 +15,8 @@ export type SnoozedEntry = {
   computer?: RowComputer;
 };
 
-// Kept as "0" once folded: the section starts open, so a Chat just snoozed is seen landing there.
 const OPEN_KEY = "milagre.sidebarSnoozedOpen";
 
-/*
- * SNOOZED
- * Above Done at the sidebar's foot: snoozed chats (snooze.mjs), the one waking soonest first. Each shows how long until
- * it wakes at the right of its title (the wake time on hover of it), its computer under it with two or more, and a Wake
- * icon on hover. The host takes a chat out when its time comes, or at once on a question, an approval or a failed turn.
- */
 export function SnoozedSection({ entries, collapsed }: { entries: SnoozedEntry[]; collapsed: boolean }) {
   const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) !== "0");
   const now = useDisplayNow(30_000, open && entries.length > 0);

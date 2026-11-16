@@ -1,11 +1,5 @@
 import { useReducedMotion } from "motion/react";
 
-/**
- * The agent's cursor on the Designs canvas, like a collaborator's in Figma: an arrow and a label with the agent's name
- * in its color, gliding to where the agent works. `x` and `y` are in the frame's design pixels; the cursor itself stays
- * the same size on screen however far the canvas zooms (`scale`). `note` follows the name, e.g. while it waits for
- * the first layer. `ink` colours the label's text on `color`; a subagent's `task` is the label's tooltip.
- */
 export function AgentCursor({
   x,
   y,

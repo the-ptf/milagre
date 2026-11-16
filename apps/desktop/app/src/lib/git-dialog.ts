@@ -2,7 +2,6 @@ import { GIT_CODES, gitMessage, type GitCode } from "@milagre/shared/git-codes";
 import { isRoutineRun } from "@milagre/shared/routines";
 import type { ChatMessage, ModelProvider } from "../model";
 
-// What the "Commit and open PR" dialog shows and which steps its buttons run, from what git and gh
 // report about the chat's folder (electron/git-actions.cjs).
 
 type GitFileStatus = "added" | "modified" | "deleted";
@@ -12,7 +11,6 @@ interface GitFileChange {
   status: GitFileStatus;
   added: number;
   removed: number;
-  /** Looks like a secret (.env, a key, credentials): never committed from the dialog. */
   secret?: boolean;
 }
 
@@ -26,28 +24,19 @@ export type GitChanges =
   | { isRepo: false; message?: string }
   | {
       isRepo: true;
-      /** Null when HEAD is detached. */
       branch: string | null;
-      /** The branch a PR goes into. */
       base: string;
-      /** Staged, unstaged and untracked files. */
       files: GitFileChange[];
       hasChanges: boolean;
-      /** Commits the remote doesn't have. */
       unpushed: number;
-      /** Commits on the branch that its base doesn't have. */
       ahead: number;
       hasOrigin: boolean;
-      /** How many remotes the repo has; with more than one, the dialog says where PRs open. */
       remotes: number;
-      /** gh's default repo, where PRs open, when there are several remotes and one is set. */
       prRepo: string | null;
       onBase: boolean;
-      /** Why nothing may be committed now: a merge, rebase, cherry-pick or revert, or conflicts. */
       commitBlocked: string | null;
       ghReady: boolean;
       ghMessage: string | null;
-      /** The branch's open PR. */
       pr: GitPullRequest | null;
     };
 
@@ -56,7 +45,6 @@ export interface GitTestCommand {
   status: "done" | "failed";
 }
 
-/** What the commit message and PR text are written from, besides the diff. */
 export interface GitChatContext {
   chatTitle: string;
   firstMessage: string;
@@ -65,8 +53,8 @@ export interface GitChatContext {
 }
 
 export type GitTextResult =
-  /** `repeated`: the subject kept repeating an earlier commit, so the commit message is empty. */
-  { ok: true; provider: ModelProvider; commitMessage: string; prTitle: string; prBody: string; repeated?: boolean } | { ok: false; message: string };
+  | { ok: true; provider: ModelProvider; commitMessage: string; prTitle: string; prBody: string; repeated?: boolean }
+  | { ok: false; message: string };
 
 export type GitCommitResult =
   | { ok: true; sha: string; shortSha: string }
@@ -95,47 +83,30 @@ export interface DialogModeInput {
   onBase: boolean;
   hasOrigin: boolean;
   ghReady: boolean;
-  /** Commits on the branch its base doesn't have: an already pushed branch can still get its PR. */
   ahead?: number;
-  /** The base branch's name, for the reason a PR can't be opened from it. */
   base?: string;
-  /** Why gh can't open a PR, when it isn't ready. */
   ghMessage?: string | null;
   detached?: boolean;
-  /** Why git won't take a commit now (a merge in progress, say). */
   commitBlocked?: string | null;
-  /** The chat's agent is mid-turn and may still be editing. */
   turnRunning?: boolean;
 }
 
 export interface DialogButton {
   label: string;
   steps: GitStep[];
-  /** Shown beside a disabled button. */
   disabledReason: string | null;
 }
 
 export interface DialogMode {
-  /** The commit message field; hidden when there's nothing to commit. */
   showCommit: boolean;
-  /** The PR title and body fields; shown when the primary button opens a PR. */
   showPrFields: boolean;
-  /** The branch's PR is open, so pushing updates it. */
   prOpen: boolean;
-  /** Why no PR can be opened, shown in the PR section. */
   prBlocked: string | null;
   primary: DialogButton | null;
   secondary: DialogButton | null;
-  /** Shown when there is nothing to do. */
   idle: string | null;
 }
 
-/**
- * The dialog's sections and buttons for a folder's state. A button that commits is disabled mid-merge
- * (or rebase, cherry-pick, revert), on a detached HEAD and while the agent's turn runs; one that pushes
- * is disabled without origin. On the base branch nothing reaches the remote in one click: "Commit only"
- * is the primary button.
- */
 export function dialogMode({
   hasChanges,
   unpushed,
@@ -187,13 +158,11 @@ export function dialogMode({
   };
 }
 
-/** The line that says where PRs open, for a repo with several remotes; null with one. */
 export function prTargetLine(remotes: number, prRepo: string | null): string | null {
   if (remotes <= 1) return null;
   return prRepo ? `PRs open against ${prRepo}.` : "This repo has several remotes. Run `gh repo set-default` in a terminal to choose where PRs open.";
 }
 
-/** A line the dialog saved in the chat, as opposed to an agent's reply. */
 export function isGitNote(message: ChatMessage): boolean {
   return typeof message.context === "object" && message.context?.kind === "git-action";
 }
@@ -215,7 +184,6 @@ export function testCommandsFrom(messages: ChatMessage[]): GitTestCommand[] {
   return [...byCommand.values()].slice(-10);
 }
 
-/** The chat's title, its first user message, its last few other user messages and the tests it ran. Heartbeat prompts aren't the user's. */
 export function gitChatContext(chatTitle: string, messages: ChatMessage[]): GitChatContext {
   const userMessages = messages.filter((message) => message.role !== "assistant" && !isRoutineRun(message) && message.body.trim());
   return {
@@ -229,7 +197,6 @@ export function gitChatContext(chatTitle: string, messages: ChatMessage[]): GitC
   };
 }
 
-/** The message "Send to agent" sends after a hook stops the commit. The agent fixes; Milagre commits. */
 export function hookFailureMessage(output: string): string {
   return `The commit failed in a git hook. Fix what it reports, but don't commit or push. I'll do that from Milagre.\n\n${output}`;
 }
@@ -242,7 +209,6 @@ export interface GitRunResult {
 
 const capitalize = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
-/** The line saved in the chat after the dialog's steps, e.g. "Committed abc1234 and opened PR #12: <link>". Null when nothing happened. */
 export function gitRunNote({ shortSha, pushedBranch, pr }: GitRunResult): string | null {
   const prName = pr?.number ? `PR #${pr.number}` : "the PR";
   const done: string[] = [];
@@ -253,7 +219,6 @@ export function gitRunNote({ shortSha, pushedBranch, pr }: GitRunResult): string
   if (first === undefined) return null;
   const list = done.length > 1 ? `${done.slice(0, -1).join(", ")} and ${done.at(-1)}` : first;
   if (pr?.created) return `${capitalize(list)}: ${pr.url}`;
-  // A push to a branch with an open PR updates it.
   if (pr && pushedBranch) return `${capitalize(list)}. ${capitalize(prName)} is updated: ${pr.url}`;
   return `${capitalize(list)}.`;
 }

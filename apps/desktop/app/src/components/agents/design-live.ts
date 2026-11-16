@@ -5,36 +5,18 @@ import type { ArtifactRef, Subagent } from "../../model";
 import { stateEvents, type AgentEventUpdate } from "../../lib/state-events";
 import { readArtifact } from "./ArtifactCanvas";
 
-/**
- * The agent at work on the Designs canvas, like a collaborator's cursor in Figma or Pencil. Two sources:
- *
- * - Draft: Claude's design_show / design_apply input as the model writes it (step-draft events, design-drafts.cjs). The
- *   design builds layer by layer as the JSON arrives, then hands over to the saved version when the step completes.
- * - Replay: an agent whose input doesn't stream (Codex, Antigravity), or a Claude call no draft was seen for. When a
- *   design's frame follows the newest version and a new one lands, the change plays back from the version before it,
- *   layer by layer in under two seconds, while the frame holds the old version; then it settles on the saved one.
- *
- * Each running piece of work is a LiveDesign, kept per Chat until its frame shows the saved version.
- */
 export type LiveDesign = {
   key: string;
   kind: "draft" | "replay";
-  /** A draft's tool: a design_apply draft changes a design the canvas has, never a new one. */
   tool?: "design_show" | "design_apply";
-  /** The design worked on, once known: a new design_show names its id only at the end, or not at all. */
   designId: string | null;
   title: string | null;
   group: string | null;
-  /** What shows now; null until there is anything to render. */
   document: DesignDocument | null;
-  /** The layers the last update added or changed: the cursor goes to the last. */
   changed: string[];
-  /** Writing (or playing back), or done and waiting for the frame to show `version`. */
   status: "writing" | "settling";
   version?: number;
-  /** The version the frame keeps showing while a replay runs. */
   hold?: number;
-  /** The subagent at work (Subagent.id), or none for the Chat's own agent: each agent has its own cursor. */
   by?: string;
 };
 
@@ -52,15 +34,10 @@ type ChatLive = {
   designs: LiveDesign[];
   drafts: Map<string, Draft>;
   replays: Map<string, ReturnType<typeof setTimeout>>;
-  /** How many views follow the Chat (useLiveDesignFeed): a draft nobody follows keeps its text but isn't read. */
   watched: number;
-  /** Design tool calls running that no draft shows (Codex, Antigravity), by step id. */
   running: Set<string>;
-  /** The design tool calls already announced to useDesignWorkStarted, by id, for the turn. */
   announced: Set<string>;
-  /** The subagent making each running design call, by step id. */
   callers: Map<string, string>;
-  /** The Chat's subagents, in the Subagents view's order, which names and colours their cursors. */
   crew: readonly Subagent[];
 };
 
@@ -68,18 +45,13 @@ const chats = new Map<string, ChatLive>();
 const listeners = new Set<() => void>();
 const EMPTY: LiveDesign[] = [];
 const NO_CREW: readonly Subagent[] = [];
-// Versions that need no replay: a draft showed them being written, or the user saved them in the editor.
 const covered = new Set<string>();
 const versionKey = (chatId: string, id: string, version: number) => `${chatId}\n${id}\n${version}`;
-// The subagent that saved a version, by versionKey, for its replay's cursor.
 const savedBy = new Map<string, string>();
-// At most every this often a draft renders again.
 const DRAFT_RENDER_MS = 100;
-// A replay's whole length, and each step's bounds.
 const REPLAY_MS = 1800;
 const STEP_MIN_MS = 80;
 const STEP_MAX_MS = 150;
-// A finished piece of work that the frame never confirms is dropped after this long.
 const SETTLE_TIMEOUT_MS = 4000;
 
 function chatLive(chatId: string): ChatLive {
@@ -105,7 +77,6 @@ function emit() {
   for (const listener of listeners) listener();
 }
 
-/** Replaces a LiveDesign (or adds it), keeping the Chat's list a new array so React sees the change. */
 function put(chatId: string, live: LiveDesign) {
   const chat = chatLive(chatId);
   const index = chat.designs.findIndex((item) => item.key === live.key);
@@ -130,15 +101,10 @@ function drop(chatId: string, key: string) {
 
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// --- Drafts ---
-
 function render(chatId: string, draft: Draft) {
   draft.timer = null;
   const chat = chats.get(chatId);
-  // Read once a view follows the Chat: until then the text only gathers (useLiveDesignFeed reads it on mount).
   if (chat?.drafts.get(draft.live.key) !== draft || !chat.watched) return;
-  // design_apply builds on the version it names, and a design_show variant on the design in its `from`; it's read once
-  // its id (and design_apply's version) have streamed in.
   if (!draft.base) {
     const value = parsePartialJson(draft.input) as { id?: unknown; expectedVersion?: unknown; from?: { id?: unknown; version?: unknown } } | undefined;
     const source =
@@ -185,21 +151,14 @@ function schedule(chatId: string, draft: Draft, now = false) {
   } else if (!draft.timer) draft.timer = setTimeout(() => render(chatId, draft), DRAFT_RENDER_MS);
 }
 
-// --- The agent starting to design ---
-
 const starters = new Set<(chatId: string) => void>();
 
-/** Tells useDesignWorkStarted once per tool call that the agent started designing in the Chat. */
 function announce(chat: ChatLive, chatId: string, id: string) {
   if (chat.announced.has(id)) return;
   chat.announced.add(id);
   for (const starter of starters) starter(chatId);
 }
 
-/**
- * The design tool a step that just started runs, for an agent whose input doesn't stream: Codex's artifact steps name
- * it, Antigravity's steps say it in their title. An artifact page (artifact_show) isn't a design.
- */
 function designToolOf(step: { kind: string; title: string; tool?: string }) {
   if (step.kind === "artifact") return step.tool === "design_show" || step.tool === "design_apply" ? step.tool : null;
   return step.kind === "other" && /^Used\b/.test(step.title) ? (/design_(show|apply)\b/.exec(step.title)?.[0] ?? null) : null;
@@ -246,7 +205,6 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
       announce(chat, chatId, event.id);
     }
     if (!draft) return;
-    // A piece missed (a window opened mid-call) leaves nothing to build on.
     if (event.offset !== draft.input.length) return drop(chatId, event.id);
     draft.input += event.text;
     schedule(chatId, draft, event.done === true);
@@ -262,7 +220,6 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
     if (!draft) return;
     if (event.status !== "done" || !artifact) return drop(chatId, event.id);
     covered.add(versionKey(chatId, artifact.id, artifact.version));
-    // Nobody watched it being written: the saved version just shows when the Chat does.
     if (!chat.watched) return drop(chatId, event.id);
     schedule(chatId, draft, true);
     draft.live = {
@@ -286,8 +243,6 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
     }
   }
 }
-
-// --- Replays ---
 
 function replay(chatId: string, id: string, from: number, to: number) {
   const key = `replay:${id}:${to}`;
@@ -320,7 +275,6 @@ function replay(chatId: string, id: string, from: number, to: number) {
         if (!chat.designs.some((item) => item.key === key)) return;
         const step = steps[index++];
         if (!step) {
-          // Played: the frame lets go of the old version and shows the saved one under the last step.
           put(chatId, { ...base, document: steps.at(-1)!.document, changed: steps.at(-1)!.changed, status: "settling", version: to, hold: undefined });
           chat.replays.set(key, setTimeout(stop, SETTLE_TIMEOUT_MS));
           return;
@@ -328,14 +282,11 @@ function replay(chatId: string, id: string, from: number, to: number) {
         put(chatId, { ...base, document: step.document, changed: step.changed });
         chat.replays.set(key, setTimeout(next, each));
       };
-      // The old version paints first, then the change plays over it.
       chat.replays.set(key, setTimeout(next, 200));
       return steps.length;
     })
     .catch(stop);
 }
-
-// --- Hooks ---
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -346,15 +297,10 @@ function subscribe(listener: () => void) {
 
 let gathering = false;
 
-/**
- * Gathers every Chat's design drafts from the first piece, once any Chat's replies are on screen: a Chat opened or a
- * canvas docked mid-call still has the whole draft to build from.
- */
 function follow() {
   if (gathering) return;
   gathering = true;
   stateEvents.onAgentEvent((update) => {
-    // A draft that can't be followed only loses its animation: the other listeners still get the event.
     try {
       receive(update.chatId, update.event);
     } catch (error) {
@@ -363,10 +309,6 @@ function follow() {
   });
 }
 
-/**
- * Follows the Chat's design drafts while its replies are on screen. `agent` names the Chat's agent for its cursor;
- * `crew`, its subagents in the Subagents view's order, names theirs.
- */
 export function useLiveDesignFeed(chatId: string | null, agent: string, crew: readonly Subagent[] = NO_CREW) {
   useEffect(() => {
     if (!chatId) return;
@@ -381,7 +323,6 @@ export function useLiveDesignFeed(chatId: string | null, agent: string, crew: re
     if (!chatId) return;
     const chat = chatLive(chatId);
     chat.watched++;
-    // The drafts gathered before the Chat was on screen build now.
     for (const draft of chat.drafts.values()) if (draft.live.status === "writing") schedule(chatId, draft, true);
     return () => {
       chat.watched--;
@@ -389,10 +330,6 @@ export function useLiveDesignFeed(chatId: string | null, agent: string, crew: re
   }, [chatId]);
 }
 
-/**
- * Calls `onStart` each time the agent starts designing in the Chat (a draft begins, or a design tool starts for an agent
- * that doesn't stream its input), once per tool call, and on mount while it is designing.
- */
 export function useDesignWorkStarted(chatId: string | null, onStart: () => void) {
   const latest = useRef(onStart);
   latest.current = onStart;
@@ -414,38 +351,28 @@ const designing = (chatId: string | null) => {
   return !!chat && (chat.designs.length > 0 || chat.drafts.size > 0 || chat.running.size > 0);
 };
 
-/** Whether the agent is at work on the Chat's designs: the canvas stays open for it before the Chat has any design. */
 export function useDesignWorkActive(chatId: string | null) {
   return useSyncExternalStore(subscribe, () => designing(chatId));
 }
 
-/** Whether a new design's placeholder frame is on the canvas: until one is, an empty canvas says the agent is at work. */
 export function useDraftFrameShown(chatId: string) {
   return useSyncExternalStore(subscribe, () =>
     (chats.get(chatId)?.designs ?? EMPTY).some((live) => live.kind === "draft" && live.tool !== "design_apply" && !!live.document),
   );
 }
 
-/** Every piece of work going on in the Chat's designs, and the agent's name. */
 export function useLiveDesigns(chatId: string | null): { designs: LiveDesign[]; agent: string } {
   const designs = useSyncExternalStore(subscribe, () => (chatId ? (chats.get(chatId)?.designs ?? EMPTY) : EMPTY));
   return { designs, agent: (chatId && chats.get(chatId)?.agent) || "Agent" };
 }
 
-/** The Chat's agent, by name, and its subagents, for the cursors. */
 export function useLiveCrew(chatId: string): { agent: string; crew: readonly Subagent[] } {
   const agent = useSyncExternalStore(subscribe, () => chats.get(chatId)?.agent || "Agent");
   const crew = useSyncExternalStore(subscribe, () => chats.get(chatId)?.crew ?? NO_CREW);
   return { agent, crew };
 }
 
-/**
- * The work going on in one design's frame, and the version the frame should load: the one a replay holds while it
- * plays. A new version the frame follows starts a replay unless a draft showed it being written, the user saved it,
- * motion is reduced or the window can't be seen.
- */
 export function useLiveDesign(chatId: string, design: ArtifactRef, following: boolean): { live: LiveDesign | null; hold: number | null } {
-  // Only this design's work: the other frames don't render again as it changes.
   const live = useSyncExternalStore(subscribe, () => latestFor(chats.get(chatId)?.designs ?? EMPTY, design.id));
   const seen = useRef(design.version);
   useLayoutEffect(() => {
@@ -465,7 +392,6 @@ const latestFor = (designs: LiveDesign[], id: string) => {
   return null;
 };
 
-/** The frame showed the saved version: the work is done. */
 export function finishLiveDesign(chatId: string, key: string) {
   drop(chatId, key);
 }

@@ -34,13 +34,10 @@ import {
 
 const SEND_PAGE_COMMENTS = "milagre:send-page-comments";
 
-/** The most comments one message carries (what the host takes at once); more wait for the next Send. */
 const SEND_AT_ONCE = 50;
 
-/** Sends the Chat's page comments as one message with their screenshots; true once it went. */
 export type SendPageComments = (text: string, images: ImageAttachment[]) => Promise<boolean>;
 
-/** The toolbar's comment toggle and, while comments wait, their Send button (design browser-comment-a). */
 export function CommentControls({ chatKey, live, onSend }: { chatKey: string; live: boolean; onSend?: SendPageComments }) {
   const { commenting, pending: allPending, showResolved } = usePageComments(chatKey);
   const pending = allPending.filter((pin) => pin.text.trim());
@@ -56,8 +53,6 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
     if (!batch.length) return;
     setSending(true);
     setFailed(false);
-    // Collapse to the anchored pin immediately, even while delivery or saving is slow.
-    // The draft stays available to reopen, edit or retry until its snapshot is recorded.
     setCommenting(chatKey, false);
     try {
       const images = batch.flatMap((comment) =>
@@ -65,7 +60,6 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
       );
       const text = pageCommentsMessage(batch, { screenshots: images.length > 0 });
       if (!(await onSend(text, images))) throw Error("not sent");
-      // Recorded once the message went, under the ids it names, so the agent can resolve them.
       setSentComments(chatKey, [...pageComments(chatKey).sent, ...(await api.add({ chatId: chatKey, comments: batch }))]);
       completePendingComments(chatKey, batch);
       setCommenting(chatKey, false);
@@ -118,7 +112,6 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
       )}
       <CommentOptions shown={!!showResolved} onChange={(value) => setShowResolved(chatKey, value)}>
         <Tooltip label={`${label}. Right-click or hold for comment options`} side="bottom" align="end">
-          {/* Comment mode changes what a click on the page does: the armed accent look. */}
           <IconButton
             label={label}
             icon={CommentAdd01Icon}
@@ -134,14 +127,8 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
   );
 }
 
-/**
- * Keeps the host's list of the Chat's sent page comments fresh while its agent works, for the pins and the transcript
- * cards: on mount, after each of the agent's steps (a resolution shows within a second) and at turn end.
- */
 export function useSentPageComments(chatKey: string) {
-  // Read once: a bridge that hands out a new object per read would restart the effect every render.
   const bridge = useBridge();
-  // A host from before page comments (or a window without them) has no list: the pins then show only what is pending.
   const [api] = useState(() => (typeof bridge?.pageComments?.list === "function" ? bridge.pageComments : undefined));
   useEffect(() => {
     if (!api) return;
@@ -167,7 +154,6 @@ export function useSentPageComments(chatKey: string) {
   }, [api, chatKey]);
 }
 
-/** Browser pins use the Design bubble, with positions read from the live page as it scrolls. */
 export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: BrowserTab; live: boolean }) {
   const comments = usePageComments(chatKey);
   const pins = pagePins(comments, tab.url);
@@ -175,7 +161,6 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
   const pinsKey = JSON.stringify(pins);
   useEffect(() => {
     if (!live) return;
-    // The overlay draws the pins too, so editing and reading use one component on every desktop surface.
     setPagePins(tab.id, []);
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -261,13 +246,8 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
   );
 }
 
-/** The images a page-comments message carries for its comments, by comment id. */
 export const isPageCommentImage = (image: ImageAttachment) => /^page-comment-[a-f0-9]{8}\.png$/.test(image.name);
 
-/**
- * Page comments the user sent, shown as what they were instead of the text the agent reads (design
- * browser-comment-sent): each comment with its element's screenshot and whether the agent resolved it.
- */
 export function PageCommentsCard({ comments, images }: { comments: ParsedPageComment[]; images?: ImageAttachment[] }) {
   const pages = [...new Set(comments.map((comment) => comment.title || comment.url))];
   const first = comments[0]!;
@@ -293,7 +273,6 @@ function PageCommentRow({ comment, image }: { comment: ParsedPageComment; image?
   const saved = useSentComment(comment.id);
   const scope = useScope();
   const remote = isRemoteKey(scope);
-  // Another computer's screenshot is read from it, as reply images are.
   const { sources } = useRemoteMedia(remote && !image?.dataUrl && image?.path ? scope : null, image?.path ? [image.path] : []);
   const src = image?.dataUrl ?? (image?.path ? (remote ? sources[image.path] : mediaUrl(image.path)) : undefined);
   return (

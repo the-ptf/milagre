@@ -26,7 +26,6 @@ const Icon = ({ icon, size = 16, className = "" }: { icon: IconData; size?: numb
 
 type ResourcesState = { resources: ComputerResources | null; error: string | null };
 
-/** A computer's memory and disk, read again every 15 seconds while shown. */
 function useComputerResources(bridge: Pick<MilagreBridge, "readComputerResources">, enabled = true): ResourcesState {
   const [state, setState] = useState<ResourcesState>({ resources: null, error: null });
   useEffect(() => {
@@ -47,14 +46,12 @@ function useComputerResources(bridge: Pick<MilagreBridge, "readComputerResources
   return state;
 }
 
-/** One computer on the Devices page. `detail` is its second line: This Mac, its route, or Offline. */
 export type ResourceComputer = {
   id: string;
   name: string;
   detail: string;
   bridge: CleanupBridge;
   online: boolean;
-  /** "Seen 2h ago", for an offline computer. */
   seen?: string | null;
 };
 
@@ -176,7 +173,6 @@ function ComputerResourceRow({ computer, open, onToggle }: { computer: ResourceC
   const [cleaning, setCleaning] = useState(false);
   const gauges = resources ? resourceGauges(resources) : null;
   const icon = isDesktop(computer.name) ? ComputerIcon : LaptopIcon;
-  // An older Milagre answers with an unknown command.
   const older = error !== null && /unknown|not (available|allowed|supported)|no handler/i.test(error);
   const unreadable = resources !== null && gauges === null;
   if (!computer.online || (!gauges && (error || unreadable))) {
@@ -244,7 +240,6 @@ function ComputerResourceRow({ computer, open, onToggle }: { computer: ResourceC
   );
 }
 
-/** The Devices page's memory and disk rows. Clicking a row opens what Milagre uses there; one row opens at a time. */
 export function ComputerResourceList({ computers, initiallyOpen = null }: { computers: ResourceComputer[]; initiallyOpen?: string | null }) {
   const [open, setOpen] = useState<string | null>(initiallyOpen);
   return (

@@ -44,12 +44,9 @@ import { ProviderLogo } from "../ProviderLogo";
 import { AccountUsageSection } from "../usage/AccountUsageSection";
 
 const PREFS_KEY = "milagre.tokenUsage";
-// While a scan runs, the page reads again this often; a token-usage:changed event also reads at once.
 const REFRESHING_POLL_MS = 2500;
-// Chats a Project shows when opened, before "Show N more Chats".
 const FIRST_CHATS = 5;
 const card = "rounded-card border border-line bg-surface";
-// The calendar's shades: nothing, then the accent mixed in more strongly for each fifth of the busy days.
 const SHADES = ["var(--hover-2)", ...[20, 38, 56, 76, 100].map((share) => `color-mix(in oklab, var(--accent) ${share}%, var(--surface))`)];
 const WEEKDAYS = ["Mon", "", "Wed", "", "Fri", "", ""];
 
@@ -67,7 +64,6 @@ function readPrefs(): Prefs {
   }
 }
 
-/** One computer's report for a range or picked days, read again when its host says the numbers changed. */
 function useTokenUsage(computerId: string, range: TokenUsageRange, days: TokenUsageDays | null, active: boolean) {
   const [report, setReport] = useState<TokenUsageReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +89,6 @@ function useTokenUsage(computerId: string, range: TokenUsageRange, days: TokenUs
       }
     };
     void read();
-    // The computer's own token-usage:changed: a paired computer's bridge carries its events.
     const off = bridge.onTokenUsageChanged?.(() => void read());
     return () => {
       clearTimeout(timer);
@@ -132,7 +127,6 @@ function Tabs<T extends string>({
   );
 }
 
-/** A bar split by provider, in the fixed provider order, each part as long as its share of `whole`. */
 function SplitBar({ values, whole, height = 8 }: { values: { provider: ModelProvider; value: number }[]; whole: number; height?: number }) {
   const shown = values.filter((entry) => entry.value > 0);
   const used = shown.reduce((sum, entry) => sum + entry.value, 0);
@@ -208,10 +202,6 @@ function TotalCard({ report, metric, onClear }: { report: TokenUsageReport; metr
   );
 }
 
-/**
- * The last 90 days as a calendar, a column per week. The report's days are at full strength; a click picks a day and a
- * drag picks a span, which the rest of the page then covers.
- */
 function CalendarCard({ report, metric, onPick }: { report: TokenUsageReport; metric: TokenUsageMetric; onPick: (days: TokenUsageDays) => void }) {
   const weeks = useMemo(() => calendarWeeks(report.calendar), [report.calendar]);
   const levels = useMemo(() => calendarLevels(report.calendar, metric), [report.calendar, metric]);
@@ -424,7 +414,6 @@ function WhereItWent({
   const whole = metricOf(metric, report.totals);
   const largest = Math.max(0, ...report.projects.map((project) => metricOf(metric, project.totals)));
   const now = report.generatedAt;
-  // The top Project starts open; a Project opened or closed by hand stays so as the numbers change.
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   return (
     <section className={`${card} min-w-[420px] flex-1 p-4`} aria-label="Where it went">
@@ -528,11 +517,6 @@ function TokenMix({ totals, metric }: { totals: TokenUsageTotals; metric: TokenU
   );
 }
 
-/**
- * The Usage page: the tokens Claude Code and Codex used on a computer and what they would cost on the API. The total
- * and its provider split, the last 90 days as a calendar that picks the days the page covers, then where it went:
- * Projects and their Chats, models and token categories.
- */
 export function TokenUsagePage({
   onOpenChat,
   onManageAccounts,
@@ -555,7 +539,6 @@ export function TokenUsagePage({
       localStorage.setItem(PREFS_KEY, JSON.stringify(next));
       return next;
     });
-  // Escape clears picked days before it leaves the page.
   useEffect(() => {
     if (!days || tab !== "analytics") return;
     const clear = (event: KeyboardEvent) => {

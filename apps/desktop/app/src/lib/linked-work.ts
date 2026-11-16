@@ -4,7 +4,6 @@ import { chatInProject, sessionIdFromKey } from "@milagre/shared/agent-runs";
 
 export const NO_LINKED_WORK: LinkedWork = { delegations: [], negotiations: [], receiveOnly: [] };
 
-/** The Delegations and Negotiations open across Links, kept current from the main process. */
 export function useLinkedWork(): LinkedWork {
   const [work, setWork] = useState<LinkedWork>(NO_LINKED_WORK);
   useEffect(() => {
@@ -25,7 +24,6 @@ export function useLinkedWork(): LinkedWork {
   return work;
 }
 
-/** The project's Chats (by session id) a Delegation is queued or running for: their sidebar row gets a mark. */
 export function delegatedChats(work: LinkedWork, projectPath: string): Set<number> {
   return new Set(work.delegations.flatMap((item) => (item.to_chat && chatInProject(projectPath, item.to_chat) ? [sessionIdFromKey(item.to_chat)] : [])));
 }

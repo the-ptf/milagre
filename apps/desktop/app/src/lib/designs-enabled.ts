@@ -7,13 +7,9 @@ type Store = { subscribe: (listener: () => void) => () => void; snapshot: () => 
 const stores = new WeakMap<MilagreBridge, Store>();
 const initial: State = { enabled: false, ready: false, error: "" };
 const unavailable: Store = { subscribe: () => () => {}, snapshot: () => initial };
-// A busy or reconnecting host rejects a read (the client turns calls away past 32 pending, or one times out), so a
-// failed read is asked again, sooner first.
 const RETRY_MS = [500, 1000, 2000, 5000, 10_000];
-// A reader that mounts again this soon after the last answer (a Chat shown again) takes it without asking the host.
 const FRESH_MS = 60_000;
 
-/** One host's Designs switch, read when its first reader mounts. Exported for its tests. */
 export function designsEnabledStore(bridge: MilagreBridge): Store {
   if (!bridge) return unavailable;
   const found = stores.get(bridge);
@@ -21,7 +17,6 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
   let state = initial;
   let revision = 0;
   let failures = 0;
-  // When the host last said where the switch stands (a read's answer or a change it pushed).
   let answeredAt = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let stop: (() => void) | undefined;
@@ -49,7 +44,6 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
         },
         () => {
           if (reading !== revision) return null;
-          // The last answer stays: a failed read says nothing about the switch, and treating it as off hid every design.
           update({ ready: true, error: "Could not read the Designs setting." });
           retry = setTimeout(read, RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]);
           return null;
@@ -77,7 +71,6 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
           stop = undefined;
           cancelRetry();
           failures = 0;
-          // The answer is kept for the next reader, which reads it again unless it is recent.
           revision++;
         }
       };
@@ -87,8 +80,6 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
   return store;
 }
 
-/** Whether the Chat's host has Designs: always, unless it runs an older Milagre with Designs off. Unknown hosts never
- * expose a legacy design fallback. */
 export function useDesignsEnabled(key?: string | null) {
   const store = designsEnabledStore(bridgeForKey(key));
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);

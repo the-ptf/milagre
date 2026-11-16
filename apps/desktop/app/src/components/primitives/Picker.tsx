@@ -5,9 +5,6 @@ import { Icon } from "./Icon";
 import { menuRowClass } from "./Popover";
 import { ScrollArea } from "./ScrollArea";
 
-/* Popover picker shared by the model, permission, and branch selectors and by Select: optional title with an
- * optional action beside it (a refresh button), optional header slot (e.g. provider tabs), optional search, and a
- * scrolling list of PickerRows, which take MenuRow's metrics and states. */
 export function PickerPanel({
   title,
   titleAction,
@@ -119,16 +116,13 @@ export function PickerRow({
   icon?: ReactNode;
   label: string;
   description?: string;
-  /** A short fact in a chip beside the label: a model's context window. */
   meta?: string;
-  /** Right-aligned text before the check: the computer a Project lives on. */
   trailing?: string;
   selected: boolean;
   onClick: () => void;
   option?: boolean;
   disabled?: boolean;
   wrapLabel?: boolean;
-  /** Draws the label in its own font, e.g. a font menu row. */
   labelStyle?: CSSProperties;
 } & { [key: `data-${string}`]: string | boolean | undefined }) {
   const stacked = !!description || wrapLabel;

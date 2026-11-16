@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
 import { SectionLabel } from "../primitives/SectionLabel";
 
-/**
- * A titled card of Settings rows. `action` sits at the right of the title (Babysit PRs' Reset all to defaults); `footer`
- * is a note under the card.
- */
 export function Group({ title, action, footer, children }: { title?: string; action?: ReactNode; footer?: string; children: ReactNode }) {
   return (
     <section className="mt-6">

@@ -33,81 +33,49 @@ import {
 import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 
 export type ThemePreference = "system" | "light" | "dark";
-/** Whether plan usage reads as the share used or the share left. */
 export type UsageDisplay = "used" | "remaining";
-/** How long Claude's replies run: Concise is Claude Code's own terse output style. */
 export type ClaudeReplies = "concise" | "normal";
-/** Settings › Browser: web links in replies and the Ports pill open in the Browser panel, or in the user's browser. */
 export type OpenLinksIn = "milagre" | "external";
 
 export interface AppSettings {
   theme: ThemePreference;
-  /** The color theme; each has a light and a dark palette, and `theme` (Mode) picks which. */
   colorTheme: ThemeChoice;
-  /** Settings › Appearance: the Custom theme tile and editor. */
   customThemeEnabled: boolean;
-  /** Seeds for the Custom theme, kept when the switch is turned off. */
   customTheme: CustomTheme | null;
   defaultModelId: string;
   defaultPermissionMode: PermissionMode;
   usageDisplay: UsageDisplay;
-  /** Settings › General › Plan usage: the footer button, a meter per provider, or nothing. */
   usageInSidebar: UsageInSidebar;
-  /** Show a system notification when a chat waits on an approval or question while Milagre is in the background. */
   notifyWhenWaiting: boolean;
   notifyOnCompletion: boolean;
   showDockBadge: boolean;
-  /** Experimental: a thin screen-edge bar and an inbox over other apps. */
   floatingInbox: boolean;
   floatingInboxActivity: boolean;
-  /** Keep the Mac from sleeping while an agent works; the screen can still turn off. */
   keepAwake: boolean;
-  /** The editor that "Open in" uses, by id; empty means the first one found. */
   editorId: string;
-  /** Applies to Claude only; Codex is unchanged. */
   claudeReplies: ClaudeReplies;
-  /** Where web links open; ⌘-click opens them in the other one. */
   openLinksIn: OpenLinksIn;
-  /** Apply TLDR writing rules to both providers. */
   tldrEnabled: boolean;
-  /** Sidebar chats by start date, or with the latest message first. */
   chatOrder: ChatOrder;
-  /** Settings › Chat: the sidebar lists every Chat in one list, or groups them by Project. */
   chatList: ChatList;
-  /** What a sidebar chat row's second line shows (the Filters menu's Show). */
   chatRowShow: ChatRowShow;
-  /** Settings › General › Chat list: how long a row's hover Snooze button puts a Chat away, in minutes (snooze.mjs). */
   snoozeMinutes: number;
-  /** Settings › Chat: a reply's tool calls fold into one line, or show one row each with the text between them. */
   toolCallDisplay: ToolCallDisplay;
-  /** Settings › Chat: thinking rows start open. */
   expandReasoning: boolean;
-  /** Settings › Church › New Chat stats: a new Chat's open PRs, plan usage and today's tokens (NewChatGlance). Off by
-   * default; a new key, so the old on-by-default `newChatStats` doesn't turn it back on. */
   newChatGlance: boolean;
   showContextSize: boolean;
   compactButtonDisplay: CompactButtonDisplay;
-  /** Settings › Phone & sharing: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
   otherComputers: boolean;
-  /** Experimental: turning Ultracode on plays the Mortal Kombat Fatality overlay and the announcer's voice. */
   ultracodeFatality: boolean;
-  /** Settings › Notifications: the sound a chat's notification plays, instead of the system's. */
   notificationChime: NotificationChime;
   notificationSchedule: NotificationSchedule | null;
-  /** Settings › Routines: the Routines button and Routine rows show a dot while a Run's Chat is unread on this Mac. */
   routineNudges: boolean;
-  /** Settings › Appearance: fonts, sizes, chat width, diff colors and motion. */
   appearance: Appearance;
-  /** Settings › Chat: the language dictation listens for, a Whisper code, or "auto" to detect it each take. */
   dictationLanguage: string;
-  /** Settings › Chat: the Whisper model dictation uses on this computer, an id from WHISPER_MODELS.desktop. */
   dictationModel: string;
   dictationAction: DictationActionPreference;
-  /** Settings › Chat: the Dictate shortcut is held while talking ("hold") or pressed to start and again to stop. */
   dictationShortcutMode: DictationShortcutMode;
-  /** Settings › Chat: a finished take's misheard names are corrected by a small model, in place. */
   dictationFixUp: boolean;
-  /** Settings › Chat: the fix-up's model, "auto" for the Chat's own agent's smallest one. */
   dictationFixModel: DictationFixModel;
 }
 
@@ -167,8 +135,6 @@ function load(): AppSettings {
     const customTheme = parseCustomTheme(saved.customTheme);
     return {
       theme: THEMES.has(theme as ThemePreference) ? (theme as ThemePreference) : DEFAULTS.theme,
-      // Any saved id is kept: the agents report models the maintained list lacks, and App falls back
-      // to a provider's recommended model when the saved one isn't offered.
       customThemeEnabled: typeof saved.customThemeEnabled === "boolean" ? saved.customThemeEnabled : DEFAULTS.customThemeEnabled,
       customTheme,
       colorTheme: resolveThemeSettings({ ...saved, customTheme }),
@@ -237,16 +203,13 @@ export function updateSettings(patch: Partial<AppSettings>) {
   current = { ...current, ...patch };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch {
-    // Settings still apply for this session when storage is unavailable.
-  }
+  } catch {}
   listeners.forEach((listener) => listener());
 }
 
 export function useSettings() {
   return useSyncExternalStore(subscribe, getSettings);
 }
-// The bar, inbox and main window share the saved settings, including live theme changes.
 window.addEventListener("storage", (event) => {
   if (event.key !== STORAGE_KEY) return;
   current = load();
@@ -266,7 +229,6 @@ export function useResolvedScheme(): "light" | "dark" {
   return theme === "system" ? (systemDark ? "dark" : "light") : theme;
 }
 
-/** ⌘⇧T: flips to the opposite of what's on screen, pinning light or dark even from System. */
 export function toggleTheme() {
   const { theme } = getSettings();
   const dark = theme === "system" ? darkQuery.matches : theme === "dark";
@@ -278,7 +240,6 @@ function currentScheme(): "light" | "dark" {
   return theme === "system" ? (darkQuery.matches ? "dark" : "light") : theme;
 }
 
-/** Paints the saved theme before React's first render, so a non-default theme never flashes Milagre Blue. */
 export function applyThemeNow() {
   const { colorTheme, customTheme, appearance } = getSettings();
   const scheme = currentScheme();
@@ -300,7 +261,6 @@ export function useApplyTheme() {
     const frame = window.requestAnimationFrame(() => root.classList.remove("theme-switching"));
     return () => window.cancelAnimationFrame(frame);
   }, [palette, scheme, appearance]);
-  // The window behind the page takes the page's color, so a resize never flashes another one.
   useEffect(() => {
     void window.milagre?.setWindowBackground(palette.page).catch(() => {});
   }, [palette.page]);

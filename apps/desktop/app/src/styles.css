@@ -10,7 +10,6 @@
   --window-chrome-height: 44px;
   --window-chrome-top: calc((var(--window-chrome-height) - 32px) / 2);
 
-  /* Settings > Appearance; applyAppearance (lib/appearance.ts) overrides these inline. Defaults are today's values. */
   --sidebar-delta: 0px;
   --chat-size: 14px;
   --code-size: 12px;
@@ -225,7 +224,6 @@ html[data-floating-inbox] #root {
   }
 }
 
-/* A Settings row a search result opened: an accent tint that holds a moment, then fades back to the row's own surface. */
 [data-settings-found] {
   animation: settings-found 2.6s ease-out;
 }
@@ -241,8 +239,6 @@ html[data-floating-inbox] #root {
   }
 }
 
-/* Creepster (Font Diner, SIL OFL 1.1, see assets/Creepster-OFL.txt): the dripping Mortal Kombat lettering of the
- * Ultracode overlay. Used nowhere else. */
 @font-face {
   font-family: "Creepster";
   src: url("./assets/Creepster-Regular.ttf") format("truetype");
@@ -289,49 +285,31 @@ html[data-floating-inbox] #root {
   }
 }
 
-/* GENERIC FOUNDATION — tokens, @theme, base rules
- * and shared keyframes below are needed by EVERY
- * component. Blocks tagged COMPONENT-SPECIFIC further down belong to
- * one primitive each. */
-/* ──────────────────────────────────────────────────────────
- * Beautiful UI — design tokens
- * Cool near-white canvas, white cards, hairline borders, layered
- * single-digit-opacity shadows, a neutral ink ramp, and semantic
- * color used sparingly as a condiment.
- * ────────────────────────────────────────────────────────── */
-
 :root {
-  /* surfaces — cool, blue-tinted neutrals */
   --page: #f4f9fe;
   --canvas: #e9f1fa;
   --surface: #ffffff;
   --inset: #f9fcff;
-  /* translucent ink (6% / 10%), so a hover darkens page, card and field alike; hover-2 is the open row */
   --hover: #1c222b0f;
   --hover-2: #1c222b1a;
 
-  /* ink ramp: ink-2 and ink-3 read at 4.5:1 on page, surface, field and hover-2 */
   --ink: #1c222b;
   --ink-2: #4b515a;
   --ink-3: #60656d;
   --ink-4: #8c929a;
 
-  /* borders — solid and crisp, not alpha */
   --line: #edeeee;
   --line-strong: #e0e1e3;
   --field: #e8edf2;
   --stripe: oklch(0.405 0 0 / 0.075);
   --stripe-bg: var(--page);
 
-  /* accent */
   --accent: #007df3;
   --accent-ink: #0068cd;
   --accent-tint: #e3f0fe;
 
-  /* semantic */
   --green: #199a4d;
   --green-tint: #e5f2ef;
-  /* Ultracode's brand purple, also merged PRs; mirrors ULTRACODE_PURPLE in @milagre/shared/themes */
   --purple: #ad46ff;
   --purple-ink: #8e2bdc;
   --purple-tint: #f6edff;
@@ -339,44 +317,33 @@ html[data-floating-inbox] #root {
   --orange-tint: #f5efee;
   --red: #e3474c;
   --red-tint: #f5ecef;
-  /* status text: 4.5:1 on page, surface and their own tint */
   --green-ink: #00792e;
   --orange-ink: #ba4100;
   --red-ink: #c62935;
 
-  /* labels on filled controls: themes write --on-accent and --on-green/orange/red (lib/theme-sheet.ts), for the
-   * accent or -ink fills (bg-red-ink text-on-red); on-ink is the surface (@theme below) */
   --on-accent: #ffffff;
   --on-green: #ffffff;
   --on-orange: #ffffff;
   --on-red: #ffffff;
-  /* full-screen media (lightbox): black behind, white on top, in every theme; paper is a page that stays white */
   --media: #000000;
   --on-media: #ffffff;
   --on-media-2: rgb(255 255 255 / 0.8);
   --on-media-tint: rgb(255 255 255 / 0.15);
   --paper: #ffffff;
-  /* behind a modal dialog or the command palette */
   --scrim: rgb(0 0 0 / 0.2);
 
-  /* motion: hover and press 120, enter 180, panels and sheets 280; press scales to 0.97 */
   --duration-fast: 120ms;
   --duration-base: 180ms;
   --duration-slow: 280ms;
   --press-scale: 0.97;
 
-  /* shadows — our solid hairline ring + shadow-plugin's smooth layered stacks
-   * (--shadow-xs…lg come from shadow-plugin/unprefixed) so every surface reads
-   * consistently across the app. */
   --shadow-hairline: 0 0 0 1px var(--line);
   --shadow-btn: 0 0 0 1px var(--line-strong), var(--shadow-xs);
   --shadow-card: 0 0 0 1px var(--line), var(--shadow-sm);
   --shadow-raised: 0 0 0 1px var(--line), var(--shadow-md);
   --shadow-overlay: 0 0 0 1px var(--line), var(--shadow-lg);
-  /* a numbered comment pin over content: a surface ring that keeps it off whatever it sits on */
   --shadow-pin: 0 0 0 1.5px var(--surface), var(--shadow-sm);
 
-  /* diff view row tints */
   --diff-add: #ddeee8;
   --diff-add-word: #bbddc8;
   --diff-remove: #f6e9ec;
@@ -419,7 +386,6 @@ html[data-floating-inbox] #root {
   --orange-ink: var(--orange);
   --red-ink: #fd696d;
 
-  /* the light accent and status fills take a dark label in dark mode (onColor in packages/shared/src/themes/color.ts) */
   --on-accent: var(--page);
   --on-green: var(--page);
   --on-orange: var(--page);
@@ -427,16 +393,11 @@ html[data-floating-inbox] #root {
   --scrim: rgb(0 0 0 / 0.4);
 
   --shadow-hairline: 0 0 0 1px var(--line);
-  /* Elevation rings go to a subtle *light* hairline in dark mode: the ring
-   * paints over the surface behind the element, so a low-alpha white edge
-   * dissolves into the shadow as one continuous stroke (per smooth-shadow-ring),
-   * graduated by how far the surface floats. */
   --shadow-btn: 0 0 0 1px oklch(1 0 0 / 0.1), 0 1px 2px oklch(0 0 0 / 0.3);
   --shadow-card: 0 0 0 1px oklch(1 0 0 / 0.11), 0 1px 2px oklch(0 0 0 / 0.2), 0 2px 6px oklch(0 0 0 / 0.2);
   --shadow-raised: 0 0 0 1px oklch(1 0 0 / 0.13), 0 2px 10px oklch(0 0 0 / 0.22);
   --shadow-overlay: 0 0 0 1px oklch(1 0 0 / 0.15), 0 8px 28px oklch(0 0 0 / 0.34);
 
-  /* diff view row tints */
   --diff-add: #3cbb721f;
   --diff-add-word: #3cbb724d;
   --diff-remove: #ee5c611f;
@@ -444,7 +405,6 @@ html[data-floating-inbox] #root {
 }
 
 @theme inline {
-  /* colors */
   --color-page: var(--page);
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
@@ -455,8 +415,6 @@ html[data-floating-inbox] #root {
   --color-ink-4: var(--ink-4);
   --color-hover: var(--hover);
   --color-hover-2: var(--hover-2);
-  /* Deprecated alias of hover (decision 1: a hovered row is bg-hover, the open row bg-hover-2). Delete once no
-   * hover:bg-hover-sidebar is left. */
   --color-hover-sidebar: var(--hover);
   --color-field: var(--field);
   --color-line: var(--line);
@@ -464,13 +422,11 @@ html[data-floating-inbox] #root {
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-tint: var(--accent-tint);
-  /* +/- counts and diff markers are text: the -ink shades clear 4.5:1 (the green/red fills don't in light) */
   --color-diff-add: var(--diff-add-color, var(--green-ink));
   --color-diff-remove: var(--diff-remove-color, var(--red-ink));
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-green-ink: var(--green-ink);
-  /* Ultracode and merged PRs */
   --color-purple: var(--purple);
   --color-purple-ink: var(--purple-ink);
   --color-purple-tint: var(--purple-tint);
@@ -480,8 +436,6 @@ html[data-floating-inbox] #root {
   --color-red: var(--red);
   --color-red-tint: var(--red-tint);
   --color-red-ink: var(--red-ink);
-  /* Labels on a filled control: text-on-ink on bg-ink (primary), text-on-accent on bg-accent, text-on-red on bg-red.
-   * on-ink reads --surface where it is used, so a panel that redefines --surface (the floating inbox) still matches. */
   --color-on-ink: var(--surface);
   --color-on-accent: var(--on-accent);
   --color-on-green: var(--on-green);
@@ -494,13 +448,11 @@ html[data-floating-inbox] #root {
   --color-on-media-tint: var(--on-media-tint);
   --color-paper: var(--paper);
 
-  /* motion: duration-fast / duration-base / duration-slow, active:scale-press */
   --transition-duration-fast: var(--duration-fast);
   --transition-duration-base: var(--duration-base);
   --transition-duration-slow: var(--duration-slow);
   --scale-press: var(--press-scale);
 
-  /* shadows */
   --shadow-hairline: var(--shadow-hairline);
   --shadow-btn: var(--shadow-btn);
   --shadow-card: var(--shadow-card);
@@ -508,7 +460,6 @@ html[data-floating-inbox] #root {
   --shadow-overlay: var(--shadow-overlay);
   --shadow-pin: var(--shadow-pin);
 
-  /* type */
   --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
   --font-mono: var(--mono-font, ui-monospace, "SF Mono", monospace);
 
@@ -519,15 +470,11 @@ html[data-floating-inbox] #root {
   --radius-card: 10px;
   --radius-window: 14px;
 
-  /* backdrop blur — overlay 3 behind a dialog or viewer, chip 8 for a small control over media,
-   * edge 4 for content scrolling under a window edge (see docs/agents/ui.md) */
   --blur-overlay: 3px;
   --blur-chip: 8px;
   --blur-edge: 4px;
 }
 
-/* Type, motion: the scale in DESIGN.md. Each text size brings its line height, so a control's height
-   never depends on which size utility it uses. design-tokens.test.ts keeps new code on these. */
 @theme {
   --text-10: 10px;
   --text-10--line-height: 14px;
@@ -554,17 +501,12 @@ html[data-floating-inbox] #root {
   --default-transition-timing-function: var(--ease-enter);
 }
 
-/* ── base ─────────────────────────────────────────────── */
-
-/* The title bar moves the window, except while a popover is open: a press on a drag region never reaches
- * the page, so it couldn't close the popover (lib/use-dismiss.ts). The first press then closes it instead. */
 .title-drag {
   -webkit-app-region: drag;
 }
 html[data-popover-open] .title-drag {
   -webkit-app-region: no-drag;
 }
-/* A control inside a drag region (or a floating card over one) that must take its own clicks. */
 .no-drag {
   -webkit-app-region: no-drag;
 }
@@ -597,8 +539,6 @@ body {
   background-image: repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px);
   color: var(--ink);
   font-feature-settings: "cv11", "ss01";
-  /* The 13/18 body step: text with no size class follows the type scale. Unitless, so text that sets only a size
-     (sidebar and chat sizes) keeps a proportional line. */
   font-size: 13px;
   letter-spacing: 0;
   line-height: calc(18 / 13);
@@ -619,9 +559,6 @@ body {
   color: var(--ink);
 }
 
-/* ── interface hygiene (interfaces.dev cheat sheet) ────── */
-
-/* headings balance; descriptions avoid orphans (skip long-form — we have none) */
 h1,
 h2,
 h3,
@@ -633,7 +570,6 @@ p {
   text-wrap: pretty;
 }
 
-/* underlines clear descenders */
 a {
   text-underline-position: from-font;
   text-decoration-skip-ink: auto;
@@ -673,7 +609,6 @@ a {
   background-color: color-mix(in oklab, var(--ink-3) 65%, transparent);
 }
 
-/* Edge fades for scroll lists: an edge fades only while there's more to scroll past it (see useScrollFade). */
 @property --fade-top {
   syntax: "<length>";
   inherits: false;
@@ -684,9 +619,6 @@ a {
   inherits: false;
   initial-value: 0px;
 }
-/* The mask is on only while an edge fades. A mask is an offscreen pass every frame even when fully opaque (the sidebar
- * list showed it as GPU memory, scripts/perf). Leaving the last fade, it goes after the 180ms fade-out (a discrete
- * transition delayed that long), so nothing snaps; arriving, it is on at once. */
 .scroll-fade {
   mask-image: none;
   transition:
@@ -699,7 +631,6 @@ a {
   mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
   transition-delay: 0s;
 }
-/* --scroll-fade-size shortens the fade for a list whose rows sit close to its edge (the command palette). */
 .scroll-fade[data-fade-top] {
   --fade-top: var(--scroll-fade-size, 28px);
 }
@@ -712,28 +643,20 @@ a {
   }
 }
 
-/* The sidebar list clips its overflow, so focus rings sit inside each control and keep its radius. */
 .sidebar-scroll :focus-visible {
   outline-offset: -2px;
   border-radius: revert-layer;
 }
 
-/* The collapsed rail is one 32px column: no scrollbar to squeeze it, no sideways scroll. */
 [data-sidebar-collapsed="true"] .sidebar-scroll {
   scrollbar-width: none;
 }
 
-/* The conversation rail sits over the left edge of the transcript. When the
- * window is too narrow for the centred column to clear it, the column's left
- * padding grows so the ticks keep their own lane (36px from the edge).
- * The chip row and composer share these insets (.chat-gutter), so the composer card's
- * edges line up with the transcript's text edges at every width setting. */
 .chat-column,
 .chat-gutter {
   --column: 704px;
   padding-left: clamp(12px, calc(36px - (100% - var(--column)) / 2), 36px);
 }
-/* The composer wrap is p-1.5; its sides take the transcript's 12px (the column's px-3). */
 .chat-gutter {
   padding-right: 12px;
 }
@@ -745,16 +668,12 @@ a {
 .chat-gutter[data-chat-width="custom"] {
   --column: var(--chat-width);
 }
-/* Full: the column fills the pane, so the rail lane is plain padding. */
 .chat-column[data-chat-width="full"],
 .chat-gutter[data-chat-width="full"] {
   padding-left: 36px;
   padding-right: 24px;
 }
 
-/* MessageScroller owns the visual rail. Keep the browser scrollbar out of the
- * chat so the viewport matches the supplied component instead of showing two
- * competing navigation treatments. */
 .message-scroller-viewport {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -764,8 +683,6 @@ a {
   display: none;
 }
 
-/* The composer row's pills: frosted glass over the transcript, a tint of their tone, a hairline ring (a ring, not a
- * border, so a PillMorph panel inside the surface lines up with its edge) and a lit top edge. */
 .status-pill {
   background: color-mix(in oklab, color-mix(in oklab, var(--status-pill-tint, var(--surface)) 9%, var(--surface)) 68%, transparent);
   backdrop-filter: blur(var(--blur-chip)) saturate(1.6);
@@ -775,7 +692,6 @@ a {
     0 1px 2px oklch(0.24 0.008 258 / 0.05);
 }
 .status-pill:not(:disabled):hover {
-  /* hover is translucent ink, so it goes over the frosted fill instead of into it */
   background:
     linear-gradient(var(--hover), var(--hover)),
     color-mix(in oklab, color-mix(in oklab, var(--status-pill-tint, var(--surface)) 12%, var(--surface)) 84%, transparent);
@@ -787,8 +703,6 @@ a {
     0 1px 2px oklch(0 0 0 / 0.24);
 }
 
-/* A PR label chip in its GitHub colour (--label). Text and chip keep the colour's hue at a fixed lightness per theme,
- * so any label's text clears 4.5:1 on its chip: dark on a pale chip in light, light on a deep chip in dark. */
 .pr-label {
   color: oklch(from var(--label) 0.42 min(c, 0.14) h);
   background-color: oklch(from var(--label) 0.94 min(c, 0.05) h);
@@ -798,8 +712,6 @@ a {
   background-color: oklch(from var(--label) 0.33 min(c, 0.06) h);
 }
 
-/* The prompt is a floating control, not a raised card. Keep its elevation
- * close to the surface so the lower edge does not read as a second bar. */
 .promptbar-surface {
   background: color-mix(in oklab, var(--surface) 76%, transparent);
   backdrop-filter: blur(var(--blur-chip));
@@ -817,9 +729,6 @@ a {
   backdrop-filter: none;
 }
 
-/* Film grain (Settings › Appearance › Film grain, on while <html> has data-grain): a static speck texture over the
- * window's background (.window-grain, its own layer) and the side panels (.panel-grain, over their surface), at half the
- * strength there. Black specks on a light page, white on a dark one. Never on the composer or the Details glass. */
 :root {
   --grain-window: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.08 0 0 0 -0.038'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
   --grain-panel: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.045 0 0 0 -0.021'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
@@ -834,9 +743,6 @@ a {
 html[data-grain] .window-grain {
   background-image: var(--grain-window);
 }
-/* The Chat's top band paints the page over the window; it carries the same specks, pinned to the window, so it blends.
- * Not with a fixed background (see .window-grain): ChatComposer sets --chat-top-x/y to the band's offset in the window,
- * and the tile starts that far up and left, so its specks land on the window's. */
 html[data-grain] .chat-top-blur > :last-child {
   background: var(--grain-window), linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
   background-position:
@@ -849,8 +755,6 @@ html[data-grain] .panel-grain {
   background-image: var(--grain-panel);
 }
 
-/* The Details overlay over the Chat: the composer's glass, a floating card rather than a panel, with its 1px ring and a
- * barely-there shadow (no wide glow around it). */
 .details-glass {
   background: color-mix(in oklab, var(--surface) 76%, transparent);
   backdrop-filter: blur(var(--blur-chip));
@@ -871,8 +775,6 @@ html[data-grain] .panel-grain {
     0 3px 9px oklch(0 0 0 / 0.2);
 }
 
-/* Ultracode on: the composer takes its purple, and its border and glow breathe slowly, focused or not. The glow is
- * centred and short: the composer sits 6px above the pane's clipped bottom edge. */
 .promptbar-surface[data-ultracode],
 .promptbar-surface[data-ultracode]:focus-within {
   border-color: color-mix(in oklab, var(--purple) 55%, transparent);
@@ -906,8 +808,6 @@ html[data-grain] .panel-grain {
   }
 }
 
-/* Chips in the prompt take exactly one line: their content uses the field's line height, and the border sits in
-   negative margins, so a chip never makes its line taller (the compact composer expands when a line grows). */
 [data-prompt-editor] [data-chip] > [data-chip] {
   line-height: inherit;
   margin-block: -1px;
@@ -923,8 +823,6 @@ a {
   cursor: pointer;
 }
 
-/* The base focus ring lives in the base layer so a component's own focus-visible: utilities win over it, and a
-   rounded control keeps its radius; anything unrounded gets 4px. Unlayered rules below still override it. */
 @layer base {
   :focus-visible {
     outline: 2px solid var(--accent);
@@ -945,7 +843,6 @@ a {
     user-select: none;
   }
 
-  /* Fields show focus with their own border or ring utilities, not the outline. */
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible,
@@ -958,7 +855,6 @@ a {
   outline: none;
 }
 
-/* The undo panel takes the focus for its keys; its highlighted row already shows where they go. */
 [data-undo-panel]:focus-visible {
   outline: none;
   border-radius: revert-layer;
@@ -978,8 +874,6 @@ a {
   outline-offset: -2px;
 }
 
-/* ── shared keyframes ─────────────────────────────────── */
-
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -991,10 +885,6 @@ a {
   }
 }
 
-/* The sidebar is one persistent 224–420px tree clipped by a 52px shell.
- * Every rail glyph remains centered at x=26 in both states. */
-/* The fades tint toward the background the transcript sits on, so an empty area under one shows no band: the page,
- * or the surface of a focused ChatGrid tile (which sets --chat-bg). */
 [data-chat-tile] {
   --chat-bg: var(--surface);
 }
@@ -1008,44 +898,34 @@ a {
   background: linear-gradient(to bottom, var(--chat-bg, var(--page)) calc(100% - 24px), transparent);
 }
 
-/* The transcript fades out over its last 24px only where it runs to the window's bottom edge (one Chat alone). A mask
- * is an offscreen pass every frame, so a transcript that doesn't fade carries none (scripts/perf: GPU footprint). */
 [data-chat-to-edge] .chat-edge-fade {
   mask-image: linear-gradient(to bottom, black calc(100% - var(--chat-edge-fade, 0px)), transparent);
 }
 
-/* Messages far off screen skip layout and paint; the size of the last render stands in, so scrolling stays steady.
- * The streaming reply is exempt: it grows at the live edge and must always measure itself. */
 [data-slot="message"]:not([data-streaming]) {
   content-visibility: auto;
   contain-intrinsic-size: auto 160px;
 }
-/* An opening conversation measures every message once; contain-intrinsic-size remembers it from then on. */
 [data-measuring] [data-slot="message"] {
   content-visibility: visible;
 }
 
-/* The diff's sticky file headers sit at its top edge, so only the bottom fades. */
 .diff-scroll.scroll-fade[data-fade-top] {
   --fade-top: 0px;
 }
 
-/* A reply's text starts 16px under its tool activity, folded or open (the activity's own 4px margin + 12). */
 :is([data-slot="activity"], [data-slot="activity-inline"]) + [data-slot="message-content"] {
   margin-top: 12px;
 }
 [data-slot="step"] + [data-slot="message-content"] {
   margin-top: 16px;
 }
-/* A call the text led into ("I'll run the checks next") sits 16px under it, the transcript's block gap. */
 [data-slot="message-content"] + :is([data-slot="activity"], [data-slot="activity-inline"]) {
   margin-top: 12px;
 }
 [data-slot="message-content"] + [data-slot="step"] {
   margin-top: 16px;
 }
-/* A question card right after the reply that asks it: the same 16px block gap (the column's 12 + 4), so the reply's
- * copy row, which waits for the question anyway, leaves no hole above the card. */
 [data-slot="message"]:has(+ [data-slot="transcript-card"]) [data-message-copy-footer] {
   display: none;
 }
@@ -1053,7 +933,6 @@ a {
   margin-top: 4px;
 }
 
-/* Agent replies rendered from Markdown: compact chat spacing, no document-sized headings. */
 .markdown > :first-child {
   margin-top: 0;
 }
@@ -1069,7 +948,6 @@ a {
   line-height: 1.35;
   color: var(--ink);
 }
-/* em-relative to the chat text (--chat-size): 18 / 16 / 15 / 14 at the default 14px. */
 .markdown h1 {
   font-size: 1.2857em;
 }
@@ -1082,9 +960,6 @@ a {
 .markdown :where(h4, h5, h6) {
   font-size: 1em;
 }
-/* The gutter holds a one-digit marker ("9."). An ordered list widens it by one digit for each extra digit of its
- * highest number (--marker-digits, from Markdown.tsx), so "10." shows whole: a finished message's content-visibility
- * clips paint to its box, and a marker wider than the gutter lost its first digit. */
 .markdown :where(ul, ol) {
   --list-gutter: 1.35em;
   padding-left: var(--list-gutter);
@@ -1102,7 +977,6 @@ a {
 .markdown li::marker {
   color: var(--ink-3);
 }
-/* Every digit one width (1ch), so the gutter fits any number with as many digits. */
 .markdown ol > li::marker {
   font-variant-numeric: tabular-nums;
 }
@@ -1151,7 +1025,6 @@ a {
   color: var(--ink-2);
 }
 
-/* Shiki tokens read the theme's --shiki-token-* variables through --shiki-light. */
 .code-token {
   color: var(--shiki-light);
   font-style: var(--shiki-light-font-style, inherit);
@@ -1159,12 +1032,6 @@ a {
   text-decoration: var(--shiki-light-text-decoration, inherit);
 }
 
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — SidebarNav
- * The 44↔224px (resizable to 420px) collapsible sidebar tree.
- * Copy this block only alongside SidebarNav; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
 .sidebar-row {
   width: calc(100% - 16px);
   transition-duration: var(--sidebar-copy-duration);
@@ -1188,7 +1055,6 @@ a {
   left: 8px;
 }
 
-/* Centers the 32px controls in the 44px collapsed rail. */
 [data-sidebar-collapsed="true"] .sidebar-row {
   width: 32px;
   margin-inline: 6px;
@@ -1203,7 +1069,6 @@ a {
   transform: translateX(calc(var(--sidebar-copy-offset) * -1));
 }
 
-/* Hidden labels must not take space away from the centered icon. */
 [data-sidebar-collapsed="true"] .sidebar-row > .sidebar-copy {
   display: none;
 }
@@ -1212,7 +1077,6 @@ a {
   display: flex;
 }
 
-/* Usage rows: the rail (or compact mode) shows only the provider mark and its fullest window. */
 .sidebar-usage-rail {
   display: none;
 }
@@ -1272,7 +1136,6 @@ a {
   }
 }
 
-/* A running title's static tint, kept when reduced motion turns the sweep off. */
 .step-running {
   color: var(--ink-3);
   -webkit-text-fill-color: currentColor;
@@ -1304,7 +1167,6 @@ a {
   animation: sweep-band-counter 1.2s steps(36) infinite;
 }
 
-/* Truncates exactly like the title under it, so the ellipsis and every glyph land on the originals. */
 .sweep-band-copy {
   width: calc(100% - var(--sweep-tile));
   margin-left: var(--sweep-tile);
@@ -1313,7 +1175,6 @@ a {
   text-overflow: ellipsis;
 }
 
-/* The bright copy: every part of it in full ink, with no chip fill (the chip under it already shows through). */
 .sweep-band-copy,
 .sweep-band-copy * {
   color: var(--ink);
@@ -1340,8 +1201,6 @@ a {
   }
 }
 
-/* Collapsed activity keeps its rows mounted, hidden by opacity and clipping. Hold their bands where they are; the
- * visible summary keeps sweeping, and opening the fold resumes the same loops. */
 [data-slot="activity"] > [inert] .sweep-band,
 [data-slot="activity"] > [inert] .sweep-band-counter {
   animation-play-state: paused;
@@ -1370,8 +1229,6 @@ a {
   }
 }
 
-/* COMPONENT-SPECIFIC — DownloadRing: the arrow falls into the ring, rests and drops out below it, again and again, while a
- * speech model downloads. The ring clips it, so it reads as one arrow going down and down. Reduced motion holds it still. */
 @keyframes download-drop {
   0% {
     transform: translateY(-115%);
@@ -1403,10 +1260,6 @@ a {
   }
 }
 
-/* COMPONENT-SPECIFIC — ThinkingIndicator: the Milagre mark twinkling, lit like the old pixel loader. On a 2.4s cycle
- * the legs and the sparkle take turns: while the sparkle holds, the legs light up, left then right, from 15% ink; once
- * they are dim again the sparkle swells, turns and settles back (four-fold symmetry, so the quarter turn loops seamlessly).
- * Reduced motion stops every part on a dim, static logo. */
 :root[data-display-hidden] *,
 :root[data-display-hidden] *::before,
 :root[data-display-hidden] *::after {
@@ -1439,8 +1292,6 @@ a {
   animation: running-logo-twinkle 2400ms step-end infinite;
 }
 
-/* Sample the original easing curves every 80 ms, retaining their hold/peak
- * boundaries. step-end limits updates without turning the eased ramps linear. */
 @keyframes running-logo-twinkle {
   0% {
     opacity: 0.45;
@@ -1677,7 +1528,6 @@ a {
   .running-logo > span {
     animation: none !important;
   }
-  /* Still show that something is loading: a slow two-step fade instead of the turn, no movement. */
   .running-logo,
   .spinner-ring,
   .refresh-spin.animate-spin {
@@ -1704,8 +1554,6 @@ a {
   }
 }
 
-/* COMPONENT-SPECIFIC — StartupSplash: the logo assembles, then the sparkle twinkles until the workspace loads.
- * Every intro keyframe ends on the finished logo, so the global reduced-motion rule lands on a static mark. */
 .startup-splash {
   display: grid;
   place-items: center;
@@ -1720,7 +1568,6 @@ a {
 .startup-splash-mark {
   fill: var(--ink);
 }
-/* A Chat's transcript on its way: the splash mark appears only once the wait is long enough to notice. */
 .chat-loading {
   animation: fade-in 240ms ease-out 300ms backwards;
 }
@@ -1731,7 +1578,6 @@ a {
 .startup-splash-screen[data-leaving] .startup-splash {
   animation: splash-logo-leave 320ms cubic-bezier(0.4, 0, 1, 1) both;
 }
-/* the app's panes arrive under the fading splash: sidebar from the left, then the main pane rising */
 .app-enter > * {
   animation: app-enter-main 520ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
 }
@@ -1806,7 +1652,6 @@ a {
     transform: none;
   }
 }
-/* the sparkle has four-fold symmetry, so a quarter turn loops seamlessly */
 @keyframes splash-star-twinkle {
   0%,
   55% {
@@ -1820,7 +1665,6 @@ a {
   }
 }
 
-/* A title resolves in place without changing the row's width or height. */
 .chat-title {
   display: block;
   position: relative;
@@ -1867,7 +1711,6 @@ a {
     display: none;
   }
 }
-/* The Projects canvas sits on the window's own dotted page, like the subagent canvas: no panel, edges fade out. */
 [data-workspace-main]:has(> .milagre-canvas) {
   margin-left: -12px;
   padding-right: 0;
@@ -1886,7 +1729,6 @@ a {
   --xy-background-color: transparent;
 }
 
-/* A Project: its hue at a whisper, so the cards stay the brightest thing in it. */
 .milagre-canvas-section {
   background: color-mix(in srgb, var(--section) 5%, transparent);
   border: 1px solid color-mix(in srgb, var(--section) 20%, transparent);
@@ -1932,7 +1774,6 @@ a {
   --handle-shift: 50%;
 }
 
-/* A Link something travels along: its line moves toward the receiving side. Still under reduced motion. */
 .milagre-canvas-flow .milagre-link-active {
   stroke: var(--color-accent) !important;
   stroke-dasharray: 6 4;
@@ -1956,7 +1797,6 @@ a {
   background-color: transparent;
 }
 
-/* ── welcome sky ──────────────────────────────────────── */
 /* A new Chat's backdrop: a faint wash of light from above and the logo's sparkle glinting on the page, one or two at a
  * time. Neutral ink, no colour: it should be noticed on the second look, not the first.
  * It plays for the first half minute or so and then rests. The sparkles are SVG, which the compositor can't animate, so a
@@ -1971,7 +1811,6 @@ a {
   --sky-light: rgb(255 255 255 / 0.07);
   --sky-sparkle: var(--ink-2);
 }
-/* Eased stops: a linear fade from a faint colour shows a hard edge where it ends; this one tails off like light does. */
 .welcome-sky-wash {
   position: absolute;
   inset: 0;
@@ -1984,10 +1823,8 @@ a {
     color-mix(in srgb, var(--sky-light) 11%, transparent) 78%,
     transparent
   );
-  /* An odd count ends on the full wash, so it rests without a jump. */
   animation: welcome-sky-wash 10s ease-in-out 3 alternate;
 }
-/* Dither for the wash, only where the wash is. Its own layer, so the noise is drawn once, not with every glint. */
 .welcome-sky-grain {
   position: absolute;
   inset: 0;
@@ -2006,12 +1843,9 @@ a {
   scale: 0;
   animation-name: welcome-sky-glint;
   animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
-  /* Each sparkle glints twice; the last one is done within about 36 s (longest delay plus two of its cycles). */
   animation-iteration-count: 2;
   animation-fill-mode: both;
 }
-/* The sky spans the window, so the sidebar card lets it through while a new Chat shows; no blur, so the glints under
- * it cost nothing. */
 :root[data-welcome-sky] aside[data-sidebar-collapsed] {
   background-color: color-mix(in srgb, var(--surface) 82%, transparent);
 }
@@ -2020,7 +1854,6 @@ a {
     opacity: 0.6;
   }
 }
-/* Most of each cycle is dark; the glint drifts a few pixels down as it turns, like light settling. */
 @keyframes welcome-sky-glint {
   0% {
     opacity: 0;
@@ -2048,9 +1881,6 @@ a {
   }
 }
 
-/* ── onboarding: the first-launch intro ("Dawn") and the sky behind its steps ─── */
-/* The intro is a scene, not UI: its night, dawn and day colours are its own and stay the same in every theme. Every
- * keyframe ends on the finished picture, so the global reduced-motion rule lands on the last frame with Begin. */
 .onboarding-layer {
   position: absolute;
   inset: 0;
@@ -2071,7 +1901,6 @@ svg.onboarding-layer {
   user-select: none;
   --logo: 120px;
 }
-/* It holds still under the startup splash and starts once the splash has gone. */
 .onboarding-intro:not([data-playing]) * {
   animation-play-state: paused !important;
 }
@@ -2145,8 +1974,6 @@ svg.onboarding-layer {
   fill: #fff;
   filter: drop-shadow(0 2px 14px rgb(214 160 60 / 0.55));
 }
-/* The legs rise exactly like the loading mark's (StartupSplash) once the star has landed; then the whole mark runs like
- * the running logo beside a turn's timer (ThinkingIndicator): legs light in turn, the sparkle turns a quarter. */
 .onboarding-intro-leg {
   transform-box: fill-box;
   transform-origin: center;
@@ -2157,7 +1984,6 @@ svg.onboarding-layer {
 .onboarding-intro-leg-right {
   animation-delay: 1790ms, 3240ms;
 }
-/* The falling star lands where the logo's sparkle sits: 32.5% down a mark 60% its size. */
 .onboarding-intro-comet {
   position: absolute;
   left: 50%;
@@ -2257,7 +2083,6 @@ svg.onboarding-layer {
   -webkit-app-region: drag;
 }
 
-/* Software rendering uses the finished picture without SVG noise, spinning rays or a full-window blur. */
 .onboarding-intro[data-simple] * {
   animation-duration: 0.01ms !important;
   animation-delay: 0s !important;
@@ -2271,8 +2096,6 @@ svg.onboarding-layer {
   animation: onboarding-fade-out var(--duration-base) ease both;
 }
 
-/* The steps' light: a faint wash of the intro's day over the app's own page, no clouds, fading as the steps go on so the
- * first Chat lands on the app as it always looks. */
 .onboarding-sky {
   --sky-top: #c6dcf4;
   --sky-mid: #e1edf9;
@@ -2303,7 +2126,6 @@ svg.onboarding-layer {
   border-radius: 50%;
   background: radial-gradient(closest-side, var(--sky-glow), transparent);
 }
-/* The first step comes in under the leaving intro. */
 .onboarding-steps-enter {
   animation: onboarding-rise 700ms 350ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -2355,9 +2177,6 @@ svg.onboarding-layer {
     opacity: 1;
   }
 }
-/* The running logo's beat (running-logo-glow / running-logo-twinkle), started from the lit mark so the loop takes over
- * from the landing without a jump: each leg dims after its turn and lights again before the next; the sparkle grows,
- * turns and settles while both legs rest (a quarter turn loops seamlessly on its four points). */
 @keyframes onboarding-run-leg {
   0%,
   8% {
@@ -2417,8 +2236,6 @@ svg.onboarding-layer {
   }
 }
 
-/* COMPONENT-SPECIFIC — Settings › Appearance preview strip: it repaints what is behind the page so rows vanish under it.
- * In the Settings dialog that is the dialog's surface, not the window's stripes. */
 dialog [data-slot="appearance-preview-strip"],
 dialog [data-slot="appearance-preview-fade"] {
   background-color: var(--surface) !important;

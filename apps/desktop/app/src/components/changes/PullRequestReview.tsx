@@ -9,8 +9,6 @@ import { InlineError } from "../primitives/InlineError";
 import { Select } from "../primitives/Select";
 import { useDismiss } from "../../lib/use-dismiss";
 
-// The PR's review in its diff: GitHub's threads under their lines, and the bar that submits the viewer's pending review.
-
 const STATE_LABEL = { open: "Open", resolved: "Resolved", outdated: "Outdated", pending: "Pending" } as const;
 const STATE_TONE = { open: "text-orange-ink", resolved: "text-ink-3", outdated: "text-ink-3", pending: "text-accent-ink" } as const;
 
@@ -148,7 +146,6 @@ const VERDICTS: { value: ReviewEvent; label: string }[] = [
   { value: "REQUEST_CHANGES", label: "Request changes" },
 ];
 
-/** Under the PR's diff: what the review holds so far, and Submit review with a verdict and an optional summary. */
 export function ReviewBar({
   pending,
   canApprove,
@@ -156,7 +153,6 @@ export function ReviewBar({
   onSubmit,
 }: {
   pending: number;
-  /** GitHub doesn't let a PR's author approve or request changes on it. */
   canApprove: boolean;
   error: string | null;
   onSubmit: (event: ReviewEvent, body: string) => Promise<boolean>;

@@ -19,7 +19,6 @@ import { CLEANUP_INTRO, CLEANUP_TITLE } from "@milagre/shared/storage";
 
 export type DesktopSettingsEntry = SettingsSearchEntry<SettingsSection>;
 
-/** A Settings section's name, as the nav shows it (This Mac's row is named after the computer there). */
 export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "computer">, string> = {
   general: "General",
   appearance: "Appearance",
@@ -41,7 +40,6 @@ export const SECTION_TITLES: Record<Exclude<SettingsSection, "project" | "comput
   about: "About",
 };
 
-/** Other words for a section, so the search finds it by what it holds. */
 export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   general: "editor sidebar chat order chat list done archive snooze plan usage keep awake",
   worktrees: "main branch sync pull fast-forward storage clean up cleanup disk idle repositories folder",
@@ -62,13 +60,7 @@ export const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
   about: "version update privacy support",
 };
 
-/**
- * Every row a Settings section shows, in the order it shows them; each section's own name comes from the Settings nav.
- * `title` is the row's text exactly as on screen: the section opens with that row lit up. settings-index.test.ts checks
- * each one is still in the section's source.
- */
 export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
-  // General
   { page: "general", title: "Editor" },
   {
     page: "general",
@@ -145,7 +137,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "sleep caffeinate lid",
   },
 
-  // Appearance
   {
     page: "appearance",
     title: "Mode",
@@ -242,7 +233,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "motion speed reduce",
   },
 
-  // Chat
   { page: "chat", title: "Messages during a turn", keywords: "steer queue follow-up send now later while running" },
   {
     page: "chat",
@@ -274,7 +264,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     description,
   })),
 
-  // Voice
   {
     page: "voice",
     title: "Dictation",
@@ -324,7 +313,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "dictation voice english",
   },
 
-  // Notifications
   { page: "notifications", title: "Alerts" },
   {
     page: "notifications",
@@ -376,7 +364,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "unread badge",
   },
 
-  // Keybindings
   {
     page: "keybindings",
     title: "Add keybinding",
@@ -396,7 +383,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "keys shortcuts restore",
   },
 
-  // Models
   { page: "models", title: "New chats" },
   {
     page: "models",
@@ -457,7 +443,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "concise normal length verbose",
   },
 
-  // Accounts
   {
     page: "accounts",
     title: "Add account",
@@ -486,7 +471,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "account choose which",
   },
 
-  // Usage
   {
     page: "usage",
     title: "Where it went",
@@ -495,7 +479,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
   { page: "usage", title: "Models", keywords: "cost tokens spend" },
   { page: "usage", title: "Token mix", keywords: "input output cache tokens" },
 
-  // MCP servers
   { page: "mcp", title: "Add server", keywords: "tool server install connect" },
   {
     page: "mcp",
@@ -515,7 +498,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "connection token custom",
   },
 
-  // Browser
   { page: "browser", title: "Links" },
   {
     page: "browser",
@@ -536,7 +518,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "log out logins cookies sessions",
   },
 
-  // Worktrees
   { page: "worktrees", title: "Main branch" },
   {
     page: "worktrees",
@@ -562,7 +543,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "storage disk space free worktrees delete old idle",
   },
 
-  // Integrations
   { page: "connections", title: "Issue trackers" },
   {
     page: "connections",
@@ -594,7 +574,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "pull request review ci conflicts",
   },
 
-  // Phone & sharing
   {
     page: "devices",
     title: "Allow devices to connect",
@@ -646,7 +625,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "share public links revoke",
   },
 
-  // This Mac
   {
     page: "this-mac",
     title: "Drive other computers",
@@ -668,7 +646,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "desktop apps control screen",
   },
 
-  // Church
   { page: "experimental", title: "Beta" },
   {
     page: "experimental",
@@ -708,7 +685,6 @@ export const SETTINGS_INDEX: readonly DesktopSettingsEntry[] = [
     keywords: "phone tokens",
   },
 
-  // About
   { page: "about", title: "Milagre" },
   {
     page: "about",

@@ -31,9 +31,7 @@ export function createScopeDrafts() {
           let body = fingerprint;
           try {
             body = JSON.parse(fingerprint).body ?? fingerprint;
-          } catch {
-            /* Plain text is also a valid fingerprint. */
-          }
+          } catch {}
           const draft = saved.get(owner);
           if (identities.get(owner) === sentIdentity && draft && draft.sessionId === previousSessionId && draft.text.trim() === body)
             saved.set(owner, { text: "", sessionId });

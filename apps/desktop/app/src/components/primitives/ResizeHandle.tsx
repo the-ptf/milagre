@@ -33,7 +33,6 @@ export function ResizeHandle({
   const [resizing, setResizing] = useState(false);
   const bound = () => Math.max(min, typeof max === "function" ? max() : max);
   const clamp = (value: number, upper = bound()) => Math.round(Math.min(upper, Math.max(min, value)));
-  // Dragging right widens a panel whose handle is on its right edge; dragging left, one whose handle is on its left.
   const direction = side === "right" ? 1 : -1;
 
   const start = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -50,7 +49,6 @@ export function ResizeHandle({
     setPanelResizing(true);
     document.body.style.cursor = "col-resize";
     // Pointer moves can come faster than frames: the width follows the latest one, once a frame, since each new width
-    // reflows the chat beside the panel.
     let frame = 0;
     const move = (moveEvent: PointerEvent) => {
       latest = clamp(startWidth + direction * (moveEvent.clientX - startX), upper);

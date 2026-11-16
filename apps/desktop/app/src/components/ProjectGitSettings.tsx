@@ -24,10 +24,6 @@ function insertToken(value: string, token: string, at: number) {
   return { value: `${before}${glue}{${token}}${value.slice(at)}`, caret: at + glue.length + token.length + 2 };
 }
 
-/**
- * Settings › Project › Branches. Saves as you type, like the other Project settings; a field set in
- * .milagre/worktree.json is read-only here.
- */
 export function ProjectGitSettings({ projectPath }: { projectPath: string }) {
   const [saved, setSaved] = useState<BranchPolicySettings | null>(null);
   const [draft, setDraft] = useState<BranchPolicy | null>(null);
@@ -74,7 +70,6 @@ export function ProjectGitSettings({ projectPath }: { projectPath: string }) {
         },
         (failure) => live && setError(`Couldn't read branch settings: ${ipcErrorMessage(failure)}`),
       );
-    // Leaving Settings saves what was typed last.
     return () => {
       live = false;
       flush();
@@ -95,7 +90,6 @@ export function ProjectGitSettings({ projectPath }: { projectPath: string }) {
     const next = { ...draft!, ...patch };
     setDraft(next);
     if (timer.current !== null) window.clearTimeout(timer.current);
-    // An invalid template or base branch waits until it's fixed.
     const problems = branchPolicyCheck(next);
     if (problems.template || problems.baseBranch) {
       pending.current = null;

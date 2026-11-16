@@ -10,7 +10,6 @@ const TYPES = new Set(IMAGE_TYPES);
 const NONE: ImageAttachment[] = [];
 const NO_FILES: string[] = [];
 
-/** A file on its way to another computer, shown as a tile until its batch is attached: how many of its bytes arrived. */
 export type AttachmentUpload = { id: string; name: string; sentBytes: number; totalBytes: number };
 
 function isAttachableImage(file: File): boolean {
@@ -26,7 +25,6 @@ export function readImage(file: File): Promise<ImageAttachment> {
   });
 }
 
-/** Selected files travel as bytes to the owning computer; project mentions already name files on that computer. */
 export function usePastedImages(scope: string, owner?: string, deferUploads = false) {
   const remote = isRemoteKey(owner);
   const [images, commitImages] = useState<ImageAttachment[]>([]);
@@ -38,7 +36,6 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
   }
   const localFiles = useRef(new Map<string, File>());
   const [files, setFiles] = useState<string[]>([]);
-  // Attachment keys (a file's path, a pasted image's id) in the order they were added, so the row lists them that way.
   const [order, setOrder] = useState<string[]>([]);
   const append = (keys: string[]) => setOrder((current) => [...current.filter((key) => !keys.includes(key)), ...keys]);
   const [loading, setLoading] = useState(false);
@@ -50,7 +47,6 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
   const generation = useRef(0);
   const reading = useRef(false);
 
-  // Clearing what is empty already keeps the same arrays, so a switch between Chats without attachments renders nothing more.
   function clear() {
     generation.current++;
     reading.current = false;
@@ -62,7 +58,6 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
     setError("");
   }
 
-  // Each Chat keeps its attachments while the user is in another, like its draft text does.
   const stash = useRef(new Map<string, { images: ImageAttachment[]; files: string[]; order: string[] }>());
   const latest = useRef({ files, order });
   latest.current = { files, order };
@@ -140,10 +135,8 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
     setError("");
     let nextImages: ImageAttachment[] = [];
     let paths: string[] = [];
-    // Which tile each uploaded path came from, so a tile cancelled after its bytes arrived still leaves the batch.
     const uploadOf = new Map<string, string>();
     let failed = "";
-    // A remote batch shows every file as a tile at once; each fills as its bytes reach the other computer.
     const batch = selected.map((file) => ({ file, id: crypto.randomUUID() as string }));
     const ids = batch.map(({ id }) => id);
     if (remote)
@@ -188,9 +181,7 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
         if (isAttachableImage(file)) {
           try {
             nextImages.push({ ...(await readImage(file)), path });
-          } catch {
-            /* The disk attachment still works. */
-          }
+          } catch {}
         }
       } catch (error) {
         if (!cancelled.current.has(id)) failed = error instanceof Error ? error.message : "Could not attach the file. Try again.";
@@ -238,7 +229,6 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
   }
 
   return {
-    /** The Chat (or new-chat screen) these attachments belong to; a new scope starts empty. */
     scope,
     remote,
     images,
@@ -246,9 +236,7 @@ export function usePastedImages(scope: string, owner?: string, deferUploads = fa
     order,
     localFiles: localFiles.current,
     loading,
-    /** Files still on their way to the Chat's computer, in the order they were chosen. */
     uploads,
-    /** Stops one file's upload; the rest of its batch carries on. */
     cancelUpload: (id: string) => {
       cancelled.current.add(id);
       setUploads((current) => current.filter((upload) => upload.id !== id));

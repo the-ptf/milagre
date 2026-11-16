@@ -3,13 +3,8 @@ import { runChatMeta } from "@milagre/shared/routines";
 import { IconButton } from "../primitives/Button";
 import { useRoutines } from "../../lib/routines";
 
-/** What replying to a hidden Run Chat does, under the composer of the Run Chat pane. */
 export const RUN_CHAT_REPLY_NOTE = "Replying keeps this Chat: it joins your sidebar and stays in this Routine's Runs.";
 
-/**
- * The header of the Run Chat pane beside a Routine's page: the Chat's title, the Run's meta ("Run at 11:47 · acted in
- * 38 s · main") and Close.
- */
 export function RunChatHeader({ chatKey, title, branch, onClose }: { chatKey: string; title: string; branch?: string; onClose: () => void }) {
   const { routines } = useRoutines();
   const run = routines.flatMap((routine) => routine.runs).find((entry) => entry.chatId === chatKey);

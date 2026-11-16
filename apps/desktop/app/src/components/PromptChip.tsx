@@ -5,20 +5,14 @@ import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
 
-// One box for every chip: the same height, padding and line height, at 0.875em of the text around it (the phone's
-// size too). The label alone sets the chip's baseline
-// (`LABEL`), so every chip's text sits on the line's baseline and the chip is centred on the line whatever comes first
-// (an icon has no baseline, a badge a smaller one); icons and badges are sized in em, centred, and never set the height.
 export const CHIP =
   "relative -top-[0.04em] inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[0.875em] leading-[1.35] font-[inherit] whitespace-nowrap";
 const LABEL = "truncate self-baseline";
 export const ICON_SIZE = "0.95em";
 // A chip that opens something: the pointer cursor, its border unchanged on hover (a chip is part of the text, not a
 // button that lights up); focus is the base accent outline. File and image chips keep a native title: it reveals the full
-// path or name the chip truncates.
 const OPENABLE = "cursor-pointer";
 
-/** A file's type: letters for common languages, an icon for the rest, in the type's color (tinted so it reads in light and dark). */
 export function FileKindIcon({ path }: { path: string }) {
   const kind = fileKind(path);
   if (kind.badge)
@@ -39,8 +33,6 @@ export function FileKindIcon({ path }: { path: string }) {
   return <HugeiconsIcon icon={icon} size={ICON_SIZE} strokeWidth={1.8} color={kind.color} aria-hidden className="shrink-0" />;
 }
 
-/** A skill in a prompt: a wand and the name title-cased, the skill's description in a tooltip on hover. The chip is its
- * own trigger (no wrapper), so it stays the direct child of its host in the prompt field. */
 export function SkillChip({ name, description }: { name: string; description?: string }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -69,7 +61,6 @@ export function SkillChip({ name, description }: { name: string; description?: s
   );
 }
 
-/** A file in a prompt: its name, the relative path on hover. A click opens it when `onOpen` is given. */
 export function FileChip({ path, onOpen }: { path: string; onOpen?: () => void }) {
   const name = path.split("/").findLast(Boolean) ?? path;
   const className = `${CHIP} border-line-strong bg-hover text-ink`;
@@ -92,7 +83,6 @@ export function FileChip({ path, onOpen }: { path: string; onOpen?: () => void }
   );
 }
 
-/** An inline image position (`[Image #1]`): its 1-based label, with the image's name on hover and preview on click when `onOpen` is given. */
 export function ImageChip({ index, name, onOpen }: { index: number; name?: string; onOpen?: () => void }) {
   const label = imageLabel(index);
   const className = `${CHIP} border-line-strong bg-hover text-ink`;
@@ -115,7 +105,6 @@ export function ImageChip({ index, name, onOpen }: { index: number; name?: strin
   );
 }
 
-/** A reference opens the original Project's Chat, without granting additional access. */
 export function ChatChip({ title, onOpen }: { title: string; onOpen?: () => void }) {
   const className = `${CHIP} border-line-strong bg-hover text-ink`;
   const content = (
@@ -143,7 +132,6 @@ export function ChatChip({ title, onOpen }: { title: string; onOpen?: () => void
   );
 }
 
-/** A computer the message names: the agent is told about it, and can hand work there. */
 export function ComputerChip({ name, online = true }: { name: string; online?: boolean }) {
   return (
     <span

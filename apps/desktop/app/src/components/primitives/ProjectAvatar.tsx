@@ -9,10 +9,6 @@ const SIZES = {
   40: "size-10 rounded-card text-15",
 } as const;
 
-/**
- * A Project's (or Link's) avatar: its image, or its initial in on-ink on an ink square. Decorative, so show the name
- * beside it. `children` draws over it (the Link glyph on a Link's first Project); `className` adds a ring in a stack.
- */
 export function ProjectAvatar({
   name,
   src,
@@ -23,7 +19,6 @@ export function ProjectAvatar({
 }: {
   name: string;
   src?: string | null;
-  /** In place of the initial taken from `name`. */
   initial?: string;
   size?: keyof typeof SIZES;
   className?: string;

@@ -28,30 +28,23 @@ export type PromptEditorHandle = {
   getSelection(): { start: number; end: number };
   isCaretOnFirstLine(): boolean;
   isCaretOnLastLine(): boolean;
-  /** The editable element, for measuring. */
   readonly root: HTMLDivElement | null;
 };
 
 interface PromptEditorProps {
   value: string;
   onChange(value: string, caret: number): void;
-  /** `value` split into text, skills and files; chips render for the skills and files. Parts that don't spell `value` are ignored. */
   parts: PromptPart[];
   placeholder: string;
   suggestion?: string;
   disabled: boolean;
   maxHeight: number;
   onKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
-  /** Runs first; when it calls preventDefault (an image or file paste) the editor inserts nothing. */
   onPaste(event: ClipboardEvent<HTMLDivElement>): void;
   onSelect(caret: number): void;
-  /** Skill name (lowercase) to description, shown when hovering a skill chip. */
   skillDescriptions: ReadonlyMap<string, string>;
-  /** Opens the attached image an image chip (1-based) stands for. */
   onOpenImage?(index: number): void;
-  /** The Chat the draft belongs to; a new key starts a new undo history. */
   resetKey?: string;
-  /** The range a dictation take may still rewrite. Its text is tinted; the draft itself is untouched. */
   provisional?: { start: number; end: number } | null;
   label?: string;
   className?: string;
@@ -74,13 +67,11 @@ const DELETE_RANGE_TYPES = new Set([
   "deleteByCut",
 ]);
 
-/** Text from a paste or drop: plain text, else the text of the HTML; line endings normalized. */
 function plainText(data: DataTransfer | null): string {
   if (!data) return "";
   let text = data.getData("text/plain");
   if (!text) {
     const html = data.getData("text/html");
-    // An inert document: nothing in it runs or loads.
     if (html) text = new DOMParser().parseFromString(html, "text/html").body.textContent ?? "";
   }
   return text.replace(/\r\n?/g, "\n");
@@ -121,10 +112,8 @@ export function PromptEditor({
   // Bumped to render the DOM again from the draft, after a composition or an edit made behind the editor's back.
   const [renders, setRenders] = useState(0);
 
-  // The latest props, for listeners that live as long as the element.
   const live = useRef({ value, parts, onChange, onSelect, disabled });
   live.current = { value, parts, onChange, onSelect, disabled };
-  // The draft this editor last handed to onChange; any other new value came from outside (a pick, history, a restore).
   const emitted = useRef<string | null>(null);
   const shown = useRef(value);
   const selection = useRef<Selection>({ start: value.length, end: value.length });
@@ -138,7 +127,6 @@ export function PromptEditor({
   const hosts = useRef(new Map<string, HTMLSpanElement>());
 
   const layout = useMemo(() => editorLayout(value, parts, provisional), [value, parts, provisional]);
-  // Re-render only when what is shown changes, not on every new `parts` array (that would reset a drag selection).
   const signature = JSON.stringify(layout);
 
   function focused() {
@@ -212,13 +200,11 @@ export function PromptEditor({
     pending.current ??= { start: value.length, end: value.length };
   }, [value, history]);
 
-  // Undo never reaches into another Chat's draft. Runs after the effect above, which recorded the switch itself.
   const historyKey = useRef(resetKey);
   useLayoutEffect(() => {
     if (historyKey.current === resetKey) return;
     historyKey.current = resetKey;
     history.clear();
-    // A Chat switch restores its draft even when it has the same text as the previous Chat.
     emitted.current = null;
     pending.current = { start: value.length, end: value.length };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- only a Chat switch resets the caret.
@@ -237,7 +223,6 @@ export function PromptEditor({
     const nodes = layout.map((piece) => {
       if (piece.kind === "text") {
         const text = document.createTextNode(piece.text);
-        // A dictation take's revisable tail: an inline span, so the draft's text offsets are exactly what they were.
         if (!piece.provisional) return text;
         const tail = document.createElement("span");
         tail.dataset.provisional = "";
@@ -270,12 +255,10 @@ export function PromptEditor({
     placeChildren(root, nodes);
     setChips((current) => (current.length === nextChips.length && current.every((chip, index) => chip.host === nextChips[index]?.host) ? current : nextChips));
     placeSelection(restore);
-    // An unfocused restored draft also opens on its last line, ready for the next click.
     if (restore.start === value.length && restore.end === value.length) root.scrollTop = root.scrollHeight;
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for `layout`.
   }, [signature, renders, resetKey]);
 
-  // Expanding the composer changes its text metrics after the draft was restored. Reveal the end at its final size.
   useLayoutEffect(() => {
     const root = rootRef.current;
     const end = live.current.value.length;
@@ -321,7 +304,6 @@ export function PromptEditor({
         let base = draft;
         let baseParts = current;
         if (source && source.start !== source.end && (at <= source.start || at >= source.end)) {
-          // Moving text within the field: take it out, then put it in where it was dropped.
           const removed = replaceRange(draft, current, source.start, source.end, "");
           if (at >= source.end) at -= draft.length - removed.value.length;
           base = removed.value;
@@ -338,7 +320,6 @@ export function PromptEditor({
       }
       if (type === "historyUndo") return step("undo");
       if (type === "historyRedo") return step("redo");
-      // Formatting and anything else: the draft is plain text.
     };
     const compositionStart = () => {
       composition.current = { value: live.current.value, range: readSelection() };
@@ -351,7 +332,6 @@ export function PromptEditor({
       if (!started) return;
       let next = textOf(root);
       let caret = readSelection().start;
-      // The composed text was not put in the field (a synthetic or abandoned composition): insert what it committed.
       if (next === started.value && event.data) {
         const result = replaceRange(started.value, live.current.parts, started.range.start, started.range.end, event.data);
         next = result.value;
@@ -363,7 +343,6 @@ export function PromptEditor({
       } else pending.current = started.range;
       setRenders((count) => count + 1);
     };
-    // An edit no beforeinput handler took (execCommand, an extension): read the field back.
     const input = (event: Event) => {
       if (composition.current || (event as InputEvent).inputType === "insertCompositionText") return;
       const next = textOf(root);
@@ -451,7 +430,6 @@ export function PromptEditor({
       event.preventDefault();
       step("redo");
     } else if (!mod && !event.altKey && !event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-      // Over a chip in one press, and past the filler after it without a press of its own.
       event.preventDefault();
       const { start, end } = readSelection();
       const left = event.key === "ArrowLeft";
@@ -519,7 +497,6 @@ export function PromptEditor({
           {suggestion ? (
             <>
               {suggestion}
-              {/* Tab puts the suggestion in the composer (PromptComposer's key handler). */}
               <span className="ml-2 inline-flex translate-y-[-1px] items-center gap-1 rounded-control border border-line-strong px-1.5 align-middle text-12 leading-5 font-medium text-ink-3">
                 <Icon icon={ArrowRightToLineIcon} size={12} />
                 Tab

@@ -10,7 +10,6 @@ function overlay(): Overlay | undefined {
   return (navigator as Navigator & { windowControlsOverlay?: Overlay }).windowControlsOverlay;
 }
 
-// The width of the bar's own controls from sidebarLeft (the sidebar toggle and the tools after it), which the sidebar reports.
 let barWidth = 0;
 const barListeners = new Set<() => void>();
 
@@ -21,7 +20,6 @@ export function setBarControlsWidth(width: number) {
   for (const notify of barListeners) notify();
 }
 
-/** Geometry belongs to the local window, not to the computer whose Project it displays. */
 function readWindowChrome(): ChromeLayout {
   const mode = window.milagreWindowChrome?.controls ?? "external";
   // Traffic lights at x 16 span 60px with a 16px margin each side on macOS 26 and later.
@@ -36,7 +34,6 @@ function readWindowChrome(): ChromeLayout {
       const rect = controls.getTitlebarAreaRect();
       if (rect.width > 0) {
         // macOS reports the lights with their margin on both sides, so the toggle keeps the gap the lights keep from the
-        // window edge. Overlay controls on the left end flush with the rect.
         sidebarLeft = rect.x > 0 ? rect.x + (mode === "leading" ? 0 : 8) : 12;
         if (mode === "overlay") {
           const trailing = Math.round(window.innerWidth - rect.right);
@@ -60,7 +57,6 @@ function subscribe(notify: () => void) {
   };
 }
 
-// A primitive snapshot stays stable between geometry events, as useSyncExternalStore requires.
 function snapshot() {
   const { sidebarLeft, rightInset, controlsEnd } = readWindowChrome();
   return `${sidebarLeft}:${rightInset}:${controlsEnd}`;
@@ -71,11 +67,6 @@ export function useWindowChrome(): ChromeLayout {
   return readWindowChrome();
 }
 
-/**
- * Insets that keep a bar along the top of <main> clear of the window controls and the sidebar toggle, from where its
- * offset parent starts. Collapsing the sidebar moves that edge under them. `corner` is the width (px) of the toggles
- * pinned top right (CORNER_PITCH per button), so the bar's trailing controls stop short of them too.
- */
 export function useControlsClearance<T extends HTMLElement>(open: boolean, corner?: number) {
   const { controlsEnd, rightInset } = useWindowChrome();
   const bar = useRef<T>(null);
@@ -91,7 +82,6 @@ export function useControlsClearance<T extends HTMLElement>(open: boolean, corne
       });
     };
     update();
-    // Collapsing the sidebar resizes <main>, which is what moves its left edge.
     const observer = new ResizeObserver(update);
     observer.observe(host);
     return () => observer.disconnect();

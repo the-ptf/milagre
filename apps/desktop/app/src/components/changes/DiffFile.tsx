@@ -39,13 +39,11 @@ function Text({ line, decoration, wrap }: { line: DiffLine; decoration?: Decorat
   );
 }
 
-/** What the rows need to take part in commenting: which are selected, what goes under them, and the handlers. */
 type Commenting = {
   path: string;
   selected: (hunk: number, line: number, side?: DiffSide) => boolean;
   slot: (hunk: number, line: number) => ReactNode;
   actions: CommentActions;
-  /** A PR's review threads on a line, under it. */
   threads: (line: DiffLine) => ReactNode;
 };
 
@@ -72,8 +70,6 @@ function AddButton({ commenting, hunk, line, side }: { commenting: Commenting; h
   );
 }
 
-// A neutral wash under the text (hover-2, a translucent ink; rows are isolated, so -z-10 sits above the row's tint but
-// below its text) and an ink bar on the left edge, as GitHub marks selected lines.
 const Selected = () => (
   <>
     <span aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-hover-2" />
@@ -162,7 +158,6 @@ function Half({
 
 function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorations: Map<DiffLine, Decorated>; commenting?: Commenting }) {
   return (
-    // Two equal columns that always wrap: sized to the longest line, a narrow window pushed the new side off screen.
     <div className="grid w-full grid-cols-2">
       {hunks.map((hunk, index) => {
         const indexes = new Map(hunk.lines.map((line, lineIndex) => [line, lineIndex]));
@@ -175,7 +170,6 @@ function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorati
               const left = row.left && indexes.get(row.left);
               const right = row.right && indexes.get(row.right);
               const slots = [left, right !== left ? right : undefined].map((line) => (line === undefined ? null : commenting?.slot(index, line)));
-              // A context row is the same line in both halves: its threads come once.
               const threads = [row.left, row.right !== row.left ? row.right : undefined].map((line) => (line ? commenting?.threads(line) : null));
               return (
                 <Fragment key={rowIndex}>
@@ -196,7 +190,6 @@ function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorati
                         </div>
                       ),
                   )}
-                  {/* A context row is one line in both halves; its slot comes once. */}
                   {slots.map(
                     (slot, at) =>
                       slot && (
@@ -253,7 +246,6 @@ export const DiffFile = memo(function DiffFile({
   onToggle: (path: string) => void;
   onVisible: (file: DiffFileEntry) => void;
   onShowLarge: (file: DiffFileEntry) => void;
-  /** A PR's review threads on this file, drawn by `renderThreads` (stable) under their lines. */
   threads?: PullRequestThread[];
   renderThreads?: (threads: PullRequestThread[]) => ReactNode;
 } & CommentProps) {
@@ -264,8 +256,6 @@ export const DiffFile = memo(function DiffFile({
   const ready = patch?.status === "ready" ? patch : undefined;
   const hunks = useMemo(() => hunksOf(ready), [ready]);
 
-  // Files load when they come near the viewport, not all at once on open. Staying near while the
-  // patch goes missing (the mode changed under a mounted file) loads it again.
   const [near, setNear] = useState(false);
   const onVisibleRef = useRef(onVisible);
   onVisibleRef.current = onVisible;
@@ -305,7 +295,6 @@ export const DiffFile = memo(function DiffFile({
   const name = file.path.slice(slash + 1);
   const folder = slash >= 0 ? file.path.slice(0, slash) : "";
 
-  // Each comment sits under its last row; the ones whose rows are gone collect below the hunks.
   const { placed, stale } = useMemo(() => {
     const placed = new Map<string, CommentView[]>();
     const stale: CommentView[] = [];
@@ -324,7 +313,6 @@ export const DiffFile = memo(function DiffFile({
   const hunk = draft ? hunks[draft.hunk] : undefined;
   const lo = draft ? Math.min(draft.anchor, draft.head) : 0;
   const hi = draft ? Math.max(draft.anchor, draft.head) : 0;
-  // The editor goes under the last row of the range that is shown on the selected side.
   let editorAt: string | undefined;
   if (draft && hunk && !draft.dragging) {
     for (let index = hi; index >= lo; index--) {
@@ -433,14 +421,9 @@ export const DiffFile = memo(function DiffFile({
 
   return (
     <section ref={ref} data-diff-file={file.path} className="rounded-card border border-line bg-surface">
-      {/* Pinned, the header is the card's top: it draws its own border over the card's (-1px), and the page colour
-          fills behind its rounded-control corners so rows scrolling underneath don't show through them. The fill sits in a
-          wrapper, under the header; inside the header it would paint over the header's own background and border. */}
-      {/* It also reaches 1px into the rows below, so no sliver of the row under it shows between header and row. */}
       <div className="sticky top-0 z-10 -mx-px -mt-px -mb-px">
         <span aria-hidden className="absolute inset-x-0 top-0 h-[var(--radius-card)] bg-page" />
         <header className={`relative flex h-9 items-center gap-2 border border-line bg-surface px-3 text-12 ${collapsed ? "rounded-card" : "rounded-t-card"}`}>
-          {/* IconButton's 24 look, hand-built: a disclosure's aria-expanded isn't an open menu, so it takes no pressed fill. */}
           <button
             type="button"
             aria-label={collapsed ? "Expand file" : "Collapse file"}

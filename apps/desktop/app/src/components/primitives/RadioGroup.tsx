@@ -3,10 +3,6 @@ import { CHECK_BOX } from "./Checkbox";
 
 const Group = createContext<{ name: string; value?: string; onValueChange?: (value: string) => void; disabled?: boolean } | null>(null);
 
-/**
- * A radio group on real <input type="radio">s sharing one name, so the arrow keys move and pick, and a <label>
- * around each works. Same API as the Radix one it replaces: `value`, `onValueChange`, RadioGroupItem children.
- */
 export function RadioGroup({
   value,
   onValueChange,
@@ -32,10 +28,6 @@ export function RadioGroup({
   );
 }
 
-/**
- * A 16px radio: an ink-3 ring at rest, filled ink with an 8px on-ink dot when checked (like a checked checkbox). It
- * carries role, aria-checked and data-state as well, the hooks the Radix one had. Selection is ink: `tone` is ignored.
- */
 export function RadioGroupItem({
   value,
   className = "",
@@ -44,7 +36,6 @@ export function RadioGroupItem({
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "checked" | "onChange"> & {
   value: string;
-  /** @deprecated Selection is ink (round 2, decision 2); remove it from call sites. */
   tone?: "ink" | "accent";
 }) {
   const group = use(Group);

@@ -11,10 +11,6 @@ import { InlineError } from "./primitives/InlineError";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
 import { thisComputer } from "../lib/shortcut-hints";
 
-/**
- * Add computer (design add-computer v1): paste another Mac's pairing link, see the computer it names, and pair with it,
- * waiting while its owner clicks Allow there. Mounted only while open: other screens look for the page's one dialog.
- */
 export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (computer: ComputerView) => void }) {
   const [link, setLink] = useState("");
   const [privateOnly, setPrivateOnly] = useState(false);
@@ -34,7 +30,6 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
   const reads = useRef(0);
 
   useEffect(() => window.milagre.onComputerAddPending(() => setWaiting(true)), []);
-  // A parent that unmounts the dialog mid-pairing still stops it: nothing is left waiting on the other Mac's Allow.
   const addingNow = useRef(false);
   useEffect(() => {
     addingNow.current = adding;
@@ -46,7 +41,6 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
     [],
   );
 
-  // Each change to the link is read again before anything is sent; an older answer that arrives late is dropped.
   useEffect(() => {
     const text = selectedLink;
     const read = ++reads.current;
@@ -80,7 +74,6 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       code: "failed",
       message: ipcErrorMessage(cause),
     }));
-    // Cleared before onAdded unmounts the dialog, or the unmount cleanup would cancel a pairing that already succeeded.
     addingNow.current = false;
     setAdding(false);
     setWaiting(false);
@@ -90,9 +83,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
   async function paste() {
     try {
       setLink(await navigator.clipboard.readText());
-    } catch {
-      /* the field still takes ⌘V */
-    }
+    } catch {}
   }
 
   return (
@@ -101,7 +92,6 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       title="Add computer"
       description="See and drive another computer's Chats from this window."
       onClose={close}
-      // A press on the scrim closes it, unless a pairing is under way; Esc and the × cancel the pairing.
       dismissOnScrim={!adding}
       width={460}
       actions={

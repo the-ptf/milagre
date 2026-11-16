@@ -9,7 +9,6 @@ import { IconButton } from "../primitives/Button";
 import Tooltip from "../primitives/Tooltip";
 
 export function AdvisorResultCard({ context, body }: { context: AdvisorResultContext; body: string }) {
-  // Collapsed, the card keeps a fixed height and scrolls; expanded, it grows to show the whole result.
   const [expanded, setExpanded] = useState(false);
   const resultLabel = context.mode === "execution" ? "execution result" : "advisor result";
   const toggleLabel = `${expanded ? "Collapse" : "Expand"} ${resultLabel}`;

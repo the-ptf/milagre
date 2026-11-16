@@ -5,7 +5,6 @@ const clamp = (value: number, low: number, high: number) => Math.min(high, Math.
 export function snapSliderValue(next: number, min: number, max: number, step: number): number {
   if (!(max > min)) return min;
   if (!(step > 0)) return clamp(next, min, max);
-  // toFixed first: 0.3/0.1 is 2.9999999999999996, which would floor one step short.
   const whole = Math.floor(Number(((max - min) / step).toFixed(6)));
   const lastWhole = Number((min + whole * step).toFixed(6));
   const onGrid = clamp(Math.round((next - min) / step) * step + min, min, lastWhole);

@@ -28,7 +28,6 @@ import { useSettings } from "../../lib/settings";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { ComputersMenu } from "./ComputersMenu";
 
-/** One Project in the chooser, under its computer's section once there are two or more computers. */
 export type PickerProject = { path: string; name: string; initial: string; current: boolean; shown: boolean; listed: boolean; computerId: string };
 
 const FIELD_ICONS: Record<ChatRowField, ReactNode> = {
@@ -42,17 +41,10 @@ const FIELD_ICONS: Record<ChatRowField, ReactNode> = {
 
 type Sub = "computers" | "projects" | "show";
 const SUB_WIDTH: Record<Sub, number> = { computers: 272, projects: 256, show: 208 };
-// Wide enough for "Computers", its away dot and "2 hidden" on one line.
 const MAIN_WIDTH = 232;
-// Popover's panel (primitives/Popover), placed by hand: above the button, with its submenu beside it.
 const PANEL = "fixed z-50 flex flex-col overflow-hidden rounded-card bg-surface shadow-raised";
 const rowsOf = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
 
-/**
- * The sidebar's Filters: which computers and Projects this Mac's sidebar lists and what a chat row's second line shows
- * (all kept per Mac). Computers ›, Projects › and Show › open beside the menu. What the sidebar leaves out stays quiet
- * here too: no notice, Dock badge, inbox row or attention button.
- */
 export function FiltersButton({
   projects,
   computerMenu,
@@ -66,17 +58,13 @@ export function FiltersButton({
   collapsed,
   className,
 }: {
-  /** Null when the sidebar lists only the open Project, so there is nothing to choose. */
   projects: PickerProject[] | null;
-  /** Computers › (with Settings › Phone & sharing › Other computers on): Add computer and each computer's gear. */
   computerMenu?: { onAddComputer: () => void; onOpenSettings: (id: string | null) => void } | null;
-  /** With other computers, the sections Projects are listed under; null with this Mac alone. A hidden computer's Projects aren't passed. */
   computers: ComputerSection[] | null;
   imageOf: (path: string) => string | null | undefined;
   currentImage?: string | null;
   onShowProject: (path: string, show: boolean) => void;
   show: ChatRowShow;
-  /** Two or more computers: the computer is something a row can show. */
   offerComputer: boolean;
   onShowField: (field: ChatRowField, show: boolean) => void;
   collapsed: boolean;
@@ -88,7 +76,6 @@ export function FiltersButton({
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ bottom: 0, left: 0 });
   const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
-  // The submenu's measured height, so a short one (a single computer, a few Projects) stays beside its row.
   const [subHeight, setSubHeight] = useState(0);
   const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
   const { otherComputers } = useSettings();
@@ -98,11 +85,9 @@ export function FiltersButton({
   const hiddenComputerCount = offerComputers ? [LOCAL_COMPUTER, ...paired.map((computer) => computer.id)].filter((id) => hiddenComputers.has(id)).length : 0;
   const anyAway = offerComputers && paired.some((computer) => computerTone(computer) !== "online");
   const filtering = hiddenCount > 0 || hiddenComputerCount > 0;
-  // "seen 2h ago" in Computers › is read when the menu opens, not on every render.
   const [now, setNow] = useState(0);
   const fields = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer" || offerComputer);
 
-  // Above the button, at the foot of the sidebar; collapsed, beside the rail.
   const place = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return false;
@@ -122,7 +107,6 @@ export function FiltersButton({
   useLayoutEffect(() => {
     if (sub?.focus) rowsOf(subRef.current)[0]?.focus();
   }, [sub]);
-  // Measures the submenu while it is mounted; React runs the returned cleanup when it unmounts.
   const subPanelRef = useCallback((panel: HTMLDivElement | null) => {
     subRef.current = panel;
     if (!panel) return;
@@ -178,7 +162,6 @@ export function FiltersButton({
       aria-expanded={sub?.which === which}
       onPointerEnter={(event) => openSub(which, event.currentTarget, false)}
       onClick={(event) => openSub(which, event.currentTarget, true)}
-      // The row whose submenu is open keeps the highlight.
       className={sub?.which === which ? "bg-hover-2" : ""}
       icon={icon}
       title={label}
@@ -200,7 +183,6 @@ export function FiltersButton({
         aria-checked={project.shown}
         disabled={!project.listed}
         onClick={() => onShowProject(project.path, !project.shown)}
-        // The row itself is the checkbox (CheckboxBox draws it), so a nested control would be one too many.
         icon={<CheckboxBox checked={project.shown} />}
         title={
           <span className="flex min-w-0 items-center gap-2">
@@ -233,7 +215,6 @@ export function FiltersButton({
           className={`${className} relative ${open ? "bg-hover-2 text-ink" : filtering ? "text-ink" : ""}`}
         >
           <Icon icon={FilterIcon} size={16} />
-          {/* One dot: orange while a computer is away, else the accent while a filter is on. */}
           {(anyAway || filtering) && (
             <span
               aria-hidden
@@ -330,7 +311,6 @@ export function FiltersButton({
   );
 }
 
-/** The button's tooltip: what Filters leaves out, if anything. */
 function filtersLabel(computers: number, projects: number): string {
   const parts = [
     computers ? `${computers} ${computers === 1 ? "computer" : "computers"} hidden` : "",
