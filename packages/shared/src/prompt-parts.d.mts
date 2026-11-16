@@ -36,6 +36,8 @@ export function quoteKeys(quotes: readonly string[]): { key: string; text: strin
 export function splitQuotes(body: string): { quotes: string[]; text: string };
 
 export function formatChatMention(id: number): string;
+export const ORCHESTRATOR_MENTION: "@Orchestrator";
+export function mentionsOrchestrator(prompt: string): boolean;
 export function chatMentionTokens(prompt: string): { id: number; start: number; end: number }[];
 export function formatComputerMention(name: string): string;
 export function computerMentionTokens(prompt: string): { name: string; start: number; end: number }[];

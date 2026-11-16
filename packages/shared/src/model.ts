@@ -751,14 +751,14 @@ export type ChatContext =
   | AdvisorResultContext
   | WorktreeLinkedContext
   | LinkedContext
-  | { kind: "git-action" }
+  | { kind: "orchestrator-answer"; summary: string; summaries?: string[] }
   | HandoffContext
   | CompactionContext
   | PullRequestActionContext
   | LinearIssueContext
   | UsageLimitContext
   | AccountSwitchContext
-  | { kind: "limit-reset" }
+  | { kind: "limit-reset" | "git-action" }
   | ChatReloadContext
   | RoutineRunContext
   | BabysitStoppedContext

@@ -69,6 +69,36 @@ const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.
 /**
  * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
  * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
+ * @returns {Pick<import("../app/src/electron.d.ts").MilagreBridge, "readBabysitSettings" | "saveBabysitSettings" | "onBabysitSettings" | "readDoneSettings" | "saveDoneSettings" | "onDoneSettings" | "readOrchestrator" | "readOrchestratorProjects" | "readOrchestratorComputers" | "saveOrchestratorSettings" | "sendToOrchestrator" | "pickOrchestratorProject" | "showOrchestratorTaskInSidebar" | "undoOrchestratorTask" | "rerouteOrchestratorTask" | "dismissOrchestratorTask" | "importOrchestratorMemory" | "saveOrchestratorMemory" | "forgetOrchestratorMemory" | "onOrchestrator">}
+ */
+function hostSettingsBridge(invoke, listen) {
+  return {
+    readBabysitSettings: () => invoke("babysit:settings:read"),
+    saveBabysitSettings: (patch) => invoke("babysit:settings:save", patch),
+    onBabysitSettings: (callback) => listen("babysit:settings", callback),
+    readDoneSettings: () => invoke("done:settings:read"),
+    saveDoneSettings: (patch) => invoke("done:settings:save", patch),
+    onDoneSettings: (callback) => listen("done:settings", callback),
+    readOrchestrator: () => invoke("orchestrator:read"),
+    readOrchestratorProjects: () => invoke("orchestrator:projects"),
+    readOrchestratorComputers: () => invoke("orchestrator:computers"),
+    saveOrchestratorSettings: (patch) => invoke("orchestrator:settings:save", patch),
+    sendToOrchestrator: (prompt, options) => invoke("orchestrator:send", prompt, options),
+    pickOrchestratorProject: (taskId, projectPath) => invoke("orchestrator:task:project", taskId, projectPath),
+    showOrchestratorTaskInSidebar: (taskId, shown) => invoke("orchestrator:task:sidebar", taskId, shown),
+    undoOrchestratorTask: (taskId) => invoke("orchestrator:task:undo", taskId),
+    rerouteOrchestratorTask: (taskId, change) => invoke("orchestrator:task:reroute", taskId, change),
+    dismissOrchestratorTask: (taskId) => invoke("orchestrator:task:dismiss", taskId),
+    importOrchestratorMemory: () => invoke("orchestrator:memory:import"),
+    saveOrchestratorMemory: (notes) => invoke("orchestrator:memory:save", notes),
+    forgetOrchestratorMemory: () => invoke("orchestrator:memory:forget"),
+    onOrchestrator: (callback) => listen("orchestrator:changed", callback),
+  };
+}
+
+/**
+ * @param {(channel: string, ...args: any[]) => Promise<any>} invoke
+ * @param {(channel: string, callback: (payload: any) => void) => () => void} listen
  * @param {(channel: string, ...args: any[]) => void} send
  * @returns {import("../app/src/electron.d.ts").MilagreBridge}
  */
@@ -216,12 +246,7 @@ function makeBridge(invoke, listen, send) {
     readContextSettings: () => invoke("context:settings:read"),
     saveContextSettings: (patch) => invoke("context:settings:save", patch),
     onContextSettings: (callback) => listen("context:settings", callback),
-    readBabysitSettings: () => invoke("babysit:settings:read"),
-    saveBabysitSettings: (patch) => invoke("babysit:settings:save", patch),
-    onBabysitSettings: (callback) => listen("babysit:settings", callback),
-    readDoneSettings: () => invoke("done:settings:read"),
-    saveDoneSettings: (patch) => invoke("done:settings:save", patch),
-    onDoneSettings: (callback) => listen("done:settings", callback),
+    ...hostSettingsBridge(invoke, listen),
     readRoutinesEnabled: () => invoke("routines:enabled:read"),
     listRoutines: () => invoke("routines:list"),
     updateRoutine: (id, patch) => invoke("routines:update", id, patch),

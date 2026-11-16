@@ -89,7 +89,7 @@ import { chatMark, chatTitle, fullChatTitle, isChatListed, orderChats } from "./
 import { deleteUndoWindow, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
-import { firstSection } from "./components/changes/ChangesPanel";
+import { changesPanelButtons } from "./app/changes-panel-buttons";
 import { setKeyContext } from "./lib/keybindings";
 import { CORNER_PITCH, PanelMenu, PanelToggles, cornerButtonCount, useSidePanels } from "./components/agents/PanelToggles";
 import { CanvasButton, DiffBar } from "./components/changes/ChangesChrome";
@@ -112,7 +112,7 @@ import { AppSplash } from "./components/StartupSplash";
 import { settleSplash, useSplash } from "./lib/startup-splash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
-import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
+import { type AppView, chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { createPendingChat, pendingChatSessionId, withPreview } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
@@ -124,9 +124,7 @@ import { EditorLinks, Notice } from "./components/editor-links";
 import { clearNoticeOnNavigate } from "./lib/notice";
 import { withReportPrompt } from "@milagre/shared/bug-report";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
-import { SidebarUsage } from "./components/usage/SidebarUsage";
-import { UsageButton } from "./components/usage/UsageButton";
-import { visibleProviders } from "./components/usage/format";
+import { useSidebarUsage } from "./components/usage/use-sidebar-usage";
 import { useUsage } from "./components/usage/useUsage";
 import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences";
 import { useComposerPreferences } from "./lib/use-composer-preferences";
@@ -156,6 +154,7 @@ import { useStepApprovalScope } from "./components/agents/step-approval";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, chatBranchLabel, RUN_WORKTREE_REMOVED_NOTE, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
+import { OrchestratorPage, OrchestratorSidebarRow } from "./components/orchestrator";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { remoteDelegationsFrom } from "./lib/remote-delegation";
@@ -206,6 +205,8 @@ function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorSt
 const NO_REFS: string[] = [];
 const NO_ROUTINES = new Set<string>();
 
+const chatPanelsHidden = (view: string, taskOpen: boolean) => view === "orchestrator" && !taskOpen;
+
 function App() {
   const [project, setProject] = useState<OpenProject | null>(null);
   const projectRef = useRef<OpenProject | null>(null);
@@ -253,7 +254,7 @@ function App() {
   const setUltracode = composerPrefs.setUltracode;
   const fastMode = composerPrefs.fastMode;
   const setFastMode = composerPrefs.setFastMode;
-  const [view, setView] = useState<"chat" | "canvas" | "routines">("chat");
+  const [view, setView] = useState<AppView>("chat");
   const viewRef = useRef(view);
   viewRef.current = view;
   const openChatKey = (key: string) => {
@@ -742,7 +743,7 @@ function App() {
     }
   });
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
-  const runPaneOpen = view === "routines" && routineId !== null && runPane !== null && runPane === focusedChatKey;
+  const runPaneOpen = (view === "orchestrator" || (view === "routines" && routineId !== null)) && runPane !== null && runPane === focusedChatKey;
   const {
     layout,
     toggleLayout,
@@ -2020,6 +2021,10 @@ function App() {
     setRoutineId(null);
     setView("routines");
   });
+  const openOrchestrator = useEvent(() => {
+    changes.closeDiff();
+    setView("orchestrator");
+  });
   const openUsage = useEvent(() => {
     changes.closeDiff();
     setSettingsSection("usage");
@@ -2083,15 +2088,7 @@ function App() {
   useEffect(() => {
     closeRunPane();
   }, [routineId, view]);
-  const hasSidebarUsage = Boolean(usage.snapshot && visibleProviders(usage.snapshot).length > 0);
-  const sidebarUsage = useMemo(
-    () => (usageInSidebar === "meters" && hasSidebarUsage ? <SidebarUsage usage={usage} scope={accountScope} chatsHome={accountScopeIsHome} /> : undefined),
-    [usageInSidebar, hasSidebarUsage, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
-  );
-  const sidebarUsageButton = useMemo(
-    () => (usageInSidebar === "button" && hasSidebarUsage ? <UsageButton usage={usage} scope={accountScope} chatsHome={accountScopeIsHome} /> : undefined),
-    [usageInSidebar, hasSidebarUsage, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
-  );
+  const { sidebarUsage, sidebarUsageButton } = useSidebarUsage(usageInSidebar, usage, accountScope, accountScopeIsHome);
   const mentionKey = JSON.stringify(state && !isLinkScopeKey(project?.path ?? "") ? chatMentionChoices(state) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
   const mentionContext = useMemo(
@@ -2393,6 +2390,7 @@ function App() {
         openProject: () => openProject(),
         openCanvas,
         openRoutines,
+        openOrchestrator,
         openUsage,
         openStorage: () => openStorage(null),
         startTriage,
@@ -2441,17 +2439,7 @@ function App() {
     onInterrupt: agentRuns.interrupt,
     onOpenChat: openChatKey,
   };
-  const changesPanel = changesAvailable
-    ? {
-        open: changes.open && !prShown,
-        toggle: () => {
-          if (!changes.open || prShown) changes.setMode(firstSection(changes.lists));
-          if (!prShown) changes.toggle();
-        },
-      }
-    : undefined;
-  const pullRequestPanel =
-    changesAvailable && prNumber ? { number: prNumber, open: prShown, toggle: () => (prShown ? changes.toggle() : changes.showPullRequest()) } : undefined;
+  const panelButtons = changesPanelButtons(changes, changesAvailable, prShown, prNumber);
   const projectWorkspace = (
     <BridgeContext.Provider value={projectBridge}>
       <ScopeContext.Provider value={project.path}>
@@ -2466,7 +2454,7 @@ function App() {
             onProvidersUpdated={handleProvidersUpdated}
           />
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-          <PanelToggles right={12 + trailingCorner * CORNER_PITCH} changes={changesPanel} pullRequest={pullRequestPanel} hidden={splitOn} />
+          <PanelToggles hidden={chatPanelsHidden(view, runPaneOpen)} split={splitOn} right={12 + trailingCorner * CORNER_PITCH} {...panelButtons} />
           {canvasButtonShown && (
             <CanvasButton active={view === "canvas"} hidden={splitOn} onToggle={() => (view === "canvas" ? setView("chat") : openCanvas())} />
           )}
@@ -2476,9 +2464,7 @@ function App() {
               if (event.animationName === "app-enter-main") setAppEntered(true);
             }}
           >
-            <div
-              className={`min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 ${view === "chat" || view === "canvas" || view === "routines" ? "flex" : "hidden"}`}
-            >
+            <div className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
               <PullRequestOpenContext.Provider value={openRowPullRequest}>
                 <SidebarNav
                   fill
@@ -2529,6 +2515,7 @@ function App() {
                   archivingChats={archivingChats}
                   onHoverChat={hoverChat}
                   onAskChat={askLinkedChat}
+                  orchestrator={<OrchestratorSidebarRow active={view === "orchestrator"} onShow={openOrchestrator} />}
                 />
               </PullRequestOpenContext.Provider>
             </div>
@@ -2586,7 +2573,7 @@ function App() {
                 data-routine-split={runPaneOpen || undefined}
                 className={runPaneOpen ? "flex min-h-0 flex-1 gap-3 pt-[var(--window-chrome-height)]" : "contents"}
               >
-                <div className={runPaneOpen ? "flex min-h-0 w-[420px] shrink-0 flex-col" : "contents"}>
+                <div className={runPaneOpen ? `flex min-h-0 ${view === "orchestrator" ? "" : "w-[420px]"} shrink-0 flex-col` : "contents"}>
                   {view === "routines" && (
                     <RoutinesPage
                       models={models}
@@ -2604,6 +2591,7 @@ function App() {
                       onCloseRunChat={closeRunPane}
                     />
                   )}
+                  {view === "orchestrator" && <OrchestratorPage pane={runPaneOpen ? runPane : null} onOpen={openRunChat} onBack={closeRunPane} />}
                 </div>
                 <div
                   data-chat-pane
@@ -2621,6 +2609,7 @@ function App() {
                       title={chatTitle(selectedSession, displayedMessages)}
                       branch={showGit ? chatBranchLabel(selectedSession, selectedWorktree?.name) : undefined}
                       onClose={closeRunPane}
+                      running={Boolean(run)}
                     />
                   )}
                   {awayBanner && lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0 && <OfflineEmpty />}
@@ -2638,7 +2627,7 @@ function App() {
                     onTogglePin={toggleGridPin}
                     onClose={splitOn ? closeSplitTile : undefined}
                     menu={splitOn ? tileMenu : undefined}
-                    panelMenu={<PanelMenu changes={changesPanel} pullRequest={pullRequestPanel} />}
+                    panelMenu={<PanelMenu {...panelButtons} />}
                     onStop={stopTileRun}
                   >
                     <EditorLinks

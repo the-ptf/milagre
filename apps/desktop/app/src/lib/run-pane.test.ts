@@ -36,6 +36,8 @@ test("chatOnScreen counts a Run Chat open in the pane beside its Routine's page 
   // The pane still opening another Chat, or no pane: nothing on screen.
   assert.equal(chatOnScreen({ view: "routines", runPane: "/code/a#4", ...at }), null);
   assert.equal(chatOnScreen({ view: "routines", runPane: null, ...at }), null);
+  assert.equal(chatOnScreen({ view: "orchestrator", runPane: "/code/a#9", ...at }), "/code/a#9");
+  assert.equal(chatOnScreen({ view: "orchestrator", runPane: null, ...at }), null);
   assert.equal(chatOnScreen({ view: "settings", runPane: "/code/a#9", ...at }), null);
   assert.equal(chatOnScreen({ view: "chat", runPane: null, projectPath: "/code/a", sessionId: null }), null);
 });

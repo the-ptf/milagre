@@ -140,12 +140,21 @@ export function PanelMenu({ changes, pullRequest }: PanelProps) {
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** The title bar's panel buttons. `hidden` keeps their shortcuts while a split's headers take the title bar. */
-export function PanelToggles({ right, changes, pullRequest, hidden = false }: PanelProps & { right: number; hidden?: boolean }) {
+/**
+ * The title bar's panel buttons. `hidden` drops them and their shortcuts where the panels don't apply; `split` drops only
+ * the buttons, while a split's Panels menu offers them and the shortcuts keep working.
+ */
+export function PanelToggles({
+  right,
+  changes,
+  pullRequest,
+  hidden = false,
+  split = false,
+}: PanelProps & { right: number; hidden?: boolean; split?: boolean }) {
   const shown = useSidePanels();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
+      if (hidden || event.defaultPrevented || event.isComposing || isModalOpen()) return;
       const command = shortcutCommand(event);
       const button = command && BUTTONS.find((item) => item.command === command && panels[item.name]);
       const panel = button && panels[button.name];
@@ -155,7 +164,7 @@ export function PanelToggles({ right, changes, pullRequest, hidden = false }: Pa
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [hidden]);
   const buttons = BUTTONS.filter(({ name }) => shown[name]);
   const chrome = useWindowChrome();
   const { rules } = useKeybindings();
@@ -174,7 +183,7 @@ export function PanelToggles({ right, changes, pullRequest, hidden = false }: Pa
       </Tooltip>
     );
   };
-  if (hidden || (!buttons.length && !changes && !pullRequest)) return null;
+  if (hidden || split || (!buttons.length && !changes && !pullRequest)) return null;
   return (
     <div data-slot="panel-toggles" className="no-drag fixed top-[var(--window-chrome-top)] z-[60] flex gap-2" style={{ right: right + chrome.rightInset }}>
       {buttons.filter(({ name }) => LEADING.has(name)).map(panelButton)}

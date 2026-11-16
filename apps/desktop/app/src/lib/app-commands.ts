@@ -8,6 +8,8 @@ import type { Command } from "./commands";
 import type { RecentProject } from "./project-list";
 import { getSettings, updateSettings } from "./settings";
 import { settingsCommands, settingsPageCommands } from "./settings-commands";
+import { orchestratorEnabled } from "./orchestrator-store";
+import type { AppView } from "./run-pane";
 
 type Run = void | Promise<unknown>;
 
@@ -17,6 +19,7 @@ type AppCommandActions = {
   openProject: () => Run;
   openCanvas: () => void;
   openRoutines: () => void;
+  openOrchestrator: () => void;
   openUsage: () => void;
   openStorage: () => void;
   startTriage: () => Run;
@@ -41,7 +44,7 @@ export type AppCommandContext = {
   current: OpenProject;
   terminalChatId: string | null;
   projectSettings: boolean;
-  view: "chat" | "canvas" | "routines";
+  view: AppView;
   settingsOpen: boolean;
   layout: ChatLayout;
   selectedSession: AgentSession | undefined;
@@ -105,6 +108,18 @@ function actionCommands(ctx: AppCommandContext): Command[] {
       keywords: "heartbeats triggers schedule linear webhook automations",
       run: actions.openRoutines,
     },
+    ...(orchestratorEnabled()
+      ? [
+          {
+            id: "orchestrator",
+            label: "Orchestrator",
+            group: "Actions",
+            icon: "orchestrator" as const,
+            keywords: "board tasks route mascot box",
+            run: actions.openOrchestrator,
+          },
+        ]
+      : []),
     {
       id: "usage",
       label: "Token usage",

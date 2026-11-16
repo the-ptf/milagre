@@ -20,6 +20,7 @@ import { useEvent } from "../lib/stable";
 import { chatFamily } from "../lib/subchat-rows";
 import { besideParent, familySplit, swapTile } from "../lib/subchat-split";
 import type { CoordinatorState, LinkState, LinkedWork } from "../model";
+import type { AppView } from "../lib/run-pane";
 
 const NO_KEYS: string[] = [];
 
@@ -125,7 +126,7 @@ function useSplit(state: LayoutState, chatView: boolean, gridFocusKey: string | 
 }
 
 export type ChatLayoutInputs = {
-  view: "chat" | "canvas" | "routines";
+  view: AppView;
   viewRef: RefObject<string>;
   projectPath: string | undefined;
   projectRef: RefObject<unknown>;

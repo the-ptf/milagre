@@ -6,6 +6,7 @@ import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
 import { formatChatMention, formatComputerMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { OrchestratorMentionRow } from "./orchestrator-mention-row";
 import {
   PROMPT_PLACEHOLDER,
   matchingMentionChats,
@@ -80,6 +81,14 @@ const openSkills = (scale: number) =>
         .reduceMotion(ReduceMotion.System);
 
 /** Native attributed text keeps skill colors in the editable input, including wrapped/scrolled lines. */
+function MenuSection({ shown, children }: { shown: boolean; children: string }) {
+  return shown ? (
+    <SectionLabel flush style={{ paddingVertical: 6 }}>
+      {children}
+    </SectionLabel>
+  ) : null;
+}
+
 export function PromptField({
   client,
   chats = NO_CHATS,
@@ -497,19 +506,12 @@ export function PromptField({
             {(onMention ? files.items : []).slice(0, chatRows.length || computerRows.length ? 1 : 40).map((path) => (
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
-            {chatRows.length > 0 && (
-              <SectionLabel flush style={{ paddingVertical: 6 }}>
-                Chats
-              </SectionLabel>
-            )}
+            <OrchestratorMentionRow client={client} query={fileToken.query} onPick={chooseMention} />
+            <MenuSection shown={chatRows.length > 0}>Chats</MenuSection>
             {chatRows.map((chat) => (
               <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
             ))}
-            {computerRows.length > 0 && (
-              <SectionLabel flush style={{ paddingVertical: 6 }}>
-                Computers
-              </SectionLabel>
-            )}
+            <MenuSection shown={computerRows.length > 0}>Computers</MenuSection>
             {computerRows.map((computer) => (
               <ListRow
                 key={`computer:${computer.id}`}

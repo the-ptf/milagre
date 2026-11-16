@@ -312,3 +312,8 @@ export function withHeartbeats<T extends SidebarRecent>(scopeKey: string, rows: 
   });
   return changed ? marked : rows;
 }
+
+export function runMarkSets(running: string, waiting: string, asking: string) {
+  const set = (keys: string) => new Set(keys.split("\n").filter(Boolean));
+  return { running: set(running), waiting: set(waiting), asking: set(asking) };
+}
