@@ -2638,7 +2638,7 @@ function App() {
                     onTogglePin={toggleGridPin}
                     onClose={splitOn ? closeSplitTile : undefined}
                     menu={splitOn ? tileMenu : undefined}
-                    panelMenu={<PanelMenu changes={changesPanel} pullRequest={pullRequestPanel} onCanvas={openCanvas} />}
+                    panelMenu={<PanelMenu changes={changesPanel} pullRequest={pullRequestPanel} />}
                     onStop={stopTileRun}
                   >
                     <EditorLinks

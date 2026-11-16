@@ -96,7 +96,7 @@ export function ChangesToggle({ open, onToggle, offset = 0 }: { open: boolean; o
   );
 }
 
-/** The title bar's Canvas button; `hidden` while a split's Panels menu offers it instead. */
+/** The title bar's Canvas button; `hidden` while split, where the title bar holds the panes' headers. */
 export function CanvasButton({ active, offset = 0, hidden = false, onToggle }: { active: boolean; offset?: number; hidden?: boolean; onToggle: () => void }) {
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("canvas.open");

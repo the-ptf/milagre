@@ -11,10 +11,9 @@ import {
   GitPullRequestIcon,
   FileDiffIcon,
   MoreHorizontalIcon,
-  FlowConnectionIcon,
 } from "@hugeicons/core-free-icons";
 import { IconButton } from "../primitives/Button";
-import { MenuRow, MenuSeparator, Popover } from "../primitives/Popover";
+import { MenuRow, Popover } from "../primitives/Popover";
 import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
 import { useWindowChrome } from "../../lib/window-chrome";
@@ -71,7 +70,7 @@ const LEADING = new Set<PanelName>(["details", "terminal"]);
 export const sidePanelCount = (shown: Partial<Record<PanelName, SidePanel>>, changes = false, pullRequest = false) =>
   BUTTONS.filter(({ name }) => shown[name]).length + Number(changes) + Number(pullRequest);
 
-/** The title bar's trailing buttons: the panel toggles and the Canvas button, which a split's Panels menu replaces. */
+/** The title bar's trailing buttons: the panel toggles, which a split's Panels menu replaces, and the Canvas button, hidden while split. */
 export function cornerButtonCount(
   splitOn: boolean,
   shown: Partial<Record<PanelName, SidePanel>>,
@@ -85,15 +84,14 @@ export function cornerButtonCount(
 
 type PanelProps = { changes?: SidePanel; pullRequest?: SidePanel & { number: number } };
 
-const NO_CANVAS = () => {};
-
 /** The panel buttons as one menu, for the focused pane of a split, where the title bar holds the panes' headers. */
-export function PanelMenu({ changes, pullRequest, onCanvas = NO_CANVAS }: PanelProps & { onCanvas?: () => void }) {
+export function PanelMenu({ changes, pullRequest }: PanelProps) {
   const shown = useSidePanels();
   const { rules } = useKeybindings();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const buttons = BUTTONS.filter(({ name }) => shown[name]);
+  if (!buttons.length && !changes && !pullRequest) return null;
   const row = (key: string, title: string, icon: typeof PaintBoardIcon, panel: SidePanel, command?: KeybindingCommandId) => (
     <MenuRow
       key={key}
@@ -134,17 +132,6 @@ export function PanelMenu({ changes, pullRequest, onCanvas = NO_CANVAS }: PanelP
           {buttons
             .filter(({ name }) => !LEADING.has(name))
             .map(({ name, label, title = label, icon, command }) => row(name, capitalize(title), icon, shown[name]!, command))}
-          <MenuSeparator />
-          <MenuRow
-            icon={FlowConnectionIcon}
-            title="Canvas"
-            trailing={<span className="text-12 text-ink-3">{shortcutLabel(rules, "canvas.open")}</span>}
-            data-panel-menu-row="canvas"
-            onClick={() => {
-              setOpen(false);
-              onCanvas();
-            }}
-          />
         </Popover>
       )}
     </>
