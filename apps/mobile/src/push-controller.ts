@@ -24,8 +24,6 @@ export function notificationTarget(value: unknown, hosts: SavedHost[]): Notifica
   return host ? { host, projectPath: data.projectPath, sessionId: Number(data.sessionId), eventId: data.eventId } : null;
 }
 export const SHEETS_OVER_CHAT = new Set([
-  "update-sheet",
-  "update-notes",
   "confirm-sheet",
   "prompt-sheet",
   "choice-sheet",

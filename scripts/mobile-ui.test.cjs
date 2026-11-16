@@ -8861,15 +8861,14 @@ function updatesHost() {
     },
   };
   let reloads = 0,
-    retries = 0,
-    notes = 0;
+    retries = 0;
   const { UpdateSheet, useUpdatePresentation, UpdateSettingsBadge } = load("update-sheet.tsx", {
     react: { ...react, useEffect: react.effect, useSyncExternalStore: (_, get) => get(), useContext: () => ({ state }) },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "react-native": { View: "View", Text: "Text", Modal: "Modal", ActivityIndicator: "ActivityIndicator", useColorScheme: () => "dark", AppState: appState },
+    "react-native": { View: "View", Text: "Text", Image: "Image", useColorScheme: () => "dark", AppState: appState },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) },
     "expo-router": {},
     "expo-updates": {},
-    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
     "./update-controller": {},
     "./theme": { colors: {}, hex: () => ({ page: "#17181a" }) },
     "./ui": { PillButton: "PillButton", CircleButton: "CircleButton" },
@@ -8897,9 +8896,6 @@ function updatesHost() {
           retries++;
         },
         onDismiss: presentation.dismiss,
-        onNotes: () => {
-          notes++;
-        },
       });
       return { ...presentation, content, badge: UpdateSettingsBadge() };
     },
@@ -8915,7 +8911,6 @@ function updatesHost() {
     listeners,
     reloads: () => reloads,
     retries: () => retries,
-    notes: () => notes,
   };
 }
 
@@ -8928,7 +8923,7 @@ test("the update sheet opens only for an actionable update and dismissal survive
   host.set("ready");
   const ready = host.render();
   assert.equal(ready.presented, true);
-  find(ready.content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
+  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "Not now").props.onPress();
   assert.equal(host.render().presented, false);
   host.background();
   assert.equal(host.render().presented, false);
@@ -8945,9 +8940,7 @@ test("closing the update keeps a Settings dot and only a newer update prompts ag
   const host = updatesHost();
   host.set("ready", "", "first");
   const ready = host.render();
-  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "What's new").props.onPress();
-  assert.equal(host.notes(), 1);
-  find(ready.content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
+  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "Not now").props.onPress();
   assert.equal(host.render().presented, false);
   assert.ok(host.render().badge);
   host.set("downloading");
@@ -8977,7 +8970,7 @@ test("Closing during retry stays dismissed when the download finishes or polling
     host.set("error");
     host.render();
     host.set("downloading");
-    find(host.render().content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
+    find(host.render().content, (node) => node.type === "PillButton" && node.props.title === "Not now").props.onPress();
     host.set(final);
     assert.equal(host.render().presented, false);
     host.foreground();
@@ -9001,9 +8994,13 @@ test("sheet actions apply or retry, keep progress visible, and recover from relo
       find(progress.content, (node) => node.type === "PillButton" && node.props.title === "Try again"),
       undefined,
     );
+    assert.ok(
+      find(progress.content, (node) => node.type === "PillButton" && node.props.title === "Not now"),
+      "progress can be put away",
+    );
   }
   host.set("ready");
-  find(host.render().content, (node) => node.type === "PillButton" && node.props.title === "Update now").props.onPress();
+  find(host.render().content, (node) => node.type === "PillButton" && node.props.title === "Update").props.onPress();
   assert.equal(host.reloads(), 1);
   host.set("restarting");
   assert.ok(find(host.render().content, (node) => node.type === "SpinnerRing"));

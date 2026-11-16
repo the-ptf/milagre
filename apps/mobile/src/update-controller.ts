@@ -11,7 +11,6 @@ export type UpdateState = {
   status: "idle" | "disabled" | "checking" | "up-to-date" | "check-error" | "downloading" | "ready" | "restarting" | "error";
   error: string;
   updateId?: string;
-  releaseNotes?: string;
 };
 type ManifestResult = { manifest?: unknown };
 type Dependencies = {
@@ -22,10 +21,9 @@ type Dependencies = {
   now?: () => number;
 };
 
-function updateDetails(manifest: unknown): Pick<UpdateState, "updateId" | "releaseNotes"> {
-  const value = manifest as { id?: unknown; extra?: { expoClient?: { extra?: { releaseNotes?: unknown } } } } | undefined;
-  const notes = value?.extra?.expoClient?.extra?.releaseNotes;
-  return { updateId: typeof value?.id === "string" ? value.id : undefined, releaseNotes: typeof notes === "string" ? notes : undefined };
+function updateDetails(manifest: unknown): Pick<UpdateState, "updateId"> {
+  const id = (manifest as { id?: unknown } | undefined)?.id;
+  return { updateId: typeof id === "string" ? id : undefined };
 }
 
 /** Native startup downloads and foreground checks share one notice. Applying an update always needs a tap. */
@@ -36,12 +34,8 @@ export function createUpdateController({ enabled, check, fetch, reload, now = Da
   let lastCheck = -Infinity;
   const listeners = new Set<() => void>();
   const applying = () => state.status === "restarting";
-  function publish(
-    status: UpdateState["status"],
-    error = "",
-    details: Pick<UpdateState, "updateId" | "releaseNotes"> = { updateId: state.updateId, releaseNotes: state.releaseNotes },
-  ) {
-    if (state.status === status && state.error === error && state.updateId === details.updateId && state.releaseNotes === details.releaseNotes) return;
+  function publish(status: UpdateState["status"], error = "", details: Pick<UpdateState, "updateId"> = { updateId: state.updateId }) {
+    if (state.status === status && state.error === error && state.updateId === details.updateId) return;
     state = { status, error, ...details };
     listeners.forEach((listener) => listener());
   }
