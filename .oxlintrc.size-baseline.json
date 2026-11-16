@@ -124,23 +124,14 @@
     {
       "files": ["apps/daemon/src/server.cjs"],
       "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 892,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ],
         "max-lines-per-function": [
           "error",
           {
-            "max": 615,
+            "max": 319,
             "skipBlankLines": true,
             "skipComments": true
           }
-        ],
-        "complexity": ["error", 144]
+        ]
       }
     },
     {
