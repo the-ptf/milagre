@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { Folder01Icon, GitBranchIcon, GitForkIcon, Search01Icon } from "@hugeicons/core-free-icons";
+import { Download04Icon, Folder01Icon, GitBranchIcon, GitForkIcon, Search01Icon } from "@hugeicons/core-free-icons";
+import { router } from "expo-router";
+import { IMPORT_TITLE } from "@milagre/shared/ade-import";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { ProjectIcon } from "./project-icon";
@@ -105,6 +107,12 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
               title="Clone a repository"
               detail="From a GitHub or Git address"
               onPress={() => setCloning(true)}
+            />
+            <Row
+              icon={<Icon icon={Download04Icon} tone="ink3" size={20} />}
+              title={IMPORT_TITLE}
+              detail="From T3 Code, Paseo or Orca"
+              onPress={() => router.push("/import")}
             />
             {path ? (
               <Row title={`Open ${shortPath(path)}`} detail={checking ? "Checking the folder…" : "Full path"} onPress={() => void openTyped(path)} />

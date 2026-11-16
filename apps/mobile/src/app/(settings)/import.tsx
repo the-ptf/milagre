@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { Stack } from "expo-router";
 import {
-  IMPORT_INTRO,
   IMPORT_NONE,
   IMPORT_TITLE,
   defaultSelection,
   foundSources,
   importLabel,
+  importIntro,
   importSummary,
+  stayedBehind,
   importable,
   projectDetail,
   projectState,
@@ -21,9 +22,8 @@ import {
 } from "@milagre/shared/ade-import";
 import { rowDate } from "@milagre/shared/storage";
 import { useSession } from "../../session";
-import { Group } from "../../settings-list";
+import { Group, Row } from "../../settings-list";
 import { CheckRow } from "../../primitives/check-row";
-import { Toast } from "../../primitives/toast";
 import { ErrorNotice, PageScroll, PillButton, useStyles } from "../../ui";
 import { useTheme } from "../../theme";
 import { space, type } from "../../design-tokens";
@@ -38,8 +38,8 @@ export default function ImportScreen() {
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<ImportRequest>({ projects: [], threads: [] });
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ key: number; text: string } | null>(null);
-  const toasts = useRef(0);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const running = useRef(false);
   const [now, setNow] = useState(0);
 
   const load = () =>
@@ -58,16 +58,16 @@ export default function ImportScreen() {
   }, [client]);
 
   async function run() {
-    if (!client || busy) return;
+    if (!client || running.current) return;
+    running.current = true;
     setBusy(true);
     try {
-      const result = await client.call<ImportResult>("import:run", [selection]);
-      toasts.current += 1;
-      setToast({ key: toasts.current, text: importSummary(result) });
+      setResult(await client.call<ImportResult>("import:run", [selection]));
       await load();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }
@@ -79,7 +79,14 @@ export default function ImportScreen() {
       <Stack.Screen options={{ title: IMPORT_TITLE }} />
       <PageScroll>
         <View style={{ gap: space.section }}>
-          <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>{IMPORT_INTRO}</Text>
+          <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>{importIntro(scan)}</Text>
+          {result ? (
+            <Group title={importSummary(result)} inset={0}>
+              {stayedBehind(result, scan).map((item, index) => (
+                <Row key={`${item.title}-${index}`} title={item.title} subtitle={item.why} subtitleLines={3} chevron={false} />
+              ))}
+            </Group>
+          ) : null}
           {error ? <ErrorNotice message={olderMilagre(error) ? "This computer's Milagre can't import yet. Update it first." : error} /> : null}
           {scan === null && !error ? (
             <ActivityIndicator color={colors.ink3} style={{ marginTop: 24 }} />
@@ -96,6 +103,7 @@ export default function ImportScreen() {
                         kind="checkbox"
                         title={project.name}
                         subtitle={projectDetail(project)}
+                        subtitleLines={2}
                         checked={state === true}
                         disabled={busy || !project.exists}
                         onPress={() => setSelection((current) => toggleProject(current, source.id, project, state !== true))}
@@ -110,6 +118,7 @@ export default function ImportScreen() {
                                 kind="checkbox"
                                 title={thread.title}
                                 subtitle={`${threadDetail(thread)}${when}`}
+                                subtitleLines={3}
                                 checked={on}
                                 disabled={busy || !importable(thread)}
                                 onPress={() => setSelection((current) => toggleThread(current, source.id, project, thread, !on))}
@@ -127,7 +136,6 @@ export default function ImportScreen() {
           )}
         </View>
       </PageScroll>
-      {toast ? <Toast key={toast.key} text={toast.text} /> : null}
     </>
   );
 }

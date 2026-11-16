@@ -47,7 +47,8 @@ export type ImportScan = { sources: ImportSourceScan[] };
 export type ImportRequest = { projects: string[]; threads: string[] };
 
 export type ImportResult = {
-  projects: { path: string; name: string; source: ImportSource }[];
+  /** Every Project the import touched; `added` when it wasn't in Milagre before. */
+  projects: { path: string; name: string; source: ImportSource; added?: boolean }[];
   chats: number;
   skipped: { title: string; reason: string; message: string }[];
 };
@@ -57,10 +58,20 @@ export const IMPORT_INTRO =
   "Bring Projects and ongoing Chats from T3 Code, Paseo or Orca. Imported Chats keep their history and pick up the same agent conversation.";
 export const IMPORT_NONE = "Milagre didn't find T3 Code, Paseo or Orca data on this computer.";
 export const UNSUPPORTED_LABEL: Record<NonNullable<ImportThread["unsupported"]>, string> = {
-  unsupported: "Milagre doesn't run this agent",
-  "no-session": "Never started",
-  "no-transcript": "Its conversation isn't on this computer",
+  unsupported: "Milagre doesn't support this agent, so it can't be imported",
+  "no-session": "It never started, so there's nothing to bring",
+  "no-transcript": "Its conversation isn't on this computer. Import it on the computer where it ran",
 };
+
+const listOf = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? ""));
+
+/** The dialog's intro, naming only the apps this computer has data from. */
+export function importIntro(scan: ImportScan | null | undefined) {
+  const names = foundSources(scan).map((source) => source.label);
+  return names.length
+    ? `Bring Projects and ongoing Chats from ${listOf(names)}. Imported Chats keep their history and pick up the same agent conversation.`
+    : IMPORT_INTRO;
+}
 
 export const projectKey = (source: ImportSource, project: Pick<ImportProject, "path">) => `${source}:${project.path}`;
 
@@ -82,12 +93,20 @@ export function defaultSelection(scan: ImportScan): ImportRequest {
 
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
-/** The toast after an import, one short line: what came in, by Project name when there is one, and how many stayed behind. */
+/** The line after an import, naming what came in: Chats into their Projects, else the Projects that are new, else nothing. */
 export function importSummary(result: ImportResult) {
-  const names = [...new Map(result.projects.map((project) => [project.path, project.name])).values()];
-  const what = names.length === 1 ? names[0] : count(names.length, "Project");
-  const lead = result.chats ? `Imported ${count(result.chats, "Chat")} into ${what}.` : names.length ? `Imported ${what}.` : "Nothing new to import.";
-  return result.skipped.length ? `${lead} ${result.skipped.length} skipped.` : lead;
+  const names = (projects: ImportResult["projects"]) => [...new Map(projects.map((project) => [project.path, project.name])).values()];
+  const touched = names(result.projects);
+  const added = names(result.projects.filter((project) => project.added !== false));
+  const what = (list: string[]) => (list.length === 1 ? list[0] : count(list.length, "Project"));
+  const lead = result.chats
+    ? `Imported ${count(result.chats, "Chat")} into ${what(touched)}.`
+    : added.length
+      ? `Imported ${what(added)}.`
+      : "Nothing new to import.";
+  const already = result.skipped.filter((item) => item.reason === "already-imported").length;
+  const other = result.skipped.length - already;
+  return [lead, ...(already ? [`${count(already, "Chat")} already in Milagre.`] : []), ...(other ? [`${other} skipped.`] : [])].join(" ");
 }
 
 export const foundSources = (scan: ImportScan | null | undefined) => (scan?.sources ?? []).filter((source) => source.found && source.projects.length);
@@ -102,11 +121,14 @@ export function threadDetail(thread: ImportThread) {
 }
 
 export function projectDetail(project: ImportProject) {
-  if (!project.exists) return "Folder no longer there";
+  if (!project.exists) return "Its folder is no longer there. Restore it, then import again";
   const open = project.threads.filter(importable).length;
   const parts = [project.registered ? "Already in Milagre" : null];
   if (project.worktrees) parts.push(`${project.worktrees} ${project.worktrees === 1 ? "worktree" : "worktrees"}`);
-  if (project.threads.length) parts.push(`${open} of ${project.threads.length} ${project.threads.length === 1 ? "Chat" : "Chats"} to import`);
+  const imported = project.threads.filter((thread) => thread.imported).length;
+  const chats = (n: number) => `${n} ${n === 1 ? "Chat" : "Chats"}`;
+  if (open) parts.push(`${open} of ${chats(project.threads.length)} can come over`);
+  if (imported) parts.push(`${imported} of ${chats(project.threads.length)} already in Milagre`);
   return parts.filter(Boolean).join(" · ") || project.path;
 }
 
@@ -145,9 +167,25 @@ export function foundLine(scan: ImportScan | null | undefined) {
   const sources = foundSources(scan);
   if (!sources.length) return null;
   const projects = sources.reduce((total, source) => total + source.projects.filter((project) => project.exists).length, 0);
-  const chats = sources.reduce((total, source) => total + source.projects.reduce((sum, project) => sum + project.threads.filter(importable).length, 0), 0);
-  const names = sources.map((source) => source.label);
-  const label = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
-  const counts = [`${projects} ${projects === 1 ? "Project" : "Projects"}`, ...(chats ? [`${chats} ${chats === 1 ? "Chat" : "Chats"}`] : [])].join(", ");
-  return { title: `Bring your work from ${label}`, detail: counts };
+  const chats = sources.reduce(
+    (total, source) =>
+      total + source.projects.reduce((sum, project) => sum + project.threads.filter((thread) => importable(thread) && !thread.archived).length, 0),
+    0,
+  );
+  const label = listOf(sources.map((source) => source.label));
+  const counts = [`${projects} ${projects === 1 ? "Project" : "Projects"}`, ...(chats ? [`${chats} ${chats === 1 ? "Chat" : "Chats"}`] : [])].join(" and ");
+  return { title: `Bring your work from ${label}`, detail: `${counts} ready to import` };
+}
+
+/** After an import: everything that didn't come over, with why and what to do: what the import skipped, and what the scan already said can't come over. */
+export function stayedBehind(result: ImportResult, scan?: ImportScan | null) {
+  const lines = result.skipped.filter((item) => item.reason !== "already-imported").map((item) => ({ title: item.title, why: item.message }));
+  const seen = new Set(lines.map((line) => line.title));
+  for (const source of foundSources(scan))
+    for (const project of source.projects) {
+      if (!project.exists && !seen.has(project.name)) lines.push({ title: project.name, why: projectDetail(project) });
+      for (const thread of project.exists ? project.threads : [])
+        if (thread.unsupported && !seen.has(thread.title)) lines.push({ title: thread.title, why: UNSUPPORTED_LABEL[thread.unsupported] });
+    }
+  return lines;
 }

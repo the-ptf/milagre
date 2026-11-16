@@ -6,32 +6,41 @@ const { addImportedChats, importedIds, worktreeFor } = require("../ade-import/im
 
 const SKIP_REASONS = {
   "already-imported": "Already in Milagre",
-  "no-worktree": "Its folder is no longer there",
-  unsupported: "Milagre doesn't run this agent",
-  "no-session": "It never started a conversation",
-  "no-project": "Its Project folder is no longer there",
-  "no-transcript": "Its conversation isn't on this computer",
+  "no-worktree": "Its folder is no longer there. Restore it, then import again",
+  unsupported: "Milagre doesn't support this agent, so it can't be imported",
+  "no-session": "It never started, so there's nothing to bring",
+  "no-project": "Its folder is no longer there. Restore it, then import again",
+  "no-transcript": "Its conversation isn't on this computer. Import it on the computer where it ran",
 };
 
 const supported = (thread) => Boolean(thread.provider && thread.nativeId);
+const realPath = (folder) => {
+  try {
+    return fs.realpathSync(folder);
+  } catch {
+    return folder;
+  }
+};
 const unsupportedReason = (thread, transcripts) =>
   !thread.provider ? "unsupported" : !thread.nativeId ? "no-session" : transcripts.has(thread.provider, thread.nativeId) ? null : "no-transcript";
 
-function registerAdeImport({ commands, openProject, editProject, known, projectStateReadOnly, options = {} }) {
+function registerAdeImport({ commands, emit, openProject, editProject, projectRegistry, projectStateReadOnly, options = {} }) {
   const scanOptions = options.adeImport ?? {};
   const scan = () => scanSources({ env: process.env, home: os.homedir(), ...scanOptions });
 
+  const registeredPaths = async () => new Set((await projectRegistry().list()).map((project) => realPath(project.path)));
+
   async function knownIds(projectPath, registered) {
-    if (!registered.has(projectPath)) return new Set();
+    if (!registered.has(realPath(projectPath))) return new Set();
     try {
-      return importedIds((await projectStateReadOnly(projectPath)) ?? {});
+      return importedIds((await projectStateReadOnly(realPath(projectPath))) ?? {});
     } catch {
       return new Set();
     }
   }
 
   commands.handle("import:scan", async () => {
-    const registered = new Set((await known().list()).map((project) => project.path));
+    const registered = await registeredPaths();
     const transcripts = transcriptIndex({ env: process.env, home: os.homedir(), ...scanOptions });
     const sources = [];
     for (const source of scan()) {
@@ -41,7 +50,7 @@ function registerAdeImport({ commands, openProject, editProject, known, projectS
         projects.push({
           ...project,
           exists: fs.existsSync(project.path),
-          registered: registered.has(project.path),
+          registered: registered.has(realPath(project.path)),
           threads: project.threads.map((thread) => {
             const imported = ids.has(thread.id) || Boolean(thread.nativeId && ids.has(`native:${thread.nativeId}`));
             const unsupported = imported ? null : unsupportedReason(thread, transcripts);
@@ -59,6 +68,7 @@ function registerAdeImport({ commands, openProject, editProject, known, projectS
     const wantedThreads = new Set(Array.isArray(request?.threads) ? request.threads.filter((item) => typeof item === "string") : []);
     if (!wantedProjects.size && !wantedThreads.size) throw new Error("Choose at least one Project or thread to import.");
     const result = { projects: [], chats: 0, skipped: [] };
+    const before = await registeredPaths();
     const skip = (title, reason) => result.skipped.push({ title, reason, message: SKIP_REASONS[reason] ?? reason });
     for (const source of scan()) {
       for (const project of source.projects) {
@@ -69,7 +79,7 @@ function registerAdeImport({ commands, openProject, editProject, known, projectS
           continue;
         }
         const opened = await openProject(project.path, { takeNotice: false, focus: false });
-        result.projects.push({ path: opened.path, name: opened.name, source: source.id });
+        result.projects.push({ path: opened.path, name: opened.name, source: source.id, added: !before.has(realPath(opened.path)) });
         const chats = [];
         for (const thread of threads) {
           if (!supported(thread)) {
@@ -90,6 +100,7 @@ function registerAdeImport({ commands, openProject, editProject, known, projectS
         for (const item of outcome.skipped) skip(chats.find((chat) => chat.id === item.id)?.title ?? item.id, item.reason);
       }
     }
+    if (result.projects.length) emit("local-mcp:changed", { projectAdded: true });
     return result;
   });
 }

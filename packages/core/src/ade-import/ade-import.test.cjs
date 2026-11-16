@@ -309,6 +309,7 @@ test("adds imported Chats once and keeps their dates", () => {
 
 test("imports a T3 Code Project and its threads into Milagre", async (t) => {
   const { dir, home, project, worktree } = fixture(t);
+  const events = [];
   const runtime = createRuntime({
     cwd: project,
     titleModels: {},
@@ -318,7 +319,7 @@ test("imports a T3 Code Project and its threads into Milagre", async (t) => {
     worktreeRoot: path.join(dir, "worktrees"),
     registryRoots: [],
     environmentReady: Promise.resolve(),
-    emit: () => {},
+    emit: (channel, payload) => events.push([channel, payload]),
     adeImport: { home, env: {}, platform: "darwin" },
   });
   t.after(() => runtime.close());
@@ -335,6 +336,10 @@ test("imports a T3 Code Project and its threads into Milagre", async (t) => {
 
   const result = await runtime.invoke("import:run", [{ projects: [`t3code:${project}`], threads: ["t3code:t-claude", "t3code:t-codex", "t3code:t-cursor"] }]);
   assert.equal(result.chats, 2);
+  assert.ok(
+    events.some(([channel, payload]) => channel === "local-mcp:changed" && payload?.projectAdded),
+    "the sidebar is told a Project was added",
+  );
   assert.deepEqual(
     result.skipped.map((item) => [item.title, item.reason]),
     [["Cursor work", "unsupported"]],
@@ -360,6 +365,10 @@ test("imports a T3 Code Project and its threads into Milagre", async (t) => {
   assert.equal(again.threads.find((thread) => thread.id === "t3code:t-claude").imported, true);
   const second = await runtime.invoke("import:run", [{ threads: ["t3code:t-claude"] }]);
   assert.equal(second.chats, 0);
+  assert.deepEqual(
+    second.projects.map((item) => item.added),
+    [false],
+  );
   assert.deepEqual(
     second.skipped.map((item) => item.reason),
     ["already-imported"],

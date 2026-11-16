@@ -846,7 +846,6 @@ function createRuntime(options) {
     heldState,
     routines: () => routines,
   });
-  require("./runtime/ade-import.cjs").registerAdeImport({ commands, openProject, editProject, known: () => projectRegistry(), projectStateReadOnly, options });
   commands.handle("storage:worktrees", async () => {
     await environmentReady;
     const projects = [...(await projectRegistry().list()), ...(await chatsHomeEntries())];
@@ -1501,6 +1500,7 @@ function createRuntime(options) {
   });
   ({ limitSwitch, limitResume } = limits);
   const withoutHomes = (list) => list.filter((project) => !chatsHome.isHome(project.path));
+  require("./runtime/ade-import.cjs").registerAdeImport({ commands, emit, openProject, editProject, projectRegistry, projectStateReadOnly, options });
   const { projectOrigin, addLink, removeLink, canvasChatModes, assertRegistrableProject } = registerProjects({
     options,
     dataDir,

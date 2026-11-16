@@ -69,11 +69,7 @@ function createLocalMcpWiring({
     },
     imports: {
       scan: () => handlers.get("import:scan")(null),
-      run: async (request) => {
-        const result = await handlers.get("import:run")(null, request);
-        if (result.projects.length) emit("local-mcp:changed", { projectAdded: true });
-        return result;
-      },
+      run: (request) => handlers.get("import:run")(null, request),
     },
     validateDesignChat: async (chatId) => {
       const scope = projectOfKey(chatId);

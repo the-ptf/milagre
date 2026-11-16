@@ -1,29 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  IMPORT_INTRO,
   IMPORT_NONE,
   IMPORT_TITLE,
   defaultSelection,
   foundSources,
   importLabel,
+  importIntro,
   importSummary,
   importable,
   projectDetail,
   projectState,
   threadDetail,
   toggleProject,
+  stayedBehind,
   toggleThread,
   type ImportRequest,
+  type ImportResult,
   type ImportScan,
 } from "@milagre/shared/ade-import";
 import { rowDate } from "@milagre/shared/storage";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { showToast } from "../../lib/toast";
 import { Button } from "../primitives/Button";
 import { Checkbox } from "../primitives/Checkbox";
 import { Dialog } from "../primitives/Dialog";
 import { InlineError } from "../primitives/InlineError";
-import { ScrollArea } from "../primitives/ScrollArea";
 import type { MilagreBridge } from "../../electron";
 
 export type ImportBridge = Pick<MilagreBridge, "scanImports" | "runImport">;
@@ -41,6 +41,8 @@ export function ImportDialog({
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<ImportRequest>({ projects: [], threads: [] });
   const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const running = useRef(false);
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
@@ -59,18 +61,23 @@ export function ImportDialog({
   }, [bridge]);
 
   async function run() {
-    if (busy) return;
+    if (running.current) return;
+    running.current = true;
     setBusy(true);
     setError("");
     try {
-      const result = await bridge.runImport(selection);
-      showToast(importSummary(result));
-      onImported?.(result.projects[0]?.path ?? null);
-      onClose();
+      setResult(await bridge.runImport(selection));
     } catch (failure) {
       setError(ipcErrorMessage(failure));
+      running.current = false;
+    } finally {
       setBusy(false);
     }
+  }
+
+  function finish() {
+    if (result) onImported?.(result.projects[0]?.path ?? null);
+    onClose();
   }
 
   const sources = foundSources(scan);
@@ -79,20 +86,26 @@ export function ImportDialog({
     <Dialog
       data-import-dialog
       title={IMPORT_TITLE}
-      description={IMPORT_INTRO}
+      description={result ? importSummary(result) : importIntro(scan)}
       width={620}
       footer="bar"
-      onClose={busy ? undefined : onClose}
+      onClose={busy ? undefined : result ? finish : onClose}
       dismissOnScrim={!busy}
       actions={
-        <>
-          <Button variant="ghost" autoFocus disabled={busy} onClick={onClose}>
-            Cancel
+        result ? (
+          <Button data-import-done autoFocus onClick={finish}>
+            Done
           </Button>
-          <Button data-import-run disabled={busy || nothing || !sources.length} onClick={() => void run()}>
-            {busy ? "Importing…" : importLabel(selection)}
-          </Button>
-        </>
+        ) : (
+          <>
+            <Button variant="ghost" autoFocus disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button data-import-run disabled={busy || nothing || !sources.length} onClick={() => void run()}>
+              {busy ? "Importing…" : importLabel(selection)}
+            </Button>
+          </>
+        )
       }
     >
       <div className="mt-4 grid gap-3">
@@ -101,14 +114,31 @@ export function ImportDialog({
             {/unknown|no handler|not allowed/i.test(error) ? "This computer's Milagre can't import yet. Update it first." : error}
           </InlineError>
         )}
-        {scan === null && !error ? (
+        {result ? (
+          <div data-import-result className="grid gap-2">
+            {stayedBehind(result, scan).length > 0 && (
+              <>
+                <h3 className="text-12 font-medium text-ink-3">Didn't come over</h3>
+                <ul className="grid gap-1 rounded-control border border-line p-1">
+                  {stayedBehind(result, scan).map((item, index) => (
+                    <li key={`${item.title}-${index}`} data-import-skipped={item.title} className="grid px-2 py-1.5">
+                      <span className="truncate text-13 text-ink">{item.title}</span>
+                      <span className="text-12 text-ink-3">{item.why}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {result.chats > 0 && <p className="text-12 text-ink-3">Your imported Chats are in the sidebar.</p>}
+          </div>
+        ) : scan === null && !error ? (
           <span className="py-6 text-center text-13 text-ink-3">Looking for T3 Code, Paseo and Orca…</span>
         ) : scan && !sources.length ? (
           <span data-import-empty className="py-6 text-center text-13 text-ink-3">
             {IMPORT_NONE}
           </span>
         ) : (
-          <ScrollArea chainScroll className="max-h-[420px] rounded-control border border-line">
+          <div className="rounded-control border border-line">
             {sources.map((source) => (
               <section key={source.id} data-import-source={source.id} className="border-b border-line last:border-b-0">
                 <h3 className="px-3 pt-3 pb-1 text-12 font-medium text-ink-3">
@@ -126,7 +156,7 @@ export function ImportDialog({
                         />
                         <span className="grid min-w-0 flex-1">
                           <span className="truncate text-13 font-medium text-ink">{project.name}</span>
-                          <span className="truncate text-12 text-ink-3">{projectDetail(project)}</span>
+                          <span className="text-12 text-ink-3">{projectDetail(project)}</span>
                         </span>
                       </label>
                       {project.exists && project.threads.length > 0 && (
@@ -143,7 +173,7 @@ export function ImportDialog({
                                 />
                                 <span className="grid min-w-0 flex-1">
                                   <span className="truncate text-13 text-ink">{thread.title}</span>
-                                  <span className="truncate text-12 text-ink-3">{threadDetail(thread)}</span>
+                                  <span className="text-12 text-ink-3">{threadDetail(thread)}</span>
                                 </span>
                                 {thread.updatedAt ? <span className="shrink-0 text-12 tabular-nums text-ink-3">{rowDate(thread.updatedAt, now)}</span> : null}
                               </label>
@@ -156,7 +186,7 @@ export function ImportDialog({
                 </ul>
               </section>
             ))}
-          </ScrollArea>
+          </div>
         )}
       </div>
     </Dialog>

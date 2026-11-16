@@ -30,7 +30,7 @@ export function OnboardingImport({ disabled, onOpened }: { disabled: boolean; on
           <span className="truncate text-13 font-medium text-ink">{line.title}</span>
           <span className="truncate text-12 text-ink-2">{line.detail}</span>
         </span>
-        <Button variant="secondary" disabled={disabled} onClick={() => setOpen(true)}>
+        <Button disabled={disabled} onClick={() => setOpen(true)}>
           Import…
         </Button>
       </div>
