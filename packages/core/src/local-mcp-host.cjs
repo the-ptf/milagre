@@ -68,9 +68,7 @@ function createLocalMcpHost({
   setPermissionMode,
   respondPermission,
   answerQuestion,
-  suggestAnswer = async () => {
-    throw Error("Suggestions are unavailable");
-  },
+  suggestAnswer = () => Promise.reject(Error("Suggestions are unavailable")),
   patchChat,
   searchChats,
   links,
@@ -81,10 +79,9 @@ function createLocalMcpHost({
   assignProjectAccount,
   worktreeStatus,
   removeWorktree,
-  registerProject = async () => {
-    throw Error("Adding Projects is unavailable");
-  },
+  registerProject = () => Promise.reject(Error("Adding Projects is unavailable")),
   assertRegistrableProject = async () => {},
+  imports,
 }) {
   const validateProject = async (projectPath) => {
     if (!(await projects()).some((project) => project.path === projectPath) || realpathSync(projectPath) !== projectPath)
@@ -285,6 +282,7 @@ function createLocalMcpHost({
       });
     },
     requestProjectScope,
+    importer: imports && { ...imports, confirm, callerMode },
     validateChat: validateDesignChat,
     async addProject({ projectPath }, caller, inScope = () => false, onGrant) {
       const { identity } = await inspectProject(projectPath).catch((error) => {

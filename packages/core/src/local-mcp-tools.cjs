@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const { importTools } = require("./local-mcp-import.cjs");
 const projectInput = { projectPath: z.string().min(1).max(8192) };
 const requestId = z.string().min(1).max(128);
 const permissionMode = z.enum(["ask", "auto", "full"]);
@@ -102,6 +103,7 @@ function managementToolGroups({ host, operations, grantChatProject = () => {} })
               return all.filter((item) => inProjectScope(activeScope, item.path)).map(({ id: projectId, path, name }) => ({ id: projectId, path, name }));
             },
           ),
+          ...importTools({ importer: host.importer, caller, assertActive, grant: (granted) => grantChatProject(caller, granted) }),
           {
             name: "project_add",
             description:
