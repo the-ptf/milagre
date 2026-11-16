@@ -50,7 +50,6 @@ jobs:
       windows_signed: ${{ steps.channel.outputs.windows_signed }}
       changed: ${{ steps.plan.outputs.changed }}
       sha: ${{ steps.plan.outputs.sha }}
-      base: ${{ steps.plan.outputs.base }}
       version: ${{ steps.plan.outputs.version }}
       release_tag: ${{ steps.plan.outputs.release_tag }}
     env:
@@ -317,7 +316,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CHANNEL: ${{ needs.prepare.outputs.channel }}
       TARGET: ${{ needs.prepare.outputs.sha }}
-      BASE: ${{ needs.prepare.outputs.base }}
       RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
       WINDOWS: ${{ needs.prepare.outputs.windows }}
     steps:
@@ -381,19 +379,6 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --target "$TARGET" --prerelease --title "$RELEASE_TAG" --notes-file "$NOTES_FILE" "${assets[@]}"
           fi
-      # A failed post never fails the release. Betas show their line's version without the -beta.N suffix.
-      - name: Announce on Discord
-        continue-on-error: true
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          if [ -z "$DISCORD_WEBHOOK_URL" ]; then echo "::warning::DISCORD_WEBHOOK_URL is not set; skipping the announcement."; exit 0; fi
-          url=$(gh release view "$RELEASE_TAG" --json url --jq .url)
-          version=$BASE
-          if [ "$CHANNEL" = stable ]; then label="Nova versão"; else label="Nova versão beta"; fi
-          # flags 4 suppresses the link preview, so the post is the one line.
-          jq -n --arg content "🤖  Milagre: $label, [$version]($url)" '{content: $content, flags: 4, allowed_mentions: {parse: []}}' |
-            curl -fsS -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"
       # The release just shipped is now the previous one; the draft lists only what is newer. Its tag is fetched first.
       - name: Refresh the Next beta draft
         continue-on-error: true
