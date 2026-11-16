@@ -30,7 +30,6 @@ function validEvent(event) {
     (event.shifted === undefined || typeof event.shifted === "boolean")
   );
 }
-// Copy only admitted fields; callers cannot forward arbitrary helper commands.
 function cleanEvent(event) {
   if (event.kind === "touch") return { kind: "touch", phase: event.phase, points: event.points.map(({ x, y }) => ({ x, y })) };
   if (event.kind === "button") return { kind: "button", button: event.button };
@@ -46,7 +45,6 @@ function cleanEvent(event) {
   };
 }
 
-/** One host owns devices; capabilities belong to a trusted transport connection. */
 function createSimulators(options = {}) {
   const supported = options.supported ?? (process.platform === "darwin" && process.arch === "arm64");
   const adapter = options.adapter ?? require("./simulators-helper.cjs").createSimulatorAdapter(options);
@@ -63,7 +61,6 @@ function createSimulators(options = {}) {
 
   function serial(fn, allowClosed = false) {
     if (closed && !allowClosed) return Promise.reject(new Error("Simulator service is closed."));
-    // Input must never grow an unbounded replay queue on a slow helper.
     if (pending >= 128 && !allowClosed) return Promise.reject(new Error("Simulator is busy. Retry after pending commands finish."));
     pending++;
     const result = queue.then(fn);
@@ -141,7 +138,6 @@ function createSimulators(options = {}) {
             ...(POSES.has(state.hingePose) ? { hingePose: state.hingePose } : {}),
           }
         : {}),
-      // Older clients need the legacy wire name to expose their manual reset action.
       ...(state.deviceHubInputActive ? { deviceHubInputActive: true, inputBlocked: true } : {}),
     };
   }
@@ -195,7 +191,6 @@ function createSimulators(options = {}) {
         if (!found) throw new Error("Unknown or stopped simulator device.");
         let device = devices.get(found.id);
         if (device?.channel.status().error) {
-          // A copy: channel cleanup awaits while the viewer set can change.
           for (const id of Array.from(device.viewers)) await remove(viewers.get(id));
           device = null;
         }
@@ -241,7 +236,6 @@ function createSimulators(options = {}) {
         return { viewerId: id, device: { ...found }, iceServers: structuredClone(iceServers), ...(device.channel.frame ? { transport: "frames" } : {}) };
       });
     },
-    // Wait outside the input queue. A slow video link must never delay a touch, close or another viewer.
     async frame(request, owner) {
       const v = await serial(async () => {
         const viewer = await active(request, owner);
@@ -331,7 +325,6 @@ function createSimulators(options = {}) {
         }
         if (event.kind === "pose" || event.kind === "hinge") {
           releaseHeld(device);
-          // A panel can change before its dimensions do. Reject all input using the old geometry.
           device.generation++;
           device.displayGeneration++;
           device.poseChanging = true;
@@ -361,8 +354,6 @@ function createSimulators(options = {}) {
         if (device.controller !== v.id) throw new Error("Take control of the simulator before fixing its input.");
         if (device.platform !== "ios") throw new Error("Input repair is available only on iOS simulators.");
         await adapter.repairInput(device.id);
-        // backboardd restarted under the open channel; every viewer reopens on a fresh one.
-        // A copy: repair closes only viewers of the old channel.
         for (const id of Array.from(device.viewers)) await remove(viewers.get(id));
         return null;
       });
@@ -389,7 +380,6 @@ function createSimulators(options = {}) {
       clearInterval(expiryTimer);
       for (const state of owners.values()) state.dead = true;
       for (const device of devices.values()) releaseHeld(device);
-      // Stop immediately: an in-flight offer must not delay daemon shutdown.
       const stopping = Promise.resolve(adapter.stop());
       return serial(async () => {
         for (const v of viewers.values()) await remove(v);

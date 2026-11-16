@@ -9,11 +9,6 @@ const { pipeline } = require("node:stream/promises");
 // the agent (`agy_acp_server.par`, `agy_acp_server.exe` on Windows) and `localharness_external` (`.exe` on
 // Windows), which the agent starts on its own. Each release is pinned here with the size and SHA-256 of its
 // archive, so a download is only ever kept when it is byte for byte the one that was checked. The ACP registry
-// lists every platform's URL but publishes no hashes, so only a platform whose archive was downloaded and
-// hashed by hand is listed (the same hashes T3 Code pins). Others are unsupported rather than guessed at.
-//
-//   <data dir>/tools/antigravity/<platform>-<arch>/versions/<sha256>/   the two files
-//   <data dir>/tools/antigravity/<platform>-<arch>/active.json          which version runs
 
 const AGENT_NAME = "antigravity-acp";
 const COMMAND = "agy_acp_server.par";
@@ -40,11 +35,9 @@ const pin = ({ platform, os, file, bytes, sha256, command, harness }) =>
     bytes,
     sha256,
     args: argsFor(platform),
-    // Exactly these entries, with exactly these unpacked sizes.
     files: Object.freeze({ [memberNames(platform).command]: command, [memberNames(platform).harness]: harness }),
   });
 
-// Keys are Node's `${process.platform}-${process.arch}`; URLs are the registry's (its names are x86_64 and arm64).
 const RELEASES = Object.freeze({
   "darwin-arm64": pin({
     platform: "darwin",
@@ -105,7 +98,6 @@ const RELEASES = Object.freeze({
 const SHA256 = /^[0-9a-f]{64}$/;
 const platformKey = (platform = process.platform, arch = process.arch) => `${platform}-${arch}`;
 
-// Variables that would make the agent use another account or storage than the profile it is given.
 const AMBIENT_ENV = [
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
@@ -145,8 +137,6 @@ function isExecutableFile(file) {
 }
 
 // A minimal JSON-RPC `initialize` against the unpacked agent. It must answer as Antigravity at the pinned
-// version. The agent unpacks large files into TMPDIR on launch, so it gets the staging folder, and a
-// GEMINI_HOME of its own so ~/.gemini is never touched.
 function validateAgent({ command, harness, args, cwd, version, timeoutMs = VALIDATE_TIMEOUT_MS, spawnImpl = spawn }) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
@@ -231,8 +221,6 @@ function validateAgent({ command, harness, args, cwd, version, timeoutMs = VALID
   });
 }
 
-// Streams the archive to `file`, counting and hashing the decoded bytes (fetch undoes any gzip). Resolves
-// when exactly `release.bytes` bytes with the pinned SHA-256 arrived.
 async function download(release, file, { signal, onProgress, fetchImpl = fetch }) {
   const response = await fetchImpl(release.url, { signal, redirect: "follow", headers: { "user-agent": "milagre" } });
   if (!response.ok || !response.body) throw new Error(`Downloading Antigravity failed (HTTP ${response.status}).`);
@@ -282,9 +270,6 @@ function archiveCommands(platform, archive, into, { env = process.env, exists = 
   return { file, list: ["-Z1", archive], extract: ["-q", "-o", archive, "-d", into] };
 }
 
-// Unpacks the archive into `into`, which must start empty. The listing must be exactly the expected files
-// (so a name can never carry a path), they are unpacked by the system's zip tool, and their sizes are checked
-// afterwards; anything that isn't a plain file of the expected size is refused.
 async function extract(release, archive, into, { execFileImpl, platform = process.platform, env = process.env } = {}) {
   const tool = archiveCommands(platform, archive, into, { env });
   const names = (await run(tool.file, tool.list, { windowsHide: true }, execFileImpl))
@@ -305,7 +290,6 @@ async function extract(release, archive, into, { execFileImpl, platform = proces
   if (extra.length) throw new Error("The Antigravity download has unexpected contents, so it was discarded.");
 }
 
-// One install at a time per tools folder, however many installers point at it.
 const running = new Map();
 
 /**
@@ -336,7 +320,6 @@ function createAntigravity({
     return { command, harness, args: release?.args ?? argsFor(platform), ...extra };
   }
 
-  /** { command, harness, args, version, source } for the agent Milagre can run, or null. */
   function resolve() {
     const override = env[OVERRIDE_ENV];
     if (override) {
@@ -354,9 +337,7 @@ function createAntigravity({
   }
 
   const supported = () => release !== null;
-  /** The release this Milagre installs, or null when the platform has none. */
   const pinned = () => (release ? { version: release.version, sha256: release.sha256, bytes: release.bytes } : null);
-  /** True when nothing runs yet, or what runs isn't the pinned release. An env override is never replaced. */
   function updateAvailable() {
     if (!release || env[OVERRIDE_ENV]) return false;
     return resolve()?.sha256 !== release.sha256;
@@ -367,7 +348,6 @@ function createAntigravity({
     if (env[OVERRIDE_ENV]) throw new Error(`${OVERRIDE_ENV} is set, so Antigravity is not managed by Milagre.`);
     const target = path.join(root, "versions", release.sha256);
     fs.mkdirSync(root, { recursive: true, mode: 0o700 });
-    // Leftovers of an install that was interrupted.
     for (const name of fs.readdirSync(root)) if (name.startsWith("staging-")) await rmDir(path.join(root, name));
     const staging = path.join(root, `staging-${crypto.randomBytes(6).toString("hex")}`);
     fs.mkdirSync(staging, { mode: 0o700 });
@@ -390,13 +370,11 @@ function createAntigravity({
           cwd: staging,
           version: release.version,
         });
-        // The validation run left its own folders beside the files.
         fs.mkdirSync(path.dirname(target), { recursive: true });
         await rmDir(target);
         fs.renameSync(unpacked, target);
       }
       writeJsonAtomic(activeFile, { version: release.version, sha256: release.sha256 });
-      // Older versions are not needed any more.
       const versions = path.join(root, "versions");
       for (const name of fs.readdirSync(versions)) if (name !== release.sha256) await rmDir(path.join(versions, name));
       onProgress?.({ phase: "done" });
@@ -406,11 +384,6 @@ function createAntigravity({
     }
   }
 
-  /**
-   * Downloads, checks, unpacks and validates the pinned release, then makes it the active one. Calls made
-   * while an install runs wait for that one. Throws an Error whose message is meant for the user.
-   * `onProgress` gets { phase: "download", received, total }, then { phase: "extract" | "validate" | "done" }.
-   */
   function install({ onProgress, signal } = {}) {
     const current = running.get(root);
     if (current) {
@@ -435,7 +408,6 @@ function createAntigravity({
   return { resolve, install, supported, pinned, updateAvailable, root, platform: key };
 }
 
-// The profile directory's token marks a signed-in account; the file holds secrets and is never read.
 const tokenFile = (home) => path.join(home, AGENT_NAME, "acp_token.json");
 const hasToken = (home) => fs.existsSync(tokenFile(home));
 

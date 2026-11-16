@@ -1,8 +1,6 @@
 const { execCommand } = require("./agents/command.cjs");
 
 // Kiro's account is the one kiro-cli is signed in to (docs/providers.md). Its sign-in needs the
-// organization's start URL and region for IAM Identity Center, so it happens in a terminal (`kiro-cli login`),
-// never from Milagre. `kiro-cli whoami` says who it is: exit 0 with the identity, exit 1 with "Not logged in".
 
 const WHOAMI_TIMEOUT_MS = 15_000;
 
@@ -18,7 +16,6 @@ function parseWhoami(text) {
   return { method, ...(email ? { email } : {}) };
 }
 
-/** { state: "ready", email?, plan } or { state: "signed-out", message } or { state: "error", message }. */
 function inspectKiroAccount({ command, env, execImpl = execCommand } = {}) {
   if (!command) return Promise.resolve({ state: "error", message: "Kiro CLI isn't installed." });
   return new Promise((resolve) => {
@@ -37,7 +34,6 @@ function inspectKiroAccount({ command, env, execImpl = execCommand } = {}) {
   });
 }
 
-/** Whether kiro-cli is signed out, for the picker's status; an answer it can't read is no reason to flag it. */
 async function kiroLoggedOut(command, { env } = {}) {
   return (await inspectKiroAccount({ command, env })).state === "signed-out";
 }

@@ -6,7 +6,6 @@ const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 const RETENTION_MS = 30 * 60 * 1000;
 
-/** Each transfer owns a temporary file. Retransmitted chunks must match the bytes already written. */
 function createAttachmentTransfers({ dataDir, upload }) {
   const pending = new Map();
   let queue = Promise.resolve();

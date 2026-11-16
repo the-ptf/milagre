@@ -4,7 +4,6 @@ const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
 const { designDocumentInputSchema, designOperationInputSchema, designEditIntentSchema } = require("@milagre/shared/design-schemas");
-// Tool schemas are eager; rendering and validation load only when a Design operation needs them.
 const designImplementation = () => require("@milagre/shared/design");
 const { artifactDocument, hasDiagrams, checkDesignCode } = require("@milagre/shared/artifact-document");
 const { ASSET_NAME, ASSET_HASH, MAX_ASSET_BYTES, MAX_PAGE_ASSETS, MAX_PAGE_ASSET_BYTES, assetType, mentionsAsset } = require("@milagre/shared/artifact-assets");
@@ -13,23 +12,15 @@ const { diagramScript } = require("@milagre/shared/diagram-script");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { screenshotDesign } = require("./html-render.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
-// The tool descriptions carry what an agent needs to design here, for subagents too: they don't see the parent
-// agent's system prompt (events.cjs milagreInstructions), only the tools.
 const DESIGN_SKILL = path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md");
 
-// Each artifact keeps immutable versions, so a reply's card shows the design as it was then while the docked
-// viewer follows the latest. Structured designs and HTML explanatory artifacts keep separate formats.
 const MAX_VERSIONS = 50;
 const MAX_HTML = 1_000_000;
 const VIEWPORT = { width: 1280, height: 800 };
 const formatOf = (entry) => (entry?.format === "design" ? "design" : "html");
-// A design is layers (a document Milagre draws) or, `interactive`, the agent's own HTML that runs in the viewers.
 const interactiveOf = (entry) => entry?.format === "design" && entry.interactive === true;
 const KIND_MISMATCH =
   "A design stays layers or interactive HTML for all its versions. Use a new id for the other kind, such as an interactive version of a layer design.";
-/**
- * An interactive design's HTML, checked: its size, and its scripts from the allowed CDNs at exact versions.
- */
 function checkDesignHtml(html) {
   if (typeof html !== "string" || !html.trim()) throw Error("An interactive design needs its HTML.");
   if (html.length > MAX_HTML) throw Error(`An interactive design's HTML is limited to ${MAX_HTML} characters.`);
@@ -37,10 +28,6 @@ function checkDesignHtml(html) {
   if (problems.length) throw Error(problems.join(" "));
   return html;
 }
-/**
- * The design's HTML with `edits` made in order, each replacing text that occurs once (or every time, with `all`).
- * An edit whose text is missing or ambiguous changes nothing.
- */
 function editDesignHtml(html, edits) {
   if (!Array.isArray(edits) || !edits.length) throw Error("Send at least one edit.");
   let next = html;
@@ -56,10 +43,6 @@ function editDesignHtml(html, edits) {
   });
   return next;
 }
-/**
- * A published page with Mermaid blocks carries Pele and the page helper, so its diagrams draw on the public page as
- * they do here, while it stays within the page limit; past it the blocks show their text.
- */
 function sharedHtml(html) {
   if (!hasDiagrams(html)) return html;
   const page = artifactDocument(html, { page: true, diagrams: diagramScript() });
@@ -67,29 +50,19 @@ function sharedHtml(html) {
 }
 const MAX_TABS = 20;
 const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => `&#${character.charCodeAt(0)};`);
-/**
- * A page split into tabs, published as one page: a tab bar over a sandboxed frame that shows the chosen tab. The
- * public page has no Milagre chrome around the frame to draw the tabs, so the page draws its own.
- */
 function tabbedPage(tabs) {
   const pages = JSON.stringify(tabs.map((tab) => tab.html)).replace(/</g, "\\u003c");
   const buttons = tabs.map((tab) => `<button type="button" role="tab">${escapeHtml(tab.title)}</button>`).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%}body{display:flex;flex-direction:column;font:13px/1 system-ui,sans-serif;background:#fff}nav{display:flex;flex-shrink:0;gap:2px;overflow-x:auto;padding:6px 8px;border-bottom:1px solid #e6e6e6;background:#fafafa}button{flex-shrink:0;border:0;border-radius:6px;padding:7px 12px;background:none;color:#555;font:inherit;white-space:nowrap;cursor:pointer}button:hover{color:#111}button[aria-selected=true]{background:#ececec;color:#111;font-weight:600}button:focus-visible{outline:2px solid #007df3;outline-offset:-2px}iframe{flex:1;min-height:0;width:100%;border:0}</style></head><body><nav role="tablist" aria-label="Tabs">${buttons}</nav><iframe sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><script type="application/json" id="pages">${pages}</script><script>(()=>{const pages=JSON.parse(document.getElementById('pages').textContent),frame=document.querySelector('iframe'),tabs=[...document.querySelectorAll('[role=tab]')];const show=(index)=>{tabs.forEach((tab,at)=>{tab.setAttribute('aria-selected',String(at===index));tab.tabIndex=at===index?0:-1});frame.title=tabs[index].textContent;frame.srcdoc=pages[index]};tabs.forEach((tab,index)=>{tab.onclick=()=>show(index)});document.querySelector('nav').onkeydown=(event)=>{const at=tabs.indexOf(document.activeElement),step=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0;if(!step||at<0)return;event.preventDefault();const next=(at+step+tabs.length)%tabs.length;tabs[next].focus();show(next)};show(0)})();</script></body></html>`;
 }
-/** The published page of an Artifact: its HTML, or its tabs drawn as one page, within the page limit. */
 function sharedPage(current) {
   if (!current.tabs) return sharedHtml(current.html);
   const page = tabbedPage(current.tabs.map((tab) => ({ title: tab.title, html: sharedHtml(tab.html) })));
   if (page.length <= MAX_HTML) return page;
-  // ponytail: without diagrams first, then give up; splitting a too-large page across links waits for a page that needs it.
   const plain = tabbedPage(current.tabs);
   if (plain.length <= MAX_HTML) return plain;
   throw Error(`This page's tabs are over ${MAX_HTML} characters together, too large to publish.`);
 }
-/**
- * The tabs artifact_show was sent, checked: each names its id and title, and one without HTML keeps the HTML of the
- * page's tab with that id. Null when the page has no tabs.
- */
 function checkTabs(tabs, current) {
   if (tabs === undefined) return null;
   if (!Array.isArray(tabs) || !tabs.length || tabs.length > MAX_TABS) throw Error(`A page has between 1 and ${MAX_TABS} tabs.`);
@@ -107,15 +80,11 @@ function checkTabs(tabs, current) {
   if (checked.reduce((sum, tab) => sum + tab.html.length, 0) > MAX_HTML) throw Error(`A page's tabs are limited to ${MAX_HTML} characters together.`);
   return checked;
 }
-// A file's bytes cross the bridge in the chunks an attachment download uses, under the relay's frame limit.
 const ASSET_CHUNK = 256 * 1024;
 const megabytes = (bytes) => `${Math.ceil(bytes / (1024 * 1024))} MB`;
 const size = (value, fallback) => (Number.isInteger(value) && value >= 240 && value <= 3840 ? value : fallback);
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
-// The comments the user sent on a Chat's designs, one file beside the designs; no .json extension, so the design list
-// never reads it as a design. Each: { id, design: { id, version, title }, nodeId?, x?, y?, near?, anchor?, text, createdAt, resolved? }.
 const COMMENTS = "comments";
-// An Artifact pin's anchor, as ARTIFACT_PAGE_SCRIPT writes it: element steps from <body> (or an id), then the point in it.
 const PAGE_ANCHOR =
   /^(?:#[A-Za-z][\w-]{0,63}|[A-Za-z][A-Za-z0-9-]{0,40}:\d{1,5})(?:\/[A-Za-z][A-Za-z0-9-]{0,40}:\d{1,5}){0,40}@(?:0|1|0?\.\d{1,4}),(?:0|1|0?\.\d{1,4})$/;
 const MAX_COMMENTS = 2000;
@@ -190,17 +159,10 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
   const htmlFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.html`);
   const documentFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.design.json`);
   const tabsFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.tabs.json`);
-  // A page's files, each by the SHA-256 of its bytes: a file the agent attaches again is stored once.
   const assetsFolder = (folder, id) => path.join(designFolder(folder, id), "assets");
   const assetFile = (folder, id, hash) => path.join(assetsFolder(folder, id), hash);
-  // Files on their way in, beside the Chats' folders (on the same disk, so they move in by rename).
   const incoming = path.join(directory, ".incoming");
   const discard = (imported) => Promise.all(imported.map((asset) => fs.rm(asset.staged, { force: true }).catch(() => {})));
-  /**
-   * Copies the files the agent attached into the store, hashing them on the way: only a regular file inside one of
-   * `roots` (the Chat's Worktrees), so a file elsewhere on the Mac can't ride along onto a page that may be shared.
-   * Runs before the store's lock, so a large video doesn't hold up every other page.
-   */
   async function importAssets(assets, roots) {
     if (assets === undefined) return [];
     if (!Array.isArray(assets) || assets.length > MAX_PAGE_ASSETS) throw Error(`Attach at most ${MAX_PAGE_ASSETS} files to a page.`);
@@ -251,7 +213,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       throw error;
     }
   }
-  /** The page's files without those its newest version no longer has. */
   async function pruneAssets(folder, id, assets) {
     const kept = new Set((assets ?? []).map((asset) => asset.hash));
     const names = await fs.readdir(assetsFolder(folder, id)).catch(() => []);
@@ -267,13 +228,10 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       await fs.rm(temporary, { force: true });
     }
   }
-  // Metadata excludes the document and preview, so listing a Chat's designs stays cheap.
   async function writeMeta(folder, meta, assertActive) {
     await fs.mkdir(designFolder(folder, meta.id), { recursive: true, mode: 0o700 });
     await atomicWrite(path.join(designFolder(folder, meta.id), "meta.json"), JSON.stringify(meta), assertActive);
   }
-  // A deleted design keeps only its metadata, marked deleted: its id is never reused, so the cards still in the Chat
-  // never show another design under the versions they name.
   async function load(folder, id, { deleted = false } = {}) {
     const file = path.join(designFolder(folder, id), "meta.json");
     try {
@@ -283,7 +241,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       if (error.code !== "ENOENT") throw error;
     }
     if (deleted) return null;
-    // Migrate original single-file HTML only after all version files exist; metadata commits the migration.
     const legacyFile = path.join(folder, `${checkId(id)}.json`);
     let legacy;
     try {
@@ -302,7 +259,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
   function editable(artifact, format = "design") {
     if (artifact && formatOf(artifact.versions.at(-1)) !== format) throw Error(FORMAT_MISMATCH);
   }
-  // A page split into tabs keeps its first tab as its HTML, for the viewers from before tabs, and every tab beside it.
   async function writeVersion(folder, id, previous, entry, html, document, assertActive, tabs = null) {
     const artifact = { id, versions: [...previous, entry].slice(formatOf(entry) === "html" ? -1 : -MAX_VERSIONS) };
     const extra = document ? documentFile(folder, id, entry.version) : tabs ? tabsFile(folder, id, entry.version) : null;
@@ -311,7 +267,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     try {
       await atomicWrite(files[0], html);
       if (extra) await atomicWrite(extra, JSON.stringify(document ?? tabs));
-      // Publishing metadata is the commit: readers cannot observe a partial document/preview pair.
       await writeMeta(folder, artifact, assertActive);
     } catch (error) {
       await Promise.all(files.map((file) => fs.rm(file, { force: true }).catch(() => {})));
@@ -361,7 +316,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       .toSorted((a, b) => (a.versions[0].createdAt ?? 0) - (b.versions[0].createdAt ?? 0));
   }
 
-  /** Writes the Chat's Artifact page for artifact_show, with the files importAssets brought in. */
   function showPage(request, imported, assertActive) {
     return serial(async () => {
       await assertActive?.();
@@ -382,7 +336,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       editable(existing, "html");
       checkVersion(request, existing);
       const previous = existing?.versions ?? [];
-      // A tab sent without its HTML keeps the HTML it has on the page now.
       const keeping = request.tabs?.some((tab) => tab?.html === undefined) && previous.at(-1)?.tabs;
       const tabs = checkTabs(request.tabs, keeping ? (await readVersion(folder, existing)).tabs : null);
       const entry = {
@@ -395,7 +348,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         ...(tabs ? { tabs: tabs.map((tab) => ({ id: tab.id, title: tab.title })) } : {}),
         createdAt: Date.now(),
       };
-      // The page keeps a file while any of its HTML mentions it; one attached now must be mentioned.
       const pageHtml = tabs ? tabs.map((tab) => tab.html).join("\n") : request.html;
       for (const asset of imported)
         if (!mentionsAsset(pageHtml, asset.name))
@@ -408,7 +360,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
       if (assets.reduce((sum, asset) => sum + asset.size, 0) > MAX_PAGE_ASSET_BYTES)
         throw Error(`A page's files are limited to ${megabytes(MAX_PAGE_ASSET_BYTES)} together.`);
       if (assets.length) entry.assets = assets;
-      // Each file moves in under its hash before the metadata names it; one the page already has stays.
       if (imported.length) await fs.mkdir(assetsFolder(folder, id), { recursive: true, mode: 0o700 });
       for (const asset of imported) {
         const target = assetFile(folder, id, asset.hash);
@@ -420,7 +371,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
   }
 
   return {
-    // A visual reply is an immutable attachment. It never replaces the Chat's live Artifact page.
     render: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -434,7 +384,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         const artifact = await writeVersion(folder, id, [], entry, html, undefined, assertActive);
         return summary(artifact, entry);
       }),
-    // Capture every latest version under one store lock. No private Chat or comment fields leave the store.
     pageSnapshot: (request) =>
       serial(async () => {
         const folder = await chat(request?.chatId);
@@ -472,7 +421,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         }
         return { schemaVersion: 1, title: request.title, designs };
       }),
-    // The agent's files come in first (importAssets), outside the lock; whatever didn't move into the page is dropped.
     show: async (request, { assertActive, roots } = {}) => {
       const imported = await importAssets(request?.assets, roots);
       try {
@@ -481,7 +429,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         await discard(imported);
       }
     },
-    /** A file of the Chat's Artifact page by its name: up to ASSET_CHUNK bytes from `offset`, as base64. */
     asset: (request) =>
       serial(async () => {
         const folder = await chat(request?.chatId);
@@ -509,7 +456,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         }
         return { name: asset.name, hash: asset.hash, size: asset.size, type: asset.type, offset, base64: bytes.toString("base64") };
       }),
-    /** Where the Chat's Artifact page keeps the file with this hash, for publishing it. */
     assetPath: (request) =>
       serial(async () => {
         const folder = await chat(request?.chatId);
@@ -534,7 +480,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         if (!existing && request.id && (await load(folder, id, { deleted: true }))) throw Error(`The design ${id} was deleted. Use a new id.`);
         editable(existing);
         checkVersion(request, existing, true);
-        // A variant starts from a copy of a saved design and changes it with operations, instead of drawing it again.
         let source = null;
         if (request.from !== undefined) {
           if (request.document !== undefined || request.html !== undefined) throw Error("Send document, html OR from, not two of them.");
@@ -548,7 +493,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         const interactive = request.html !== undefined || source?.interactive === true;
         if (existing && interactiveOf(existing.versions.at(-1)) !== interactive) throw Error(KIND_MISMATCH);
         const previous = existing?.versions ?? [];
-        // A revision stays in its group unless it names one; an empty group takes it out. A variant joins its source's.
         const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : (previous.at(-1)?.group ?? source?.group);
         if (interactive) {
           if (source && request.operations !== undefined) throw Error("This design is interactive HTML: change the copy with edits, not layer operations.");
@@ -592,7 +536,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
           format: "design",
           createdAt: Date.now(),
         };
-        // The saved HTML embeds the catalog families the design names, so the desktop and the phone draw them.
         await designImplementation().loadDesignFonts(document);
         const artifact = await writeVersion(folder, id, previous, entry, designImplementation().designHtml(document), document, assertActive);
         return summary(artifact, entry);
@@ -654,7 +597,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         if (isHtml && !artifact.versions.at(-1).inline) artifact = (await activeArtifacts(folder, "html"))[0] ?? artifact;
         const current = await readVersion(folder, artifact, isHtml ? undefined : request.version);
         if (!Array.isArray(request.fonts?.have) || current.format !== "design") return current;
-        // Only the generated designHtml head has this shape. Legacy/custom HTML stays self-contained.
         const block =
           /^<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=\d+, initial-scale=1"><style>[^<]*<\/style><style>((?:@font-face\{font-family:"[^"<>;{}]+";font-weight:\d+(?: \d+)?;font-style:normal;src:url\(data:font\/ttf;base64,[A-Za-z0-9+/=]+\) format\("truetype"\)\})+)<\/style><\/head><body><main id="design-root">/.exec(
             current.html,
@@ -676,7 +618,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         if (!artifact) throw Error("This design is no longer available.");
         editable(artifact);
         const current = await readVersion(folder, artifact, request.version);
-        // An interactive design is its HTML; a layer design's HTML is the page Milagre draws from its layers.
         if (request.format === "html")
           return { id: current.id, version: current.version, filename: `${current.id}-v${current.version}.html`, mimeType: "text/html", content: current.html };
         if (current.interactive) throw Error("An interactive design exports as html.");
@@ -687,8 +628,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
           version: current.version,
           filename: `${current.id}-v${current.version}.${request.format}`,
           mimeType: svg ? "image/svg+xml" : "application/json",
-          // Agents read this through a tool result, so Inter stays a font-family reference instead of ~250 KB of embedded faces.
-          // The desktop download builds its own SVG with the fonts embedded.
           content: svg ? designImplementation().designSvg(current.document, { embedFonts: false }) : JSON.stringify(current.document, null, 2),
         };
       }),
@@ -698,7 +637,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         checkFormat(request.format);
         return (await activeArtifacts(folder, request.format)).map((artifact) => summary(artifact, artifact.versions.at(-1)));
       }),
-    /** Deletes every version of a design and the comments on it. */
     deleteDesign: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -706,7 +644,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         const existing = await load(folder, request?.id);
         if (!existing) throw Error("This design is no longer available.");
         editable(existing);
-        // The marked metadata commits the delete; the version files are only removed after it.
         await writeMeta(folder, { id: existing.id, versions: [], deletedAt: Date.now() }, assertActive);
         const names = await fs.readdir(designFolder(folder, existing.id));
         await Promise.all(
@@ -719,7 +656,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         if (kept.length !== comments.length) await writeComments(folder, kept);
         return { id: existing.id };
       }),
-    /** Records the comments the user is sending, and returns them with their ids for the message to name. */
     addComments: (request) =>
       serial(async () => {
         const folder = await chat(request?.chatId);
@@ -732,7 +668,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
           if (!text) throw Error("A comment needs its text.");
           if (comment.nodeId !== undefined && (typeof comment.nodeId !== "string" || !LAYER_ID.test(comment.nodeId)))
             throw Error("A comment's layer id must use letters, numbers, dots, underscores or dashes and start with a letter.");
-          // On an Artifact page: the text near the pin, and the element path and point the page finds it by again.
           const near =
             typeof comment.near === "string"
               ? comment.near
@@ -753,8 +688,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
               : null;
           const at = (value) => (typeof value === "number" && value >= 0 && value <= 1 ? value : undefined);
           return {
-            // The app names the comment in the message it sends first, and records it once that went; one it names
-            // again (a retried send) is kept once.
             id: typeof comment.id === "string" && COMMENT_ID.test(comment.id) ? comment.id : randomUUID().replace(/-/g, "").slice(0, 8),
             design: { id: design.id, version: design.version, title: String(design.title ?? design.id).slice(0, 120) },
             ...(comment.nodeId === undefined ? {} : { nodeId: comment.nodeId }),
@@ -792,7 +725,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         );
         return comments.filter((_comment, index) => visible[index]);
       }),
-    /** Marks a comment resolved, with the agent's note on what it did about it. */
     resolveComment: (request, { assertActive } = {}) =>
       serial(async () => {
         await assertActive?.();
@@ -807,7 +739,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
         await writeComments(folder, all, assertActive);
         return comment;
       }),
-    /** Deletes every design and comment of a Chat that is gone. */
     removeChat: (chatId) =>
       serial(async () => {
         if (typeof chatId !== "string" || !chatId || chatId.length > 8192) return;
@@ -822,8 +753,6 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
     if (format && formatOf(artifact.versions.at(-1)) !== format) throw Error(FORMAT_MISMATCH);
     if (!Number.isSafeInteger(comment.design.version) || comment.design.version < 1 || comment.design.version > artifact.versions.at(-1).version)
       throw Error("This comment's design version is not available.");
-    // HTML is one live page: an edit may land while the user is composing feedback.
-    // Its previous revision need not remain on disk for that feedback to be recorded.
     if (formatOf(artifact.versions.at(-1)) === "html") return;
     const version = artifact.versions.find((item) => item.version === comment.design.version);
     if (!version && (retained || comment.design.version >= artifact.versions[0].version)) throw Error("This comment's design version is no longer kept.");
@@ -851,10 +780,7 @@ function createChatArtifacts({ directory, validateChat, readKit }) {
   }
 }
 
-// The most warnings the summary JSON on line 1 carries; the text block below it lists them the same way.
 const MAX_SUMMARY_WARNINGS = 20;
-// The renderer has Inter and the catalog families, so text in any other family is drawn in Inter in the agent's image.
-// Names those families.
 const unbundledFamilies = (document) => {
   const families = new Set();
   for (const node of document.nodes) {
@@ -877,7 +803,6 @@ const unbundledFamilies = (document) => {
 
 const MAX_NAMED_LAYERS = 5;
 
-/** Visible text layers with characters the bundled Inter subset lacks; the agent's image leaves those blank. */
 const undrawableTextLayers = (document) => {
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
   const visible = (node) => {
@@ -888,7 +813,6 @@ const undrawableTextLayers = (document) => {
   for (const node of document.nodes) {
     if (node.type !== "text" || !node.text || !visible(node)) continue;
     if ([...node.text].every(designImplementation().designInterHasGlyph)) continue;
-    // Name the editable instance, never one of its generated children.
     ids.add((designImplementation().designInstanceRoot(document, node.id, byId) ?? node).id);
   }
   return [...ids];
@@ -900,8 +824,6 @@ const namedLayers = (ids) =>
     .map((id) => `"${id}"`)
     .join(", ") + (ids.length > MAX_NAMED_LAYERS ? ` and ${ids.length - MAX_NAMED_LAYERS} more` : "");
 
-// What the agent sees after a design call: the summary (first line, which the Chat card parses), the warnings, and
-// the saved version drawn as a PNG. Neither drawing nor checking fails the call; the version is already saved.
 async function designFeedback(saved, document, { renderPng, warnings: findWarnings, intent }) {
   const problems = [];
   let warnings = [];
@@ -932,7 +854,6 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
     notes.push(`The preview could not be rendered: ${error?.message ?? String(error)}. Check the warnings below.`);
   }
   notes.push(...problems);
-  // Remote images are only placeholders in the agent's image; there is nothing to fix, so they are notes, not warnings.
   const text = designImplementation().designWarningText(warnings.filter((warning) => warning.kind !== "remote-image"));
   if (text) notes.push(`Warnings:\n${text}`);
   const remote = designImplementation().designWarningText(warnings.filter((warning) => warning.kind === "remote-image"));
@@ -940,7 +861,6 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
   return { text: notes.join("\n"), images };
 }
 
-// The libraries an interactive design loads, pinned with their integrity hashes: the start of every React design.
 const DESIGN_CODE_STARTER = [
   '<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>',
   '<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>',
@@ -948,8 +868,6 @@ const DESIGN_CODE_STARTER = [
 ].join("");
 const INTERACTIVE_GUIDE = `For an interactive prototype (taps that change state, navigation between screens, tabs, forms, menus, animation), send html with width and height instead of document: one self-contained HTML page, run live in the viewers at that screen size. For React, load exactly ${DESIGN_CODE_STARTER} and write the app in <script type="text/babel">, rendering into a root element. Scripts load only from unpkg.com, cdn.jsdelivr.net, cdnjs.cloudflare.com or esm.sh, each at an exact version (Tailwind's browser build: https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.17); write the design's own code inline. The design runs sandboxed: no fetch, forms to servers, localStorage or cookies, so keep state in memory and use realistic sample data. Put a flow's screens in one design and switch them with state; set data-screen-label on each screen's root. Revise it with design_apply edits (exact text to find and its replacement), or design_show with the whole html.`;
 
-// What the agent sees after saving an interactive design: the summary on the first line, then the first screen drawn
-// in headless Chrome as the viewers run it, with what its console logged. Drawing never fails the call: it's saved.
 async function interactiveFeedback(saved, html, { screenshot, crop }) {
   const notes = [JSON.stringify(saved)];
   let images = [];
@@ -1210,7 +1128,6 @@ function artifactCommentToolDefinitions(chatId, api, authorization) {
     },
   ];
 }
-/** `roots` resolves to the Chat's Worktrees: the only folders artifact_show attaches files from. */
 function htmlArtifactToolDefinitions(chatId, api, authorization, { roots = async () => [] } = {}) {
   return [
     {
@@ -1270,7 +1187,6 @@ function htmlArtifactToolDefinitions(chatId, api, authorization, { roots = async
       run: async ({ tab, ...args }) => {
         const page = await api.get({ chatId, ...args, format: "html" });
         if (!page.tabs) return JSON.stringify(page);
-        // The page's HTML is its first tab again; it is left out.
         const { html: _html, tabs, ...rest } = page;
         if (tab === undefined) return JSON.stringify({ ...rest, tabs });
         const one = tabs.find((item) => item.id === tab);

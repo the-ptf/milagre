@@ -2,7 +2,6 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 
-// Each Chat has one atomic private file. Failed writes never become accepted in-memory state.
 function createAdvisorStore({ dataDir }) {
   const directory = path.join(dataDir, "advisors");
   const queues = new Map();

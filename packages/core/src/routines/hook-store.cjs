@@ -2,8 +2,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID, randomBytes } = require("node:crypto");
 
-// A relay holds a delivery 24 h and a Routine remembers its key 48 h (store.cjs); a delivery nothing came back for in that
-// time (its Run failed before its first message, a redelivery of one already handled) goes when the file is next read.
 const HOOK_DELIVERY_MAX_AGE_MS = 48 * 3600_000;
 const VERSION = 1;
 
@@ -27,17 +25,8 @@ function checkDelivery(value) {
 }
 const readDelivery = (entry) => ({ ...entry, body: new Uint8Array(Buffer.from(entry.body, "base64")) });
 
-/**
- * Webhook secrets and the deliveries the Mac has acknowledged but not yet turned into a Run's first message, in one file
- * only this user can read (0600 in a 0700 folder; written to a temporary file, synced, then renamed, as the Linear sign-ins
- * are). A secret is `{ secret, ownerKey?, signingSecret?, previous? }` per Routine: `secret` is the one in the hook
- * URL, the owner key proves to the relay that this Mac owns the hook (only over its own host connection, never in the URL),
- * and the signing secret checks a sender's HMAC and never leaves the Mac. Every write is synchronous and on disk before it returns,
- * so a delivery acknowledged to the relay survives a restart. Nothing here logs.
- */
 function createHookStore({ file, now = Date.now }) {
   // Set when the file exists but couldn't be read: every write is refused, so a passing EACCES or EIO can't replace the
-  // secrets with an empty store.
   let unreadable = null;
   let data = load();
   mintOwnerKeys();
@@ -59,17 +48,13 @@ function createHookStore({ file, now = Date.now }) {
       );
       return { version: VERSION, secrets: parsed.secrets, deliveries };
     } catch {
-      // Kept aside rather than overwritten: it may still hold a secret someone wants back.
       try {
         fs.renameSync(file, `${file}.corrupt-${Date.now()}`);
-      } catch {
-        /* nothing to keep */
-      }
+      } catch {}
       return { version: VERSION, secrets: {}, deliveries: {} };
     }
   }
 
-  // A hook saved before owner keys gets one now, so the relay can register its hash on the next hook set.
   function mintOwnerKeys() {
     const missing = Object.entries(data.secrets).filter(([, entry]) => isObject(entry) && text(entry.secret) && !text(entry.ownerKey));
     if (missing.length === 0 || unreadable) return;
@@ -102,7 +87,6 @@ function createHookStore({ file, now = Date.now }) {
     }
     data = next;
   }
-  // Every write also lets go of deliveries past their age, so a daemon that runs for weeks doesn't keep them.
   function change(edit) {
     const oldest = now() - HOOK_DELIVERY_MAX_AGE_MS;
     const deliveries = Object.fromEntries(Object.entries(data.deliveries).filter(([, entry]) => entry.receivedAt >= oldest));
@@ -125,7 +109,6 @@ function createHookStore({ file, now = Date.now }) {
   });
 
   return {
-    /** `previous`: the entry a rotation is replacing, kept until the Routine has the new hook id (see runtime-adapter.cjs). */
     secretFor(routineId) {
       const entry = data.secrets[routineId];
       const current = readSecret(entry);
@@ -149,7 +132,6 @@ function createHookStore({ file, now = Date.now }) {
     putDelivery(delivery) {
       this.putDeliveries([delivery]);
     },
-    /** Several deliveries in one synced write (the flush after the relay reconnects). */
     putDeliveries(deliveries) {
       const entries = deliveries.map(checkDelivery);
       if (entries.length === 0) return;
@@ -169,7 +151,6 @@ function createHookStore({ file, now = Date.now }) {
       });
       return found;
     },
-    /** Oldest first. */
     listDeliveries() {
       return Object.values(data.deliveries)
         .map(readDelivery)

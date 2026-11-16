@@ -4,14 +4,10 @@ const { mcpContent } = require("./linked-tools.cjs");
 const { createCommandDispatcher } = require("./command-dispatcher.cjs");
 
 const MAX_BODY = 1024 * 1024;
-// Design documents allow 1,000,000 UTF-16 units in their canonical JSON. A JSON encoder can escape
 // each unit as six ASCII bytes; leave room for one call's arguments and JSON-RPC envelope.
 const MAX_DESIGN_BODY = 6 * 1000000 + 64 * 1024;
 
 // Codex reaches Milagre's linked tools as a streamable-HTTP MCP server named in each thread's config
-// (verified with codex-cli 0.160: the per-thread `config.mcp_servers` entry is started, listed and called,
-// with calls approved through elicitation in Ask mode). It listens on loopback only; each Chat has its own unguessable
-// path, which is all that names the Chat. Requests are answered with plain JSON, never a stream.
 function createLinkedMcpServer({ toolsFor }) {
   const commands = createCommandDispatcher({ definitions: toolsFor });
   const tokens = new Map();
@@ -35,7 +31,6 @@ function createLinkedMcpServer({ toolsFor }) {
       rejected = true;
       chunks.length = 0;
       reply(response, { jsonrpc: "2.0", id: null, error: { code: -32000, message: `Request exceeds the ${limit}-byte MCP limit.` } }, 413);
-      // Drain any remaining input without retaining it, so the caller receives the JSON error.
       request.resume();
     };
     request.on("data", (chunk) => {
@@ -56,8 +51,6 @@ function createLinkedMcpServer({ toolsFor }) {
         chunks.length = 0;
       }
       const messages = Array.isArray(message) ? message : [message];
-      // Only a single design-writing call gets the larger wire budget. Other tools and multi-call batches
-      // keep their original bound; the document and operation schemas still validate the contents.
       const designCall =
         messages.length === 1 &&
         messages[0]?.method === "tools/call" &&
@@ -113,9 +106,7 @@ function createLinkedMcpServer({ toolsFor }) {
   }
 
   return {
-    /** The Chat's MCP endpoint, listening once this resolves. One per Chat for the life of the server. */
     async url(chatId) {
-      // A failed listen is tried again on the next call.
       listening ??= new Promise((resolve, reject) => {
         server.once("error", reject);
         server.listen(0, "127.0.0.1", () => resolve(server.address().port));

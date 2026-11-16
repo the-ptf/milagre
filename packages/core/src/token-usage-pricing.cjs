@@ -1,17 +1,13 @@
-// Per-token prices for the token usage page, from LiteLLM's public model list. Only the direct-provider entries and the
-// four rates a cost needs are kept on disk. Costs are what the tokens would cost on the API, not a subscription's bill.
 const fs = require("node:fs");
 const path = require("node:path");
 
 const PRICES_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 const REFRESH_MS = 24 * 3_600_000;
-// After a failed fetch, wait this long before trying again.
 const RETRY_MS = 15 * 60_000;
 const FETCH_TIMEOUT_MS = 20_000;
 
 const rate = (value) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null);
 
-/** The rates of each model LiteLLM prices per token, keyed by its plain name (no provider prefix). */
 function slimPrices(catalog) {
   const models = {};
   for (const [name, entry] of Object.entries(catalog ?? {})) {
@@ -29,7 +25,6 @@ function slimPrices(catalog) {
   return models;
 }
 
-/** A model name as transcripts write it, matched to a priced one: exact, then without a date suffix or provider prefix. */
 function priceOf(models, model) {
   if (!models || !model) return null;
   if (models[model]) return models[model];
@@ -47,10 +42,6 @@ function load(file) {
   return null;
 }
 
-/**
- * The price list, read from its file and refreshed from LiteLLM at most once a day. `current()` never waits on the
- * network: it returns what is known and starts a refresh when the list is old.
- */
 function createTokenPricing({ file, fetchCatalog, now = Date.now, onChange = () => {} }) {
   let saved = file ? load(file) : null;
   let refreshing = null;
@@ -95,7 +86,6 @@ function createTokenPricing({ file, fetchCatalog, now = Date.now, onChange = () 
       }
       return saved;
     },
-    /** Waits for a refresh in flight (tests, quitting). */
     idle: () => refreshing ?? Promise.resolve(),
     status() {
       if (!saved) return { status: refreshing ? "loading" : "unavailable" };

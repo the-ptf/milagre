@@ -6,8 +6,6 @@ const os = require("node:os");
 const path = require("node:path");
 const { resolveExecutable } = require("./agents/environment.cjs");
 
-// Code editors Milagre can open files in, in the order the first one found becomes the default.
-// `goto` is how the CLI takes a line: "flag" is `-g file:line`, "suffix" is `file:line`.
 const EDITORS = [
   { id: "cursor", bundleCli: "Contents/Resources/app/bin/cursor", name: "Cursor", app: "Cursor.app", cli: "cursor", goto: "flag" },
   { id: "vscode", bundleCli: "Contents/Resources/app/bin/code", name: "Visual Studio Code", app: "Visual Studio Code.app", cli: "code", goto: "flag" },
@@ -28,8 +26,6 @@ async function exists(fs, target) {
   }
 }
 
-// The installed editors: an .app in /Applications or ~/Applications, or its CLI on PATH.
-// Each is { id, name, appPath, cli }, with null for what's missing.
 async function detectEditors({ fs = fsp, which = resolveExecutable, home = os.homedir(), platform = process.platform } = {}) {
   const found = await Promise.all(
     EDITORS.map(async (editor) => {
@@ -39,7 +35,6 @@ async function detectEditors({ fs = fsp, which = resolveExecutable, home = os.ho
         if (!appPath && (await exists(fs, candidate))) appPath = candidate;
       }
       let cli = (await which(editor.cli)) || null;
-      // Launched from Finder, PATH may lack the CLI; the app bundle carries its own.
       if (!cli && appPath && (await exists(fs, path.join(appPath, editor.bundleCli)))) cli = path.join(appPath, editor.bundleCli);
       return appPath || cli ? { id: editor.id, name: editor.name, appPath, cli } : null;
     }),
@@ -47,8 +42,6 @@ async function detectEditors({ fs = fsp, which = resolveExecutable, home = os.ho
   return found.filter(Boolean);
 }
 
-// The program and arguments that open `target` in `editor`. A file with a line goes through the CLI's
-// goto form; everything else goes through `open -a`, or through the CLI alone when the app isn't found.
 function openCommand(editor, { target, line, isDirectory = false }) {
   const useLine = Number.isInteger(line) && line > 0 && !isDirectory;
   if (editor.cli && useLine) {
@@ -60,11 +53,8 @@ function openCommand(editor, { target, line, isDirectory = false }) {
 
 const outside = () => new Error("That path is outside the project");
 const notFound = () => new Error("File not found");
-// The requested file isn't there, inside a root that is: the one failure a fallback path may answer.
 const missing = () => Object.assign(notFound(), { missing: true });
 
-// `requested` (relative to root, or absolute) as a real path inside root, or an error. A symlink that
-// leaves root is refused after realpath; with no `requested` the root folder itself is the target.
 async function resolveInside(root, requested, additionalRoots = []) {
   let realRoot;
   try {
@@ -79,7 +69,6 @@ async function resolveInside(root, requested, additionalRoots = []) {
   try {
     real = await fsp.realpath(lexical);
   } catch {
-    // A missing file whose path also walks outside is reported as outside, not as missing.
     if (path.relative(realRoot, lexical).split(path.sep)[0] === "..") throw outside();
     throw missing();
   }
@@ -97,8 +86,6 @@ async function resolveInside(root, requested, additionalRoots = []) {
   return { target: real, isDirectory: (await fsp.stat(real)).isDirectory() };
 }
 
-// Only a checkout's top folder is a root the renderer may open files under, so it can't point
-// editor:open at "/" or any other folder.
 async function requireWorktreeRoot(root, { topLevel = gitTopLevel } = {}) {
   try {
     if (typeof root !== "string" || !path.isAbsolute(root)) throw new Error("relative");
@@ -127,9 +114,6 @@ function runProgram(file, args) {
 
 const MAX_FALLBACKS = 20;
 
-// `requested`, or, when that file is missing, the first of `fallbacks` that resolves inside root. The renderer sends
-// as fallbacks the absolute files a Chat's steps worked on that end with a path the reply named relative to a
-// subfolder. Any other failure, and a miss with no fallback found, is the requested path's own.
 async function resolveRequested(root, requested, fallbacks, ownedRoots) {
   try {
     return await resolveInside(root, requested, ownedRoots);
@@ -139,16 +123,12 @@ async function resolveRequested(root, requested, fallbacks, ownedRoots) {
       if (typeof fallback !== "string" || !path.isAbsolute(fallback)) continue;
       try {
         return await resolveInside(root, fallback, ownedRoots);
-      } catch {
-        // The next one, then the requested path's own error.
-      }
+      } catch {}
     }
     throw error;
   }
 }
 
-// editor:open. Returns null on success, or a short message for the renderer's notice. The editor starts once, for the
-// path that resolved: a launch failure is never retried with a fallback.
 async function openInEditor({ root, path: requested, line, editor: editorId, fallbacks }, { editors, run = runProgram, checkRoot = requireWorktreeRoot }) {
   const editor = editors.find((item) => item.id === editorId) ?? editors[0];
   if (!editor) return "No editor found";

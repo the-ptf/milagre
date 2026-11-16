@@ -1,12 +1,10 @@
 const { validateDesignDocument, designColor } = require("@milagre/shared/design");
 
-/** Publication is a detached snapshot. Hidden subtrees and private layer labels need not leave the Mac. */
 function publicPageContent(snapshot) {
   return {
     schemaVersion: snapshot.schemaVersion,
     title: snapshot.title,
     designs: snapshot.designs.map(({ title, group, document: input, interactive }) => {
-      // An interactive design is published as the agent wrote it: its HTML has no private layer names to strip.
       if (interactive)
         return { title, ...(group ? { group } : {}), interactive: { html: interactive.html, width: interactive.width, height: interactive.height } };
       const document = validateDesignDocument(input);

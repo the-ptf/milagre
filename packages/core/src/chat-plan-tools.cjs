@@ -1,21 +1,16 @@
 const { z } = require("zod");
 const { PHASES, currentPhase, setPhase, setTasks, updateTask } = require("@milagre/shared/chat-plan");
 
-// Milagre's own task list and phase tools, the same for every provider. A Chat's changes run one at a time, so a
-// batch of task_update calls sees each other's results.
-// The tool names live here only. Permission code auto-approves them (they just write the Chat's own plan).
 const PLAN_TOOL_NAMES = Object.freeze(["tasks_set", "task_update", "tasks_read", "phase_set"]);
 const [TASKS_SET, TASK_UPDATE, TASKS_READ, PHASE_SET] = PLAN_TOOL_NAMES;
 const MARKS = { completed: "[x]", in_progress: "[~]", pending: "[ ]" };
 const status = z.enum(["pending", "in_progress", "completed"]);
-// Three levels at most, written out so the JSON schema has no $ref or $defs (some providers' function schemas reject them).
 const base = {
   id: z.string().max(20).optional().describe("Keep an existing task's id to keep its status; omit for a new task."),
   title: z.string().min(1).max(200),
   activeForm: z.string().max(200).optional().describe("Shown while in progress, e.g. 'Saving wishlist changes'."),
   status: status.optional(),
 };
-// Strict, so a fourth level is an error instead of being dropped.
 const leaf = z.strictObject(base);
 const level2 = z.object({ ...base, children: z.array(leaf).optional() });
 const level1 = z.object({ ...base, children: z.array(level2).optional() });
@@ -35,8 +30,6 @@ function formatPlan(plan) {
   return lines.join("\n");
 }
 
-// `update(chatId, (plan) => newPlan)` runs the change on the Chat's current plan, in order with every other change to
-// it, and resolves with the saved plan; it rejects, saving nothing, when the change throws or can't be saved.
 function createChatPlanTools({ read, update, now = Date.now }) {
   const change = (chatId, apply) => update(chatId, (plan) => apply(plan, now()));
   function definitions(chatId) {

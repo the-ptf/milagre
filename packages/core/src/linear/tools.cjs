@@ -1,5 +1,3 @@
-// The Linear tools a Chat's agent gets, reading and writing through the Mac's own Linear connections, so an agent never
-// needs a Linear MCP or connector of its own. Writes need a sign-in that allowed them (`canWrite`, see linear/index.cjs).
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -37,7 +35,6 @@ const FULL = `query Full($id: String!) { issue(id: $id) {
 const cap = (text) => (text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n… truncated` : text);
 const day = (iso) => String(iso ?? "").slice(0, 10);
 const issueLine = (node) => `${node.identifier} ${node.title}${node.state?.name ? ` (${node.state.name})` : ""}`;
-// Linear names a relation from the issue that holds it; the inverse side reads it the other way round.
 const INVERSE = { blocks: "blocked by", duplicate: "duplicated by", related: "related", similar: "similar" };
 
 function formatIssue(issue) {
@@ -80,7 +77,6 @@ function formatIssue(issue) {
   return cap(parts.join("\n\n"));
 }
 
-/** `linear` holds the Mac's connections, `issues` reads issues through them (see linear/index.cjs and linear/issues.cjs). */
 function createLinearTools({ linear, issues, dir = path.join(os.tmpdir(), "milagre-linear") }) {
   const refs = createLinearRefs({ linear, issues });
   const { connected, checkWorkspace, find } = refs;
@@ -103,7 +99,6 @@ function createLinearTools({ linear, issues, dir = path.join(os.tmpdir(), "milag
     return cap(result.issues.map((item) => `- ${item.key} ${item.title} (${item.state.name}) ${item.url}`).join("\n"));
   }
 
-  // Saved under the temp folder by the URL's hash, so asking again reuses the file.
   async function file(url, workspace) {
     const ids = connected();
     if (typeof url !== "string" || !UPLOAD_URL.test(url)) throw new Error("Give a file URL that starts with https://uploads.linear.app/.");
@@ -134,7 +129,6 @@ const priority = z.enum(Object.keys(PRIORITIES)).optional().describe("none, urge
 const status = z.string().optional().describe("A status of the issue's team, by name, such as In Progress.");
 const description = z.string().optional().describe("Markdown.");
 
-/** The Linear tools, as provider-neutral definitions (see linked-tools.cjs). Offered while Linear is on in Settings. */
 function linearToolDefinitions(tools) {
   return [
     {

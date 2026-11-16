@@ -1,6 +1,3 @@
-// What happens to the Worktree a Routine's Run made once the Run ends: it goes when it leaves nothing behind, and the Run's
-// Chat stays, archived, readable from the Run's history.
-
 const hasMessages = (state, session) => (session.summary?.count ?? 0) > 0 || (state.messages ?? []).some((message) => message.session_id === session.id);
 
 /**
@@ -60,7 +57,6 @@ async function retireRunWorktree({
     const moved = sessions.filter((session) => hasMessages(state, session));
     for (const session of moved) await closeChat(keyOf(session));
     const formerWorktree = { path: worktree.path, name: worktree.name, ...(checked.branch ? { branch: checked.branch } : {}) };
-    // An empty Chat there (one a Worktree keeps for its next send) goes with the Worktree; archived, it no longer holds it.
     const empty = sessions.filter((session) => !session.archived && !hasMessages(state, session)).map((session) => session.id);
     const before = await moveChats(
       projectPath,

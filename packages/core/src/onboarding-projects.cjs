@@ -4,8 +4,6 @@ const path = require("node:path");
 const { createGit } = require("./git/client.cjs");
 const { plainFolder } = require("./recent-projects.cjs");
 
-// Onboarding's ways to a first Project besides opening a folder: a new folder in ~/Code, a clone of a repository, or
-// Git set up in a folder that has none. Each answers with the folder to open; the renderer opens it like any other.
 const git = createGit().write;
 
 function folderName(value) {
@@ -24,8 +22,6 @@ async function freeFolder(folder) {
   throw new Error(`${folder} already exists. Choose another name.`);
 }
 
-// A first commit gives Worktrees a base. It needs the user's Git identity, which is never made up: without one the
-// folder still has Git and the first commit is left for later.
 async function firstCommit(folder) {
   await git.checked(folder, ["add", "-A"]);
   const result = await git.run(folder, ["commit", "--allow-empty", "-m", "Start with Milagre"], { profile: "COMMIT" });
@@ -34,12 +30,10 @@ async function firstCommit(folder) {
 
 const NO_GIT = "Git isn't installed on this computer. Install it from https://git-scm.com, then try again.";
 
-/** `~` and `~/x` as this computer's home folder; anything else as typed. */
 function withHome(value) {
   return value === "~" || /^~[/\\]/.test(value) ? path.join(os.homedir(), value.slice(1)) : value;
 }
 
-/** The folder a clone goes into: an existing, absolute one the user chose (a phone types it as text), else `root`. */
 async function cloneParent(parent, root) {
   const chosen = typeof parent === "string" ? parent.trim() : "";
   if (!chosen) return { folder: root, make: true };
@@ -53,7 +47,6 @@ async function cloneParent(parent, root) {
 function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plain = plainFolder, writer = git } = {}) {
   return {
     root,
-    /** A new, empty folder under ~/Code with Git set up. Without Git on this computer it stays a plain folder. */
     async create(name) {
       const folder = await freeFolder(path.join(root, folderName(name)));
       await fs.mkdir(folder, { recursive: true });
@@ -62,7 +55,6 @@ function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plai
       else if (!init.missing) throw new Error(`Git couldn't set up ${folder}: ${init.message}`);
       return { path: folder };
     },
-    /** A clone of `url` into <parent>/<repository name>; with no `parent`, into ~/Code, which is made when it's missing. */
     async clone(url, parent) {
       const source = typeof url === "string" ? url.trim() : "";
       if (!/^(https:\/\/|ssh:\/\/|git@)[^\s]+$/.test(source)) throw new Error("Paste an https:// or git@ address of a repository.");
@@ -82,7 +74,6 @@ function createOnboardingProjects({ root = path.join(os.homedir(), "Code"), plai
       }
       return { path: folder };
     },
-    /** Git in a folder that has none, with its files as the first commit when the user's Git identity is set. */
     async initGit(folder) {
       if (!(await plain(folder))) throw new Error("That folder already has Git, or isn't a folder.");
       if (path.resolve(folder) === os.homedir()) throw new Error("Choose a project folder, not your home folder.");

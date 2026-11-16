@@ -2,7 +2,6 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
-// A home created without Git keeps this mode across restarts and later Git installs. Each Chat still gets its own folder.
 const MARKER = ".milagre-folder-chats";
 const FOLDERS = ".chat-folders";
 async function isFolderChatsHome(root) {

@@ -1,5 +1,3 @@
-// Claude Desktop's stdio transport connects to the already running owning host.
-// This adapter has no host startup, Project access or network discovery capability.
 const MAX_BODY = 6000000 + 64 * 1024;
 function serveStdio() {
   const url = process.env.MILAGRE_MCP_URL;

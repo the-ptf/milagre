@@ -12,7 +12,6 @@ const { installDirs, mergePath, refreshInstallPath, resolveExecutable } = requir
 const UPDATE_TIMEOUT_MS = 120_000;
 const INSTALLER_TIMEOUT_MS = 300_000;
 // The official installers, for a computer that has no CLI yet. Neither needs Node. Codex's asks questions unless
-// CODEX_NON_INTERACTIVE is set; Claude's asks none.
 const UNIX_INSTALLERS = {
   claude: "curl -fsSL https://claude.ai/install.sh | bash -s latest",
   codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
@@ -45,10 +44,6 @@ function runCommand(cmd, execImpl = exec, firstDirs = [], { timeout = UPDATE_TIM
 
 const shellQuote = (value) => (/^[\w./@:-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`);
 
-/**
- * Links ~/.local/bin/claude to the newest installed version in ~/.local/share/claude/versions
- * that satisfies MIN_VERSIONS.claude.
- */
 function linkNewestClaudeVersion(home = os.homedir()) {
   if (process.platform === "win32") return false;
   try {
@@ -81,7 +76,6 @@ function linkNewestClaudeVersion(home = os.homedir()) {
 
 // Windows: each step runs a program by its absolute path, with its arguments kept out of any shell. A CLI that is
 // there updates itself first; one that isn't comes from the official PowerShell installer, then npm when Node is
-// set up. After each step PATH takes in the folders an installer made, so the new CLI is found without a restart.
 async function runWindowsCliUpdate(
   name,
   { inspect = inspectCli, resolve = resolveExecutable, execFileImpl = execFile, refresh = refreshInstallPath, env = process.env } = {},
@@ -137,8 +131,6 @@ async function updateAntigravity({ antigravity, onProgress, signal } = {}) {
   }
 }
 
-// Optional latest-release upgrades must reach the version advertised by the card, even
-// when the installed version already satisfies Milagre's minimum.
 async function upgradeRelease(name, deps) {
   const {
     targetVersion,
@@ -153,7 +145,6 @@ async function upgradeRelease(name, deps) {
   if (satisfied(status)) return { ok: true, version: status.version };
   const windows = (deps.platform || process.platform) === "win32";
   // Codex may come from npm, bun, pnpm or Homebrew. A plain `npm install -g` can land in another prefix than the
-  // codex on PATH, which then still runs the old release. `codex update` upgrades through whatever installed it.
   const codex = !windows && name === "codex" && status.command ? status.command : null;
   const commands =
     name === "claude"
@@ -192,7 +183,6 @@ async function upgradeRelease(name, deps) {
 
 async function runCliUpdate(name, deps = {}) {
   if (name === "antigravity") return updateAntigravity(deps);
-  // kiro-cli updates itself; Milagre doesn't install it (docs/providers.md).
   if (name === "kiro")
     return { ok: false, error: "Kiro CLI is installed and updated outside Milagre: `brew install --cask kiro-cli` installs it, `kiro-cli update` updates it." };
   if (deps.targetVersion) {
@@ -202,7 +192,6 @@ async function runCliUpdate(name, deps = {}) {
   if ((deps.platform || process.platform) === "win32") return runWindowsCliUpdate(name, deps);
   const { inspect = inspectCli, execImpl = exec, linkVersion = linkNewestClaudeVersion, refresh = refreshInstallPath } = deps;
   if (!["claude", "codex"].includes(name)) return { ok: false, error: `Unknown provider: ${name}` };
-  // A newer Claude may already be on disk, downloaded by an earlier install.
   if (name === "claude") linkVersion();
   let status = await inspect(name);
   if (name === "claude" && !status.problem) return { ok: true, version: status.version };
@@ -222,7 +211,6 @@ async function runCliUpdate(name, deps = {}) {
     const result = await runCommand(command, execImpl, [], options);
     failure = result.error ? lastLine(result.stderr) || result.error : failure;
     if (name === "claude") linkVersion();
-    // The installer may have made ~/.local/bin, which PATH didn't have when Milagre started.
     refresh();
     status = await inspect(name);
     if (!status.problem) return { ok: true, version: status.version };

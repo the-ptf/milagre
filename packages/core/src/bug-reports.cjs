@@ -1,8 +1,4 @@
-// Reporting a Milagre bug from a Chat (issue #938). The agent calls report_milagre_bug with what Milagre did; the host
-// adds what it knows itself (version, OS, provider and model, the host log), replaces everything that identifies the
-// user's work (bug-report-redact.cjs), and shows the user the exact text. Nothing is posted until they approve it, and
 // text they edit is checked again first. It is filed under their own GitHub account: with gh when it is signed in,
-// otherwise as a prefilled new-issue page they submit themselves.
 const childProcess = require("node:child_process");
 const fs = require("node:fs/promises");
 const { randomUUID } = require("node:crypto");
@@ -19,17 +15,13 @@ const BODY_LIMIT = 30_000;
 const LOG_LINES = 25;
 const LOG_LINE_LIMIT = 300;
 const LOG_BYTES = 64 * 1024;
-// GitHub's new-issue page takes the report in its address; past about 8 KB it fails to open.
 const URL_LIMIT = 7500;
 const GH_TIMEOUT = 60_000;
-// Host log lines that say nothing about a bug: start-up handshakes and Node's hints about its own warnings.
 const LOG_NOISE = [/^\{"status":"ready"/, /^\(Use `.* --trace-(?:warnings|deprecation) \.\.\.`/, /CLAUDE_SDK_CAN_USE_TOOL_SHADOWED/, /^\s*$/];
 
 const fence = (text) => String(text).replaceAll("```", "'''");
 
 /**
- * The host log's last lines worth reading, oldest first: noise dropped, repeats folded into one line with a count. The
- * log has no timestamps or Chat ids, so these are the host's latest lines, whichever Chat wrote them.
  * @param {string} file
  */
 async function readHostLog(file) {
@@ -56,7 +48,6 @@ function foldLog(lines) {
   for (const raw of lines) {
     const line = raw.trimEnd().slice(0, LOG_LINE_LIMIT);
     if (LOG_NOISE.some((pattern) => pattern.test(line))) continue;
-    // The latest repeat decides where a line sits.
     const count = (counts.get(line) ?? 0) + 1;
     counts.delete(line);
     counts.set(line, count);
@@ -68,7 +59,6 @@ function prefilledUrl(repo, title, body) {
   const at = (text) => `https://github.com/${repo}/issues/new?${new URLSearchParams({ title, body: text })}`;
   let url = at(body);
   if (url.length <= URL_LIMIT) return url;
-  // The host log goes first, then the end of the text.
   const withoutLog = body.replace(/\n*<details>[\s\S]*?<\/details>\n*/, "\n\n");
   url = at(withoutLog);
   for (let keep = withoutLog.length; url.length > URL_LIMIT && keep > 200; keep = Math.floor(keep * 0.8))
@@ -137,9 +127,6 @@ async function osDescription({ platform = process.platform, arch = process.arch,
 }
 
 /**
- * What the host knows is the user's, as `{ kind, value }` for the redactor: every Project this computer knows with its
- * folder, name and Git origin's owner and repository; the Chat's Project's Worktrees, branches and Chat titles; this
- * computer's and paired computers' names; the home folder, user name, Git identity and signed-in account emails.
  * @param {{
  *   projects?: { path?: string; name?: string; origin?: string | null }[];
  *   state?: { worktrees?: Record<string, any>; sessions?: Record<string, any> } | null;
@@ -179,7 +166,6 @@ function knownValues({ projects = [], state, computers = [], hostname, home, use
     add("chat", session.generatedTitle);
     add("worktree", session.formerWorktree?.path);
     add("branch", session.formerWorktree?.branch);
-    // A Link Chat's Worktrees in each of its Projects, and the folder that holds them.
     add("worktree", session.workspacePath);
     for (const member of Array.isArray(session.worktrees) ? session.worktrees : []) {
       add("worktree", member?.worktreePath);
@@ -214,7 +200,6 @@ const INPUT = {
   error_text: z.string().trim().max(2000).optional().describe("The exact error text Milagre showed, if any."),
 };
 
-/** The report as the user will see it, before redaction: one field per part, so each is redacted on its own. */
 function reportFields(input, facts, log) {
   const environment = [
     `- Milagre: ${facts.version || "unknown"}`,
@@ -248,10 +233,6 @@ function assemble(fields) {
   return parts.join("\n\n");
 }
 
-/**
- * Redacts until nothing more is replaced: a report is posted only when checking it again changes nothing, so the text
- * the user approves is the text that goes out.
- */
 function settled(title, body, known, names) {
   for (let pass = 0; pass < 3 && !(isClean(title, known) && isClean(body, known)); pass++) {
     const result = redactFields({ title, body }, known, { keepCode: ["title", "body"], seed: names });
@@ -276,8 +257,6 @@ function settled(title, body, known, names) {
 function createBugReports({ send, active, facts, known, readLog = async () => [], post = postWithGh, repo = MILAGRE_REPO, now = Date.now }) {
   /** @type {Map<string, { chatId: string; resolve: (result: string) => void; timer: NodeJS.Timeout; expiresAt: number; known: { kind: string; value: string }[] }>} */
   const pending = new Map();
-  // A reservation belongs to this invocation, not merely to an active Chat. A stop followed by a new turn
-  // invalidates the old collection even when that Chat is active again before its facts arrive.
   const preparing = new Map();
   let closed = false;
 
@@ -341,10 +320,6 @@ function createBugReports({ send, active, facts, known, readLog = async () => []
     });
   }
 
-  /**
-   * The user's answer: null cancels; `{ title: [..], body: [..] }` is the text they approved, edited or not. Text that
-   * needs more replaced comes back to them as a new request instead of going out.
-   */
   function answer(chatId, id, answers) {
     const entry = pending.get(id);
     if (!entry || entry.chatId !== chatId || closed) return false;
@@ -368,7 +343,6 @@ function createBugReports({ send, active, facts, known, readLog = async () => []
     if (!clean) {
       const checked = settled(title.trim(), body, entry.known, entry.names);
       if (!checked) throw new Error("Milagre couldn't make the edited report safe to share. Remove the private details and try again.");
-      // The same wait continues under a new request, so the card that was answered closes and the new one shows.
       const next = PREFIX + randomUUID();
       settle(id, "answered");
       const timer = setTimeout(
@@ -381,7 +355,6 @@ function createBugReports({ send, active, facts, known, readLog = async () => []
       return true;
     }
     settle(id, "answered");
-    // The agent hears the user changed it, so it doesn't take the differences for a mistake.
     const edited = title.trim() !== entry.shown.title || body !== entry.shown.body;
     const note = edited ? " The user edited the report before approving it; that text is what went out, so don't point out the differences." : "";
     void post({ repo, title: title.trim(), body }).then(

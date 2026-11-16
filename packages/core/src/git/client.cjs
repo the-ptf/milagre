@@ -34,10 +34,8 @@ class GitError extends Error {
   }
 }
 
-// Call sites select the read or write surface explicitly. This is not an API for untrusted raw Git arguments.
 function isRead(args) {
   if (args.some((arg) => arg === "--output" || arg.startsWith("--output="))) return false;
-  // `git grep -O` hands its matches to a pager or editor. Only options count: a pattern follows -e, paths follow --.
   if (args[0] === "grep") {
     const end = args.indexOf("--");
     const options = args.slice(1, end === -1 ? undefined : end).filter((arg, index, list) => list[index - 1] !== "-e");
@@ -51,7 +49,6 @@ function isRead(args) {
   return false;
 }
 
-/** Adapt existing promise-based process injection at a module boundary. */
 function callbackExec(exec) {
   return (command, args, options, done) => {
     Promise.resolve()
@@ -73,7 +70,6 @@ function createGit({
   analysisOnly = false,
   lanes = sharedLanes,
 } = {}) {
-  // Each run waits for a git slot (process-lanes.cjs) and holds it until the process exits.
   function executeGit(cwd, args, options = {}) {
     if (!LIMITS[options.profile ?? "READ"]) throw new Error(`Unknown Git limit profile: ${options.profile}`);
     return lanes.run("git", () => spawnGit(cwd, args, options));
@@ -82,7 +78,6 @@ function createGit({
     const limits = LIMITS[profile];
     return new Promise((resolve) => {
       try {
-        // Analysis runs in the host, so provider sandboxes cannot protect it from Git's configured helpers.
         const processEnv = analysisOnly ? Object.fromEntries(Object.entries(env).filter(([name]) => !name.toUpperCase().startsWith("GIT_"))) : env;
         const readArgs = analysisOnly && ["diff", "log", "show"].includes(args[0]) ? [args[0], "--no-ext-diff", "--no-textconv", ...args.slice(1)] : args;
         const child = execFile(
@@ -116,8 +111,6 @@ function createGit({
   async function run(cwd, args, options) {
     if (!isRead(args)) throw new Error(`Git ${args[0]} requires the write surface; this surface is read-only.`);
     if (!analysisOnly) return executeGit(cwd, args, options);
-    // Even status/diff can clean worktree files. Read configuration without running filters,
-    // then neutralize every configured driver, including required and long-running filters.
     const filters = await executeGit(cwd, ["config", "--null", "--name-only", "--get-regexp", "^filter\\..*\\.(clean|smudge|process|required)$"]);
     if (!filters.ok && filters.code !== 1) return filters;
     const drivers = new Set(
@@ -147,8 +140,6 @@ function createGit({
       const full = await out(cwd, ["rev-parse", "--symbolic-full-name", recorded]);
       const named = /^refs\/(?:remotes\/[^/]+|heads)\/(.+)$/.exec(full ?? "");
       if (named && full.startsWith("refs/heads/")) {
-        // A local base that is behind its remote, or has diverged from it (a force-pushed main), would count
-        // everyone else's merged work as the chat's; compare against the remote unless the local branch is ahead.
         const upstream = (await out(cwd, ["for-each-ref", "--format=%(upstream)", full])) || `refs/remotes/origin/${named[1]}`;
         if (
           upstream.startsWith("refs/remotes/") &&
@@ -171,27 +162,20 @@ function createGit({
     return { name, ref: null };
   }
 
-  // The branch the checked-out branch was made from, by its reflog's first entry ("branch: Created from feature"), or
-  // null when it was made from HEAD or a bare commit, or the reflog is gone. Worktrees Milagre didn't make (an agent's,
-  // one made by hand) record no base, and a branch cut from a feature branch shouldn't be measured against main.
   async function createdFrom(cwd) {
     const branch = await out(cwd, ["symbolic-ref", "--quiet", "HEAD"]);
     if (!branch?.startsWith("refs/heads/")) return null;
     const entries = await out(cwd, ["log", "--walk-reflogs", "--format=%gs", "--end-of-options", branch]);
     const from = /^branch: Created from (.+)$/.exec(entries?.split("\n").at(-1) ?? "")?.[1];
     if (!from || from === "HEAD" || /^[0-9a-f]{7,64}$/i.test(from)) return null;
-    // Checked out from its own remote copy ("origin/<branch>" or "refs/remotes/origin/<branch>", e.g. someone's PR
-    // branch): that copy is not a base.
     const name = branch.slice("refs/heads/".length);
     return /^(?:refs\/remotes\/)?[^/]+\/(.+)$/.exec(from)?.[1] === name || from === name ? null : from;
   }
 
-  /** The base a chat's changes are measured against: the one Milagre recorded, else the branch it was made from, else the default. */
   async function chatBase(cwd, recorded) {
     return resolveBase(cwd, typeof recorded === "string" && recorded ? recorded : await createdFrom(cwd));
   }
 
-  // `worktree list -z` needs Git 2.36. Older Git rejects the switch, so fall back to newline records and remember which form works.
   let nulSeparated = true;
   async function worktreeBlocks(cwd) {
     if (nulSeparated) {
@@ -201,7 +185,6 @@ function createGit({
           .split("\0\0")
           .filter(Boolean)
           .map((block) => block.split("\0"));
-      // 129 is Git's usage-error exit code, whatever language its message is in.
       if (result.code !== 129 && !/unknown switch .z.|usage: git worktree/i.test(result.stderr)) throw new GitError(result);
       nulSeparated = false;
     }
@@ -221,9 +204,7 @@ function createGit({
           .find((field) => field.startsWith("branch "))
           ?.slice(7)
           .replace(/^refs\/heads\//, "");
-        // Git's spelling can differ from Node's (slashes, drive case or aliases).
         // Resolve existing Windows worktrees through the OS, preserving missing
-        // entries for activeWorktrees to filter out as before.
         let nativePath = folder;
         if (platform === "win32") {
           try {

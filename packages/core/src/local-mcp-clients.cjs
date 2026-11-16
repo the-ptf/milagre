@@ -2,7 +2,6 @@ const { privateJson, hash } = require("./local-mcp-store.cjs");
 const { clientCatalog, readConfig, prepareEdit, clientEntry, entryToken, canonical } = require("./local-mcp-client-files.cjs");
 const digest = (entry) => (entry === undefined ? null : hash(JSON.stringify(canonical(entry))));
 
-// Only hashes and grant IDs are kept here. The issued credential lives in the client's private config.
 function createLocalMcpClients({ directory, store, url, ...options }) {
   const file = privateJson(directory, "clients.json", {});
   let records = file.read();
@@ -11,7 +10,6 @@ function createLocalMcpClients({ directory, store, url, ...options }) {
   const clientFor = (id) => {
     const client = catalog.find((item) => item.id === id);
     if (!client || client.unavailable) throw Error(client?.unavailable ?? "Unknown MCP client");
-    // Keep an enabled installation at its recorded path even if an environment override changes.
     return { ...client, configPath: records[id]?.configPath ?? client.configPath };
   };
   const save = (id, record) => {
@@ -59,7 +57,6 @@ function createLocalMcpClients({ directory, store, url, ...options }) {
       configPath: client.configPath,
       entryHashes: [...new Set([digest(entry), digest(read.entry)].filter(Boolean))],
     };
-    // Persist the intent before editing the client. A restart can reconcile either side of this write.
     save(client.id, record);
     commit();
     save(client.id, { ...record, entryHashes: [digest(entry)] });
@@ -105,7 +102,6 @@ function createLocalMcpClients({ directory, store, url, ...options }) {
         if (needsRefresh) install(client, { connection, token }, read, previous);
         return statusOf(client);
       }
-      // Validate the config layout before issuing a credential. The placeholder is never written.
       prepareEdit(client, read, clientEntry(id, url(), "x".repeat(43)));
       const made = store.create(input, { clientId: id });
       problems.delete(id);
@@ -144,7 +140,6 @@ function createLocalMcpClients({ directory, store, url, ...options }) {
             authenticated = read.entry && store.authenticate(entryToken(read.entry)).id === connection.id;
           } catch {}
           if (authenticated) {
-            // App updates can move the stdio executable. Keep the credential and refresh owned paths.
             const token = entryToken(read.entry);
             if (digest(read.entry) !== digest(clientEntry(id, url(), token))) install(client, { connection, token }, read, record);
             continue;

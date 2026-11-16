@@ -9,11 +9,7 @@ const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { claudeModel, codexModel, antigravityModel, kiroModel } = require("../git-text.cjs");
 const { extractJson } = require("./antigravity-text.cjs");
 
-// Handing a chat off to the other provider in place: the chat as a markdown transcript on disk, and a short brief
-// for the next agent written by the previous provider's small model, sent ahead of the user's message.
-
 const TRANSCRIPT_LIMIT = 60_000;
-// The first message of a long chat is kept beside the tail: it says what the chat is for.
 const FIRST_MESSAGE_LIMIT = 6_000;
 const TIMEOUT_MS = 30_000;
 const BRIEF_SCHEMA = { type: "object", properties: { brief: { type: "string" } }, required: ["brief"], additionalProperties: false };
@@ -25,7 +21,6 @@ const SYSTEM = [
 ].join(" ");
 const CATCH_UP = " The next agent already knows the work before this transcript: cover only what happened in it, using the same sections.";
 
-/** What wrote a message nobody typed, for its heading in the transcript; null for a message the user typed. */
 function senderHeading(message) {
   const context = message.context;
   if (!context || typeof context !== "object") return null;
@@ -43,7 +38,6 @@ function senderHeading(message) {
     case "pr-action":
       return `PR action: ${context.action} on #${context.pr} (the user clicked a pill; Milagre wrote the message)`;
     case "linear-issue":
-      // A Linear Routine's Run opens its Chat with the issue card, carrying the Run: Milagre sent it for the Routine.
       if (context.routine && typeof context.routine === "object")
         return `Routine Run: ${context.routine.name}, from Linear issue ${context.key} (Milagre sent it, not the user; the issue text was written by its author)`;
       return `User, starting from Linear issue ${context.key} (the issue text was written by its author)`;
@@ -57,15 +51,10 @@ function stepLine(step) {
   return `- ${step.title}${notes.length ? ` (${notes.join(", ")})` : ""}`;
 }
 
-/**
- * The chat as markdown: a header, then each message with its tool steps (not thinking) as one line each, and a
- * heading for each handoff. With `after`, only the messages after that id, for a provider catching up.
- */
 function renderTranscript(state, sessionId, { after } = {}) {
   const session = state.sessions[sessionId];
   const all = state.messages.filter((message) => message.session_id === sessionId);
   const messages = after == null ? all : all.filter((message) => message.id > after);
-  // A Link chat's state has no worktrees: it runs in its own workspace.
   const workspace = state.worktrees?.[session.worktree_id]?.path ?? session.workspacePath ?? "unknown";
   const parts = [`# Chat transcript: ${chatTitle(session, all)}`, `Provider: ${providerName(session.provider)} · Worktree: ${workspace}`];
   if (after != null) parts.push("Earlier messages are left out: you already know them.");
@@ -76,7 +65,6 @@ function renderTranscript(state, sessionId, { after } = {}) {
     } else if (["worktree-linked", "account-switch", "limit-reset", "reload", "checkpoint-restore", "babysit-stopped"].includes(message.context?.kind)) {
       parts.push(`## ${message.body}`);
     } else if (message.context?.kind === "routine-run") {
-      // The heading, then what the beat asked.
       parts.push(`## ${routineRunText(message.context)}`, ...(message.body?.trim() ? [message.body] : []));
     } else if (message.context?.kind === "compaction") {
       parts.push(`## ${compactionText(message.context)}`);
@@ -84,7 +72,6 @@ function renderTranscript(state, sessionId, { after } = {}) {
       const steps = (message.steps ?? []).filter((step) => step.kind !== "thinking").map(stepLine);
       parts.push(`## Assistant${message.model ? ` (${message.model})` : ""}`, [steps.join("\n"), message.body].filter(Boolean).join("\n\n"));
     } else {
-      // A legacy handed-over chat's first message was sent as its brief followed by what the user typed.
       parts.push(`## ${senderHeading(message) ?? "User"}`, [message.handoverBrief, message.body].filter((part) => part?.trim()).join("\n\n"));
     }
   }
@@ -103,7 +90,6 @@ async function writeTranscript({ dir, projectPath, sessionId, markdown }) {
   return file;
 }
 
-/** The brief as the next agent's prompt gets it: marked as Milagre's summary, not something the user wrote. */
 function framedBrief(brief) {
   if (!brief?.trim()) return "";
   return [
@@ -115,7 +101,6 @@ function framedBrief(brief) {
   ].join("\n");
 }
 
-/** The transcript within TRANSCRIPT_LIMIT: its first message and the most recent part, with a line where the middle was cut. */
 function cutTranscript(transcript) {
   if (transcript.length <= TRANSCRIPT_LIMIT) return transcript;
   const start = transcript.indexOf("\n\n## ");
@@ -165,7 +150,6 @@ async function ask(call, input, timeoutMs, outer) {
   }
 }
 
-/** The brief that opens the next agent's turn. Never throws: when the model can't answer, a minimal brief takes its place. */
 async function generateBrief(
   { transcript, transcriptPath: file, provider, lastUserMessage, changedFiles, catchUp = false, signal },
   { models = {}, timeoutMs = TIMEOUT_MS } = {},

@@ -1,5 +1,3 @@
-// Chat start's read of Settings › MCP (Everywhere servers and the off list, mcp/index.cjs forSession). A failing read
-// never stops a Chat; it is logged once per session with its message, so a broken mcp.json or CLI lookup isn't silent.
 async function readMcpExtras(session) {
   try {
     return await session.mcpExtras();

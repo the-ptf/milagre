@@ -1,8 +1,4 @@
 const { scopeFromKey, scopeKey, isLinkScopeKey } = require("@milagre/shared/chat-scopes");
-/**
- * What a shared Link Chat's agent is told about its Projects. A Project gets its Worktree only when the agent is about
- * to edit it (link_worktree_create), so a Chat that changes one Project leaves the others' branches and folders alone.
- */
 function linkWorkspaceInstructions(worktrees, pending) {
   const owned = worktrees.length
     ? `The following Worktrees belong to this Chat and may be edited directly under its permission mode:\n${worktrees.map((member) => `${member.alias}: ${member.worktreePath}`).join("\n")}`
@@ -14,7 +10,6 @@ function linkWorkspaceInstructions(worktrees, pending) {
 }
 
 function createChatScopes({ projects, links, validateLink }) {
-  // The loaded Links' states, without those a delete marked.
   const liveLinks = () =>
     links
       .ids()
@@ -30,7 +25,6 @@ function createChatScopes({ projects, links, validateLink }) {
       return store.has(id);
     },
     projects: () => [...projects.projects(), ...links.ids().map((linkId) => scopeKey({ kind: "link", linkId }))],
-    // A deleted Link's sessions name no folder any more: its kept Worktrees are their Projects' (link:delete).
     worktreePaths: () => [
       ...projects.worktreePaths(),
       ...liveLinks().flatMap((state) => Object.values(state.sessions ?? {}).flatMap((session) => session.worktrees.map((member) => member.worktreePath))),
@@ -48,7 +42,6 @@ function createChatScopes({ projects, links, validateLink }) {
       const [store, id] = target(key);
       return store.update(id, change, options);
     },
-    // Messages of Chats that may be unloaded (see message-store.cjs): ProjectStates' readers, by scope key.
     load(key, chats) {
       const [store, id] = target(key);
       return store.load(id, chats);
@@ -102,7 +95,6 @@ function createChatScopes({ projects, links, validateLink }) {
       if (!readOnly && session.readOnlyReason) throw new Error(session.readOnlyReason);
       if (readOnly && isLinkScopeKey(key)) return { cwd: session.workspacePath, workspaceRoots: session.worktrees.map((member) => member.worktreePath) };
       if (!isLinkScopeKey(key)) return { cwd: state.worktrees[session.worktree_id]?.path };
-      // The Link's Projects, each { id, name, path }: the ones without a Worktree in this Chat yet are read from their main checkout.
       const projectsOfLink = (await validateLink(id)) ?? [];
       const fs = require("node:fs/promises");
       const path = require("node:path");
@@ -110,7 +102,6 @@ function createChatScopes({ projects, links, validateLink }) {
       for (const member of session.worktrees) {
         try {
           if ((await fs.realpath(member.worktreePath)) !== member.worktreePath) throw new Error("Worktree target changed");
-          // The branch is not part of the identity: the agent may switch or rename it (fix/..., renameWorktreeBranch).
           const registered = (await git.worktreeList(member.projectPath)).find((entry) => entry.path === member.worktreePath);
           if (!registered || (await git.commonDir(member.worktreePath)) !== (await git.commonDir(member.projectPath)))
             throw new Error("Worktree identity changed");

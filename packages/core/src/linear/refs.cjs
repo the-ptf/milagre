@@ -1,9 +1,7 @@
-// What a Chat's agent names in a Linear tool call, turned into the Mac's connected workspaces and issues (see tools.cjs).
 const { isIssueKey } = require("./links.cjs");
 
 const ISSUE_URL = /^https:\/\/linear\.app\/([^/\s]+)\/issue\/([a-z][a-z0-9]{0,6}-\d+)(?:[/?#]|$)/i;
 
-/** A workspace the agent named, in lower case, when it is connected; undefined when none was named. */
 function checkWorkspace(workspace, ids) {
   if (workspace === undefined) return undefined;
   const id = workspace.toLowerCase();
@@ -14,9 +12,7 @@ function checkWorkspace(workspace, ids) {
   return id;
 }
 
-/** `linear` holds the Mac's connections, `issues` reads issues through them (see linear/index.cjs and linear/issues.cjs). */
 function createLinearRefs({ linear, issues }) {
-  /** The connected workspace ids, or an error that says how to connect one. */
   function connected() {
     if (!linear.enabled()) throw new Error("Linear is off in Milagre (Settings › Connections › Linear).");
     const ids = linear.workspaces().map((workspace) => workspace.id);
@@ -24,7 +20,6 @@ function createLinearRefs({ linear, issues }) {
     return ids;
   }
 
-  /** An issue key, or a Linear issue URL, whose workspace then is the URL's: its key and the workspace that has it. */
   async function find(ref, workspace) {
     const ids = connected();
     const text = String(ref ?? "").trim();

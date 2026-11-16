@@ -2,7 +2,6 @@ const { z } = require("zod");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 
-/** The providers that can host an advisor. */
 const ADVISOR_PROVIDERS = /** @type {[string, ...string[]]} */ (PROVIDERS.filter((provider) => providerCapabilities(provider).advisor));
 const title = z.string().trim().min(1).max(120);
 const prompt = z.string().trim().min(1).max(40_000);

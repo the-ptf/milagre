@@ -7,7 +7,6 @@ const { powershell, powershellEnvironment } = require("../private-files.cjs");
 
 const jobs = new WeakMap();
 // Windows CommandLineToArgvW quoting. Backslashes before quotes or the closing
-// quote are doubled; arguments never become PowerShell expressions.
 function quoteWindowsArgument(value) {
   value = String(value);
   if (value && !/[\s"]/u.test(value)) return value;
@@ -107,19 +106,14 @@ function spawnWindowsJob(file, args, options = {}, spawnImpl = spawn) {
     "utf8",
   ).toString("base64");
   const source = Buffer.from(NATIVE, "utf8").toString("base64");
-  // Compile and decode with OS modules, then restore the application's module
-  // path. CreateProcess inherits its requested environment, not helper policy.
   const script = `$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; try { Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${source}'))); $p=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Environment]::GetEnvironmentVariable('MILAGRE_WINDOWS_JOB_SPEC'))) | ConvertFrom-Json); [Environment]::SetEnvironmentVariable('MILAGRE_WINDOWS_JOB_SPEC',$null); [Environment]::SetEnvironmentVariable('PSModulePath',$p.targetPSModulePath); $result=[MilagreJob]::Run($p.file,$p.commandLine,$p.cwd,$p.marker,[uint32]$p.parent); exit $result } catch { [Console]::Error.WriteLine('Milagre Windows process containment failed: '+$_.Exception.Message); exit 1 }`;
   if (payload.length > 32000) throw new Error("The Windows agent command exceeds the process environment limit");
   const { windowsVerbatimArguments: _verbatim, ...keeperOptions } = options;
-  // WinPS can exit before evaluating its command when launched DETACHED_PROCESS.
-  // The native job contains the application; the keeper stays with its owner.
   const keeper = spawnImpl(
     powershell(),
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     {
       ...keeperOptions,
-      // The job's process gets the folder (the spec's cwd). The keeper outlives it, and would hold a Worktree against removal.
       cwd: path.dirname(powershell()),
       detached: false,
       env: { ...powershellEnvironment(targetEnvironment), MILAGRE_WINDOWS_JOB_SPEC: payload },
@@ -198,7 +192,6 @@ function spawnWindowsJob(file, args, options = {}, spawnImpl = spawn) {
     while (true) {
       const at = control.indexOf(marker);
       if (at < 0) {
-        // Only what could start a marker waits: a line an agent printed last (a sign-in link) must arrive now, whole.
         let keep = Math.min(marker.length - 1, control.length);
         while (keep && !marker.startsWith(control.slice(-keep))) keep--;
         const held = control.length - keep;
@@ -239,7 +232,6 @@ function spawnWindowsJob(file, args, options = {}, spawnImpl = spawn) {
   child.kill = (signal = "SIGTERM") => {
     if (rootExited) return false;
     child.killed = true;
-    // The keeper holds the original process handle, so its PID cannot be reused.
     if (child.pid) {
       try {
         process.kill(child.pid, signal);

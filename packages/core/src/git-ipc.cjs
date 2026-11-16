@@ -10,7 +10,6 @@ const NOT_A_CHAT_FOLDER = "This folder isn't one of the open project's chats.";
 
 const text = (value, limit = 20_000) => (typeof value === "string" ? value.slice(0, limit) : "");
 
-/** The chat context the renderer sends for the dialog's text, kept to the fields the prompt uses. */
 function chatContext(chat = {}) {
   return {
     chatTitle: text(chat.chatTitle, 500),
@@ -68,7 +67,6 @@ function registerGitHandlers(
     return cwd;
   }
 
-  // A write that changes what a PR's summary shows (state, review decision, checks): its folder's PRs are read again.
   const changing =
     (run) =>
     async (_event, request = {}) => {

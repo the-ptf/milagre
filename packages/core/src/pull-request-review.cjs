@@ -7,7 +7,6 @@ const { githubImageSource } = require("@milagre/shared/github-image");
 
 // The PR a Chat's branch opened, read and reviewed through gh: one GraphQL query for everything the PR panel
 // shows, and GraphQL mutations (or `gh pr merge` / `gh pr ready`) for every write. Draft comments live in the
-// viewer's pending review on GitHub, so the Mac and the phone see the same drafts.
 
 const GH_LOGIN = `Sign in to GitHub on ${thisComputer} with \`gh auth login\`, then try again.`;
 const GH_MISSING = `Install the GitHub CLI (\`${process.platform === "win32" ? "winget install GitHub.cli" : "brew install gh"}\`) on ${thisComputer} to review PRs here.`;
@@ -98,7 +97,6 @@ const toFile = (node) => ({
   status: STATUS[node.changeType] ?? "modified",
 });
 
-// The check-run conclusions and commit-status states GitHub counts against the PR, as its merge box does.
 const FAILED = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
 function toCheck(node) {
   if (node?.kind === "StatusContext") {
@@ -137,7 +135,6 @@ function toReviewers(pr) {
     // A team goes by its org/slug, the name gh takes to add or remove it.
     const team = text(who?.combinedSlug);
     const name = text(who?.login) || team;
-    // A re-requested review outranks the reviewer's last verdict.
     if (name) reviewers.set(name, { login: name, state: "REQUESTED", ...(team && !who?.login && { team: true }) });
   }
   return [...reviewers.values()];
@@ -227,7 +224,6 @@ function names(value, pattern, what) {
 const LABEL = /^[^\0\n]{1,100}$/;
 // gh reads list flags as CSV: quoted, a label's commas and quotes stay part of its name.
 const csv = (value) => `"${value.replaceAll('"', '""')}"`;
-// A user login, or an org/team slug.
 const REVIEWER = /^[\w.-]{1,100}(\/[\w.-]{1,100})?$/;
 
 function filePath(value) {
@@ -250,10 +246,6 @@ function range(base, head) {
   return { base, head };
 }
 
-/**
- * `exec(command, args, options)` resolves `{ stdout }` or rejects with `stdout`/`stderr`/`code`, as
- * promisified execFile does. Every method returns a result object and never throws.
- */
 function createPullRequestReview({
   exec = scheduled(defaultExec),
   env = process.env,
@@ -300,7 +292,6 @@ function createPullRequestReview({
     return commits ? { ...detail, localCommits: commits } : detail;
   }
 
-  /** Commits on the folder's HEAD that the PR's head doesn't have: made here and not pushed to it yet. */
   async function localCommits(cwd, head) {
     if (!/^[0-9a-f]{40}$/.test(head)) return 0;
     const counted = await git.read.run(cwd, ["rev-list", "--count", `${head}..HEAD`]);
@@ -325,7 +316,6 @@ function createPullRequestReview({
     return nodeId(data?.addPullRequestReview?.pullRequestReview?.id);
   }
 
-  /** Makes sure both commits are in the folder's object store, fetching them by id when a push came from elsewhere. */
   async function haveCommits(cwd, oids) {
     const missing = [];
     for (const oid of oids) if (!(await git.read.run(cwd, ["cat-file", "-e", `${oid}^{commit}`])).ok) missing.push(oid);
@@ -335,7 +325,6 @@ function createPullRequestReview({
     return true;
   }
 
-  /** Uploads redirect to signed storage; repository images use the contents API. The token stays on GitHub. */
   async function attachment(cwd, url) {
     const source = githubImageSource(url);
     if (!source) throw new ReviewError("That isn't a GitHub image.");
@@ -348,8 +337,6 @@ function createPullRequestReview({
         if (!Array.isArray(listed)) throw new ReviewError("GitHub didn't send this image.");
         refs.push(...listed.map((item) => item.ref));
       }
-      // Match complete ref names, longest first, and never guess from a successful file read.
-      // Branches win a same-name branch/tag ambiguity, as on GitHub's blob URLs.
       let resolved = false;
       for (let length = parts.length - 1; length > 0 && !resolved; length--) {
         for (const space of namespaces) {
@@ -360,7 +347,6 @@ function createPullRequestReview({
           break;
         }
       }
-      // An abbreviated commit has no entry in the named-ref list.
       if (!resolved && (namespace || !/^[0-9a-f]{4,39}$/i.test(parts[0]))) throw new ReviewError("GitHub didn't send this image.");
     }
     const token = (await gh(cwd, ["auth", "token", "--hostname", "github.com"])).trim();
@@ -374,8 +360,6 @@ function createPullRequestReview({
         if (++redirects > 3 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
         const target = new URL(location);
         if (target.username || target.password) throw new ReviewError("GitHub didn't send this image.");
-        // A renamed repository redirects within the contents API; keep its raw media type and authentication.
-        // Signed storage receives neither credentials nor GitHub's API headers.
         image = await fetch(location, {
           redirect: "manual",
           signal: AbortSignal.timeout(20_000),
@@ -383,7 +367,6 @@ function createPullRequestReview({
         });
       }
       let type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
-      // The contents API labels raw bytes with its negotiated media type, rather than the image's MIME type.
       if (source.kind === "repository" && type === "application/vnd.github.raw+json") type = source.mime;
       if (!image.ok || !type.startsWith("image/") || !image.body) throw new ReviewError("GitHub didn't send this image.");
       if (Number(image.headers.get("content-length")) > MAX_IMAGE) {
@@ -392,7 +375,6 @@ function createPullRequestReview({
       }
       const chunks = [];
       let size = 0;
-      // Leaving the async iterator on error cancels the stream before any more bytes are buffered.
       for await (const chunk of image.body) {
         size += chunk.length;
         if (size > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
@@ -409,10 +391,8 @@ function createPullRequestReview({
   return {
     detail: ({ cwd, number: n } = {}) => guard(async () => ({ ok: true, pr: await read(cwd, number(n)) })),
 
-    /** An image of the PR's description or comments, which a private repository serves only to a signed-in viewer. */
     image: ({ cwd, url } = {}) => guard(async () => ({ ok: true, dataUrl: await attachment(cwd, url) })),
 
-    /** The PR's files as GitHub diffs them: merge-base(base, head)..head, read from the folder's own git. */
     diffFiles: ({ cwd, base, head } = {}) =>
       guard(async () => {
         const commits = range(base, head);
@@ -429,7 +409,6 @@ function createPullRequestReview({
         return diff.readDiffFile({ cwd, mode: "range", range: commits, path, oldPath });
       }),
 
-    /** A draft comment on a line (or `startLine`..`line`), added to the viewer's pending review. */
     comment: ({ cwd, number: n, path, line, startLine, side = "RIGHT", body: written } = {}) =>
       guard(async () => {
         const review = await pendingReview(cwd, number(n));
@@ -446,7 +425,6 @@ function createPullRequestReview({
         return { ok: true };
       }),
 
-    /** A draft reply in an existing thread, added to the viewer's pending review. */
     reply: ({ cwd, number: n, threadId, body: written } = {}) =>
       guard(async () => {
         const review = await pendingReview(cwd, number(n));
@@ -464,7 +442,6 @@ function createPullRequestReview({
         return { ok: true };
       }),
 
-    /** Submits the pending review with a verdict, or a review with only a body when nothing is pending. */
     submit: ({ cwd, number: n, event, body: written } = {}) =>
       guard(async () => {
         if (!EVENTS.has(event)) throw new ReviewError("Choose Comment, Approve or Request changes.");
@@ -494,7 +471,6 @@ function createPullRequestReview({
         return { ok: true };
       }),
 
-    /** The repository's labels, for the labels picker. */
     labels: ({ cwd } = {}) =>
       guard(async () => {
         const listed = JSON.parse(await gh(cwd, ["label", "list", "--json", "name,color,description", "--limit", "1000"]));
@@ -516,7 +492,6 @@ function createPullRequestReview({
         return { ok: true };
       }),
 
-    /** Who can be asked to review: the repository's assignable users. */
     reviewerCandidates: ({ cwd } = {}) =>
       guard(async () => {
         const out = await gh(cwd, ["api", "repos/{owner}/{repo}/assignees", "--paginate", "--jq", ".[].login"]);
@@ -539,7 +514,6 @@ function createPullRequestReview({
         return { ok: true };
       }),
 
-    /** Merges now, or turns auto-merge on (`auto`) or off (`disableAuto`). `admin` bypasses unmet requirements where the viewer may. */
     merge: ({ cwd, number: n, method = "squash", auto = false, admin = false, disableAuto = false } = {}) =>
       guard(async () => {
         const ref = String(number(n));
@@ -551,7 +525,6 @@ function createPullRequestReview({
         return { ok: true };
       }),
 
-    /** Marks a draft ready for review, or (`draft`) turns it back into a draft. */
     ready: ({ cwd, number: n, draft = false } = {}) =>
       guard(async () => {
         await gh(cwd, ["pr", "ready", String(number(n)), ...(draft ? ["--undo"] : [])]);

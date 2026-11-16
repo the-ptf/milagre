@@ -43,7 +43,6 @@ function imagePaths(message, cwd, { includeViewed = true } = {}) {
   return paths;
 }
 
-/** Only images actually shared by an assistant may escape the normal Project image roots. */
 class ChatImages {
   constructor({ states, runs, broadcast }) {
     Object.assign(this, { states, runs, broadcast });
@@ -65,7 +64,6 @@ class ChatImages {
         const info = await handle.stat();
         if (!info.isFile()) throw new Error("Not an image file.");
         if (info.size > MAX_ATTACHMENT_BYTES) throw new Error(IMAGE_ERRORS.size);
-        // Bounded even if the file grows after stat.
         const buffer = Buffer.alloc(info.size + 1);
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
         if (bytesRead !== info.size) throw new Error("Image changed while reading. Try again.");
@@ -85,7 +83,6 @@ class ChatImages {
     copying.catch(() => {
       if (this.copies.get(key)?.promise === copying) this.copies.delete(key);
     });
-    // Metadata only, with bounded lifetime. Persisted messages own durable references.
     if (this.copies.size > 256) this.copies.delete(this.copies.keys().next().value);
     return copying;
   }
@@ -93,16 +90,13 @@ class ChatImages {
     if (message.role !== "assistant") return message;
     const images = [...(message.images || [])];
     const cwd = this.cwd(state, message, projectPath);
-    // Keep Markdown and generated images in their original slots; snapshots have their own allowance.
     const legacy = [...imagePaths(message, cwd, { includeViewed: false })].slice(0, 16);
     const viewed = [...imagePaths({ steps: message.steps?.filter((step) => step.imageOrigin === "viewed") }, cwd)].slice(0, 16);
     for (const file of new Set([...legacy, ...viewed])) {
       if (images.some((image) => image.sourcePath === file || image.path === file)) continue;
       try {
         images.push(await this.copy(projectPath, file));
-      } catch {
-        /* A missing screenshot must not lose the reply. */
-      }
+      } catch {}
     }
     return images.length === (message.images?.length || 0) ? message : { ...message, images };
   }
@@ -115,7 +109,6 @@ class ChatImages {
       const message = { ...run, session_id: sessionIdFromKey(key) };
       if (imagePaths(message, this.cwd(state, message, projectPath)).has(requested)) return (await this.copy(projectPath, requested)).path;
     }
-    // An unloaded Chat's messages (see message-store.cjs) are looked at only where their saved JSON names the file.
     const name = path.basename(requested);
     const needles = [...new Set([JSON.stringify(name).slice(1, -1), encodeURIComponent(name), encodeURI(name)])];
     const messages = this.states.messagesContaining ? await this.states.messagesContaining(projectPath, needles) : state.messages;

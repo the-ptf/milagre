@@ -6,15 +6,9 @@ const path = require("node:path");
 
 // Opened from Finder or the Dock, Milagre gets launchd's environment: PATH is /usr/bin:/bin:/usr/sbin:/sbin
 // and nothing the user's shell sets is there, so neither CLI is found and agent commands miss node, gh,
-// LANG and the rest. At startup the login shell is asked for its environment once, started the way a
-// terminal starts it (`-ilc`), and fills in what the app lacks. PATH is merged instead: the shell's
-// folders first, then the app's, then common install folders, so the CLIs are found even when the shell
-// can't be read.
 
 const SHELL_TIMEOUT_MS = 10_000;
 const NPM_TIMEOUT_MS = 5_000;
-// Shells that take `-i -l -c` and run the command line below as written. Others aren't started; the
-// install folders still apply.
 const SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh"]);
 // Not imported: set by the throwaway shell itself (PWD, OLDPWD, SHLVL, _), or meaning something to Electron or the
 // host that the user's shell can't know about this app (a shell started from a terminal that runs Electron as Node).
@@ -22,13 +16,10 @@ const { HOST_ONLY: SHELL_ONLY } = require("../host-env.cjs");
 // What launchd gives an app opened from Finder or the Dock. Any other PATH came from a terminal.
 const LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
-// Only absolute commands and `;`, which zsh, bash and fish all read the same way. The random mark keeps
-// whatever rc files print (banners, prompts) out of the result.
 function shellCommand(mark) {
   return `/usr/bin/printf '%s' '${mark}'; /usr/bin/env -0; /usr/bin/printf '%s' '${mark}'`;
 }
 
-// The environment `env -0` printed between the two marks (NUL-separated KEY=value), or null.
 function parseShellEnv(stdout, mark) {
   const start = stdout.indexOf(mark);
   const end = start < 0 ? -1 : stdout.indexOf(mark, start + mark.length);
@@ -41,9 +32,6 @@ function parseShellEnv(stdout, mark) {
   return env.PATH ? env : null;
 }
 
-// Starts the login shell once. Resolves its environment as soon as the closing mark arrives, or null when
-// the shell can't be started, exits without printing it (an rc file that execs something else), or
-// outlives the timeout, in which case its whole process group is killed.
 function readLoginShellEnv({
   shell,
   env = process.env,
@@ -70,8 +58,6 @@ function readLoginShellEnv({
       settled = true;
       resolve(result);
     };
-    // The timer stays armed after the closing mark: a shell that hangs in an exit hook is killed with its
-    // group at the timeout all the same. It only stops once the shell has ended.
     const timer = setTimeoutImpl(() => {
       try {
         killGroup(child.pid);
@@ -98,8 +84,6 @@ function readLoginShellEnv({
 }
 
 // nvm's default node, where npm puts global CLIs such as Codex: ~/.nvm/alias/default names a version
-// ("24", "v24.13.0"); the newest installed version it matches, or the newest installed for an alias
-// such as lts/*.
 function nvmBin(home, { exists, readdir, readFile }) {
   const root = path.join(home, ".nvm/versions/node");
   if (!exists(root)) return null;
@@ -120,8 +104,6 @@ function nvmBin(home, { exists, readdir, readFile }) {
   return match ? path.join(root, match, "bin") : null;
 }
 
-// Where the CLIs and their tools usually live, for when the shell can't be read or its PATH misses one.
-// Only folders that exist.
 function installDirs(
   home = os.homedir(),
   { exists = fs.existsSync, readdir = fs.readdirSync, readFile = fs.readFileSync, platform = process.platform, env = process.env } = {},
@@ -140,8 +122,8 @@ function installDirs(
   return [
     path.join(home, ".local/bin"), // Claude Code's native installer
     path.join(home, ".claude/local"), // Claude Code's older local npm install
-    "/opt/homebrew/bin", // Homebrew on Apple silicon
-    "/usr/local/bin", // Homebrew on Intel, and most installers
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
     nvmBin(home, { exists, readdir, readFile }),
     path.join(home, ".volta/bin"),
     path.join(home, ".asdf/shims"),
@@ -154,7 +136,6 @@ function installDirs(
 
 // npm's global bin folder (`<npm prefix -g>/bin`), where `npm install -g @openai/codex` puts Codex. Usually it
 // is on PATH already, but npm can be set up to install where no shell looks: an npmrc `prefix`, or Homebrew's
-// node falling back to its versioned Cellar folder. Asked from the home folder so a Project's .npmrc has no
 // say. Null when npm isn't found or doesn't answer.
 function npmGlobalBin({ env = process.env, home = os.homedir(), execFileImpl = execFile } = {}) {
   return new Promise((resolve) => {
@@ -169,7 +150,6 @@ function npmGlobalBin({ env = process.env, home = os.homedir(), execFileImpl = e
   });
 }
 
-// Joins PATH lists in order. Each folder keeps its first position; empty entries (the current folder) are dropped.
 function mergePathFor(platform, ...lists) {
   const delimiter = platform === "win32" ? ";" : ":";
   const seen = new Set();
@@ -190,16 +170,12 @@ function userShell() {
   }
 }
 
-// Adds the install folders that exist now to PATH, after the folders it already has. A CLI installed while
-// the app runs (its installer may create ~/.local/bin, or nvm a new node version) is found on the next check.
 function refreshInstallPath({ target = process.env, platform = process.platform, home = os.homedir(), dirs = installDirs } = {}) {
   const name = platform === "win32" ? Object.keys(target).find((key) => key.toLowerCase() === "path") || "Path" : "PATH";
   target[name] = mergePathFor(platform, target[name], dirs(home, { platform, env: target }));
 }
 
-// Fills the app's environment from the login shell, once, at startup. Variables the app already has keep
 // their value (HOME, TMPDIR, SSH_AUTH_SOCK from launchd), except PATH. Opened from Finder or the Dock,
-// PATH becomes the shell's folders, then the app's, then the install folders. Started from a terminal
 // (npm run dev), the app's own PATH comes first, so an `nvm use`, direnv or virtualenv there still wins,
 // then the shell's, then the install folders. npm's global bin folder goes last, asked for with that PATH.
 async function loadLoginEnvironment({
@@ -226,11 +202,8 @@ async function loadLoginEnvironment({
   return { source: imported ? "shell" : "fallback" };
 }
 
-// Absolute path of a CLI on the app's PATH, or null when it isn't installed.
 function resolveExecutable(name, { platform = process.platform, env = process.env, execFileImpl = execFile, fsImpl = fs } = {}) {
   if (platform === "win32") {
-    // where.exe and cmd.exe search cwd before PATH. A Project must never supply
-    // the executable used for agent discovery, turns or updates.
     if (!/^[a-z0-9_.-]+$/i.test(name)) return Promise.resolve(null);
     const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path");
     const extensions = (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter((ext) => /^\.(exe|com|cmd|bat)$/i.test(ext));

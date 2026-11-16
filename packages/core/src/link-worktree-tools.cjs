@@ -2,11 +2,6 @@ const { z } = require("zod");
 const { isLinkScopeKey, scopeFromKey } = require("@milagre/shared/chat-scopes");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 
-/**
- * The tool a shared Link Chat's agent calls before its first change in a Project: the Chat's Worktree there, made on
- * demand so a Chat that changes one Project creates no branch or folder in the others. `create({ chatId, linkId,
- * sessionId, project })` resolves to `{ member, created }` once the Worktree and its setup are ready.
- */
 function linkWorktreeToolDefinitions(chatId, create) {
   if (!isLinkScopeKey(projectOfKey(chatId))) return [];
   return [

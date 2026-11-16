@@ -5,7 +5,6 @@ const CHECK_MS = 30 * 60_000;
 const RETRY_MS = 60_000;
 const releaseVersion = (value) => typeof value === "string" && /^\d+\.\d+\.\d+$/.test(value);
 
-// Advisory only: a failed release lookup never changes whether a provider can run.
 function createProviderUpdates({ inspect = inspectCli, fetchImpl = fetch, now = Date.now, ready = () => {}, antigravity } = {}) {
   const cache = new Map();
   const latest = (provider) => {

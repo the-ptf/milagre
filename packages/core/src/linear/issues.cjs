@@ -1,5 +1,3 @@
-// Linear issues for the Mac's Chat list, the issue picker and each Worktree's chip (see the Linear spec, Issues).
-// Every method reads through the Mac's connections; `linear` holds them (workspaces, query by workspace, enabled).
 const { isIssueKey, issueKeyInBranch } = require("./links.cjs");
 
 const ISSUE_TTL_MS = 60_000;
@@ -15,23 +13,15 @@ const ASSIGNED = `query Assigned {
 const SEARCH = `query Search($q: String!) { searchIssues(term: $q, first: 25) { nodes { ${ISSUE_FIELDS} } } }`;
 const ONE = `query One($id: String!) { issue(id: $id) { ${ISSUE_FIELDS} } }`;
 const TEAMS = "query Teams { teams(first: 100) { nodes { key } } }";
-// The issue's state and its team's started states; the first by position is the one Linear calls In Progress.
 const STARTED_STATES = `query Started($id: String!) {
   issue(id: $id) { id state { type } team { states(filter: { type: { eq: "started" } }) { nodes { id position } } } }
 }`;
 const MOVE = "mutation Move($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }";
-// Only work not yet begun moves; started, done and canceled issues keep their status.
 const NOT_STARTED = new Set(["triage", "backlog", "unstarted"]);
 
-// Routines' Linear polling (routines/linear-poller.cjs). Every field is checked against the schema @linear/sdk publishes:
-// Issue.history (IssueHistory.toAssignee.isMe, addedLabels.name, toState.name), IssueFilter.updatedAt and
-// CommentFilter.createdAt (DateComparator.gt/lte, a DateTimeOrDuration), QueryIssuesArgs.sort (IssueSortInput.updatedAt
-// with PaginationSortOrder Ascending), Comment.botActor (ActorBot.type) and Comment.user. Sizes keep each query well under
-// Linear's 10 000-point complexity cap (linear-poller.test.cjs estimates them).
 const ROUTINE_ISSUE_FIELDS =
   "id identifier title description url state { name type color } team { key } assignee { name } labels(first: 10) { nodes { name } }";
 const HISTORY_FIELDS = "id createdAt toAssignee { isMe } addedLabels { name } toState { name }";
-// Oldest change first, so a poll cut short by its request budget can resume where it stopped.
 const POLL_ISSUES_PAGE = `issues(first: 25, after: $after, sort: [{ updatedAt: { order: Ascending } }], filter: { updatedAt: { gt: $since } }) {
     nodes { ${ROUTINE_ISSUE_FIELDS} updatedAt history(first: 10) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
     pageInfo { hasNextPage endCursor }
@@ -39,26 +29,19 @@ const POLL_ISSUES_PAGE = `issues(first: 25, after: $after, sort: [{ updatedAt: {
 const POLL_ISSUES = `query PollIssues($since: DateTimeOrDuration!, $after: String) {
   ${POLL_ISSUES_PAGE}
 }`;
-// A scan resumed on a later poll also reads the issue its page cursor names: an issue edited since then sits elsewhere
-// in the updatedAt order, so the cursor would skip what lies between, and the poller starts that scan over instead.
 const POLL_ISSUES_RESUME = `query PollIssuesResume($since: DateTimeOrDuration!, $after: String!, $anchor: String!) {
   anchor: issue(id: $anchor) { id updatedAt }
   ${POLL_ISSUES_PAGE}
 }`;
-// One issue's whole history, when the poll's first page of it wasn't all of it.
 const ISSUE_HISTORY = `query IssueHistory($id: String!, $after: String) {
   issue(id: $id) { history(first: 50, after: $after) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
 }`;
-// Comments have no sort: a window bounded on both sides, read whole before its comments are queued (the poller narrows
-// it when it holds more than the poller buffers).
 const POLL_COMMENTS = `query PollComments($since: DateTimeOrDuration!, $until: DateTimeOrDuration!, $after: String) {
   comments(first: 50, after: $after, filter: { createdAt: { gt: $since, lte: $until } }) {
     nodes { id body createdAt botActor { type } user { name displayName } issue { ${ROUTINE_ISSUE_FIELDS} } }
     pageInfo { hasNextPage endCursor }
   }
 }`;
-// The Routines form's choices: a workspace's teams, and one team's labels (its own and the workspace's, groups left out,
-// as an issue can't carry a group) and workflow states.
 const ROUTINE_TEAMS = "query RoutineTeams { teams(first: 250) { nodes { key name } } }";
 const ROUTINE_TEAM_OPTIONS = `query RoutineTeamOptions($team: String!) {
   issueLabels(first: 250, filter: { isGroup: { eq: false }, or: [{ team: { key: { eqIgnoreCase: $team } } }, { team: { null: true } }] }) { nodes { name } }
@@ -77,7 +60,6 @@ function toIssue(node) {
   };
 }
 
-// Linear reports a missing entity as a failed GraphQL query whose message or extensions say "not found".
 function isNotFound(error) {
   if (error?.code !== "failed") return false;
   const extensions = error.extensions ?? {};
@@ -85,24 +67,21 @@ function isNotFound(error) {
 }
 
 function createLinearIssues({ linear, now = Date.now }) {
-  const cache = new Map(); // "workspace:KEY" -> { at, issue }, the issue null when that workspace has no such key
-  const teams = new Map(); // workspace -> { at, keys }, its team keys in upper case
-  const assigned = new Map(); // workspace -> { at, account, issues }, the viewer's open issues the picker opens on
+  const cache = new Map();
+  const teams = new Map();
+  const assigned = new Map();
 
-  // Why issues can't be read right now, or null when they can.
   function unavailable() {
     if (!linear.enabled()) return { error: OFF, notConnected: true };
     if (!linear.workspaces().length) return { error: DISCONNECTED, notConnected: true };
     return null;
   }
 
-  // Every issue says which workspace it came from, so picking it reads the same workspace again.
   const fromWorkspace = (workspace, node) => {
     const issue = toIssue(node);
     return issue ? { ...issue, workspace } : null;
   };
 
-  // A key the workspace doesn't have is a missing issue, not a failed read. Any other failure is thrown.
   async function fetchOne(workspace, key) {
     try {
       const data = await linear.query(workspace, ONE, { id: key });
@@ -113,7 +92,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     }
   }
 
-  // One query for every key. Linear fails the whole batch when one key is missing, so then each key is asked alone.
   async function fetchBatch(workspace, keys) {
     const aliases = keys.map((key, index) => `i${index}: issue(id: ${JSON.stringify(key)}) { ${ISSUE_FIELDS} }`).join("\n");
     try {
@@ -127,10 +105,9 @@ function createLinearIssues({ linear, now = Date.now }) {
     return found;
   }
 
-  // `wanted` holds [workspace, KEY] pairs; the answer maps "workspace:KEY" to the issue or null.
   async function readIssues(wanted, { fresh = false } = {}) {
     const result = new Map();
-    const missing = new Map(); // workspace -> keys to fetch
+    const missing = new Map();
     for (const [workspace, key] of wanted) {
       const id = `${workspace}:${key}`;
       if (result.has(id)) continue;
@@ -158,8 +135,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     return keys;
   }
 
-  // The connected workspaces to ask about a key, best guess first: the one named, else those with the key's team,
-  // else every one in order (a workspace whose teams can't be read right now is still tried).
   async function candidates(key, workspace) {
     const ids = linear.workspaces().map((item) => item.id);
     if (typeof workspace === "string" && ids.includes(workspace.toLowerCase())) return [workspace.toLowerCase()];
@@ -170,7 +145,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     return owners.length ? owners : ids;
   }
 
-  // A current copy of one issue, from the named workspace or the first one that has the key. Null when none has it.
   async function readIssue(key, workspace) {
     const upper = String(key).toUpperCase();
     if (!isIssueKey(upper)) return null;
@@ -181,9 +155,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     return null;
   }
 
-  // The Chat list's picker: one workspace's assigned issues, or its matches for a query. With no workspace named it is
-  // the first one connected. The assigned list is kept for a minute so reopening the picker is instant; `fresh` (its
-  // refresh button) reads it again. `workspaces` lets the picker show one tab per workspace.
   async function list(query, { fresh = false, workspace } = {}) {
     const unready = unavailable();
     if (unready) return unready;
@@ -193,7 +164,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     const text = typeof query === "string" ? query.trim() : "";
     try {
       if (!text) {
-        // Another sign-in to the same workspace is another account's issues.
         const account = chosen.viewer?.email ?? "";
         const hit = assigned.get(chosen.id);
         if (!fresh && hit?.account === account && now() - hit.at < ISSUE_TTL_MS) return { issues: hit.issues, ...named };
@@ -211,23 +181,20 @@ function createLinearIssues({ linear, now = Date.now }) {
     }
   }
 
-  // Worktree path -> the issue it was started from or names in its branch. Never throws: a failed read shows no chips.
   async function worktreeIssues(worktrees) {
     if (unavailable()) return {};
     try {
       const ids = linear.workspaces().map((item) => item.id);
-      const named = []; // [path, workspace, KEY]
+      const named = [];
       for (const worktree of worktrees) {
-        if (worktree.linearIssue === null) continue; // Explicitly unlinked, even when the branch still names an issue.
+        if (worktree.linearIssue === null) continue;
         if (worktree.linearIssue) {
           const key = String(worktree.linearIssue).toUpperCase();
           const stored = String(worktree.linearWorkspace ?? "").toLowerCase();
-          // A link saved before workspaces names no workspace: the one whose teams have the key reads it.
           const workspace = ids.includes(stored) ? stored : (await candidates(key).catch(() => ids))[0];
           if (workspace) named.push([worktree.path, workspace, key]);
           continue;
         }
-        // Best effort: a workspace whose team keys can't be read recognizes no branch.
         for (const id of ids) {
           const key = issueKeyInBranch(worktree.name, await teamKeys(id).catch(() => new Set()));
           if (key) {
@@ -248,8 +215,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     }
   }
 
-  // Moves an issue a Chat just started from to its team's first started status. Says what happened and never throws:
-  // "moved", "kept" (already begun, or the team has no started status) or "failed".
   async function markStarted(key, workspace) {
     try {
       const data = await linear.query(workspace, STARTED_STATES, { id: key });
@@ -259,7 +224,6 @@ function createLinearIssues({ linear, now = Date.now }) {
       if (!target) return "kept";
       const moved = await linear.query(workspace, MOVE, { id: issue.id, stateId: target.id });
       if (moved?.issueUpdate?.success !== true) return "failed";
-      // The chips read the new status on their next poll, not a minute later.
       forget(key, workspace);
       return "moved";
     } catch {
@@ -267,8 +231,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     }
   }
 
-  // What the Routines form offers for a Linear trigger: the connected workspaces, the named one's teams (the first
-  // workspace when none is named), and the named team's labels and states. Never throws: a failed read says why in `error`.
   async function routineOptions({ workspace, team } = {}) {
     const empty = { workspaces: [], teams: [], labels: [], states: [] };
     const unready = unavailable();
@@ -277,7 +239,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     const result = { ...empty, workspaces: connected.map((item) => ({ id: item.id, name: item.organization?.name ?? item.id })) };
     const named = typeof workspace === "string" && workspace !== "";
     const chosen = named ? connected.find((item) => item.id === workspace.toLowerCase()) : connected[0];
-    // A named workspace that isn't connected says so, rather than answer with another workspace's teams.
     if (!chosen) return { ...result, error: "That Linear workspace isn't connected." };
     try {
       const data = await linear.query(chosen.id, ROUTINE_TEAMS);
@@ -295,7 +256,6 @@ function createLinearIssues({ linear, now = Date.now }) {
     }
   }
 
-  /** Drops one issue's copy, after it changed in Linear. */
   function forget(key, workspace) {
     cache.delete(`${workspace}:${String(key).toUpperCase()}`);
   }

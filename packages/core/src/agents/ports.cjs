@@ -1,13 +1,5 @@
 const { powershell, powershellEnvironment } = require("../private-files.cjs");
 const { killWindowsTree } = require("./process-tree.cjs");
-// The TCP ports each chat's agent has opened: dev servers, Metro, a database it started.
-// A port belongs to a chat when the process listening on it was started by one of the agent's
-// command shells. The agent CLI's other children (MCP servers) share its process group, while
-// each command shell leads its own, so only a child that is a shell or leads its own group
-// counts. A server that outlived its shell (`server &`) keeps the shell's group, so a chat
-// remembers the groups it has seen and keeps showing their ports after the shell exits, and
-// after the agent's session closes, until nothing in them runs any more. An unobserved orphan
-// has no proven Chat owner. Sharing a working directory never grants ownership.
 const { execFile } = require("node:child_process");
 
 const POLL_MS = 3000;
@@ -16,7 +8,6 @@ const WINDOWS_SHELLS = new Set(["cmd.exe", "powershell.exe", "pwsh.exe", "sh.exe
 
 const basename = (command) => command.split("/").pop().replace(/^-/, "");
 
-/** `ps -axo pid=,ppid=,pgid=,comm=` as rows of { pid, ppid, pgid, command }. */
 function parsePs(output) {
   return output.split(/\r?\n/).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line);
@@ -34,7 +25,6 @@ function parsePs(output) {
   });
 }
 
-/** `lsof -F pcn` listing TCP listeners, as rows of { pid, command, port, address }, one per pid and port. */
 function parseLsof(output) {
   const rows = [];
   const seen = new Set();
@@ -59,7 +49,6 @@ function parseLsof(output) {
 // Claude Code points a background command's stdout at its task's output file, <session>/tasks/<task id>.output.
 const TASK_OUTPUT = /[\\/]tasks[\\/]([A-Za-z0-9_-]{1,100})\.output$/;
 
-/** `lsof -d 1 -F pn` as a Map of pid to the background task its stdout writes to, for the pids that write to one. */
 function parseTaskOutputs(output) {
   const tasks = new Map();
   let pid = 0;
@@ -73,11 +62,6 @@ function parseTaskOutputs(output) {
   return tasks;
 }
 
-/**
- * The pids that belong to each chat's commands. `roots` maps a chat id to its agent's { pid, cwd } and its Terminals' `shells`
- * (absent once its session closed); `groups` maps a chat id to the process groups it has seen, and is
- * updated in place.
- */
 function chatProcesses(processes, roots, groups, platform = "posix") {
   const children = new Map();
   const byPid = new Map(processes.map((row) => [row.pid, row]));
@@ -107,7 +91,6 @@ function chatProcesses(processes, roots, groups, platform = "posix") {
     for (const root of agents) {
       for (const child of children.get(root.pid) ?? []) {
         // Windows has no POSIX process groups: the collector's pgid is just the PID.
-        // Only a command shell establishes ownership, never a direct CLI/MCP helper.
         if (
           platform === "win32"
             ? WINDOWS_SHELLS.has(child.command.split(/[\\/]/).pop().toLowerCase())
@@ -125,7 +108,6 @@ function chatProcesses(processes, roots, groups, platform = "posix") {
     for (const row of processes) if (known.has(row.pgid) && !agents.some((root) => root.pgid === row.pgid)) add(row);
     const live = new Set();
     for (const pid of pids) live.add(byPid.get(pid).pgid);
-    // A group is forgotten once nothing in it runs.
     if (live.size) groups.set(chatId, live);
     else groups.delete(chatId);
     if (pids.size) result.set(chatId, pids);
@@ -133,10 +115,6 @@ function chatProcesses(processes, roots, groups, platform = "posix") {
   return result;
 }
 
-/**
- * Each chat's ports, sorted, from the listeners and each chat's pids. Chats with no ports are left out. `taskOf(pid)` is
- * the agent's background task that started a listener, if any, so its port stands in for that task.
- */
 function chatPorts(listeners, processesByChat, taskOf = () => undefined) {
   const result = {};
   for (const [chatId, pids] of processesByChat) {
@@ -151,8 +129,6 @@ function chatPorts(listeners, processesByChat, taskOf = () => undefined) {
   return result;
 }
 
-// ps runs every poll; lsof (the costly one) only when a chat's pids changed, or this often, to notice a
-// listener that a long-lived process opened later.
 const LSOF_MAX_AGE_MS = 10_000;
 
 function samePorts(a, b) {
@@ -199,11 +175,6 @@ const run = (command, args) =>
     );
   });
 
-/**
- * Polls while any chat has an agent running or a group it has seen. `roots()` returns a Map of chat id
- * to its agent's { pid, cwd }; `publish(ports)` gets every chat's ports, { [chatId]: [{ port, pid, command, address }] },
- * whenever they change.
- */
 class PortWatcher {
   constructor({
     platform = process.platform,
@@ -227,16 +198,13 @@ class PortWatcher {
     this.portIdentities = new Map();
     this.ports = {};
     this.timer = null;
-    // The poll under way, if any.
     this.polling = null;
   }
 
-  /** Every chat's ports now. */
   snapshot() {
     return this.ports;
   }
 
-  /** Starts polling, if it isn't already; call when an agent's turn starts. */
   wake() {
     if (this.closed || this.polling) return;
     clearTimeout(this.timer);
@@ -265,8 +233,6 @@ class PortWatcher {
       const owned = this.groups.get(chatId);
       const rootsToProtect = [...this.roots().values()].flatMap((root) => [root.pid, ...(root.agents ?? []), ...(root.shells ?? [])]).filter(Boolean);
       const protectedPids = new Set(rootsToProtect);
-      // Killing an ancestor would also kill a nested agent or Terminal, even though
-      // that root itself is excluded from the command's owned processes.
       for (const protectedPid of rootsToProtect) {
         let row = this.processes.get(protectedPid);
         const ancestors = new Set();
@@ -302,7 +268,6 @@ class PortWatcher {
       return stopped;
     }
     const pgid = this.processes.get(pid)?.pgid;
-    // A Terminal's shell leads its own group: stopping a port there must leave the Terminal open.
     const shellGroups = new Set((this.roots().get(chatId)?.shells ?? []).map((shell) => this.processes.get(shell)?.pgid));
     const target = pgid && this.groups.get(chatId)?.has(pgid) && !shellGroups.has(pgid) ? -pgid : pid;
     const signal = (name) => {
@@ -321,10 +286,6 @@ class PortWatcher {
     return true;
   }
 
-  /**
-   * `fresh` re-reads listeners even if the chats' pids are unchanged, e.g. after stopping one. A fresh read asked for
-   * while a poll runs waits for it and reads again: that poll may have read the processes before the change.
-   */
   async poll({ fresh = false } = {}) {
     if (this.closed) return;
     if (this.polling) {
@@ -340,7 +301,6 @@ class PortWatcher {
     return this.polling;
   }
 
-  /** One read of the processes and their listeners; schedules the next poll. */
   async read(fresh) {
     const roots = this.roots();
     if (roots.size || this.groups.size) {
@@ -360,7 +320,6 @@ class PortWatcher {
       const pids = [...new Set([...byChat.values()].flatMap((set) => [...set]))];
       const listeners = await this.listenersOf(pids, fresh);
       const tasks = this.listeners.tasks;
-      // A server writes to its task's output itself, or its command's shell (its group leader) does.
       this.set(chatPorts(listeners, byChat, (pid) => tasks.get(pid) ?? tasks.get(this.processes.get(pid)?.pgid)));
     } else this.set({});
     if (!this.closed && (this.roots().size || this.groups.size)) {
@@ -382,7 +341,6 @@ class PortWatcher {
     return rows;
   }
 
-  /** Which background task each listener's command belongs to, read from where it and its group leader write stdout. */
   async taskOutputsOf(rows) {
     if (!rows.length || this.platform === "win32") return new Map();
     const pids = new Set(rows.flatMap((row) => [row.pid, this.processes.get(row.pid)?.pgid].filter((pid) => pid > 0)));
@@ -392,8 +350,6 @@ class PortWatcher {
 
   set(ports) {
     if (this.closed) return;
-    // The process table advances before the listener read completes. A Stop must
-    // capture the identity of its published row, not a replacement from that read.
     if (this.platform === "win32")
       this.portIdentities = new Map(Object.values(ports).flatMap((rows) => rows.map(({ pid }) => [pid, this.windowsIdentities.get(pid)])));
     if (samePorts(ports, this.ports)) return;

@@ -5,7 +5,6 @@ const { z } = require("zod");
 const { designKitDataSchema } = require("@milagre/shared/design-schemas");
 const ID = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
 
-/** Project-owned immutable snapshots. No update ever rewrites a screen's pinned kit. */
 function createDesignKits({ directory, projectForChat }) {
   let queue = Promise.resolve();
   const serial = (fn) => {

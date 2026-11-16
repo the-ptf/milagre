@@ -2,7 +2,6 @@ const { openAttachment } = require("./attachment-preview.cjs");
 const CHUNK_BYTES = 256 * 1024;
 const stamp = (stat) => [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
 
-/** A bounded chunk, carried over the same authenticated connection as the Chat. */
 async function readAttachmentChunk(file, offset, version, roots, attached) {
   if (!Number.isSafeInteger(offset) || offset < 0 || (offset > 0 && typeof version !== "string")) throw new Error("Invalid file download offset.");
   const { handle, stat } = await openAttachment(file, roots, attached);

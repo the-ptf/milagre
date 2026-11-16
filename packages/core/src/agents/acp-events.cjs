@@ -5,17 +5,7 @@ const { acpPlanTasks } = require("./tasks.cjs");
 const { toolMetadata } = require("@milagre/shared/tool-activity");
 
 // ACP session/update notifications -> Milagre's AgentEvents (see steps.cjs for the step shapes). The
-// mapper keeps its own state per session:
-//   turnId, hasText, textBreak   the reply streaming now; a tool call or thinking between two runs of
-//                                text starts a new paragraph
-//   thinking                     the thinking step streaming now ({ id, text, startedAt })
-//   calls                        tool calls by toolCallId, merged from tool_call and tool_call_update
-//   steps                        ids of the tool steps started and not yet completed
-//   editDiffs                    diffs from edit calls that only asked for approval, by path
 // Verified against Antigravity 1.3.0: a command's call goes pending (asking) -> in_progress -> completed.
-// An edit asks with one call ("Run create_file?", with the diff) and runs as another ("Running edit_file",
-// no diff); the asking call is closed later as failed, "approved but never executed". So a call becomes a
-// step once it runs, and an edit borrows the diff its approval showed.
 
 const text = (value) => (typeof value === "string" ? value : "");
 const first = (object, keys) => {
@@ -75,7 +65,6 @@ function rawText(raw) {
 }
 
 // One ACP diff { path, oldText, newText } as a unified diff: lines shared at the start and the end are
-// left out, the rest shows as removed and added. A missing oldText is a new file.
 function splitLines(value) {
   const lines = normalize(value).split("\n");
   if (lines.at(-1) === "") lines.pop();
@@ -107,7 +96,6 @@ function editVerb(call, diffs) {
   return "Edited";
 }
 
-// "Running view_file", "Run create_file?" -> "view_file".
 function toolName(call) {
   const title = text(call.title).trim();
   return /^(?:Running|Run)\s+([\w.:-]+)\??$/.exec(title)?.[1] ?? title;
@@ -117,7 +105,6 @@ function compact(object) {
   return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
 }
 
-// A tool call -> the start of its step.
 function acpStep(call, diffs = diffsOf(call)) {
   const id = String(call.toolCallId);
   const file = fileOf(call);
@@ -156,7 +143,6 @@ const isHeartbeatCreate = (call) => {
   return mcp && typeof mcp === "object" ? mcp.server === "milagre" && mcp.tool === "heartbeat_create" : toolName(call) === "milagre_heartbeat_create";
 };
 
-// A finished tool call -> the end of its step.
 function acpStepResult(call, diffs = diffsOf(call)) {
   const id = String(call.toolCallId);
   const exitCode = call.rawOutput && typeof call.rawOutput === "object" ? (call.rawOutput.exitCode ?? call.rawOutput.exit_code) : undefined;
@@ -167,7 +153,6 @@ function acpStepResult(call, diffs = diffsOf(call)) {
   if (failed) return compact({ id, status, detail: output ? capText(output) : undefined });
   if (call.kind === "read") return { id, status };
   if (["edit", "delete", "move"].includes(call.kind)) return compact({ id, status, title: acpStep(call, diffs).title, detail: acpDiffText(diffs) });
-  // Milagre's heartbeat_create starts its result with a JSON line naming the Heartbeat: the step carries it, the detail doesn't.
   if (isHeartbeatCreate(call)) {
     const { routine, detail } = routineRef(output);
     if (routine) return compact({ id, status, routine, detail: detail ? capText(detail) : undefined });
@@ -184,7 +169,6 @@ function textDelta(state, value) {
   return events;
 }
 
-// The thinking step streaming now, ended.
 function closeThinking(state) {
   const thinking = state.thinking;
   if (!thinking) return [];
@@ -205,7 +189,6 @@ function toolEvents(update, state) {
   state.calls.set(id, call);
   const status = call.status ?? "in_progress";
   const own = diffsOf(call);
-  // An edit asking for approval: its diff is kept for the call that runs it.
   if (status === "pending") {
     for (const diff of own)
       state.editDiffs.set(
@@ -222,7 +205,6 @@ function toolEvents(update, state) {
   if (status === "completed" || status === "failed") {
     state.calls.delete(id);
     if (file && !own.length) state.editDiffs.delete(file);
-    // The approval call of an edit that ran as another call.
     if (!started && status === "failed" && /approved but never executed/i.test(rawText(call.rawOutput))) return [];
     if (started) state.steps.delete(id);
     else events.push({ type: "step-started", step: acpStep(call, diffs) });
@@ -236,7 +218,6 @@ function toolEvents(update, state) {
   return events;
 }
 
-// session/update's `update` -> events.
 function mapAcpUpdate(update, state) {
   switch (update?.sessionUpdate) {
     case "agent_message_chunk": {
@@ -286,7 +267,6 @@ function mapAcpUpdate(update, state) {
   }
 }
 
-// The session's model and mode, and the models it offers, from configOptions.
 function readConfigOptions(options, state) {
   if (!Array.isArray(options)) return;
   for (const option of options) {
@@ -302,7 +282,6 @@ function readConfigOptions(options, state) {
   if (options.some((option) => option?.id === "model")) state.effortLevel = options.find((option) => option?.id === "effortLevel")?.currentValue;
 }
 
-// session/prompt's stopReason -> the turn's end.
 function stopReasonEvent(stopReason, name) {
   if (stopReason === "cancelled") return { type: "turn-cancelled" };
   if (stopReason === "max_tokens") return { type: "turn-failed", message: `${name} stopped: the reply reached its length limit.` };

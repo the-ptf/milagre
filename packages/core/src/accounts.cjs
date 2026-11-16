@@ -19,15 +19,12 @@ const validScope = (key) => {
 };
 
 // Antigravity has no terminal login to inherit (Milagre installs it itself, and its ACP server keeps its
-// own state), so its "default" Account is a Milagre-owned private profile, accounts/antigravity-default, never
-// ~/.gemini. It is signed in from Settings like an added Account.
 const ANTIGRAVITY_DEFAULT = "antigravity-default";
 // Kiro has one Account, the one kiro-cli is signed in to. Signing in to Identity Center takes the organization's start
 // URL and region, so it happens in a terminal; Milagre neither adds Kiro Accounts nor signs them in.
 const KIRO_SIGN_IN_MESSAGE = "Kiro uses the account kiro-cli is signed in to. Run `kiro-cli login` in a terminal to sign in or switch, then refresh.";
 const text = (value) => (typeof value === "string" ? value.slice(0, 200) : undefined);
 
-// Only public identity fields leave the host. Never forward raw CLI output or parsing errors.
 async function inspectAccount(provider, { command, env }) {
   if (provider === "antigravity") return inspectAntigravityAccount({ env });
   if (provider === "kiro") {
@@ -87,7 +84,6 @@ function createAccounts({
       parsed.accounts.some((a) => !PROVIDERS.includes(a.provider) || !/^[a-f0-9-]{36}$/.test(a.id) || typeof a.label !== "string")
     )
       throw new Error();
-    // A provider added after the file was written starts on its default.
     for (const provider of PROVIDERS) {
       const id = parsed.selected[provider] ?? "default";
       if (id !== "default" && !parsed.accounts.some((a) => a.provider === provider && a.id === id)) throw new Error();
@@ -145,7 +141,6 @@ function createAccounts({
     account(provider, id);
     if (provider === "antigravity") {
       // Every Antigravity Account, the default included, runs from its own profile with file token storage and
-      // without ambient Google credentials or BROWSER.
       const next = { ...env };
       for (const name of AMBIENT_ENV) delete next[name];
       next.GEMINI_HOME = id === "default" ? antigravityDefault() : directory(provider, id);
@@ -168,12 +163,8 @@ function createAccounts({
             "ANTHROPIC_PROFILE",
           ];
     for (const name of names) next[name] = "";
-    // The CLI owns this profile's OAuth login. Host-managed mode bypasses that
-    // saved login, so clear it even when inherited from the launching process.
     if (provider === "claude") next.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = "";
     next[provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"] = directory(provider, id);
-    // The Account gets the MCP servers set up in the connected CLI account. A config that can't be read
-    // or written leaves the Account's servers as they were; it never stops the Chat.
     try {
       inheritMcp(provider, {
         sourceDir: directory(provider, "default"),
@@ -217,8 +208,6 @@ function createAccounts({
   }
   async function list(refresh = false) {
     await ready();
-    // Installation is independent of cached sign-in state. Keep saved profiles on disk,
-    // but expose account controls only while the provider exists on this computer.
     await Promise.all(
       PROVIDERS.map(async (provider) => {
         const available = Boolean((await cli(provider)).command);
@@ -226,7 +215,6 @@ function createAccounts({
         installed.set(provider, available);
       }),
     );
-    // A batch started before installation did not include the newly available provider.
     if (refresh && checking) await checking;
     if (refresh || !identities.size) {
       checking ??= Promise.all(
@@ -313,9 +301,7 @@ function createAccounts({
     preparePrivateDirectory(root);
     const target = directory(provider, a.id);
     preparePrivateDirectory(target);
-    // Credentials remain isolated. Share history so switching can resume an existing Chat.
     if (provider === "antigravity") {
-      // Skills come from ~/.gemini when present; conversations are shared with the default profile.
       prepareAntigravityProfile(target, { home, history: antigravityDefault() });
       persist({ ...saved, accounts: [...saved.accounts, a] });
       return login(provider, a.id);
@@ -330,7 +316,6 @@ function createAccounts({
       fs.mkdirSync(original, { recursive: true });
       fs.symlinkSync(original, path.join(target, name), process.platform === "win32" ? "junction" : "dir");
     }
-    // Copy settings once; never symlink a file the provider may rewrite during sign-in.
     const config = provider === "codex" ? "config.toml" : "settings.json";
     try {
       fs.copyFileSync(path.join(source, config), path.join(target, config));
@@ -356,7 +341,6 @@ function createAccounts({
       try {
         body = fs.readFileSync(configFile, "utf8");
       } catch {}
-      // Root settings must precede TOML tables. Existing root values are replaced, table values stay untouched.
       const at = body.search(/^\s*\[/m);
       const split = at < 0 ? body.length : at;
       const head = body.slice(0, split).replace(/^\s*cli_auth_credentials_store\s*=.*\n?/gm, "");
@@ -381,8 +365,6 @@ function createAccounts({
     if (closed) throw new Error("Account manager is closing.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
     // Antigravity's default profile belongs to Milagre, so it signs in here. Other defaults belong to the terminal:
-    // one that isn't signed in yet (a first launch) signs in here too, the way `claude auth login` would, but a
-    // signed-in one is never replaced.
     if (id === "default" && provider !== "antigravity") {
       const identity = identities.get(key(provider, id)) ?? (await check(provider, id));
       if (identity.state === "ready") throw new Error("Use Add account to sign in without replacing your connected CLI account.");
@@ -457,7 +439,6 @@ function createAccounts({
     if (id === "default") throw new Error("The connected CLI account cannot be removed here.");
     const wasSelected = saved.selected[provider] === id;
     cancel(provider, id);
-    // Retain the private profile: a running reply may still use it. Forgetting never revokes its tokens.
     persist({
       ...saved,
       accounts: saved.accounts.filter((a) => a.id !== id),

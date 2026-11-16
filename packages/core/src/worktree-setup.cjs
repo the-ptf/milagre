@@ -7,8 +7,6 @@ const { killTree } = require("./agents/process-tree.cjs");
 const { capOutput, code, formatDuration } = require("./agents/steps.cjs");
 
 // A command a new worktree runs once, before its chat's first turn (`npm ci`, `uv sync`): the project's
-// setting, or `setup` in .milagre/worktree.json at the repo root, which wins like .worktreeinclude does
-// for the files to copy. The command runs in every new worktree, whichever of the two it comes from.
 
 const SETUP_FILE = ".milagre/worktree.json";
 const SETUP_TIMEOUT_MS = 10 * 60 * 1000;
@@ -16,14 +14,8 @@ const NOTE_LINES = 40;
 const BATCH_MS = 50;
 // Shells that take `-l -c`; any other $SHELL runs the command in zsh, the macOS default.
 const SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh"]);
-// Once the shell exits, output still in the pipes gets this long; a background process it left holding them doesn't hold the turn.
 const DRAIN_MS = 500;
 
-/**
- * The command new worktrees run: { source: "repo" | "setting" | "none", command, note? }. A repo file that
- * sets `setup` is in charge even when it sets it empty (the repo runs nothing). A file that isn't valid
- * JSON, or whose `setup` isn't a string, is ignored with a note, and the setting applies.
- */
 async function resolveSetupCommand(projectPath, setting) {
   const fallback = (note) => {
     const command = typeof setting === "string" ? setting.trim() : "";
@@ -119,7 +111,6 @@ function runSetupCommand({
       output = capOutput(output + text);
       onOutput(text);
     };
-    // Decoded per stream, so a character split across two chunks stays whole.
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", append);
@@ -144,7 +135,6 @@ function runSetupCommand({
 // oxlint-disable-next-line no-control-regex -- matches ANSI escape sequences in setup output
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 
-/** The last `lines` lines of command output, without colour codes or trailing blank lines. */
 function outputTail(text, lines = NOTE_LINES) {
   const trimmed = String(text ?? "")
     .replace(ANSI, "")
@@ -159,14 +149,12 @@ function failureReason(result, timeoutMs) {
   return `was stopped by ${result.signal ?? "a signal"}`;
 }
 
-/** What the agent's first prompt gets after a setup that failed or timed out; nothing after one that worked or was stopped. */
 function setupNote(command, result, timeoutMs = SETUP_TIMEOUT_MS) {
   if (result.status !== "failed" && result.status !== "timed-out") return "";
   const tail = outputTail(result.output);
   return `Note: the worktree setup command \`${command}\` ${failureReason(result, timeoutMs)}.${tail ? ` Last output:\n${tail}` : ""}`;
 }
 
-// The setup is its own kind of step: the chat shows it as a row of its own, not as one of the agent's tool calls.
 function setupStarted(id, command) {
   return { type: "step-started", step: { id, kind: "setup", title: `Running setup ${code(command)}`, detail: `$ ${command}\n` } };
 }
@@ -189,8 +177,6 @@ function setupCompleted(id, command, result, timeoutMs = SETUP_TIMEOUT_MS) {
   };
 }
 
-// Worktrees are keyed by their real path: git lists them resolved (/private/tmp, not /tmp), so the folder
-// createWorktree made and the chat's cwd only match once symlinks are followed.
 function worktreeKey(worktreePath) {
   try {
     return realpathSync(worktreePath);
@@ -199,10 +185,6 @@ function worktreeKey(worktreePath) {
   }
 }
 
-/**
- * The setup commands waiting for their worktree's first turn, and the ones running. `send(chatId, event)`
- * shows a run as a shell step at the start of the chat's reply, its output streamed in batches.
- */
 class WorktreeSetups {
   constructor({ send, run = runSetupCommand, timeoutMs = SETUP_TIMEOUT_MS, batchMs = BATCH_MS, file, review }) {
     Object.assign(this, { send, run, timeoutMs, batchMs, file, review });
@@ -243,12 +225,10 @@ class WorktreeSetups {
     return this.saving;
   }
 
-  /** Records what a new worktree runs before its first turn. Resolves to { command, source }, or null when there is none. */
   async prepare({ worktreePath, projectPath, resolved, strict = false }) {
     if (this.file) await this.load();
     if (!resolved.command) return null;
     const key = worktreeKey(worktreePath);
-    // A recovered Named Link never overwrites a setup that already started or failed.
     if (!this.pending.has(key)) this.pending.set(key, { projectPath, command: resolved.command, source: resolved.source, strict });
     await this.save();
     return { command: resolved.command, source: resolved.source };
@@ -260,10 +240,6 @@ class WorktreeSetups {
     await this.save();
   }
 
-  /**
-   * Runs the worktree's setup before the chat's first turn and resolves to { cancelled, note }.
-   * A message sent while it runs waits for the same run.
-   */
   async beforeTurn(chatId, cwd) {
     if (this.file) await this.load();
     if (this.closed) return { cancelled: true, note: "" };
@@ -272,7 +248,6 @@ class WorktreeSetups {
     if (active) return { ...(await active.done), note: "" };
     const shared = this.worktreeRuns.get(key);
     if (shared) {
-      // Another Chat owns the review. Stop must cancel this waiter without answering or cancelling that review.
       const controller = new AbortController();
       const cancelled = new Promise((resolve) => {
         controller.signal.addEventListener("abort", () => resolve({ cancelled: true, note: "" }), { once: true });
@@ -343,7 +318,6 @@ class WorktreeSetups {
     return done;
   }
 
-  /** Stops a chat's running setup (Escape, archive) and waits until it and what it started are gone. */
   async cancel(chatId) {
     const active = this.running.get(chatId);
     if (!active) return;

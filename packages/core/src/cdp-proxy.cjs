@@ -6,22 +6,11 @@ const { pipeline } = require("node:stream/promises");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { WebSocketServer } = require("ws");
 
-// A Chrome DevTools endpoint for pages that have no debugging port of their own: the desktop's Browser panel pages,
 // whose only debugger is Electron's webContents.debugger. It answers like a browser started with
-// --remote-debugging-port (/json/version, /json/list, /devtools/page/<id>), so the browser service's adapter connects to
-// it like to any other browser. It listens on loopback only, every path starts with a token made per launch, and a
-// request whose Host isn't this loopback address is refused (a web page can't rebind a name onto it).
 const PAGE_ID = /^[A-F0-9]{32}$/;
 const MAX_MESSAGE = 4 * 1024 * 1024;
-// The page's webContents.debugger can reach past the page: Target.* attaches to other targets (Milagre's own window
-// among them) and a sessionId addresses what it attached. A client gets the page's own domains only.
 const OUT_OF_PAGE = /^(Target|Browser|SystemInfo|Tethering|Storage)\./;
-// The session's cookies, httpOnly ones included, for every site: a page's session holds the sign-ins of every Chat that
-// shares it (this Mac's Chats, or one computer's), and no browser tool reads or writes them.
 const COOKIES = /^Network\.(getCookies|getAllCookies|setCookies?|deleteCookies|clearBrowserCookies)$/;
-// A file the agent uploads to a page (browser_upload): DOM.setFileInputFiles takes paths the page's own browser reads, so
-// a host whose agent drives a paired desktop's page puts the file on that desktop first, here. It lands in a folder of its
-// own under the system's temp folder, which goes when the proxy closes (Milagre quits).
 const MAX_FILE = 4 * 1024 * 1024 * 1024;
 const FILE_NAME = /^[^/\\\0]{1,200}$/;
 
@@ -38,8 +27,6 @@ function createCdpProxy({ product, pages, session }) {
   let port = 0;
   const sockets = new Set();
   const loopbackHost = () => `127.0.0.1:${port}`;
-  // A loopback IP, never a name (DNS rebinding). Any port: a paired computer reaches this proxy through its own loopback
-  // forwarder (panel-forwarders.cjs), so its Host names that forwarder's port.
   const fromLoopback = (host) => typeof host === "string" && /^127\.0\.0\.1:\d{1,5}$/.test(host);
   const prefix = `/${token}`;
   const json = (response, status, value) => {
@@ -49,7 +36,6 @@ function createCdpProxy({ product, pages, session }) {
   /** @type {Promise<string> | null} */
   let uploadsReady = null;
   const uploadFolder = () => (uploadsReady ??= fs.promises.mkdtemp(path.join(os.tmpdir(), "milagre-browser-uploads-")));
-  /** PUT <prefix>/files/<name>: the body becomes a file with that name; the answer is its path on this computer. */
   async function receive(request, response, name) {
     const size = Number(request.headers["content-length"]);
     if (!Number.isSafeInteger(size) || size < 0 || size > MAX_FILE) return json(response, 413, { error: "too large" });
@@ -151,7 +137,6 @@ function createCdpProxy({ product, pages, session }) {
   }
 
   return {
-    /** Starts listening on a free loopback port; resolves to what the browser service needs to connect. */
     async start() {
       if (port) return { port, token, browserId };
       await /** @type {Promise<void>} */ (
@@ -164,7 +149,6 @@ function createCdpProxy({ product, pages, session }) {
       port = address && typeof address === "object" ? address.port : 0;
       return { port, token, browserId };
     },
-    /** Ends every DevTools connection to a page that is gone. */
     drop(pageId) {
       if (!PAGE_ID.test(pageId)) return;
       for (const ws of sockets) if (ws.pageId === pageId) ws.close(1001, "page closed");
@@ -173,7 +157,6 @@ function createCdpProxy({ product, pages, session }) {
       for (const ws of sockets) ws.terminate();
       server.closeAllConnections?.();
       await /** @type {Promise<void>} */ (new Promise((resolve) => server.close(() => resolve())));
-      // Files put here for a page's upload go with the proxy.
       const folder = uploadsReady && (await uploadsReady.catch(() => null));
       if (folder) await fs.promises.rm(folder, { recursive: true, force: true });
     },

@@ -5,7 +5,6 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 
-// When a live process with this pid started, or null when there is none (or it can't be read).
 function processStartTime(pid, { platform = process.platform, execFileSyncImpl = execFileSync } = {}) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return null;
   try {
@@ -39,9 +38,6 @@ function alive(pid) {
   }
 }
 
-// A lock is stale only when its owner is certainly gone: no process has its pid, or the one that does started after
-// the owner did (the pid was reused). Anything unclear (no readable record, another computer's record, a start time
-// that can't be read) counts as live: a live owner's lock is never removed.
 function staleOwner(lockPath) {
   let owner;
   try {
@@ -54,7 +50,6 @@ function staleOwner(lockPath) {
   const startedAt = Date.parse(owner.processStartedAt ?? owner.startedAt);
   if (Number.isNaN(startedAt)) return null;
   if (alive(owner.pid)) {
-    // ps reports whole seconds, rounded down, so a reused pid started within the owner's own second still counts as live.
     const running = processStartTime(owner.pid);
     if (running === null || running <= startedAt) return null;
   }
@@ -62,7 +57,6 @@ function staleOwner(lockPath) {
 }
 
 // An owner writes its record right after making the lock, so an empty lock older than a minute was left by a crash
-// between the two (or during a release) and has no owner to protect.
 function abandoned(lockPath) {
   try {
     return fs.readdirSync(lockPath).length === 0 && Date.now() - fs.statSync(lockPath).mtimeMs > 60_000;
@@ -71,7 +65,6 @@ function abandoned(lockPath) {
   }
 }
 
-// Removes a stale lock. A second directory makes the takeover itself exclusive, so two processes that both found the
 // lock stale can't remove the one the other has just taken. A takeover left behind by a crash expires after a minute.
 function clearStale(lockPath) {
   const takeover = `${lockPath}.takeover`;
@@ -85,7 +78,6 @@ function clearStale(lockPath) {
     return false;
   }
   try {
-    // Read again inside the takeover: the lock may have changed hands since it was first found stale.
     if (!staleOwner(lockPath) && !abandoned(lockPath)) return false;
     fs.rmSync(lockPath, { recursive: true, force: true });
     return true;
@@ -94,8 +86,6 @@ function clearStale(lockPath) {
   }
 }
 
-// mkdir is the atomic ownership decision. A lock left by an owner that has certainly exited (see staleOwner) is taken
-// over; any other existing lock stays, and its path is reported for the operator.
 function acquireOwnership(lockPath) {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
   try {
@@ -133,9 +123,6 @@ function acquireOwnership(lockPath) {
         current = JSON.parse(fs.readFileSync(file, "utf8"));
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
-        // The record is already gone (removed by hand or by a cleanup), so there is no ownership left to give up.
-        // Throwing here would fail the host's close forever. The empty lock is left for abandoned() to take over:
-        // removing it could race a new owner that made the directory but has not written its record yet.
         released = true;
         return;
       }

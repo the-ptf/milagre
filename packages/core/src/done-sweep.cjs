@@ -1,8 +1,5 @@
 const { doneDue } = require("@milagre/shared/done");
 
-// The sweep that archives Done Chats once they have been Done for the retention in Settings. It looks at the state
-// memory holds (no read of a closed Project), and hands each due Chat to `archive`, which reads it again and archives it
-// only if it is still due: a Chat reopened in the meantime stays.
 const SWEEP_MS = 60 * 1000;
 
 function createDoneSweep({ settings, scopes, heldState, archive, isClosing = () => false, now = () => Date.now() }) {
@@ -26,7 +23,6 @@ function createDoneSweep({ settings, scopes, heldState, archive, isClosing = () 
     }
     return archived;
   }
-  // One sweep at a time: a slow one (a worktree removal) is not started again under itself.
   const run = () => (running ??= sweep().finally(() => (running = null)));
   return {
     sweep: run,

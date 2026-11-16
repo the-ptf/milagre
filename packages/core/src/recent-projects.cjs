@@ -3,11 +3,6 @@ const path = require("node:path");
 const { gitTopLevel, requireWorktreeRoot } = require("./editors.cjs");
 const { outsideGit } = require("./project-identity.cjs");
 
-// The projects opened lately, for the project menu: <userData>/recent-projects.json holds a list of
-// { path, name, openedAt }, most recent first, at most MAX_RECENT long. A folder that no longer exists is
-// left out whenever the list is read. Saves run one at a time and replace the file with a rename, so it is
-// always a whole list; damaged JSON reads as an empty list, and the next save replaces it.
-
 const MAX_RECENT = 10;
 
 function entryFrom(value) {
@@ -32,8 +27,6 @@ function createRecentProjects(file, { now = () => new Date() } = {}) {
   let queue = Promise.resolve();
   let counter = 0;
 
-  // Only a missing file or damaged JSON reads as empty when saving. Any other failure (permissions, a disk
-  // error) must not look like "no projects", or the save would wipe the list.
   async function read({ strict }) {
     let text;
     try {
@@ -68,7 +61,6 @@ function createRecentProjects(file, { now = () => new Date() } = {}) {
       .then(async () => {
         const current = await read({ strict: true });
         const changed = change(current);
-        // A change that leaves the list as it is (`current` itself) leaves the file as it is too.
         if (changed === current) return current;
         const entries = changed.slice(0, MAX_RECENT);
         await fs.mkdir(path.dirname(file), { recursive: true });
@@ -88,16 +80,11 @@ function createRecentProjects(file, { now = () => new Date() } = {}) {
 
   return {
     list: () => read({ strict: false }),
-    /**
-     * Puts a project at the top (once), as it opens. One at the top already stays as it is: only its openedAt would
-     * change, and every switch back to it would write the file again.
-     */
     add(projectPath) {
       const entry = entryFrom({ path: projectPath, openedAt: now().toISOString() });
       if (!entry) return Promise.reject(new Error("An absolute project path is required"));
       return save((entries) => (entries[0]?.path === entry.path ? entries : [entry, ...entries.filter((item) => item.path !== entry.path)]));
     },
-    /** Takes a project off the list. Its folder is never touched. */
     forget(projectPath) {
       const target = typeof projectPath === "string" && path.isAbsolute(projectPath) ? path.resolve(projectPath) : null;
       return save((entries) => entries.filter((item) => item.path !== target));
@@ -105,10 +92,6 @@ function createRecentProjects(file, { now = () => new Date() } = {}) {
   };
 }
 
-// Every way a project opens (the folder dialog, launch, a switch) puts it at the top, under the path project:switch
-// will accept: the path it was opened by when that is a checkout's top folder, else the top folder of the checkout
-// it sits in (Milagre launched from a subfolder), so leaving it never strands it. A folder outside any checkout still
-// opens, it just isn't listed. Resolves to the listed path, or null. A failed save never fails the open.
 async function rememberProject(store, projectPath, { topLevel = gitTopLevel, plain = plainFolder } = {}) {
   let listed;
   try {
@@ -131,7 +114,6 @@ async function rememberProject(store, projectPath, { topLevel = gitTopLevel, pla
   }
 }
 
-// A folder outside any Git repository, other than a disk's root, opens as a Project of its own (see project-identity.cjs).
 async function plainFolder(folder) {
   try {
     if (typeof folder !== "string" || !path.isAbsolute(folder)) return false;
@@ -142,8 +124,6 @@ async function plainFolder(folder) {
   }
 }
 
-// project:switch. The renderer is untrusted input: only a project on the list opens, and only while its real path is
-// still the top folder of a git checkout, or a folder outside Git.
 async function switchTarget(store, requested, { checkRoot = requireWorktreeRoot, plain = plainFolder } = {}) {
   const entry = typeof requested === "string" ? (await store.list()).find((item) => item.path === requested) : undefined;
   if (!entry) throw new Error("That project isn't in the list");
@@ -151,11 +131,6 @@ async function switchTarget(store, requested, { checkRoot = requireWorktreeRoot,
   return entry.path;
 }
 
-/**
- * The project to open at launch: the folder Milagre was started in when it's inside a git repo (a terminal launch),
- * else the most recent project that still opens (a repo, or a folder outside Git). A Dock, Finder or update relaunch
- * starts in "/", which is neither. With nothing to open, the window shows onboarding.
- */
 async function launchProject(store, cwd, { topLevel = gitTopLevel, plain = plainFolder } = {}) {
   if (
     cwd !== "/" &&

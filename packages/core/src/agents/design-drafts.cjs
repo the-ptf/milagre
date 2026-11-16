@@ -1,14 +1,4 @@
-// Claude streams a tool call's input as pieces of JSON (input_json_delta) while the model writes it. For Milagre's
-// design tools those pieces go to the windows as step-draft events, so the Designs canvas can build the design as the
-// agent writes it, before the call runs. Other tools' inputs are never sent.
-//
-// A draft is { type: "step-draft", id, tool, offset, text, done? }: `id` is the tool_use id, the same as the step the
-// call becomes; `text` continues the input at `offset` (the first event, at the block's start, is empty at 0); `done`
-// marks the input whole. Pieces go out at most every DRAFT_MS, and at the block's end.
-//
 // A subagent's calls draft the same way, with `agent`: the id of the Agent call that started it. Claude Code 2.1.299
-// sends no stream events for subagents (only their whole messages), so today only the parent's calls draft; a
-// subagent's design calls still reach the canvas as steps (events.cjs), which play back when saved.
 
 const DRAFT_TOOLS = /^mcp__milagre__(design_show|design_apply)$/;
 const DRAFT_MS = 120;
@@ -32,11 +22,8 @@ function flush(state, draft, done = false) {
   return [event];
 }
 
-/** step-draft events for one stream event of the parent agent, or of the subagent `agent` names. */
 function claudeDesignDrafts(event, state, agent = null) {
-  // Block indexes count per agent's message.
   const key = (index) => (agent ? `${agent}:${index}` : index);
-  // A new message starts its block indexes again; a block a cancelled stream never stopped is dropped.
   if (event.type === "message_start") {
     for (const [at, draft] of state.drafts ?? []) if ((draft.agent ?? null) === agent) state.drafts.delete(at);
     return [];

@@ -1,5 +1,3 @@
-// The token usage page's report (token-usage:read): the transcript scan's rows for a range, priced, cut into hours or
-// local days, and credited to Milagre's Projects and Chats. A session is a Chat's when it is (or was) the Chat's
 // Claude session or Codex thread; otherwise it belongs to the Project whose folder or Worktree it ran in.
 const os = require("node:os");
 const path = require("node:path");
@@ -10,14 +8,11 @@ const { priceOf } = require("./token-usage-pricing.cjs");
 const { HOUR } = require("./token-usage-scan.cjs");
 
 const RANGES = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
-// The calendar's days, today included; a picked span of days must fall inside it.
 const CALENDAR_DAYS = 90;
 const TOP_CHATS = 20;
 const TOP_PROJECTS = 25;
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
-// A read starts a scan when the last one is older than this.
 const RESCAN_MS = 30_000;
-// Projects' Chats are read again at most this often.
 const ATTRIBUTION_MS = 30_000;
 
 function emptyTotals() {
@@ -90,12 +85,10 @@ function validTimeZone(timeZone) {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
-/** The calendar's local days, oldest first, each with its hours (hour indexes since the epoch). */
 function calendarDays(timeZone, now) {
   const currentHour = Math.floor(now / HOUR);
   const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
   const byKey = new Map();
-  // Enough hours back to reach the start of the first day in any time zone.
   for (let hour = currentHour - (CALENDAR_DAYS + 1) * 24; hour <= currentHour; hour++) {
     const key = dayOf.format(new Date(hour * HOUR));
     const day = byKey.get(key) ?? { start: hour * HOUR, key, hours: [] };
@@ -105,10 +98,6 @@ function calendarDays(timeZone, now) {
   return [...byKey.values()].slice(-CALENDAR_DAYS);
 }
 
-/**
- * What the report covers: a span of calendar days the user picked (one day reads by the hour), else the range: the last
- * 24 hours, or the last N days with today.
- */
 function selection(range, days, calendar, now) {
   const hourly = (hours) => hours.map((hour) => ({ start: hour * HOUR, key: new Date(hour * HOUR).toISOString(), hours: [hour] }));
   if (days) {
@@ -128,7 +117,6 @@ function cleanDays(days) {
   return days.from <= days.to ? { from: days.from, to: days.to } : { from: days.to, to: days.from };
 }
 
-/** Every Chat owner, including those deliberately kept out of the Project registry. Metadata readers don't open Chats. */
 async function readTokenUsageScopes({ registry, chatsHome, projectState, linkState }) {
   const projects = [...(await registry.list())];
   if ((await chatsHome.exists()) && !projects.some((project) => chatsHome.isHome(project.path)))
@@ -154,7 +142,6 @@ async function readTokenUsageScopes({ registry, chatsHome, projectState, linkSta
   return entries;
 }
 
-/** Projects, Chats home and named Links, their folders and their Chats' native session ids. */
 function attributionIndex(projects, worktreeRoot) {
   const sessions = new Map();
   const folders = [];
@@ -188,7 +175,6 @@ function attributionIndex(projects, worktreeRoot) {
     for (const [folder, entry] of folders) {
       if (cwd === folder || cwd.startsWith(`${folder}${path.sep}`)) return entry;
     }
-    // A Worktree Milagre made and later removed: ~/.milagre/worktrees/<project folder name>/<worktree>.
     if (worktreeRoot && cwd.startsWith(`${worktreeRoot}${path.sep}`)) {
       const name = cwd.slice(worktreeRoot.length + 1).split(path.sep)[0];
       return byName.get(name) ?? null;
@@ -198,7 +184,6 @@ function attributionIndex(projects, worktreeRoot) {
   return { sessions, projectOfFolder };
 }
 
-/** "let-s-design-a-pr-7tea" → "Let s design a pr": the name Milagre gave a Worktree from its Chat's first message. */
 function worktreeTitle(cwd, worktreeRoot) {
   if (!cwd || !worktreeRoot || !cwd.startsWith(`${worktreeRoot}${path.sep}`)) return "";
   const name = path
@@ -217,10 +202,6 @@ function folderName(cwd) {
 
 const homeRelative = (cwd) => (cwd.startsWith(`${os.homedir()}${path.sep}`) ? `~${cwd.slice(os.homedir().length)}` : cwd);
 
-/**
- * The page's report from rows (token-usage-scan rows()), prices (token-usage-pricing models) and Projects
- * ({ path, name, state }). Pure, so tests feed it directly.
- */
 function buildReport({ rows, prices, projects, range, days, timeZone, now, worktreeRoot }) {
   range = RANGES[range] ? range : "7d";
   timeZone = validTimeZone(timeZone);
@@ -265,8 +246,6 @@ function buildReport({ rows, prices, projects, range, days, timeZone, now, workt
     if (!models.has(modelKey)) models.set(modelKey, { provider: row.provider, model: row.model, priced: !!price, totals: emptyTotals() });
     add(models.get(modelKey).totals, row, cost);
 
-    // A session no Chat holds now is an archived or deleted Chat when Milagre started it, else a run outside Milagre.
-    // Folders no Project holds go together under Outside Milagre, one row each.
     const chat = row.session ? index.sessions.get(row.session) : undefined;
     const project = chat?.project ?? index.projectOfFolder(row.cwd);
     const groupKey = project ? `project:${project.path}` : "outside";
@@ -323,7 +302,6 @@ function buildReport({ rows, prices, projects, range, days, timeZone, now, workt
       };
     })
     .sort(byCost);
-  // Two clones of one repository share a name: each says the folder it sits in.
   const names = new Map();
   for (const project of projectList) if (project.milagre) names.set(project.name, (names.get(project.name) ?? 0) + 1);
   for (const project of projectList) {
@@ -351,10 +329,6 @@ function buildReport({ rows, prices, projects, range, days, timeZone, now, workt
   };
 }
 
-/**
- * token-usage:read. A read answers at once from the cache and starts a scan when the last is older than RESCAN_MS;
- * `emit("token-usage:changed")` tells clients to read again when a scan or a price refresh changed something.
- */
 function createTokenUsage({ scan, pricing, projects, worktreeRoot, emit = () => {}, now = Date.now }) {
   let attribution = { at: -Infinity, value: null };
 

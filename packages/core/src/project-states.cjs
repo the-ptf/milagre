@@ -1,21 +1,9 @@
 const messageStore = require("./message-store.cjs");
 
-// A Chat nobody touched for this long, whose turn isn't running, leaves memory (see `messages` below).
 const IDLE_MS = 10 * 60 * 1000;
 const SWEEP_MS = 60 * 1000;
 
-// The single writer of each Project's in-memory state. Disk I/O has its own bounded,
-// coalescing write-behind path, so a slow save cannot stall another Chat's events.
 class ProjectStates {
-  /**
-   * `compact(key, next, previous)` (optional) slims a state before it is kept, e.g. moving tool output to sidecars.
-   *
-   * `messages` (optional) keeps only some Chats' messages in memory (#321; see message-store.cjs). It names the
-   * folder whose chats.db holds a key's messages (`directory(key)`) and whether a Chat is busy (`active(key, chatId)`:
-   * a turn running or preparing). A Chat not touched for `idleMs`, not busy and saved as it is, is unloaded by a sweep
-   * every `sweepMs`; a change or read that names it loads it back. `unloaded(key, state)` (optional) hears of each state
-   * a sweep made. Without `messages` every message stays in memory.
-   */
   constructor({ read, save, compact, debounceMs = 250, messages = null, persistenceChanged }) {
     Object.assign(this, { read, save, compact, debounceMs, persistenceChanged });
     this.failures = new Map();
@@ -27,8 +15,6 @@ class ProjectStates {
     this.timers = new Map();
     this.due = new Map();
     this.transient = new Set();
-    // Per key, Chat id -> when it was last touched (named by a change or read, or its messages changed); and when the
-    // key was read, for Chats not touched since.
     this.touches = new Map();
     this.readAt = new Map();
   }
@@ -38,30 +24,24 @@ class ProjectStates {
   projects() {
     return [...this.states.keys()];
   }
-  /** Reconciled Worktree folders; never starts a Git process. */
   worktreePaths() {
     return [...this.states.values()].flatMap((state) => Object.values(state.worktrees ?? {}).map((worktree) => worktree.path));
   }
-  /** The loaded Project a reconciled Worktree folder belongs to, or null; never starts a Git process. */
   worktreeProject(folder) {
     for (const [projectPath, state] of this.states) if (Object.values(state.worktrees ?? {}).some((worktree) => worktree.path === folder)) return projectPath;
     return null;
   }
-  /** The Worktree folder of a loaded Project's Chat, or null. */
   chatWorktreePath(projectPath, sessionId) {
     const state = this.states.get(projectPath);
     const worktreeId = state?.sessions?.[sessionId]?.worktree_id;
     return (worktreeId !== undefined && state.worktrees?.[worktreeId]?.path) || null;
   }
-  /** The latest state. It may leave out unloaded Chats' messages (see `messages`); read those with the methods below. */
   async get(projectPath) {
     return (await this.update(projectPath, (state) => state, { chats: [] })).state;
   }
-  /** The latest state with the Chats `chats` (ids) loaded. */
   async load(projectPath, chats) {
     return (await this.update(projectPath, (state) => state, { chats })).state;
   }
-  /** Runs `reader(state, directory)` on the latest state, in turn with changes, without loading anything. */
   async readWith(projectPath, reader) {
     let result;
     await this.update(
@@ -74,15 +54,12 @@ class ProjectStates {
     );
     return result;
   }
-  /** Every message, in the Project's order: unloaded Chats' read from chats.db for this call only. */
-  // `withState`: { state, messages }, both from the one state read, for a reader that puts them together.
   allMessages(projectPath, { withState = false } = {}) {
     return this.readWith(projectPath, (state, directory) => {
       const messages = directory ? messageStore.allMessages(directory, state) : state.messages;
       return withState ? { state, messages } : messages;
     });
   }
-  /** The messages of the Chats `chats` (ids), in the Project's order, without loading them. */
   chatMessages(projectPath, chats) {
     return this.readWith(projectPath, (state, directory) => {
       if (directory) return messageStore.chatMessages(directory, state, chats);
@@ -90,11 +67,9 @@ class ProjectStates {
       return state.messages.filter((message) => wanted.has(Number(message.session_id)));
     });
   }
-  /** Metadata and bounded inbox previews; leaves idle transcripts unloaded. */
   inboxState(projectPath) {
     return this.readWith(projectPath, (state, directory) => messageStore.inboxState(directory, state));
   }
-  /** { id, session_id, role, outcome, clientMessageId } of every message, in the Project's order, without loading any. */
   messageMarks(projectPath, { withState = false } = {}) {
     return this.readWith(projectPath, (state, directory) => {
       const messages = directory
@@ -103,11 +78,9 @@ class ProjectStates {
       return withState ? { state, messages } : messages;
     });
   }
-  /** The messages in memory and the unloaded ones whose saved JSON contains one of `needles`, without loading them. */
   messagesContaining(projectPath, needles) {
     return this.readWith(projectPath, (state, directory) => (directory ? messageStore.messagesContaining(directory, state, needles) : state.messages));
   }
-  /** { id, session_id, body } of the messages of the Chats `chats` (every Chat when not given), for a search. */
   searchableMessages(projectPath, chats) {
     return this.readWith(projectPath, (state, directory) => {
       if (directory) return messageStore.searchableMessages(directory, state, chats);
@@ -115,25 +88,18 @@ class ProjectStates {
       return state.messages.filter((message) => !wanted || wanted.has(Number(message.session_id)));
     });
   }
-  /** The first message whose `field` (id, operationId or clientMessageId) is `value`, from chats.db for an unloaded Chat. */
   findMessage(projectPath, field, value) {
     return this.readWith(projectPath, (state, directory) =>
       directory ? messageStore.findMessage(directory, state, field, value) : state.messages.find((message) => message[field] === value),
     );
   }
 
-  /**
-   * Serializes mutations, including async changes, but never waits for a save. `chats` (with `messages`) lists the
-   * Chats whose messages the change reads or writes: they are loaded first. Without it every unloaded Chat is, since
-   * the change could read any of them; pass [] for a change that reads no messages.
-   */
   update(projectPath, change, { persist = true, chats } = {}) {
     if (this.closed) return Promise.reject(new Error("Project state is closed"));
     return this.enqueue(projectPath, async () => {
       let state = this.states.get(projectPath);
       if (state === undefined) {
         state = await this.slim(projectPath, await this.read(projectPath), null);
-        // A change that names no Chats loads every one back, so only a read that names them sheds the old ones here.
         if (this.messages && chats !== undefined) state = this.shedOld(projectPath, state);
         this.states.set(projectPath, state);
         if (this.messages) {
@@ -142,7 +108,6 @@ class ProjectStates {
         }
       }
       if (this.messages) {
-        // Loading is not a change: what is on disk stays as it is, and nothing is sent.
         const loaded = this.prepare(projectPath, state, chats);
         if (loaded !== state) this.states.set(projectPath, (state = loaded));
       }
@@ -157,7 +122,6 @@ class ProjectStates {
         this.touch(projectPath, settled.touched);
       }
       next = await this.slim(projectPath, next, state);
-      // A compaction that copied the messages array keeps the Chats unloaded as they were.
       if (unloaded && Array.isArray(next?.messages)) messageStore.tag(next.messages, this.messages.directory(projectPath), unloaded);
       next = this.withPersistence(projectPath, next);
       this.states.set(projectPath, next);
@@ -170,7 +134,6 @@ class ProjectStates {
       return { state: next, changed: true };
     });
   }
-  /** Runs `work` after every change to the project asked for before it. */
   enqueue(projectPath, work) {
     const run = (this.queues.get(projectPath) ?? Promise.resolve()).catch(() => {}).then(work);
     this.queues.set(projectPath, run);
@@ -181,7 +144,6 @@ class ProjectStates {
     return run;
   }
 
-  /** `state` with the Chats a change asked for loaded (every unloaded one when it named none). */
   prepare(projectPath, state, chats) {
     const unloaded = messageStore.unloadedChats(state);
     if (chats !== undefined) this.touch(projectPath, chats);
@@ -191,11 +153,6 @@ class ProjectStates {
     return wanted.length ? messageStore.loadChats(this.messages.directory(projectPath), state, wanted) : state;
   }
 
-  /**
-   * A state just read, without the messages of the Chats whose last message is older than `idleMs` (and that aren't
-   * busy): what the first sweep would unload anyway, ten minutes later. A long-lived Project read whole held every
-   * Chat in memory until then (milagre-ade: 931 Chats, about 45,000 steps, 60 MB of strings) for the few on screen.
-   */
   shedOld(projectPath, state) {
     const now = this.messages.now();
     const old = new Set();
@@ -215,10 +172,6 @@ class ProjectStates {
     for (const chat of chats) if (Number.isFinite(Number(chat))) touched.set(Number(chat), now);
   }
 
-  /**
-   * Unloads, in each project, the Chats not touched for `idleMs` whose turn isn't busy, once nothing is waiting to be
-   * saved: chats.db then holds what memory does. A Chat with anything not saved stays (see unloadChats).
-   */
   async unloadIdle() {
     if (!this.messages || this.closed) return;
     await Promise.all(
@@ -244,7 +197,6 @@ class ProjectStates {
           const next = messageStore.unloadChats(directory, state, idle);
           if (next === state) return;
           this.states.set(projectPath, next);
-          // Whoever keeps the last state it sent (the daemon, for patches) lets go of the unloaded messages.
           this.messages.unloaded?.(projectPath, next);
         }),
       ),
@@ -260,7 +212,6 @@ class ProjectStates {
     this.sweep.unref?.();
   }
 
-  /** The state compacted; as it is when there is no compaction or it fails (the save tries again). */
   async slim(projectPath, next, previous) {
     if (!this.compact || !next) return next;
     try {
@@ -271,7 +222,6 @@ class ProjectStates {
     }
   }
 
-  // Save status is runtime metadata. Keep it authoritative across async mutations, but never write it to disk.
   withPersistence(projectPath, state) {
     const persistence = this.failures.get(projectPath);
     if (state.persistence === persistence) return state;
@@ -304,7 +254,6 @@ class ProjectStates {
     this.timers.set(projectPath, timer);
   }
 
-  /** At most one save per Project in flight; newer edits remain dirty. */
   write(projectPath) {
     if (this.writes.has(projectPath)) return this.writes.get(projectPath);
     if (!this.dirty.has(projectPath)) return Promise.resolve();
@@ -325,22 +274,18 @@ class ProjectStates {
       })
       .finally(async () => {
         this.writes.delete(projectPath);
-        // A mutation already requested may still be awaiting compaction. Settle status after it commits, so a newer
-        // transient update cannot lose the warning even though it schedules no ordinary save.
         if (!failed && this.failures.has(projectPath))
           await this.enqueue(projectPath, () => {
             if (!this.failures.has(projectPath)) return;
             const unsaved = this.dirty.has(projectPath) || this.transient.has(projectPath) || this.writes.has(projectPath);
             this.setPersistence(projectPath, unsaved ? { ...this.failures.get(projectPath), saving: this.writes.has(projectPath) } : undefined);
           });
-        // A timer may have fired during the save. Do not lose that newer edit.
         if (!failed && this.dirty.has(projectPath) && !this.timers.has(projectPath)) this.schedule(projectPath);
       });
     this.writes.set(projectPath, writing);
     return writing;
   }
 
-  /** Saves a Project, then drops it from memory as if it was never read: for a folder about to move (a deleted bot's home). */
   async forget(projectPath) {
     await this.flush(projectPath);
     await this.enqueue(projectPath, () => {
@@ -351,7 +296,6 @@ class ProjectStates {
     });
   }
 
-  /** An explicit retry includes the latest transient updates too, without changing ordinary flush semantics. */
   async retry(projectPath) {
     await this.enqueue(projectPath, () => {
       if (!this.states.has(projectPath)) throw new Error("Open the Project before retrying its save.");
@@ -371,7 +315,6 @@ class ProjectStates {
     return this.flush();
   }
 
-  /** Durability boundary for quit and accepted user messages. Failed writes stay dirty and reject. */
   async flush(projectPath) {
     const entries = (map) => (projectPath === undefined ? [...map.entries()] : map.has(projectPath) ? [[projectPath, map.get(projectPath)]] : []);
     await Promise.all(entries(this.queues).map(([, work]) => work.catch(() => {})));

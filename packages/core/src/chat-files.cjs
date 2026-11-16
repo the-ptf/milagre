@@ -2,7 +2,6 @@ const MarkdownIt = require("markdown-it");
 const { localFileLink } = require("@milagre/shared/file-link");
 const markdown = new MarkdownIt({ html: false });
 
-/** Only file links actually shared in an assistant reply grant access outside the open Worktrees. */
 function sharedFilePaths(message, cwd) {
   const files = new Set();
   if (message.role !== "assistant") return files;

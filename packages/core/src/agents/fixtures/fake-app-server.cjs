@@ -1,19 +1,9 @@
 // Stand-in for `codex app-server` in tests. It speaks the JSON-RPC subset Milagre uses.
 // FAKE_SCENARIO picks how a turn behaves: reply (default), fail, slow, crash, approval (command
 // approval), file-approval, permissions (extra sandbox permissions), withdrawn (an approval Codex
-// takes back), steer (the first turn waits; turn/steer joins it, or is refused when its text says
-// "too late"), no-turn-id (the first turn is never given an id and ends on its own), stubborn (turn never ends, interrupt unanswered), hang-init (initialize unanswered),
-// hang-thread (thread/start and thread/resume unanswered),
-// resume-exit (exits on thread/resume), slow-stop (the first turn takes 150ms to stop after an interrupt),
 // late-approval (like slow-stop, and Codex asks for a command approval while the turn is stopping),
-// reject-extra-mcp (thread/start and thread/resume fail when `config` carries an MCP server other than milagre with a url),
-// reject-config (thread/start and thread/resume fail with an RPC error when they carry `config`),
 // question (Codex asks a question and ends the turn on the answer), question-steer (Codex asks a question
 // and the turn waits for turn/steer), question-withdrawn (a question Codex takes back), late-question
-// (like late-approval, with a question).
-// steps (a command with streamed output and a new file, then a reply), running-step (a command
-// starts and the turn waits until it's interrupted).
-// fake/turn-started makes it announce a turn nobody asked for.
 const fs = require("node:fs");
 const { createInterface } = require("node:readline");
 
@@ -56,7 +46,6 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     if (pendingTurn && pendingTurn.approvalId === id) {
       const result = message.result || {};
       const answer = result.decision !== undefined ? `decision:${result.decision}` : `answer:${JSON.stringify(message.result ?? message.error)}`;
-      // A turn that asks again once answered (guarded): the next approval, and every answer in the reply at the end.
       if (pendingTurn.next) {
         const { next } = pendingTurn;
         pendingTurn = { ...pendingTurn, approvalId: next(answer), next: null, earlier: answer };
@@ -77,12 +66,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return undefined;
     case "config/read":
       return send({ id, result: { config: { mcp_servers: { personal: { command: "outside-tools" } } } } });
-    // logged-out: no login while OpenAI auth is required; custom-provider: a provider that needs no OpenAI login.
     case "account/read":
       if (scenario === "logged-out") return send({ id, result: { account: null, requiresOpenaiAuth: true } });
       if (scenario === "custom-provider" || scenario === "unauthorized-custom") return send({ id, result: { account: null, requiresOpenaiAuth: false } });
       return send({ id, result: { account: { type: "chatgpt", email: null, planType: "pro" }, requiresOpenaiAuth: true } });
-    // Two pages, the second with a hidden model, as model/list pages with nextCursor.
     case "model/list":
       if (!params.cursor)
         return send({
@@ -306,8 +293,6 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       notify("item/agentMessage/delta", { threadId, turnId, itemId: "msg-1", delta: "Hel" });
       notify("item/agentMessage/delta", { threadId, turnId, itemId: "msg-1", delta: "lo" });
       if (scenario === "fail") return completeTurn(threadId, turnId, "failed", { message: "The model gpt-x is not supported." });
-      // unauthorized: logged in as far as account/read knows, but the API answers 401 (an expired token).
-      // unauthorized-custom: the same on a provider that needs no OpenAI login.
       if (scenario === "unauthorized" || scenario === "unauthorized-custom")
         return completeTurn(threadId, turnId, "failed", {
           message: "unexpected status 401 Unauthorized: token expired",

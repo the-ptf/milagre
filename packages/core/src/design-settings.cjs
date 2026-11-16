@@ -2,9 +2,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
-// A missing setting enables Designs. An unreadable setting disables only Designs, not the host.
-// Saving is atomic and never changes memory on failure. Other on/off switches kept the same way pass their `name` and
-// whether a missing file means on (`missing`).
 function createDesignSettings(file, { name = "Designs", missing = true } = {}) {
   let enabled = missing;
   try {

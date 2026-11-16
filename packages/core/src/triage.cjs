@@ -1,6 +1,3 @@
-// Triage sessions: the playbook and a file of machine facts, written to a fresh folder, for a coding agent that diagnoses
-// a misbehaving install and helps file an issue. `milagre triage` (apps/daemon/src/triage.cjs) and the in-app
-// "Triage an issue" entry (the triage:prepare command) both start from these files. Modeled on T3 Code's `t3 triage`.
 const { url: repository } = require("@milagre/shared/repository");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -11,7 +8,6 @@ const AGENTS = [
   { id: "claude", label: "Claude Code" },
   { id: "codex", label: "Codex" },
 ];
-// Files holding keys, tokens or pairing secrets. The agent never reads them.
 const SECRET_FILES = [
   "computer-keys.json",
   "computer-vault.json",
@@ -80,7 +76,6 @@ ${profileLines.join("\n\n")}
 
 const findAgents = () => Promise.all(AGENTS.map(async (agent) => Object.assign({}, agent, { path: await resolveExecutable(agent.id) })));
 
-/** Writes PLAYBOOK.md and context.md into `<root>/<time>/`. */
 async function writeTriageSession({ root, entry, profiles, agents }) {
   const sessionDir = path.join(root, new Date().toISOString().replace(/[:.]/g, "-"));
   fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
@@ -99,8 +94,6 @@ async function writeTriageSession({ root, entry, profiles, agents }) {
 }
 
 /**
- * The in-app entry: a session beside this host's own profile, and the draft its new Chat opens with. The user writes
- * what went wrong after it, so the first turn already carries the description.
  * @param {{ dataDir: string; version: string; client?: unknown }} input
  */
 async function prepareTriage({ dataDir, version, client }) {

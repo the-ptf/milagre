@@ -1,12 +1,5 @@
 const { searchMessages } = require("@milagre/shared/message-search");
 
-// What a client reads of a Chat when it doesn't hold every message (#300 phase 3): the latest turns first, then older
-// pages on a cursor, and search across the Project's Chats done by the host.
-
-/**
- * Messages of Chat `chatId` before the message `before` (the oldest one the client holds; the end of the Chat without
- * it), going back `turns` of the user's messages and at most `limit` messages. In the Project's order.
- */
 function chatPage(messages, chatId, { before, turns = 10, limit = 75 } = {}) {
   const chat = messages.filter((message) => message.session_id === chatId);
   let end = chat.length;
@@ -23,10 +16,6 @@ function chatPage(messages, chatId, { before, turns = 10, limit = 75 } = {}) {
   return { messages: chat.slice(start, end), hasMore: start > 0, total: chat.length };
 }
 
-/**
- * Matches for `query` across the Chats of `sessions` that aren't archived, best first: where they are and what matched.
- * `all` is every message to search ({ id, session_id, body } is enough); the state's own by default.
- */
 function chatSearch(state, query, { limit = 200 } = {}, all = state.messages) {
   const messages = all.filter((message) => state.sessions[message.session_id] && !state.sessions[message.session_id].archived);
   return searchMessages(messages, String(query ?? ""), limit).map(({ message, score, snippet, highlight, term }) => ({

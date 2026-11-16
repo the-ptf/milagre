@@ -2,12 +2,6 @@ const path = require("node:path");
 const { Worker } = require("node:worker_threads");
 const { designImageDocument } = require("@milagre/shared/design-preview");
 
-// The agent's view of a design: the shared SVG, drawn by resvg in WebAssembly so it works on any daemon, headless too.
-// resvg reads fonts from buffers, not @font-face, so the SVG is built without embedded fonts and Inter, plus the catalog
-// families the design names, is passed in directly. Drawing runs on a worker thread (design-raster-worker.cjs) so a large design never blocks the daemon, and
-// the worker is ended now and then so the WebAssembly memory goes back to the operating system.
-// Images resvg would not draw, or should not decode, keep their placeholder: remote https images (never fetched) and
-// inline images larger than MAX_IMAGE_EDGE on either side.
 const MAX_IMAGE_EDGE = 4096;
 const defaults = { maxRenders: 50, idleMs: 60_000, timeoutMs: 10_000 };
 let options = { ...defaults };
@@ -18,7 +12,6 @@ let idleTimer;
 let queue = Promise.resolve();
 let nextId = 0;
 
-/** Width and height from a PNG, GIF, JPEG or WebP header, or null when the bytes are not one of those. */
 function imageSize(bytes) {
   if (bytes.length >= 24 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.subarray(12, 16).toString("latin1") === "IHDR")
     return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
@@ -42,7 +35,6 @@ function imageSize(bytes) {
         offset++;
         continue;
       }
-      // Start-of-frame markers carry the size; C4 (DHT), C8 (JPG) and CC (DAC) share the range but do not.
       if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker))
         return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) };
       offset += 2 + bytes.readUInt16BE(offset + 2);
@@ -57,7 +49,6 @@ function oversized(src) {
   return !!size && (size.width > MAX_IMAGE_EDGE || size.height > MAX_IMAGE_EDGE);
 }
 
-/** A copy of the document in which every image resvg cannot honestly draw shows the grey placeholder instead. */
 function rasterDocument(document) {
   return designImageDocument(document, (src) => src.startsWith("data:") && !oversized(src));
 }
@@ -75,8 +66,6 @@ function start() {
   workersStarted++;
   const started = new Worker(path.join(__dirname, "design-raster-worker.cjs"));
   // Listeners for the worker's whole life, not just one render: an unhandled error from an idle worker would crash the
-  // daemon, and a worker that exits while idle must not stay cached for the next render to wait out its time limit.
-  // A render in flight still rejects through its own listeners.
   started.on("error", () => {});
   started.on("exit", () => {
     if (worker !== started) return;
@@ -104,7 +93,6 @@ function post(request) {
     };
     const onMessage = (message) => {
       if (message.id !== id) return;
-      // A failed render may be a WebAssembly panic, which leaves resvg unusable; the next render gets a fresh worker.
       if (message.error && worker === current) retire();
       settle(() => (message.error ? reject(new Error(message.error)) : resolve(message.result)));
     };
@@ -135,7 +123,6 @@ function post(request) {
   });
 }
 
-/** Draws a validated design as a PNG, at most 1568 px on the long edge. Renders run one at a time. */
 function renderDesignPng(document, { crop } = {}) {
   if (crop && (![crop.x, crop.y, crop.width, crop.height].every(Number.isFinite) || crop.width <= 0 || crop.height <= 0))
     return Promise.reject(Error("Invalid preview crop."));
@@ -144,7 +131,6 @@ function renderDesignPng(document, { crop } = {}) {
   return result;
 }
 
-/** Redraws a PNG, JPEG, GIF or WebP data URL at width x height as a PNG data URL. Shares the render queue and worker. */
 function resizeImagePng(src, width, height) {
   const size = imageSize(Buffer.from(src.slice(src.indexOf(",") + 1), "base64"));
   if (!size) return Promise.reject(Error("The image size could not be read."));
@@ -154,13 +140,11 @@ function resizeImagePng(src, width, height) {
   return result;
 }
 
-/** Test hooks: tune recycling and the time limit, and count the workers started so far. */
 const designRasterTesting = {
   configure: (next) => {
     options = { ...defaults, ...next };
   },
   workersStarted: () => workersStarted,
-  /** The cached worker, so a test can end it behind the cache's back. */
   worker: () => worker,
   retire,
 };

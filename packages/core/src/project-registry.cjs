@@ -42,8 +42,6 @@ async function present(entry) {
   }
 }
 
-// Whether an entry's folder (its main checkout, or a folder outside Git) or its repository's common Git directory went
-// away, found without starting Git: what a list checks between writes, which check every entry with present.
 async function gone(entry) {
   const isFolder = (folder) =>
     fs.stat(folder).then(
@@ -125,7 +123,6 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
   }
 
   return {
-    // Internal only: an adopted pair can coexist with a Named Link of those Projects.
     createWorktreeGroup: async (linkId) => {
       let group;
       await update(async (data) => {
@@ -141,7 +138,6 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
           createdAt: now().toISOString(),
         };
         data.projectGroups = [...(data.projectGroups ?? []), group];
-        // Keep the edge reachable throughout adoption recovery, even if a member temporarily disappears.
         data.links = data.links.map((item) => (item.id === linkId ? { ...item, sharedChat: { linkId: group.id, sessionId: 1 } } : item));
         return data;
       });
@@ -185,9 +181,6 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         return data;
       });
     },
-    // The sidebar, the canvas and every Project open ask for it. The first list scans for coordination files (the marker
-    // is persisted even if the scan finds nothing), and every write checks each entry with Git (present). Between them a
-    // list is the file as it is, unless an entry's folder went away: that list goes through a write, which drops it.
     list: async () => {
       await queue.catch(() => {});
       const data = await read();
@@ -209,10 +202,6 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         return current;
       });
     },
-    // Every open puts its Project first. One first already, as it was, leaves the file as it is: only its openedAt would
-    // change. Any other moves up without checking every entry with Git, which each switch between Projects would pay:
-    // an entry whose folder went away is dropped, as a list drops it, and so is the same folder under another identity
-    // (a plain folder that became a repository). Every other write checks them all.
     add: (identity) => {
       const next = queue
         .catch(() => {})
@@ -241,7 +230,6 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         entry.position = { x: position.x, y: position.y };
         return data;
       }),
-    // The file as it is, after the writes asked for before it (a refused one, an invalid position, leaves it as it was).
     snapshot: async () => {
       await queue.catch(() => {});
       const data = await read();
@@ -267,7 +255,6 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         data.links.push(createLink(data.links, a, b, data.projects, active, now));
         return data;
       }),
-    /** Undo of a removal: the same Link, id and all, so what was saved against it (Always allow) holds again. */
     restoreLink: (link, active) =>
       update(async (data) => {
         data.links.push(restoreLink(data.links, link, data.projects, active));
@@ -280,7 +267,6 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         data.links = data.links.filter((link) => link.id !== id);
         return data;
       }),
-    /** Drops Links whose endpoints went away; resolves with the dropped ones. */
     pruneLinks: async (active) => {
       let removed = [];
       await update(async (data) => {

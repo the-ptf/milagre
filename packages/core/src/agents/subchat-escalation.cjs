@@ -17,43 +17,23 @@ const { SubchatSuggestions } = require("./subchat-suggestions.cjs");
 const { wakeBody, wakePrompt } = require("./subchat-wake.cjs");
 
 const TICK_MS = 5000;
-// A tick this late means the computer slept. Should anything else stop every timer this long, a fresh period costs little.
 const SLEPT_MS = 30_000;
 
 const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 const listed = (session) => Boolean(session) && !session.archived;
 
-// Milagre has no timer on a request, and a blocked agent can't act, so only the host can tell the Chat above that a
-// Subchat is stuck. Every approval and question gets ESCALATION_WAIT_MS of the user's time, counted by a tick while the
-// computer is awake. Then, once per request, the Subchat says so, the Chat above gets a line and the phone a reminder.
-// Questions also queue a wake: one turn of the direct parent's agent, on an escalation-only guard (escalation-guard.cjs),
-// to tell the human what it knows. A wake is held here, in memory, like the requests it names: a restart ends them all.
 class SubchatEscalation {
-  /**
-   * Ports, all supplied by the runtime:
-   *   read(projectPath, sessionIds) -> the Project's state, with those Chats' messages
-   *   run(chatId) -> the Chat's turn, or undefined; busy(chatId) -> whether a turn, or work of its agent, holds it
-   *   isSeen(chatId) -> whether the user has it open now; isWakeTurn(chatId) -> whether a wake's turn runs in it
-   *   post(chatId, note, change) -> ChatHost.postNow; remind(chatId, { requestId, title, body }) -> one push
-   *   wake(chatId, { body, prompt, context, guard }) -> starts the turn, or throws with `chatBusy` when something got there first
-   *   mode(chatId, session) -> the Chat's permission mode
-   */
   constructor({ ports, now = Date.now, id = randomUUID, every = setInterval, cancel = clearInterval }) {
     Object.assign(this, { ports, now, every, cancel });
     this.suggestions = new SubchatSuggestions({ post: ports.post, id });
-    // key -> { key, chatId, requestId, question, secret, questions, startedAt, dueAt, deferred, fired, noWake, family }
     this.requests = new Map();
-    // Parent's key -> { parent, family, openAt, requests: Map(key -> request) }: the one wake waiting for that Chat.
     this.wakes = new Map();
-    // Root's key -> { wakes, last: { at, requests: Set(key) } }: what a family has spent since a human last acted in it.
     this.families = new Map();
-    // Chats whose last turn the user stopped.
     this.stopped = new Set();
     this.timer = null;
     this.closed = false;
   }
 
-  /** Every agent event of every Chat. */
   observe(chatId, event) {
     if (this.closed || isLinkScopeKey(projectOfKey(chatId))) return;
     if (event.type === "turn-started") this.stopped.delete(chatId);
@@ -81,7 +61,6 @@ class SubchatEscalation {
       dueAt: at + ESCALATION_WAIT_MS,
       deferred: false,
       fired: false,
-      // A question asked during a wake's turn starts no other wake: that would only pass the same worry up the family.
       noWake: this.ports.isWakeTurn(chatId),
       family: null,
     });
@@ -111,7 +90,6 @@ class SubchatEscalation {
     this.lastTick = at;
     for (const request of this.requests.values()) {
       if (request.fired) this.lookedAt(request);
-      // Time counts while the computer is awake: one that fell due asleep gets a fresh period, the rest lose nothing.
       else if (slept) request.dueAt = request.dueAt <= at ? at + ESCALATION_WAIT_MS : request.dueAt + slept;
       else if (request.dueAt <= at) this.due(request, at);
     }
@@ -122,13 +100,11 @@ class SubchatEscalation {
     }
   }
 
-  // Opening a waiting Subchat is a human acting in its family.
   lookedAt(request) {
     if (request.family && this.ports.isSeen(request.chatId)) this.family(request.family).wakes = 0;
   }
 
   due(request, at) {
-    // The user is looking at it: it gets one more period, then fires anyway, since looking isn't answering.
     if (!request.deferred && this.ports.isSeen(request.chatId)) {
       Object.assign(request, { deferred: true, dueAt: at + ESCALATION_WAIT_MS });
       return;
@@ -142,7 +118,6 @@ class SubchatEscalation {
     return this.families.get(root);
   }
 
-  /** A human acted in `chatId`'s family, with an answer or a sent message: its wakes start counting again. */
   async humanActed(chatId) {
     const scope = projectOfKey(chatId);
     if (isLinkScopeKey(scope)) return;
@@ -150,18 +125,12 @@ class SubchatEscalation {
     this.family(chatKey(scope, ancestorChats(sessions, sessionIdFromKey(chatId)).at(-1) ?? sessionIdFromKey(chatId))).wakes = 0;
   }
 
-  /** Puts an agent's suggestion on a card in `chatId`, the Chat of that agent. Resolves with the card's id. */
   async suggest(chatId, details) {
     const id = await this.suggestions.suggest(chatId, details);
-    // The request can end while the card is saved, and nothing would close a card posted after that.
     if (!this.requests.has(keyOf(details.from, details.requestId))) await this.suggestions.resolved(details.from, details.requestId, "cancelled");
     return id;
   }
 
-  /**
-   * An answer is on its way to `chatId`'s question. `sender` is set when an agent answers alone: { agent, question,
-   * answerLabel, answers }. Say how it went on what this returns: it never reached the agent (`failed`), or it did (`accepted`).
-   */
   answering(chatId, requestId, { label, suggestionId, sender = null }) {
     this.suggestions.answer(chatId, requestId, { label, suggestionId });
     const carded = sender && this.suggestions.hasCard(sender.agent, chatId, requestId);
@@ -171,7 +140,6 @@ class SubchatEscalation {
     };
   }
 
-  // The Subchat says who answered it. The Chat that did gets a line, unless a card of its own for the request already says it.
   async answeredBy({ agent, question, answerLabel, answers }, chatId, requestId, carded) {
     const scope = projectOfKey(chatId);
     const id = sessionIdFromKey(chatId);
@@ -182,7 +150,6 @@ class SubchatEscalation {
     if (!carded) await this.suggestions.answered(agent, { from: chatId, fromTitle, requestId, question, answerLabel, answers });
   }
 
-  /** Why `parent` takes no wake now: it waits on the user itself, the user stopped it, or held what it had queued. */
   refuses(parent, session) {
     return (
       !listed(session) ||
@@ -193,7 +160,6 @@ class SubchatEscalation {
     );
   }
 
-  /** Wakes the family has spent, counting the ones queued for other parents: this parent's own takes this request along. */
   spent(root, parent) {
     const queued = [...this.wakes.values()].filter((wake) => wake.family === root && wake.parent !== parent).length;
     return this.family(root).wakes + queued >= ESCALATION_MAX_WAKES;
@@ -211,11 +177,9 @@ class SubchatEscalation {
     request.family = chatKey(scope, above.at(-1));
     const { chatTitle: fromTitle, parentTitle } = attentionContext(state, "", id);
     const waitedMs = this.now() - request.startedAt;
-    // Only the direct parent wakes, and only for a question an agent could help with: a secret is the user's alone.
     const asks = request.question && !request.secret && !request.noWake && nearest === above[0];
     const paused = asks && this.spent(request.family, parent);
     const wakes = asks && !paused && !this.refuses(parent, state.sessions[nearest]);
-    // Without a wake nobody was asked for help, so the Subchat says what really happened: the user was reminded.
     const ask = wakes ? "question" : "approval";
     await this.ports.post(chatId, { body: waitingNote({ ask, parentTitle, waitedMs }), context: { kind: "subchat-waiting", ask, parentTitle, waitedMs } });
     const line = { kind: "subchat-escalation", from: chatId, fromTitle, requestId: request.requestId, waitedMs, ...(paused ? { paused: true } : {}) };
@@ -234,7 +198,6 @@ class SubchatEscalation {
     this.wakes.get(parent).requests.set(request.key, request);
   }
 
-  /** Whether the family may take a wake now; "spent" drops it. A wake that has to wait for its limits stays queued. */
   gate(root) {
     const { wakes, last } = this.family(root);
     if (wakes >= ESCALATION_MAX_WAKES) return "spent";
@@ -242,8 +205,6 @@ class SubchatEscalation {
     return [...last.requests].some((key) => this.requests.has(key)) || this.now() - last.at < ESCALATION_COOLDOWN_MS ? "wait" : "open";
   }
 
-  // A wake's turn starts from idle, and nothing else: the delivery queue in delegations.cjs steers a working Chat, and a
-  // steer dismisses a question of its own, so a wake never goes through it. Everything is checked again here.
   async attempt(wake) {
     if (wake.attempting || this.now() < wake.openAt) return;
     wake.attempting = true;
@@ -256,11 +217,9 @@ class SubchatEscalation {
 
   async deliver(wake) {
     const { parent, family } = wake;
-    // Only this wake's own entry: one that ended while this waited can have been replaced by a sibling's.
     const drop = () => {
       if (this.wakes.get(parent) === wake) this.wakes.delete(parent);
     };
-    // The family's gate is read after the last await, so reserving below is atomic: two parents of one family can't both pass.
     const open = () => {
       const gate = this.gate(family);
       if (gate === "spent") drop();
@@ -289,7 +248,6 @@ class SubchatEscalation {
       drop();
       throw error;
     }
-    // A sibling that fired while this one started stays queued, for the family's next wake.
     for (const { key } of requests) wake.requests.delete(key);
     if (!wake.requests.size) drop();
   }
