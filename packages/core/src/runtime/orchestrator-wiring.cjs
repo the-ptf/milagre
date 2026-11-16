@@ -1,0 +1,92 @@
+const path = require("node:path");
+const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { patchSession } = require("@milagre/shared/project-edits");
+const { createOrchestratorStore } = require("../orchestrator/store.cjs");
+const { createOrchestrator } = require("../orchestrator/service.cjs");
+const { ROUTE_SCHEMA } = require("../orchestrator/router.cjs");
+const { claudeModel, codexModel } = require("../git-text.cjs");
+
+function routerModels({ agentCli, clientVersion }) {
+  const getCommand = (provider) => async () => {
+    const status = await agentCli(provider);
+    return status?.problem ? null : status;
+  };
+  return (router) => {
+    if (router.provider === "claude") return claudeModel({ getCommand: getCommand("claude"), model: router.model });
+    if (router.provider === "codex") return codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: ROUTE_SCHEMA, model: router.model });
+    return null;
+  };
+}
+
+function markTaskChat(updateProject, projectPath, sessionId, orchestrator) {
+  return updateProject(
+    projectPath,
+    (state) => {
+      const session = state.sessions[sessionId];
+      return session ? patchSession(state, sessionId, { orchestrator: { ...session.orchestrator, ...orchestrator } }) : state;
+    },
+    { chats: [] },
+  );
+}
+
+function taskAccountsFor({ states, accounts, routing, agentCli }) {
+  const pinned = (chatId, provider) => states.states.get(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)]?.orchestrator?.accounts?.[provider];
+  return {
+    selected: (chatId, provider) => pinned(chatId, provider) ?? accounts.selected(provider, projectOfKey(chatId)),
+    cli: (chatId, provider) => {
+      const accountId = pinned(chatId, provider);
+      return accountId ? routing.forAccount(provider, accountId) : agentCli(provider, projectOfKey(chatId));
+    },
+  };
+}
+
+function registerOrchestrator(
+  { commands, dataDir, emit, chats, states, accounts, routing, agentCli, version },
+  { projectRegistry, projectName, updateProject, defaultProjectBase, stopChat, archiveChat },
+) {
+  const store = createOrchestratorStore({ file: path.join(dataDir, "orchestrator.json"), emit });
+  const routerCall = routerModels({ agentCli, clientVersion: version });
+  const orchestrator = createOrchestrator({
+    store,
+    ports: {
+      projects: async () => (await projectRegistry().list()).map((project) => ({ path: project.path, name: project.name || projectName(project.path) })),
+      selectedAccount: (provider, projectPath) => accounts.selected(provider, projectPath) ?? null,
+      accountUsage: async () => {
+        const snapshot = await commands.get("usage:accounts:cached")({});
+        return (snapshot?.providers ?? []).map((entry) => ({
+          provider: entry.provider,
+          accountId: entry.account?.id,
+          usedPercent: Math.max(0, ...(entry.windows ?? []).map((window) => Number(window.usedPercent) || 0)),
+        }));
+      },
+      createWorktree: async (projectPath, title) =>
+        (await commands.get("worktree:create")({}, { projectPath, baseBranch: await defaultProjectBase(projectPath), prompt: title })).worktreeId,
+      projectWorktree: async (projectPath) => Object.values((await states.get(projectPath)).worktrees).find((worktree) => worktree.path === projectPath)?.id,
+      emptyChat: async (projectPath, worktreeId, { title, orchestrator }) => {
+        const sessionId = await chats.emptyChat(projectPath, worktreeId, { title });
+        await markTaskChat(updateProject, projectPath, sessionId, orchestrator);
+        return sessionId;
+      },
+      send: async (request) => {
+        const { started } = await chats.send(request);
+        void started?.catch?.((error) => console.warn("[orchestrator] a task's first turn failed to start:", error.message));
+      },
+      setHidden: (projectPath, sessionId, hidden) => markTaskChat(updateProject, projectPath, sessionId, { hidden }),
+      chatKey,
+      stop: (key) => stopChat(key),
+      archive: (projectPath, sessionId) => archiveChat(projectPath, sessionId),
+      routerCall,
+    },
+  });
+  commands.handle("orchestrator:read", () => orchestrator.snapshot());
+  commands.handle("orchestrator:settings:save", (_event, patch) => orchestrator.saveSettings(patch));
+  commands.handle("orchestrator:send", (_event, prompt) => orchestrator.send(prompt));
+  commands.handle("orchestrator:task:project", (_event, taskId, projectPath) => orchestrator.pickProject(String(taskId), String(projectPath)));
+  commands.handle("orchestrator:task:sidebar", (_event, taskId, shown) => orchestrator.showInSidebar(String(taskId), shown === true));
+  commands.handle("orchestrator:task:undo", (_event, taskId) => orchestrator.undo(String(taskId)));
+  commands.handle("orchestrator:task:reroute", (_event, taskId, change) => orchestrator.reroute(String(taskId), change ?? {}));
+  commands.handle("orchestrator:task:dismiss", (_event, taskId) => orchestrator.dismiss(String(taskId)));
+  return taskAccountsFor({ states, accounts, routing, agentCli });
+}
+
+module.exports = { registerOrchestrator };

@@ -1,0 +1,120 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createOrchestratorStore } = require("./store.cjs");
+const { createOrchestrator } = require("./service.cjs");
+const { routeTask } = require("./router.cjs");
+const { normalizeOrchestratorSettings } = require("@milagre/shared/orchestrator");
+
+const PROJECTS = [
+  { path: "/p/happiergym", name: "happiergym" },
+  { path: "/p/rdfood", name: "rdfood" },
+];
+
+function setup(t, { reply = null, enabled = true } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-orchestrator-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const events = [];
+  const store = createOrchestratorStore({ file: path.join(dir, "orchestrator.json"), emit: (channel) => events.push(channel) });
+  store.update((current) => ({ ...current, settings: normalizeOrchestratorSettings({ ...current.settings, enabled }) }));
+  const calls = { sent: [], emptyChats: [], hidden: [], archived: [], stopped: [] };
+  let nextSession = 7;
+  const ports = {
+    projects: async () => PROJECTS,
+    selectedAccount: () => "default",
+    accountUsage: async () => [
+      { provider: "claude", accountId: "team", usedPercent: 61 },
+      { provider: "claude", accountId: "personal", usedPercent: 22 },
+    ],
+    createWorktree: async () => "wt-1",
+    projectWorktree: async () => "main",
+    emptyChat: async (projectPath, worktreeId, options) => {
+      calls.emptyChats.push({ projectPath, worktreeId, options });
+      return nextSession++;
+    },
+    send: async (request) => calls.sent.push(request),
+    setHidden: async (projectPath, sessionId, hidden) => calls.hidden.push({ projectPath, sessionId, hidden }),
+    chatKey: (projectPath, sessionId) => `${projectPath}#${sessionId}`,
+    stop: async (key) => calls.stopped.push(key),
+    archive: async (projectPath, sessionId) => calls.archived.push({ projectPath, sessionId }),
+    routerCall: () => (reply === null ? null : async () => JSON.stringify(reply)),
+  };
+  const orchestrator = createOrchestrator({ store, ports, now: () => 1000 });
+  return { orchestrator, store, calls, events };
+}
+
+async function settled(orchestrator, taskId) {
+  for (let i = 0; i < 50 && orchestrator.isStarting(taskId); i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+test("a sent prompt starts a hidden task Chat in the routed Project on the least used account", async (t) => {
+  const { orchestrator, store, calls } = setup(t, {
+    reply: { project: "/p/happiergym", role: "build", title: "Fix the rest timer", reason: "Mentions the gym app", confidence: 0.9 },
+  });
+  const task = await orchestrator.send("the rest timer in my gym app skips when locked");
+  await settled(orchestrator, task.id);
+  const saved = store.task(task.id);
+  assert.equal(saved.state, "started");
+  assert.equal(saved.projectPath, "/p/happiergym");
+  assert.equal(saved.sessionId, 7);
+  assert.equal(saved.accountId, "personal");
+  assert.equal(calls.emptyChats[0].options.orchestrator.hidden, true);
+  assert.deepEqual(calls.emptyChats[0].options.orchestrator.accounts, { claude: "personal" });
+  assert.equal(calls.sent[0].provider, "claude");
+  assert.equal(calls.sent[0].model, "claude-opus-5-5");
+  assert.equal(calls.sent[0].worktreeId, "wt-1");
+});
+
+test("with no matching Project the task waits for the owner, then starts where they pick", async (t) => {
+  const { orchestrator, store, calls } = setup(t, {
+    reply: { project: null, role: "build", title: "Write a poem", reason: "Nothing matched", confidence: 0.2 },
+  });
+  const task = await orchestrator.send("write me a poem about deploys");
+  await settled(orchestrator, task.id);
+  assert.equal(store.task(task.id).state, "needs-project");
+  assert.equal(calls.sent.length, 0);
+  await orchestrator.pickProject(task.id, "/p/rdfood");
+  assert.equal(store.task(task.id).projectPath, "/p/rdfood");
+  assert.equal(store.read().memory.trust.project.corrected, 1, "picking the Project is a correction the memory learns");
+});
+
+test("sending is refused while the Orchestrator is off", async (t) => {
+  const { orchestrator } = setup(t, { enabled: false });
+  await assert.rejects(() => orchestrator.send("anything"), /Church/);
+});
+
+test("moving to the sidebar clears the hidden flag; undo stops and archives the Chat", async (t) => {
+  const { orchestrator, store, calls } = setup(t, {
+    reply: { project: "/p/rdfood", role: "security", title: "Audit login", reason: "rdfood auth", confidence: 0.9 },
+  });
+  const task = await orchestrator.send("audit rdfood login for token leaks");
+  await settled(orchestrator, task.id);
+  await orchestrator.showInSidebar(task.id, true);
+  assert.deepEqual(calls.hidden, [{ projectPath: "/p/rdfood", sessionId: 7, hidden: false }]);
+  await orchestrator.undo(task.id);
+  assert.deepEqual(calls.stopped, ["/p/rdfood#7"]);
+  assert.deepEqual(calls.archived, [{ projectPath: "/p/rdfood", sessionId: 7 }]);
+  assert.equal(store.task(task.id), null);
+});
+
+test("the router falls back to keywords when the model is unavailable or vague", async () => {
+  const projects = [
+    { path: "/p/happiergym", name: "happiergym", hints: "gym app with a rest timer" },
+    { path: "/p/rdfood", name: "rdfood", hints: "restaurant ordering" },
+  ];
+  const roles = normalizeOrchestratorSettings(null).roles;
+  const none = await routeTask({ prompt: "the rest timer is broken", projects, roles, call: null });
+  assert.equal(none.projectPath, "/p/happiergym");
+  assert.equal(none.by, "keywords");
+  const broken = await routeTask({ prompt: "the rest timer is broken", projects, roles, call: async () => "not json" });
+  assert.equal(broken.by, "keywords");
+  const invented = await routeTask({
+    prompt: "the rest timer is broken",
+    projects,
+    roles,
+    call: async () => JSON.stringify({ project: "/p/elsewhere", role: "build", title: "x", reason: "y", confidence: 0.3 }),
+  });
+  assert.equal(invented.projectPath, "/p/happiergym", "a Project outside the list is ignored");
+});

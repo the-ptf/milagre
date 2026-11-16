@@ -43,6 +43,17 @@ function sharedRead(read) {
 const CHAT_LIST_CACHE = 64;
 const CHAT_LIST_MAX_AGE = 30000;
 const ATTACHMENT_QUOTA = 200 * 1024 * 1024;
+const SIGNALS = { "designs:enabled-changed": "designs", "keybindings:changed": "keybindings", "routines:changed": "routines" };
+const OWNER_SIGNALS = {
+  "accounts:changed": "accounts",
+  "usage:changed": "usage",
+  "token-usage:changed": "token-usage",
+  "mcp:changed": "mcp",
+  "local-mcp:changed": "mcp",
+  "canvas:links-changed": "links",
+  "orchestrator:changed": "orchestrator",
+};
+
 async function startMobileBridge({
   dataDir,
   port = 8787,
@@ -265,15 +276,9 @@ async function startMobileBridge({
     hostRuns.changed();
     followState(channel, payload);
     for (const entry of live) {
-      if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
-      if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
-      if (channel === "token-usage:changed" && !confine) signal(entry, "token-usage", 0);
-      if ((channel === "mcp:changed" || channel === "local-mcp:changed") && !confine) signal(entry, "mcp", 0);
-      if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
-      if (channel === "keybindings:changed") signal(entry, "keybindings", 0);
-      if (channel === "routines:changed") signal(entry, "routines", 0);
+      const immediate = SIGNALS[channel] ?? (confine ? undefined : OWNER_SIGNALS[channel]);
+      if (immediate) signal(entry, immediate, 0);
       if (channel === "pull-requests:changed") signal(entry, "pulls", LIVE_DELAY.project);
-      if (channel === "canvas:links-changed" && !confine) signal(entry, "links", 0);
       if (
         (channel === "project:state" && payload?.path === entry.projectPath) ||
         (channel === "link:state" && isLinkScopeKey(entry.projectPath) && payload?.linkId === scopeFromKey(entry.projectPath).linkId)
