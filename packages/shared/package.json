@@ -330,6 +330,10 @@
       "default": "./src/route-supervisor.mjs"
     },
     "./model-options": "./src/model-options.ts",
+    "./model-catalog": {
+      "types": "./src/model-catalog.d.mts",
+      "default": "./src/model-catalog.mjs"
+    },
     "./model-copy": "./src/model-copy.ts",
     "./approval-copy": "./src/approval-copy.ts",
     "./project-list": "./src/project-list.ts",

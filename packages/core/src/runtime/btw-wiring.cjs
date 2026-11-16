@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { MODEL_CATALOG } = require("@milagre/shared/model-options");
+const { MODEL_CATALOG } = require("@milagre/shared/model-catalog");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
 const { renderTranscript, cutTranscript } = require("../agents/handover.cjs");
